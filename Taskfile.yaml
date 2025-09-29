@@ -169,5 +169,6 @@ tasks:
   default:
     desc: run default tasks
     cmds:
+      - task: workflows:all
       - task: prepare:all
       - task: test:all

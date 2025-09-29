@@ -2,12 +2,18 @@ module github.com/lrstanley/x/text/corpse/examples
 
 go 1.24.4
 
+replace (
+	github.com/lrstanley/x/text/corpse => ../
+	github.com/lrstanley/x/text/lemm => ../../lemm
+	github.com/lrstanley/x/text/stem => ../../stem
+)
+
 require (
 	github.com/coder/hnsw v0.6.1
 	github.com/gkampitakis/go-snaps v0.5.13
-	github.com/lrstanley/x/text/corpse v0.0.0-00010101000000-000000000000
-	github.com/lrstanley/x/text/lemm v0.0.0-00010101000000-000000000000
-	github.com/lrstanley/x/text/stem v0.0.0-00010101000000-000000000000
+	github.com/lrstanley/x/text/corpse v0.0.0-20250929050902-72a64f8d56ef
+	github.com/lrstanley/x/text/lemm v0.0.0-20250929050902-72a64f8d56ef
+	github.com/lrstanley/x/text/stem v0.0.0-20250929050902-72a64f8d56ef
 )
 
 require (
