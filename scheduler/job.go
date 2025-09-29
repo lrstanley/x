@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"syscall"
@@ -156,7 +156,7 @@ func (c *Cron) Invoke(ctx context.Context) error {
 
 	if c.immediate {
 		// Jitter the first run by 0-2 seconds.
-		time.Sleep(time.Duration(rand.Intn(2)) * time.Second) //nolint:gosec
+		time.Sleep(time.Duration(rand.IntN(2)) * time.Second) //nolint:gosec
 
 		lastRun = time.Now()
 		l.InfoContext(ctx, "invoking cron")

@@ -4,9 +4,11 @@ vars:
   PACKAGES:
     - logging/handlers
     - scheduler
+    - text/corpse
+    - text/lemm
+    - text/stem
   CURRENT_PKG:
     sh: echo "github.com/lrstanley/x/$(git rev-parse --show-prefix | sed -r 's:/$::g')"
-dotenv: [".env"]
 method: timestamp
 set: [errexit, nounset, pipefail, xtrace]
 tasks:

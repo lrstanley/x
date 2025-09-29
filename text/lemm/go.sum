@@ -1,0 +1,9 @@
+github.com/aaaton/golem/v4 v4.0.0/go.mod h1:OfK/S5v9Exsx1yO21WorREuIVV+Y5K2hygP0A9oJCCI=
+github.com/aaaton/golem/v4 v4.0.2 h1:m4FvpSL8Zcv7XjmrKiBP7dp5FzhPCji9FcQRcH6T23k=
+github.com/aaaton/golem/v4 v4.0.2/go.mod h1:OfK/S5v9Exsx1yO21WorREuIVV+Y5K2hygP0A9oJCCI=
+github.com/aaaton/golem/v4/dicts/en v1.0.1 h1:/BsOsh8JTgTkuevwM9axPnAi9CD4rK7TWHNdW/6V3Uo=
+github.com/aaaton/golem/v4/dicts/en v1.0.1/go.mod h1:1YKRrQNng+KbS+peA7sj3TIa8eqR6T2UqdJ+Tc9xeoA=
+github.com/chewxy/math32 v1.11.1 h1:b7PGHlp8KjylDoU8RrcEsRuGZhJuz8haxnKfuMMRqy8=
+github.com/chewxy/math32 v1.11.1/go.mod h1:dOB2rcuFrCn6UHrze36WSLVPKtzPMRAQvBvUwkSsLqs=
+github.com/lrstanley/corpse v0.0.0-20250818104407-f2421148dc26 h1:/6NfjxGFjIp53ijQYlVxG7AHT99vWbQGfIor+Dx98aA=
+github.com/lrstanley/corpse v0.0.0-20250818104407-f2421148dc26/go.mod h1:oOSee/thM+8oliPuxTglWeTKQIcZJAJ/SSJEu7eCTmc=

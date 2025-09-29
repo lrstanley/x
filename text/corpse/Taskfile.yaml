@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+includes:
+  main:
+    taskfile: ../../Taskfile.yaml
+    flatten: true
+tasks:
+  test:examples:
+    desc: run tests for examples
+    run: once
+    deps: [prepare]
+    cmds:
+      - cd ./examples/kitchensink && go test -v -count=10 ./...
+  update-snapshots:
+    desc: update snapshots
+    run: once
+    cmds:
+      - cd ./examples/kitchensink && UPDATE_SNAPS=true go test -v -count=10 ./...
