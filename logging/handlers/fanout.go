@@ -11,17 +11,17 @@ import (
 	"log/slog"
 )
 
-var _ slog.Handler = (*Fanout)(nil) // Ensure we implement the [log/slog.Handler] interface.
+var _ slog.Handler = (*fanout)(nil) // Ensure we implement the [log/slog.Handler] interface.
 
-// Fanout distributes log records to multiple [log/slog.Handler] instances.
-type Fanout struct {
+// fanout distributes log records to multiple [log/slog.Handler] instances.
+type fanout struct {
 	handlers []slog.Handler
 }
 
 // NewFanout creates a new fanout handler that distributes records to multiple
 // [log/slog.Handler] instances.
 func NewFanout(handlers ...slog.Handler) slog.Handler {
-	return &Fanout{
+	return &fanout{
 		handlers: handlers,
 	}
 }
@@ -30,7 +30,7 @@ func NewFanout(handlers ...slog.Handler) slog.Handler {
 // level. The handler is considered enabled if at least one of its child handlers
 // is enabled for the specified level. If at least one handler can process the log,
 // the fanout handler will attempt to distribute it.
-func (h *Fanout) Enabled(ctx context.Context, l slog.Level) bool {
+func (h *fanout) Enabled(ctx context.Context, l slog.Level) bool {
 	for i := range h.handlers {
 		if h.handlers[i].Enabled(ctx, l) {
 			return true
@@ -40,7 +40,7 @@ func (h *Fanout) Enabled(ctx context.Context, l slog.Level) bool {
 }
 
 // Handle distributes a log record to all enabled handlers.
-func (h *Fanout) Handle(ctx context.Context, r slog.Record) error {
+func (h *fanout) Handle(ctx context.Context, r slog.Record) error {
 	var errs []error
 	for i := range h.handlers {
 		if h.handlers[i].Enabled(ctx, r.Level) {
@@ -57,7 +57,7 @@ func (h *Fanout) Handle(ctx context.Context, r slog.Record) error {
 
 // WithAttrs creates a new handler with additional attributes added to all child
 // handlers.
-func (h *Fanout) WithAttrs(attrs []slog.Attr) slog.Handler {
+func (h *fanout) WithAttrs(attrs []slog.Attr) slog.Handler {
 	handlers := make([]slog.Handler, len(h.handlers))
 	for i := range h.handlers {
 		handlers[i] = h.handlers[i].WithAttrs(attrs)
@@ -67,7 +67,7 @@ func (h *Fanout) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 // WithGroup creates a new handler with a group name applied to all child
 // handlers.
-func (h *Fanout) WithGroup(name string) slog.Handler {
+func (h *fanout) WithGroup(name string) slog.Handler {
 	// https://cs.opensource.google/go/go/+/master:src/log/slog/handler.go;drc=3fd729b2a14a7efcf08465cbea60a74da5457f06;l=90
 	if name == "" {
 		return h
