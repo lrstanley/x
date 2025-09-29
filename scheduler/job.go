@@ -55,6 +55,11 @@ func Run(ctx context.Context, jobs ...Job) error {
 	g, ctx = errgroup.WithContext(ctx)
 
 	for _, runner := range jobs {
+		if c, ok := runner.(*Cron); ok {
+			if err := c.validate(); err != nil {
+				return fmt.Errorf("cron job has invalid spec %qs: %w", c.name, err)
+			}
+		}
 		g.Go(func() error {
 			return runner.Invoke(ctx)
 		})
@@ -66,12 +71,13 @@ func Run(ctx context.Context, jobs ...Job) error {
 var _ Job = (*Cron)(nil)
 
 type Cron struct {
-	name        string
-	schedule    Schedule
-	immediate   bool
-	exitOnError bool
-	job         Job
-	logger      *slog.Logger
+	name            string
+	schedule        Schedule
+	immediate       bool
+	exitOnError     bool
+	job             Job
+	logger          *slog.Logger
+	validationError error
 }
 
 // NewCron creates a new cron job with the provided name and underlying job. The
@@ -88,6 +94,10 @@ func NewCron(name string, job Job) *Cron {
 	}
 }
 
+func (c *Cron) validate() error {
+	return c.validationError
+}
+
 // WithInterval sets the interval at which the cron job will run the underlying
 // job. Defaults to 5 minutes, and cannot be less than 1 second.
 func (c *Cron) WithInterval(interval time.Duration) *Cron {
@@ -98,12 +108,13 @@ func (c *Cron) WithInterval(interval time.Duration) *Cron {
 // WithSchedule sets the schedule at which the cron job will run the underlying
 // job. It supports standard crontab-style schedules (e.g. "0 5 * * *") as well
 // as "@every 1h30m", "@hourly", "@daily", "@midnight", "@weekly", "@monthly",
-// "@yearly", and "@annually". Panics if the schedule is invalid.
+// "@yearly", and "@annually".
 func (c *Cron) WithSchedule(schedule string) *Cron {
 	var err error
 	c.schedule, err = Parse(schedule)
 	if err != nil {
-		panic(fmt.Errorf("failed to parse schedule %s: %w", schedule, err))
+		c.validationError = fmt.Errorf("failed to parse schedule %s: %w", schedule, err)
+		return c
 	}
 	return c
 }
