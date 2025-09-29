@@ -1,0 +1,17 @@
+*.log
+~*
+*.tmp
+tmp
+*.txt
+dist
+*.test
+*.prof
+*.conf
+*.yml
+*.yaml
+!.golangci.yaml
+!Taskfile.yaml
+!/.github/**
+vendor/*
+bin
+**/.env

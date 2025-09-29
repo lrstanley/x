@@ -1,0 +1,171 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+vars:
+  PACKAGES:
+    - logging/handlers
+    - scheduler
+  CURRENT_PKG:
+    sh: echo "github.com/lrstanley/x/$(git rev-parse --show-prefix | sed -r 's:/$::g')"
+dotenv: [".env"]
+method: timestamp
+set: [errexit, nounset, pipefail, xtrace]
+tasks:
+  # file-related tasks.
+  workflows:all:
+    desc: generate workflows for all packages
+    run: once
+    cmds:
+      - rm -rf .github/workflows/pkg-*.yml
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: .github/scripts/generate-workflows.sh {{ .PKG }}
+  license:
+    desc: add license header
+    run: once
+    preconditions: [test -f go.mod]
+    cmds:
+      - curl -sL https://liam.sh/-/gh/g/license-header.sh | bash -s
+  license:all:
+    desc: add license header to all packages
+    run: once
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && curl -sL https://liam.sh/-/gh/g/license-header.sh | bash -s
+  fmt:
+    desc: run gofumpt
+    run: once
+    preconditions: [test -f go.mod]
+    cmds:
+      - gofumpt -w .
+  fmt:all:
+    desc: run gofumpt for all packages
+    run: once
+    deps: [license:all]
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && gofumpt -w .
+  lint:
+    desc: run linting
+    run: once
+    preconditions: [test -f go.mod]
+    cmds:
+      - golangci-lint run
+  lint:all:
+    desc: run linting for all packages
+    run: once
+    deps: [fmt:all]
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && golangci-lint run
+  prepare:
+    aliases: [generate]
+    desc: prepare packages (go generate & similar)
+    run: once
+    deps: [tidy]
+    preconditions: [test -f go.mod]
+    cmds:
+      - go generate -x ./...
+  prepare:all:
+    aliases: [generate:all, workflows:all]
+    run: once
+    deps: [fmt:all, tidy:all]
+    desc: prepare all packages (go generate & similar)
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && go generate -x ./...
+
+  # test-related tasks.
+  test:
+    desc: run tests
+    run: once
+    deps: [prepare]
+    preconditions: [test -f go.mod]
+    cmds:
+      - go test ./... {{.CLI_ARGS}}
+  test:all:
+    desc: run tests for all packages
+    run: once
+    deps: [prepare:all]
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && go test ./... {{.CLI_ARGS}}
+  test:extended:
+    desc: run comprehensive tests
+    run: once
+    deps: [prepare]
+    cmds:
+      - go test -race -count 5 {{ or .CLI_ARGS "./..." }}
+  test:extended:all:
+    desc: run comprehensive tests for all packages
+    run: once
+    deps: [prepare:all]
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && go test -race -count 5 {{ or .CLI_ARGS "./..." }}
+
+  # dependency-related tasks.
+  work:all:
+    desc: ensure go work is synced
+    run: once
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: go work edit -use {{ .PKG }}
+      - go work sync
+  tidy:
+    desc: run `go mod tidy`
+    run: once
+    deps: [work:all]
+    preconditions: [test -f go.mod]
+    cmds:
+      - go mod tidy
+  tidy:all:
+    desc: run `go mod tidy` for all packages
+    run: once
+    deps: [work:all]
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && go mod tidy
+  up:
+    desc: upgrade dependencies
+    run: once
+    deps: [work:all]
+    preconditions: [test -f go.mod]
+    cmds:
+      - go get -u ./... && go mod tidy
+      - go get -u -t ./... && go mod tidy
+  up:all:
+    desc: upgrade dependencies for all packages
+    run: once
+    deps: [workflows:all, work:all]
+    cmds:
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: |
+          set -e
+          cd {{ .PKG }}
+          go get -u ./... && go mod tidy
+          go get -u -t ./... && go mod tidy
+
+  # debug-related tasks.
+  profile:cpu: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/profile?seconds=15'
+  profile:heap: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/heap'
+  profile:allocs: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/allocs'
+  dlv:
+    desc: run with delve debugger
+    deps: [prepare]
+    interactive: true
+    aliases: [delve, debugger]
+    cmds:
+      - |
+        dlv debug \
+          --headless \
+          --listen=:2345 \
+          --api-version=2 \
+          --log \
+          --allow-non-terminal-interactive \
+          {{ .CURRENT_PKG }} {{ .CLI_ARGS }}
+
+  # default tasks.
+  default:
+    desc: run default tasks
+    cmds:
+      - task: prepare:all
+      - task: test:all
