@@ -9,25 +9,30 @@ import (
 	"log/slog"
 )
 
-// DiscardHandler discards all log records.
-type DiscardHandler struct{}
+// Discard discards all log records.
+type Discard struct{}
+
+// NewDiscard creates a new discard handler.
+func NewDiscard() slog.Handler {
+	return &Discard{}
+}
 
 // Enabled implements the [log/slog.Handler] interface.
-func (h *DiscardHandler) Enabled(_ context.Context, _ slog.Level) bool {
+func (h *Discard) Enabled(_ context.Context, _ slog.Level) bool {
 	return false
 }
 
 // Handle implements the [log/slog.Handler] interface.
-func (h *DiscardHandler) Handle(_ context.Context, _ slog.Record) error {
+func (h *Discard) Handle(_ context.Context, _ slog.Record) error {
 	return nil
 }
 
 // WithAttrs implements the [log/slog.Handler] interface.
-func (h *DiscardHandler) WithAttrs(_ []slog.Attr) slog.Handler {
+func (h *Discard) WithAttrs(_ []slog.Attr) slog.Handler {
 	return h
 }
 
 // WithGroup implements the [log/slog.Handler] interface.
-func (h *DiscardHandler) WithGroup(_ string) slog.Handler {
+func (h *Discard) WithGroup(_ string) slog.Handler {
 	return h
 }
