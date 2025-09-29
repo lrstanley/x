@@ -7,6 +7,40 @@
 
 <!-- template:begin:header -->
 <!-- do not edit anything in this "template" block, its auto-generated -->
+
+<p align="center">
+  <a href="https://github.com/lrstanley/x/tags">
+    <img title="Latest Semver Tag" src="https://img.shields.io/github/v/tag/lrstanley/x?style=flat-square">
+  </a>
+  <a href="https://github.com/lrstanley/x/commits/master">
+    <img title="Last commit" src="https://img.shields.io/github/last-commit/lrstanley/x?style=flat-square">
+  </a>
+
+
+
+
+
+
+  <a href="https://codecov.io/gh/lrstanley/x">
+    <img title="Code Coverage" src="https://img.shields.io/codecov/c/github/lrstanley/x/master?style=flat-square">
+  </a>
+
+</p>
+<p align="center">
+  <a href="https://github.com/lrstanley/x/issues?q=is:open+is:issue+label:bug">
+    <img title="Bug reports" src="https://img.shields.io/github/issues/lrstanley/x/bug?label=issues&style=flat-square">
+  </a>
+  <a href="https://github.com/lrstanley/x/issues?q=is:open+is:issue+label:enhancement">
+    <img title="Feature requests" src="https://img.shields.io/github/issues/lrstanley/x/enhancement?label=feature%20requests&style=flat-square">
+  </a>
+  <a href="https://github.com/lrstanley/x/pulls">
+    <img title="Open Pull Requests" src="https://img.shields.io/github/issues-pr/lrstanley/x?label=prs&style=flat-square">
+  </a>
+  <a href="https://github.com/lrstanley/x/discussions/new?category=q-a">
+    <img title="Ask a Question" src="https://img.shields.io/badge/support-ask_a_question!-blue?style=flat-square">
+  </a>
+  <a href="https://liam.sh/chat"><img src="https://img.shields.io/badge/discord-bytecord-blue.svg?style=flat-square" title="Discord Chat"></a>
+</p>
 <!-- template:end:header -->
 
 <!-- template:begin:toc -->
