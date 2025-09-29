@@ -182,7 +182,7 @@ func (c *Cron) Invoke(ctx context.Context) error {
 		time.Sleep(1 * time.Second)
 		next = c.schedule.Next(time.Now())
 
-		l.InfoContext(ctx, "waiting for next cron", "next", time.Until(next).Round(time.Second))
+		l.DebugContext(ctx, "waiting for next cron", "next", time.Until(next).Round(time.Second))
 		select {
 		case <-ctx.Done():
 			return nil
