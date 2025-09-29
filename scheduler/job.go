@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -143,6 +144,9 @@ func (c *Cron) Invoke(ctx context.Context) error {
 	var lastRun time.Time
 
 	if c.immediate {
+		// Jitter the first run by 0-2 seconds.
+		time.Sleep(time.Duration(rand.Intn(2)) * time.Second) //nolint:gosec
+
 		lastRun = time.Now()
 		l.InfoContext(ctx, "invoking cron")
 		if err := c.job.Invoke(ctx); err != nil {
@@ -161,15 +165,17 @@ func (c *Cron) Invoke(ctx context.Context) error {
 		)
 	}
 
-	next := c.schedule.Next(time.Now())
+	var next time.Time
 
 	for {
+		time.Sleep(1 * time.Second)
+		next = c.schedule.Next(time.Now())
+
 		l.InfoContext(ctx, "waiting for next cron", "next", time.Until(next).Round(time.Second))
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(time.Until(next)):
-			next = c.schedule.Next(time.Now())
 
 			lastRun = time.Now()
 			l.InfoContext(ctx, "invoking cron")
