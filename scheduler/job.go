@@ -14,8 +14,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // Job is a generic runnable entity. See also [JobFunc].
@@ -51,8 +49,8 @@ func Run(ctx context.Context, jobs ...Job) error {
 	)
 	defer cancel()
 
-	var g *errgroup.Group
-	g, ctx = errgroup.WithContext(ctx)
+	var g *errorGroup
+	g, ctx = errorPoolWithContext(ctx)
 
 	for _, runner := range jobs {
 		if c, ok := runner.(*Cron); ok {
@@ -60,12 +58,12 @@ func Run(ctx context.Context, jobs ...Job) error {
 				return fmt.Errorf("cron job has invalid spec %qs: %w", c.name, err)
 			}
 		}
-		g.Go(func() error {
+		g.run(func() error {
 			return runner.Invoke(ctx)
 		})
 	}
 
-	return g.Wait()
+	return g.wait()
 }
 
 var _ Job = (*Cron)(nil)
