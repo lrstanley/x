@@ -66,9 +66,9 @@ func (p *SemaphorePool) WaitChan() chan struct{} {
 }
 
 // NewSemaphorePool returns a new [SemaphorePool].
-func NewSemaphorePool(count int) SemaphorePool {
+func NewSemaphorePool(count int) *SemaphorePool {
 	if count < 1 {
 		count = 1
 	}
-	return SemaphorePool{total: count, threads: make(chan bool, count)}
+	return &SemaphorePool{total: count, threads: make(chan bool, count)}
 }
