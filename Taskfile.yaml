@@ -2,6 +2,7 @@
 version: "3"
 vars:
   PACKAGES:
+    - http/retry
     - logging/handlers
     - scheduler
     - text/corpse
