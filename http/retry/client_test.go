@@ -21,7 +21,7 @@ func ExampleNewClient() { //nolint:testableexamples
 		MaxRetries:           3,
 		MaxBackoff:           2 * time.Minute,
 		MaxRateLimitDuration: 5 * time.Minute,
-		RetryCallback: func(ctx context.Context, retries int, backoff time.Duration, req *http.Request, resp *http.Response, err error) {
+		RetryCallback: func(_ context.Context, retries int, backoff time.Duration, req *http.Request, _ *http.Response, _ error) {
 			// Log the retry attempt.
 			fmt.Printf("retrying request %s: attempt %d, backoff %s\n", req.URL, retries, backoff)
 		},
@@ -86,14 +86,14 @@ func TestParseRetryAfterHeader(t *testing.T) {
 
 func hstatus(t *testing.T, code int) http.HandlerFunc {
 	t.Helper()
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(code)
 	}
 }
 
 func hempty(t *testing.T) http.HandlerFunc {
 	t.Helper()
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			panic("response writier does not support hijacking")
@@ -109,7 +109,7 @@ func hempty(t *testing.T) http.HandlerFunc {
 
 func hratelimit(t *testing.T, wait time.Duration) http.HandlerFunc {
 	t.Helper()
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())))
 		w.WriteHeader(http.StatusTooManyRequests)
 	}
@@ -270,9 +270,12 @@ func TestNewTransport(t *testing.T) {
 			if tt.config == nil {
 				tt.config = &Config{}
 			}
-			tt.config.Validate()
+			err := tt.config.Validate()
+			if err != nil {
+				t.Fatalf("failed to validate config: %v", err)
+			}
 
-			tt.config.RetryCallback = func(ctx context.Context, retries int, backoff time.Duration, req *http.Request, resp *http.Response, err error) {
+			tt.config.RetryCallback = func(_ context.Context, retries int, backoff time.Duration, _ *http.Request, resp *http.Response, err error) {
 				if resp != nil {
 					t.Logf("got response status: %d", resp.StatusCode)
 				} else {
@@ -287,7 +290,7 @@ func TestNewTransport(t *testing.T) {
 				Transport: NewTransport(tt.config),
 			}
 
-			req, err := http.NewRequest(http.MethodGet, srv.URL, http.NoBody)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
 			if err != nil {
 				t.Fatalf("failed to create request: %v", err)
 			}
