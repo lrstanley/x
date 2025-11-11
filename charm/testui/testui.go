@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 )
 
@@ -85,10 +86,18 @@ func (m *TestModel) View(t testing.TB) tea.View {
 }
 
 func (m *TestModel) String(t testing.TB) string {
+	if m.model != nil {
+		if wrapper, ok := m.model.(*NonRootModelWrapper); ok {
+			return wrapper.model.View()
+		}
+	}
+
 	v := m.View(t)
 	switch vv := v.Content.(type) {
 	case *lipgloss.Canvas:
 		return vv.Render()
+	case *uv.StyledString:
+		return vv.String()
 	case fmt.Stringer:
 		return vv.String()
 	default:
