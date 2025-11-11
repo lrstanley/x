@@ -2,6 +2,7 @@
 version: "3"
 vars:
   PACKAGES:
+    - charm/testui
     - http/retry
     - logging/handlers
     - scheduler
