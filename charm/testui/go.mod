@@ -1,4 +1,4 @@
-module github.com/lrstanley/vex/x/charm/testui
+module github.com/lrstanley/x/charm/testui
 
 go 1.25.4
 
