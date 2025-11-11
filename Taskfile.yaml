@@ -2,6 +2,7 @@
 version: "3"
 vars:
   PACKAGES:
+    - charm/formatter
     - charm/testui
     - http/retry
     - logging/handlers
