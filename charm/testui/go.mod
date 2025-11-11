@@ -9,6 +9,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.0-rc.1.0.20251106192006-06c0cda318b3
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251106192539-4b304240aab7
 	github.com/charmbracelet/colorprofile v0.3.3
+	github.com/charmbracelet/ultraviolet v0.0.0-20251106193841-7889546fc720
 	github.com/charmbracelet/x/ansi v0.11.0
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20250904123553-b4e2667e5ad5
 	github.com/gkampitakis/go-snaps v0.5.14
@@ -16,7 +17,6 @@ require (
 
 require (
 	github.com/aymanbagabas/go-udiff v0.3.1 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20251106193841-7889546fc720 // indirect
 	github.com/charmbracelet/x/exp/golden v0.0.0-20251109135125-8916d276318f // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
