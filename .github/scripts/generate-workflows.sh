@@ -25,7 +25,7 @@ jobs:
     secrets: inherit
     with:
       num-minor: 1
-      num-patch: 2
+      num-patch: 1
       working-directory: "${PKG}"
   go-lint:
     uses: lrstanley/.github/.github/workflows/lang-go-lint.yml@master
