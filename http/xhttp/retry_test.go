@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package retry
+package xhttp
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 )
 
 func ExampleNewClient() { //nolint:testableexamples
-	client := NewClient(&Config{
+	client := NewRetryClient(&RetryConfig{
 		// All of these settings are optional.
 		MaxRetries:           3,
 		MaxBackoff:           2 * time.Minute,
@@ -167,7 +167,7 @@ func TestNewTransport(t *testing.T) {
 		name     string
 		handlers []http.HandlerFunc
 		overflow bool
-		config   *Config
+		config   *RetryConfig
 		err      bool
 		min      time.Duration
 		max      time.Duration
@@ -268,7 +268,7 @@ func TestNewTransport(t *testing.T) {
 			t.Parallel()
 
 			if tt.config == nil {
-				tt.config = &Config{}
+				tt.config = &RetryConfig{}
 			}
 			err := tt.config.Validate()
 			if err != nil {
@@ -287,7 +287,7 @@ func TestNewTransport(t *testing.T) {
 			srv := mockServer(t, tt.handlers, tt.overflow)
 
 			client := &http.Client{
-				Transport: NewTransport(tt.config),
+				Transport: NewRetryTransport(tt.config),
 			}
 
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
