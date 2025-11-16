@@ -62,11 +62,6 @@ type LoggerConfig struct {
 
 	// TraceResponseFunc is a function that determines whether to trace the response.
 	TraceResponseFunc func(resp *http.Response) bool
-
-	// SkipCallers is the number of callers to skip when logging the request and response.
-	// Defaults to 7, which skips this library's code, and all of the net/http/client
-	// functions.
-	SkipCallers int
 }
 
 // Validate validates the logger configuration. Use this to validate the configuration,
@@ -122,10 +117,6 @@ func (c *LoggerConfig) Validate() error {
 
 	for i := range c.Headers {
 		c.Headers[i] = http.CanonicalHeaderKey(c.Headers[i])
-	}
-
-	if c.SkipCallers < 1 {
-		c.SkipCallers = 7
 	}
 
 	return nil
@@ -187,17 +178,43 @@ func (l *logger) shouldTraceResponse(resp *http.Response) bool {
 	return false
 }
 
+var skipCallers = []string{
+	"net/http",
+	"github.com/lrstanley/x/http",
+	"github.com/lrstanley/x/logging",
+	"github.com/hashicorp/go-retryablehttp",
+	"runtime",
+	"net/textproto",
+}
+
+func getCallerPC(skip int) uintptr {
+	pcs := make([]uintptr, 10)
+	_ = runtime.Callers(skip, pcs)
+	frames := runtime.CallersFrames(pcs)
+	for {
+		frame, more := frames.Next()
+		for i := range skipCallers {
+			if !strings.HasPrefix(frame.Function, skipCallers[i]) {
+				return frame.Entry
+			}
+		}
+		if !more {
+			break
+		}
+	}
+	return 0
+}
+
 func (rt *logger) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	handler := rt.config.Logger.Handler()
 
 	var r slog.Record
 
-	var pcs [1]uintptr
-	_ = runtime.Callers(rt.config.SkipCallers, pcs[:]) // Skip this, and all of the net/http/client functions.
+	pc := getCallerPC(6)
 
 	if handler.Enabled(ctx, *rt.config.Level) {
-		r = slog.NewRecord(time.Now(), *rt.config.Level, "http request", pcs[0])
+		r = slog.NewRecord(time.Now(), *rt.config.Level, "http request", pc)
 
 		r.AddAttrs(
 			slog.String("method", req.Method),
@@ -223,7 +240,7 @@ func (rt *logger) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	if err != nil {
 		if handler.Enabled(ctx, slog.LevelError) {
-			r = slog.NewRecord(time.Now(), slog.LevelError, "http request failed", pcs[0])
+			r = slog.NewRecord(time.Now(), slog.LevelError, "http request failed", pc)
 			r.AddAttrs(
 				slog.String("url", req.URL.String()),
 				slog.String("error", err.Error()),
@@ -244,7 +261,7 @@ func (rt *logger) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	if handler.Enabled(ctx, *rt.config.Level) {
-		r = slog.NewRecord(time.Now(), *rt.config.Level, "http response", pcs[0])
+		r = slog.NewRecord(time.Now(), *rt.config.Level, "http response", pc)
 		r.AddAttrs(
 			slog.String("url", req.URL.String()),
 			slog.Int("status", resp.StatusCode),
