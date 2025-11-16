@@ -62,6 +62,11 @@ type LoggerConfig struct {
 
 	// TraceResponseFunc is a function that determines whether to trace the response.
 	TraceResponseFunc func(resp *http.Response) bool
+
+	// SkipCallers is the number of callers to skip when logging the request and response.
+	// Defaults to 7, which skips this library's code, and all of the net/http/client
+	// functions.
+	SkipCallers int
 }
 
 // Validate validates the logger configuration. Use this to validate the configuration,
@@ -117,6 +122,10 @@ func (c *LoggerConfig) Validate() error {
 
 	for i := range c.Headers {
 		c.Headers[i] = http.CanonicalHeaderKey(c.Headers[i])
+	}
+
+	if c.SkipCallers < 1 {
+		c.SkipCallers = 7
 	}
 
 	return nil
@@ -185,7 +194,7 @@ func (rt *logger) RoundTrip(req *http.Request) (*http.Response, error) {
 	var r slog.Record
 
 	var pcs [1]uintptr
-	_ = runtime.Callers(6, pcs[:]) // Skip this, and all of the net/http/client functions.
+	_ = runtime.Callers(rt.config.SkipCallers, pcs[:]) // Skip this, and all of the net/http/client functions.
 
 	if handler.Enabled(ctx, *rt.config.Level) {
 		r = slog.NewRecord(time.Now(), *rt.config.Level, "http request", pcs[0])
