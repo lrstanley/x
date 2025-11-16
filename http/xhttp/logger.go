@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -38,12 +40,14 @@ type LoggerConfig struct {
 	Headers []string
 
 	// Trace will enable full request/response tracing (e.g. request/response bodies,
-	// full headers, etc). This overrides all other trace settings. If you only want
-	// to trace things when a user explicitly desires it, and not based on logging
-	// level, use something like:
-	//
-	//	&xhttp.LoggerConfig{Trace: strconv.ParseBool(os.Getenv("HTTP_TRACE")), [...]}
+	// full headers, etc). This overrides all other trace settings. See also
+	// [LoggerConfig.DisableEnvTrace], which by default will enable tracing when
+	// the HTTP_TRACE environment variable is set.
 	Trace bool
+
+	// DisableEnvTrace disable auto-enabling of HTTP request tracing when the
+	// HTTP_TRACE environment variable is set.
+	DisableEnvTrace bool
 
 	// TraceRequest will enable request tracing. This overrides
 	// [LoggerConfig.TraceRequestFunc].
@@ -79,6 +83,13 @@ func (c *LoggerConfig) Validate() error {
 
 	if c.BaseTransport == nil {
 		c.BaseTransport = http.DefaultTransport
+	}
+
+	if !c.DisableEnvTrace && !c.Trace {
+		v, _ := strconv.ParseBool(os.Getenv("HTTP_TRACE"))
+		if v {
+			c.Trace = true
+		}
 	}
 
 	if len(c.Headers) == 1 && c.Headers[0] == "*" {
