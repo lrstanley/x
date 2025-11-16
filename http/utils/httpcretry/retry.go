@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package xhttp
+package httpcretry
 
 import (
 	"bytes"
@@ -15,23 +15,23 @@ import (
 	"time"
 )
 
-// RetryBackoffFunc is a function that calculates the backoff duration based on the attempt
+// BackoffFunc is a function that calculates the backoff duration based on the attempt
 // number and the response.
-type RetryBackoffFunc func(config *RetryConfig, attempt int, resp *http.Response) time.Duration
+type BackoffFunc func(config *Config, attempt int, resp *http.Response) time.Duration
 
-// RetryPolicyFunc is a function that determines whether to retry based on the context,
+// PolicyFunc is a function that determines whether to retry based on the context,
 // response and error.
-type RetryPolicyFunc func(ctx context.Context, resp *http.Response, err error) bool
+type PolicyFunc func(ctx context.Context, resp *http.Response, err error) bool
 
-// RetryCallbackFunc is a function that is called right before a retry is attempted. The
+// CallbackFunc is a function that is called right before a retry is attempted. The
 // request and response SHOULD NOT BE MODIFIED. This is useful for logging or other
 // side effects.
-type RetryCallbackFunc func(ctx context.Context, attempts int, backoff time.Duration, req *http.Request, resp *http.Response, err error)
+type CallbackFunc func(ctx context.Context, attempts int, backoff time.Duration, req *http.Request, resp *http.Response, err error)
 
-// LoggerRetryCallback is a simple retry callback function which uses the provided
+// LoggerCallback is a simple retry callback function which uses the provided
 // [log/slog.Logger] to log the retry attempts. If logger is nil, [slog.Default] will
 // be used.
-func LoggerRetryCallback(logger *slog.Logger) RetryCallbackFunc {
+func LoggerCallback(logger *slog.Logger) CallbackFunc {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -56,11 +56,11 @@ func LoggerRetryCallback(logger *slog.Logger) RetryCallbackFunc {
 	}
 }
 
-// DefaultRetryPolicy is the default retry policy. It retries on network errors, 5xx status
+// DefaultPolicy is the default retry policy. It retries on network errors, 5xx status
 // codes, and 429 Too Many Requests. It does not retry on [context.Canceled] or
 // [context.DeadlineExceeded], as this is often intentional cancellation from the
 // parent caller.
-func DefaultRetryPolicy(ctx context.Context, resp *http.Response, err error) bool {
+func DefaultPolicy(ctx context.Context, resp *http.Response, err error) bool {
 	// Don't retry on [context.Canceled] or [context.DeadlineExceeded].
 	if ctx.Err() != nil {
 		return false
@@ -77,14 +77,14 @@ func DefaultRetryPolicy(ctx context.Context, resp *http.Response, err error) boo
 	return false
 }
 
-// DefaultRetryBackoff is the default backoff function. It uses exponential backoff with a
+// DefaultBackoff is the default backoff function. It uses exponential backoff with a
 // minimum and maximum duration. It also attempts to parse the [Retry-After] header from
 // the response and uses that as the backoff duration if it is present and valid. If
 // the [Retry-After] header is not present or invalid, it falls back to the exponential
 // backoff calculation.
 //
 // [Retry-After]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After
-func DefaultRetryBackoff(config *RetryConfig, attempt int, resp *http.Response) time.Duration {
+func DefaultBackoff(config *Config, attempt int, resp *http.Response) time.Duration {
 	if resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) {
 		if retryAfter, ok := parseRetryAfterHeader(resp.Header["Retry-After"]); ok {
 			if retryAfter > config.MaxRateLimitDuration {
@@ -132,8 +132,8 @@ func parseRetryAfterHeader(headers []string) (time.Duration, bool) {
 	return time.Until(retryTime), true
 }
 
-// RetryConfig is the configuration for the retryable transport.
-type RetryConfig struct {
+// Config is the configuration for the retryable transport.
+type Config struct {
 	// BaseTransport is the base transport to use (will be chained). Defaults to
 	// [net/http.DefaultTransport], which allows for connection reuse, HTTP proxy
 	// support, etc.
@@ -155,24 +155,24 @@ type RetryConfig struct {
 	MaxBackoff time.Duration
 
 	// Backoff is a function that calculates the backoff duration based on the attempt
-	// number and the response. Defaults to [DefaultRetryBackoff], which uses exponential
+	// number and the response. Defaults to [DefaultBackoff], which uses exponential
 	// backoff with the provided minimum and maximum duration.
-	Backoff RetryBackoffFunc
+	Backoff BackoffFunc
 
 	// DefaultPolicy is a function that determines whether to retry based on the context,
-	// response and error. Defaults to [DefaultRetryPolicy], which retries on network errors,
-	// 5xx status codes, and 429 Too Many Requests. [DefaultRetryPolicy] does not retry on
+	// response and error. Defaults to [DefaultPolicy], which retries on network errors,
+	// 5xx status codes, and 429 Too Many Requests. [DefaultPolicy] does not retry on
 	// [context.Canceled] or [context.DeadlineExceeded] (as this would be intentional
 	// cancellation from the parent caller).
-	DefaultPolicy RetryPolicyFunc
+	DefaultPolicy PolicyFunc
 
 	// RetryCallback is a function that is called right before a retry is attempted. The
 	// request and response SHOULD NOT BE MODIFIED. This is useful for logging or other
 	// side effects.
-	RetryCallback RetryCallbackFunc
+	RetryCallback CallbackFunc
 }
 
-func (c *RetryConfig) Validate() error {
+func (c *Config) Validate() error {
 	if c == nil {
 		panic("Config cannot be nil")
 	}
@@ -196,34 +196,34 @@ func (c *RetryConfig) Validate() error {
 		c.MaxRateLimitDuration = c.MaxBackoff
 	}
 	if c.Backoff == nil {
-		c.Backoff = DefaultRetryBackoff
+		c.Backoff = DefaultBackoff
 	}
 	if c.DefaultPolicy == nil {
-		c.DefaultPolicy = DefaultRetryPolicy
+		c.DefaultPolicy = DefaultPolicy
 	}
 
 	return nil
 }
 
-// NewRetryTransport creates a new [net/http.RoundTripper] that retries requests based on
+// NewTransport creates a new [net/http.RoundTripper] that retries requests based on
 // the provided config.
-func NewRetryTransport(config *RetryConfig) http.RoundTripper {
+func NewTransport(config *Config) http.RoundTripper {
 	if config == nil {
-		config = &RetryConfig{}
+		config = &Config{}
 	}
 	err := config.Validate()
 	if err != nil {
 		panic(err)
 	}
-	return &RetryableTransport{Config: config}
+	return &transport{config: config}
 }
 
-type RetryableTransport struct {
-	Config *RetryConfig
+type transport struct {
+	config *Config
 }
 
-func (t *RetryableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.Config == nil {
+func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.config == nil {
 		panic("RetryableTransport.Config cannot be nil")
 	}
 
@@ -235,14 +235,14 @@ func (t *RetryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	// Send the request.
-	resp, err := t.Config.BaseTransport.RoundTrip(req)
+	resp, err := t.config.BaseTransport.RoundTrip(req)
 	retries := 0
 
-	for t.Config.DefaultPolicy(req.Context(), resp, err) && retries < t.Config.MaxRetries {
-		backoff := t.Config.Backoff(t.Config, retries, resp)
+	for t.config.DefaultPolicy(req.Context(), resp, err) && retries < t.config.MaxRetries {
+		backoff := t.config.Backoff(t.config, retries, resp)
 
-		if t.Config.RetryCallback != nil {
-			t.Config.RetryCallback(req.Context(), retries, backoff, req, resp, err)
+		if t.config.RetryCallback != nil {
+			t.config.RetryCallback(req.Context(), retries, backoff, req, resp, err)
 		}
 
 		// Drain the body so we can reuse the connection.
@@ -260,18 +260,18 @@ func (t *RetryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 		time.Sleep(backoff)
 
 		// Send the request again.
-		resp, err = t.Config.BaseTransport.RoundTrip(req)
+		resp, err = t.config.BaseTransport.RoundTrip(req)
 		retries++
 	}
 
 	return resp, err
 }
 
-// NewRetryClient is identical to [NewRetryTransport], but returns a higher-level [http.Client]
+// NewClient is identical to [NewTransport], but returns a higher-level [http.Client]
 // instead of an underlying [http.RoundTripper] transport.
-func NewRetryClient(config *RetryConfig) *http.Client {
+func NewClient(config *Config) *http.Client {
 	if config == nil {
-		config = &RetryConfig{}
+		config = &Config{}
 	}
 	err := config.Validate()
 	if err != nil {
@@ -279,6 +279,6 @@ func NewRetryClient(config *RetryConfig) *http.Client {
 	}
 	return &http.Client{
 		Timeout:   max(config.MaxRateLimitDuration, config.MaxBackoff)*time.Duration(config.MaxRetries) + 5*time.Second,
-		Transport: NewRetryTransport(config),
+		Transport: NewTransport(config),
 	}
 }

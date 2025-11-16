@@ -4,7 +4,7 @@ vars:
   PACKAGES:
     - charm/formatter
     - charm/testui
-    - http/xhttp
+    - http/utils
     - logging/handlers
     - scheduler
     - text/corpse

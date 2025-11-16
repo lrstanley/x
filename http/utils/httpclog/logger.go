@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package xhttp
+package httpclog
 
 import (
 	"errors"
@@ -17,10 +17,10 @@ import (
 	"time"
 )
 
-// LoggerConfig is the configuration for the logger transport.
-type LoggerConfig struct {
+// Config is the configuration for the logger transport.
+type Config struct {
 	// Level is the log level to use. Defaults to [log/slog.LevelDebug], which
-	// means that the logger will only be invoked if the provided [LoggerConfig.Logger]
+	// means that the logger will only be invoked if the provided [Config.Logger]
 	// is enabled for the [log/slog.LevelDebug] level. Note that response errors will
 	// always be logged at the [log/slog.LevelError] level, regardless of this setting.
 	Level *slog.Level
@@ -41,7 +41,7 @@ type LoggerConfig struct {
 
 	// Trace will enable full request/response tracing (e.g. request/response bodies,
 	// full headers, etc). This overrides all other trace settings. See also
-	// [LoggerConfig.DisableEnvTrace], which by default will enable tracing when
+	// [Config.DisableEnvTrace], which by default will enable tracing when
 	// the HTTP_TRACE environment variable is set.
 	Trace bool
 
@@ -50,14 +50,14 @@ type LoggerConfig struct {
 	DisableEnvTrace bool
 
 	// TraceRequest will enable request tracing. This overrides
-	// [LoggerConfig.TraceRequestFunc].
+	// [Config.TraceRequestFunc].
 	TraceRequest bool
 
 	// TraceRequestFunc is a function that determines whether to trace the request.
 	TraceRequestFunc func(req *http.Request) bool
 
 	// TraceResponse will enable response tracing. This overrides
-	// [LoggerConfig.TraceResponseFunc].
+	// [Config.TraceResponseFunc].
 	TraceResponse bool
 
 	// TraceResponseFunc is a function that determines whether to trace the response.
@@ -65,9 +65,9 @@ type LoggerConfig struct {
 }
 
 // Validate validates the logger configuration. Use this to validate the configuration,
-// before passing it to [NewLoggerTransport] or [NewLoggerClient], as they will panic
+// before passing it to [NewTransport] or [NewClient], as they will panic
 // if the configuration is invalid.
-func (c *LoggerConfig) Validate() error {
+func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("config cannot be nil")
 	}
@@ -122,31 +122,31 @@ func (c *LoggerConfig) Validate() error {
 	return nil
 }
 
-type logger struct {
-	config *LoggerConfig
+type transport struct {
+	config *Config
 }
 
-// NewLoggerTransport creates a new [net/http.RoundTripper] that logs requests and
-// responses. See also [NewLoggerClient]. This will panic if the configuration is
-// invalid, which can be avoided by using [LoggerConfig.Validate] first.
-func NewLoggerTransport(config *LoggerConfig) http.RoundTripper {
+// NewTransport creates a new [net/http.RoundTripper] that logs requests and
+// responses. See also [NewClient]. This will panic if the configuration is
+// invalid, which can be avoided by using [Config.Validate] first.
+func NewTransport(config *Config) http.RoundTripper {
 	if config == nil {
-		config = &LoggerConfig{}
+		config = &Config{}
 	}
 	err := config.Validate()
 	if err != nil {
 		panic(err)
 	}
-	return &logger{config: config}
+	return &transport{config: config}
 }
 
-// NewLoggerClient creates a new [http.Client] that logs requests and responses.
-// See also [NewLoggerTransport]. The default timeout is 60 seconds. This will panic
-// if the configuration is invalid, which can be avoided by using [LoggerConfig.Validate]
+// NewClient creates a new [http.Client] that logs requests and responses.
+// See also [NewTransport]. The default timeout is 60 seconds. This will panic
+// if the configuration is invalid, which can be avoided by using [Config.Validate]
 // first.
-func NewLoggerClient(config *LoggerConfig) *http.Client {
+func NewClient(config *Config) *http.Client {
 	if config == nil {
-		config = &LoggerConfig{}
+		config = &Config{}
 	}
 	err := config.Validate()
 	if err != nil {
@@ -154,11 +154,11 @@ func NewLoggerClient(config *LoggerConfig) *http.Client {
 	}
 	return &http.Client{
 		Timeout:   60 * time.Second,
-		Transport: NewLoggerTransport(config),
+		Transport: NewTransport(config),
 	}
 }
 
-func (l *logger) shouldTraceRequest(req *http.Request) bool {
+func (l *transport) shouldTraceRequest(req *http.Request) bool {
 	if l.config.Trace || l.config.TraceRequest {
 		return true
 	}
@@ -168,7 +168,7 @@ func (l *logger) shouldTraceRequest(req *http.Request) bool {
 	return false
 }
 
-func (l *logger) shouldTraceResponse(resp *http.Response) bool {
+func (l *transport) shouldTraceResponse(resp *http.Response) bool {
 	if l.config.Trace || l.config.TraceResponse {
 		return true
 	}
@@ -205,7 +205,7 @@ func getCallerPC(skip int) uintptr {
 	return 0
 }
 
-func (rt *logger) RoundTrip(req *http.Request) (*http.Response, error) {
+func (rt *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	handler := rt.config.Logger.Handler()
 
@@ -284,7 +284,7 @@ func (rt *logger) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func (l *logger) headersAsAttrs(headers http.Header) []slog.Attr {
+func (l *transport) headersAsAttrs(headers http.Header) []slog.Attr {
 	attrs := make([]slog.Attr, 0, len(headers))
 	for k, v := range headers {
 		if len(l.config.Headers) > 0 && !slices.Contains(l.config.Headers, k) {
