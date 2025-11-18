@@ -31,7 +31,7 @@ type CallbackFunc func(ctx context.Context, attempts int, backoff time.Duration,
 // LoggerCallback is a simple retry callback function which uses the provided
 // [log/slog.Logger] to log the retry attempts. If logger is nil, [slog.Default] will
 // be used.
-func LoggerCallback(logger *slog.Logger) CallbackFunc {
+func LoggerCallback(logger *slog.Logger, level slog.Level) CallbackFunc {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -52,7 +52,7 @@ func LoggerCallback(logger *slog.Logger) CallbackFunc {
 			attrs = append(attrs, slog.String("error", err.Error()))
 		}
 
-		logger.LogAttrs(ctx, slog.LevelInfo, "retrying request", attrs...)
+		logger.LogAttrs(ctx, level, "retrying request", attrs...)
 	}
 }
 
