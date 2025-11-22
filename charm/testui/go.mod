@@ -5,14 +5,14 @@ go 1.25.4
 replace github.com/charmbracelet/x/exp/teatest/v2 => github.com/lrstanley/charm-x/exp/teatest/v2 v2.0.0-20251110104020-34abe263a95e
 
 require (
-	charm.land/bubbles/v2 v2.0.0-beta.1.0.20251106192719-c2b822795a69
+	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2.0.20251120234600-e78528df7958
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251121225325-f6fbdf23b0ff
 	github.com/charmbracelet/colorprofile v0.3.3
 	github.com/charmbracelet/ultraviolet v0.0.0-20251120225753-26363bddd922
 	github.com/charmbracelet/x/ansi v0.11.1
-	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20250904123553-b4e2667e5ad5
-	github.com/gkampitakis/go-snaps v0.5.14
+	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20251118172736-77d017256798
+	github.com/gkampitakis/go-snaps v0.5.16
 )
 
 require (
@@ -25,7 +25,6 @@ require (
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
 	github.com/gkampitakis/ciinfo v0.3.3 // indirect
-	github.com/gkampitakis/go-diff v1.3.2 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -35,6 +34,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
