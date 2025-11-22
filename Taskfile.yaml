@@ -3,6 +3,7 @@ version: "3"
 vars:
   PACKAGES:
     - charm/formatter
+    - charm/layout
     - charm/testui
     - http/utils
     - logging/handlers

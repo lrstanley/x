@@ -16,3 +16,4 @@ vendor/*
 bin
 **/.env
 go.work*
+**/TODO.md
