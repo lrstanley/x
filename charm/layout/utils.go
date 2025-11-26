@@ -5,19 +5,28 @@
 package layout
 
 import (
+	"cmp"
 	"fmt"
 	"os"
-
-	"charm.land/lipgloss/v2"
 )
 
-func printLayer(layer *lipgloss.Layer) {
+func printLayer(layer Layer) {
 	f, err := os.OpenFile("layers.txt", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		panic(err)
 	}
 	defer f.Close()
 	_, _ = f.WriteString(layer.String())
+}
+
+func clamp[T cmp.Ordered](value, min, max T) T {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func filterNil(slice []any) []any {
@@ -30,8 +39,8 @@ func filterNil(slice []any) []any {
 	return v
 }
 
-func filterNilLayers(layers []*lipgloss.Layer) []*lipgloss.Layer {
-	v := make([]*lipgloss.Layer, 0, len(layers))
+func filterNilLayers(layers []Layer) []Layer {
+	v := make([]Layer, 0, len(layers))
 	for _, layer := range layers {
 		if layer != nil {
 			v = append(v, layer)
@@ -77,56 +86,48 @@ func getID(model any) string {
 	return ""
 }
 
-// resolveLayer resolves a child into a [lipgloss.Layer]. A child can be one of many types, primarily
-// either a resulting type, or a model which returns a resulting type through a "View" method. The
-// following types are supported (and in the provided order):
+// resolveLayer resolves a child into a [Layer]. A child can be one of many types,
+// primarily either a resulting type, or a model which returns a resulting type
+// through a "View" method. The following types are supported (and in the provided
+// order):
 //
-//   - *lipgloss.Layer
+//   - Layer
 //   - Layout
 //   - string
-//   - View() *lipgloss.Layer
+//   - View() Layer
 //   - View() Layout
 //   - View() string
-//   - View() any
-//   - View(availableWidth, availableHeight) *lipgloss.Layer
+//   - View(availableWidth, availableHeight) Layer
 //   - View(availableWidth, availableHeight) Layout
 //   - View(availableWidth, availableHeight) string
-//   - fmt.Stringer
-func resolveLayer(child any, availableWidth, availableHeight int) *lipgloss.Layer {
+func resolveLayer(child any, availableWidth, availableHeight int) Layer {
 	if child == nil {
 		return nil
 	}
 
 	switch v := child.(type) {
-	case *lipgloss.Layer:
+	case Layer:
 		return v
 	case Layout:
 		return v.Render(availableWidth, availableHeight)
 	case string:
-		return lipgloss.NewLayer("", v)
-	case interface{ View() *lipgloss.Layer }:
+		return NewLayer("", v)
+	case interface{ View() Layer }:
 		return v.View()
 	case interface{ View() Layout }:
 		return v.View().Render(availableWidth, availableHeight)
 	case interface{ View() string }:
 		view := v.View()
-		return lipgloss.NewLayer(getID(v), view)
-	case interface{ View() any }:
-		return resolveLayer(v.View(), availableWidth, availableHeight)
-	case interface {
-		View(int, int) *lipgloss.Layer
-	}:
+		return NewLayer(getID(v), view)
+	case interface{ View(int, int) Layer }:
 		return v.View(availableWidth, availableHeight)
 	case interface{ View(int, int) Layout }:
 		return v.View(availableWidth, availableHeight).Render(availableWidth, availableHeight)
 	case interface{ View(int, int) string }:
 		view := v.View(availableWidth, availableHeight)
-		return lipgloss.NewLayer(getID(v), view)
-	case fmt.Stringer:
-		view := v.String()
-		return lipgloss.NewLayer(getID(v), view)
+		return NewLayer(getID(v), view)
 	default:
-		return lipgloss.NewLayer("", fmt.Sprintf("%T", child))
+		panic(fmt.Sprintf("unsupported child type: %T", child))
 	}
 }
 

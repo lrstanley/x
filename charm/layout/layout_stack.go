@@ -4,8 +4,6 @@
 
 package layout
 
-import "charm.land/lipgloss/v2"
-
 var _ Layout = (*stackLayout)(nil)
 
 type stackLayout struct {
@@ -23,19 +21,15 @@ func Stack(children ...any) Layout {
 	return &stackLayout{children: children}
 }
 
-func (r *stackLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
+func (r *stackLayout) Render(availableWidth, availableHeight int) Layer {
 	if len(r.children) == 0 {
 		return nil
 	}
 
-	layers := layerPool.Get()
-	defer func() {
-		layers = layers[:0]
-		layerPool.Put(layers)
-	}()
+	layers := make([]Layer, 0, len(r.children))
 
 	for _, child := range r.children {
-		if _, isSpace := child.(*spacer); isSpace {
+		if IsSpace(child) {
 			continue // Spaces are ignored in Stack.
 		}
 		layer := resolveLayer(child, availableWidth, availableHeight)
@@ -52,15 +46,11 @@ func (r *stackLayout) Render(availableWidth, availableHeight int) *lipgloss.Laye
 		return layers[0].Z(1)
 	}
 
-	var baseZ int
-
-	for _, layer := range layers {
-		baseZ = max(baseZ, layer.MaxZ())
-	}
+	baseZ := getMaxLayerZ(layers)
 
 	for z, layer := range layers {
 		layer.Z(baseZ + z + 1)
 	}
 
-	return lipgloss.NewLayer("layout_stack", "").Z(1).AddLayers(layers...)
+	return NewLayer("", "").Z(1).AddChild(layers...)
 }

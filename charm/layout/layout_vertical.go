@@ -4,8 +4,6 @@
 
 package layout
 
-import "charm.land/lipgloss/v2"
-
 var _ Layout = (*verticalLayout)(nil)
 
 type verticalLayout struct {
@@ -21,7 +19,7 @@ func Vertical(children ...any) Layout {
 	return &verticalLayout{children: children}
 }
 
-func (r *verticalLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
+func (r *verticalLayout) Render(availableWidth, availableHeight int) Layer {
 	if len(r.children) == 0 {
 		return nil
 	}
@@ -29,14 +27,10 @@ func (r *verticalLayout) Render(availableWidth, availableHeight int) *lipgloss.L
 	var spaces int
 	var totalFixedHeight int
 
-	layers := layerPool.Get()
-	defer func() {
-		layers = layers[:0]
-		layerPool.Put(layers)
-	}()
+	layers := make([]Layer, 0, len(r.children))
 
 	for _, child := range r.children {
-		if _, isSpace := child.(*spacer); isSpace {
+		if IsSpace(child) {
 			layers = append(layers, nil)
 			spaces++
 			continue
@@ -67,11 +61,11 @@ func (r *verticalLayout) Render(availableWidth, availableHeight int) *lipgloss.L
 			continue
 		}
 		yOffset += layer.GetY()
-		layer.Y(yOffset).Z(1)
+		layer.Y(yOffset).Z(2)
 		yOffset += layer.Bounds().Dy()
 	}
 
-	return lipgloss.NewLayer("layout_vertical", "").
+	return NewLayer("", "").
 		Z(1).
-		AddLayers(filterNilLayers(layers)...)
+		AddChild(filterNilLayers(layers)...)
 }

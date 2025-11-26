@@ -25,7 +25,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case layout.LayerMouseMsg:
 		slog.Debug("Layer hit", "layer", msg.LayerID, "mouse", msg.Mouse, "type", fmt.Sprintf("%T", msg.Mouse)) //nolint:sloglint
-		if mouse, ok := msg.Mouse.(tea.MouseClickMsg); ok {
+		if mouse, ok := msg.MouseMsg.(tea.MouseClickMsg); ok {
 			return m, tea.Printf("Layer hit at %d, %d", mouse.X, mouse.Y)
 		}
 	case tea.WindowSizeMsg:
@@ -85,8 +85,8 @@ func (m model) View() tea.View {
 	return view
 }
 
-func newCard(id, str string, border color.Color) *lipgloss.Layer {
-	return lipgloss.NewLayer(
+func newCard(id, str string, border color.Color) layout.Layer {
+	return layout.NewLayer(
 		id,
 		lipgloss.NewStyle().
 			Width(20).

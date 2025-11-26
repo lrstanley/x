@@ -4,8 +4,6 @@
 
 package layout
 
-import "charm.land/lipgloss/v2"
-
 var _ Layout = (*centerLayout)(nil)
 
 type centerLayout struct {
@@ -20,7 +18,7 @@ func Center(child any) Layout {
 	return &centerLayout{child: child}
 }
 
-func (r *centerLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
+func (r *centerLayout) Render(availableWidth, availableHeight int) Layer {
 	if r.child == nil {
 		return nil
 	}

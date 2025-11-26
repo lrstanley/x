@@ -10,8 +10,8 @@ import (
 )
 
 type LayerMouseMsg struct {
+	tea.MouseMsg
 	LayerID string
-	Mouse   tea.MouseMsg
 }
 
 // RenderString renders the provided child/layout/etc into a string.
@@ -41,21 +41,23 @@ func RenderView(view *tea.View, width, height int, child any) {
 		return
 	}
 
+	canvas := lipgloss.NewCanvas(width, height).Compose(layer)
+
 	if view.MouseMode != tea.MouseModeNone {
-		view.Callback = func(msg tea.Msg) tea.Cmd {
-			switch msg := msg.(type) {
-			case tea.MouseMsg:
-				if id := layer.Hit(msg.Mouse().X, msg.Mouse().Y); id != "" {
-					return func() tea.Msg {
-						return LayerMouseMsg{
-							LayerID: id,
-							Mouse:   msg,
-						}
+		view.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
+			if id := layer.Hit(msg.Mouse().X, msg.Mouse().Y); id != "" {
+				return func() tea.Msg {
+					return LayerMouseMsg{
+						MouseMsg: msg,
+						LayerID:  id,
 					}
 				}
 			}
 			return nil
 		}
 	}
-	view.SetContent(lipgloss.NewCanvas(width, height).Compose(layer).Render())
+
+	printLayer(layer)
+
+	view.SetContent(canvas.Render())
 }
