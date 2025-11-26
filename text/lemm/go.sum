@@ -5,3 +5,5 @@ github.com/aaaton/golem/v4/dicts/en v1.0.1 h1:/BsOsh8JTgTkuevwM9axPnAi9CD4rK7TWH
 github.com/aaaton/golem/v4/dicts/en v1.0.1/go.mod h1:1YKRrQNng+KbS+peA7sj3TIa8eqR6T2UqdJ+Tc9xeoA=
 github.com/chewxy/math32 v1.11.1 h1:b7PGHlp8KjylDoU8RrcEsRuGZhJuz8haxnKfuMMRqy8=
 github.com/chewxy/math32 v1.11.1/go.mod h1:dOB2rcuFrCn6UHrze36WSLVPKtzPMRAQvBvUwkSsLqs=
+github.com/lrstanley/x/text/corpse v0.0.0-20251124185147-6ac400c60796 h1:slx7wSdHMMu3JqPenKXsx0TsjvY5cf9qtucV54UWA3k=
+github.com/lrstanley/x/text/corpse v0.0.0-20251124185147-6ac400c60796/go.mod h1:21FQhADEbNI7rSh/7mcHke+ScOiIzRJzMYmilcMBscU=
