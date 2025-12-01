@@ -4,6 +4,8 @@
 
 package layout
 
+import "charm.land/lipgloss/v2"
+
 var _ Layout = (*rowsLayout)(nil)
 
 type rowsLayout struct {
@@ -20,7 +22,7 @@ func Rows(cells ...*Cell) Layout {
 	return &rowsLayout{cells: cells}
 }
 
-func (r *rowsLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *rowsLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if len(r.cells) == 0 {
 		return nil
 	}
@@ -80,7 +82,7 @@ func (r *rowsLayout) Render(availableWidth, availableHeight int) Layer {
 	}
 
 	// Render visible cells with recalculated sizes
-	layers := make([]Layer, 0, len(visibleCells))
+	layers := make([]*lipgloss.Layer, 0, len(visibleCells))
 
 	// Calculate sizes for all cells, ensuring total equals availableHeight
 	sizes := make([]int, len(visibleCells))
@@ -142,7 +144,7 @@ func (r *rowsLayout) Render(availableWidth, availableHeight int) Layer {
 		return layers[0]
 	}
 
-	return NewLayer("", "").
+	return lipgloss.NewLayer("").
 		Z(1).
-		AddChild(layers...)
+		AddLayers(layers...)
 }

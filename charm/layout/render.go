@@ -25,7 +25,7 @@ func RenderString(width, height int, child any) string {
 		return ""
 	}
 
-	return lipgloss.NewCanvas(width, height).Compose(layer).Render()
+	return lipgloss.NewCompositor(layer).Render()
 }
 
 // RenderView renders the provided child/layout/etc onto an existing [tea.View],
@@ -41,15 +41,45 @@ func RenderView(view *tea.View, width, height int, child any) {
 		return
 	}
 
-	canvas := lipgloss.NewCanvas(width, height).Compose(layer)
+	comp := lipgloss.NewCompositor(layer)
 
 	if view.MouseMode != tea.MouseModeNone {
 		view.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
-			if id := layer.Hit(msg.Mouse().X, msg.Mouse().Y); id != "" {
+			if hit := comp.Hit(msg.Mouse().X, msg.Mouse().Y); !hit.Empty() {
+				x := msg.Mouse().X - hit.Bounds().Min.X
+				y := msg.Mouse().Y - hit.Bounds().Min.Y
+
 				return func() tea.Msg {
+					var nmsg tea.MouseMsg
+					switch msg := msg.(type) {
+					case tea.MouseClickMsg:
+						msg.X = x
+						msg.Y = y
+						nmsg = msg
+					case tea.MouseReleaseMsg:
+						msg.X = x
+						msg.Y = y
+						nmsg = msg
+					case tea.MouseMotionMsg:
+						msg.X = x
+						msg.Y = y
+						nmsg = msg
+					case tea.MouseWheelMsg:
+						msg.X = x
+						msg.Y = y
+						nmsg = msg
+					default:
+						// We don't know what to do, return the original message with
+						// absolute coordinates.
+						return LayerMouseMsg{
+							MouseMsg: msg,
+							LayerID:  hit.ID(),
+						}
+					}
+
 					return LayerMouseMsg{
-						MouseMsg: msg,
-						LayerID:  id,
+						MouseMsg: nmsg,
+						LayerID:  hit.ID(),
 					}
 				}
 			}
@@ -57,7 +87,6 @@ func RenderView(view *tea.View, width, height int, child any) {
 		}
 	}
 
-	printLayer(layer)
-
-	view.SetContent(canvas.Render())
+	// printLayer(layer)
+	view.SetContent(comp.Render())
 }

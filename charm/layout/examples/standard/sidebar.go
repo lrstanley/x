@@ -17,12 +17,12 @@ type item struct {
 	selected bool
 }
 
-func (i *item) View(availableWidth, _ int) layout.Layer {
+func (i *item) View(availableWidth, _ int) *lipgloss.Layer {
 	style := lipgloss.NewStyle().Width(availableWidth).Height(1)
 	if i.selected {
 		style = style.Background(theme.Cyan).Foreground(lipgloss.Lighten(theme.Fg, 0.3))
 	}
-	return layout.NewLayer(i.UUID(), style.Render(" • "+i.text)).Z(1)
+	return lipgloss.NewLayer(style.Render(" • " + i.text)).Z(1).ID(i.UUID())
 }
 
 type newSelectionMsg struct {

@@ -4,6 +4,8 @@
 
 package layout
 
+import "charm.land/lipgloss/v2"
+
 var _ Layout = (*centerLayout)(nil)
 
 type centerLayout struct {
@@ -18,7 +20,7 @@ func Center(child any) Layout {
 	return &centerLayout{child: child}
 }
 
-func (r *centerLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *centerLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if r.child == nil {
 		return nil
 	}
@@ -28,10 +30,8 @@ func (r *centerLayout) Render(availableWidth, availableHeight int) Layer {
 		return nil
 	}
 
-	bounds := layer.Bounds()
-
 	return layer.
-		X(max(0, (availableWidth-bounds.Dx())/2)).
-		Y(max(0, (availableHeight-bounds.Dy())/2)).
+		X(max(0, (availableWidth-layer.Width())/2)).
+		Y(max(0, (availableHeight-layer.Height())/2)).
 		Z(1)
 }

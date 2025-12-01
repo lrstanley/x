@@ -85,9 +85,8 @@ func (m model) View() tea.View {
 	return view
 }
 
-func newCard(id, str string, border color.Color) layout.Layer {
-	return layout.NewLayer(
-		id,
+func newCard(id, str string, border color.Color) *lipgloss.Layer {
+	return lipgloss.NewLayer(
 		lipgloss.NewStyle().
 			Width(20).
 			Height(10).
@@ -95,7 +94,7 @@ func newCard(id, str string, border color.Color) layout.Layer {
 			BorderForeground(border).
 			Align(lipgloss.Center, lipgloss.Center).
 			Render(str),
-	)
+	).ID(id)
 }
 
 func main() {

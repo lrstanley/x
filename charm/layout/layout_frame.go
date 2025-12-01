@@ -23,7 +23,7 @@ func Frame(style lipgloss.Style, child any) Layout {
 	return &frameLayout{style: style, child: child}
 }
 
-func (r *frameLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *frameLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if r.child == nil {
 		return nil
 	}
@@ -41,12 +41,10 @@ func (r *frameLayout) Render(availableWidth, availableHeight int) Layer {
 	if layer == nil {
 		return nil
 	}
-	bounds := layer.Bounds()
-	return NewLayer(
-		"",
+	return lipgloss.NewLayer(
 		r.style.
-			Width(bounds.Dx()+hFrame).
-			Height(bounds.Dy()+vFrame).
+			Width(layer.Width() + hFrame).
+			Height(layer.Height() + vFrame).
 			Render(),
-	).Z(1).AddChild(layer.X(hFrame / 2).Y(vFrame / 2).Z(2))
+	).Z(1).AddLayers(layer.X(hFrame / 2).Y(vFrame / 2).Z(2))
 }

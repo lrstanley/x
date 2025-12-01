@@ -4,6 +4,8 @@
 
 package layout
 
+import "charm.land/lipgloss/v2"
+
 var (
 	_ Layout = (*leftPaddingLayout)(nil)
 	_ Layout = (*rightPaddingLayout)(nil)
@@ -24,7 +26,7 @@ func LeftPadding(amount int, child any) Layout {
 	return &leftPaddingLayout{amount: max(0, amount), child: child}
 }
 
-func (r *leftPaddingLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *leftPaddingLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if IsSpace(r.child) {
 		return nil
 	}
@@ -50,7 +52,7 @@ func RightPadding(amount int, child any) Layout {
 	return &rightPaddingLayout{amount: max(0, amount), child: child}
 }
 
-func (r *rightPaddingLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *rightPaddingLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if IsSpace(r.child) {
 		return nil
 	}
@@ -76,7 +78,7 @@ func TopPadding(amount int, child any) Layout {
 	return &topPaddingLayout{amount: max(0, amount), child: child}
 }
 
-func (r *topPaddingLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *topPaddingLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if IsSpace(r.child) {
 		return nil
 	}
@@ -102,7 +104,7 @@ func BottomPadding(amount int, child any) Layout {
 	return &bottomPaddingLayout{amount: max(0, amount), child: child}
 }
 
-func (r *bottomPaddingLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *bottomPaddingLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if IsSpace(r.child) {
 		return nil
 	}

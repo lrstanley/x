@@ -7,17 +7,27 @@ package layout
 import (
 	"cmp"
 	"fmt"
-	"os"
+
+	"charm.land/lipgloss/v2"
 )
 
-func printLayer(layer Layer) {
-	f, err := os.OpenFile("layers.txt", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	_, _ = f.WriteString(layer.String())
-}
+// func printLayer(layer *lipgloss.Layer) {
+// 	f, err := os.OpenFile("layers.txt", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	defer f.Close()
+// 	// _, _ = f.WriteString(layer.String())
+
+// 	cfg := spew.NewDefaultConfig()
+// 	cfg.ContinueOnMethod = true
+// 	cfg.DisableCapacities = true
+// 	cfg.DisableMethods = true
+// 	cfg.DisablePointerAddresses = true
+// 	cfg.DisablePointerMethods = true
+
+// 	spew.Fdump(f, layer)
+// }
 
 func clamp[T cmp.Ordered](value, min, max T) T {
 	if value < min {
@@ -39,8 +49,8 @@ func filterNil(slice []any) []any {
 	return v
 }
 
-func filterNilLayers(layers []Layer) []Layer {
-	v := make([]Layer, 0, len(layers))
+func filterNilLayers(layers []*lipgloss.Layer) []*lipgloss.Layer {
+	v := make([]*lipgloss.Layer, 0, len(layers))
 	for _, layer := range layers {
 		if layer != nil {
 			v = append(v, layer)
@@ -91,7 +101,7 @@ func getID(model any) string {
 // through a "View" method. The following types are supported (and in the provided
 // order):
 //
-//   - Layer
+//   - *lipgloss.Layer
 //   - Layout
 //   - string
 //   - View() Layer
@@ -100,32 +110,34 @@ func getID(model any) string {
 //   - View(availableWidth, availableHeight) Layer
 //   - View(availableWidth, availableHeight) Layout
 //   - View(availableWidth, availableHeight) string
-func resolveLayer(child any, availableWidth, availableHeight int) Layer {
+func resolveLayer(child any, availableWidth, availableHeight int) *lipgloss.Layer {
 	if child == nil {
 		return nil
 	}
 
 	switch v := child.(type) {
-	case Layer:
+	case *lipgloss.Layer:
 		return v
 	case Layout:
 		return v.Render(availableWidth, availableHeight)
 	case string:
-		return NewLayer("", v)
-	case interface{ View() Layer }:
+		return lipgloss.NewLayer(v)
+	case interface{ View() *lipgloss.Layer }:
 		return v.View()
 	case interface{ View() Layout }:
 		return v.View().Render(availableWidth, availableHeight)
 	case interface{ View() string }:
 		view := v.View()
-		return NewLayer(getID(v), view)
-	case interface{ View(int, int) Layer }:
+		return lipgloss.NewLayer(view).ID(getID(v))
+	case interface {
+		View(int, int) *lipgloss.Layer
+	}:
 		return v.View(availableWidth, availableHeight)
 	case interface{ View(int, int) Layout }:
 		return v.View(availableWidth, availableHeight).Render(availableWidth, availableHeight)
 	case interface{ View(int, int) string }:
 		view := v.View(availableWidth, availableHeight)
-		return NewLayer(getID(v), view)
+		return lipgloss.NewLayer(view).ID(getID(v))
 	default:
 		panic(fmt.Sprintf("unsupported child type: %T", child))
 	}

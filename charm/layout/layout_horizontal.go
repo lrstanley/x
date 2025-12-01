@@ -4,6 +4,8 @@
 
 package layout
 
+import "charm.land/lipgloss/v2"
+
 var _ Layout = (*horizontalLayout)(nil)
 
 type horizontalLayout struct {
@@ -19,7 +21,7 @@ func Horizontal(children ...any) Layout {
 	return &horizontalLayout{children: children}
 }
 
-func (r *horizontalLayout) Render(availableWidth, availableHeight int) Layer {
+func (r *horizontalLayout) Render(availableWidth, availableHeight int) *lipgloss.Layer {
 	if len(r.children) == 0 {
 		return nil
 	}
@@ -27,7 +29,7 @@ func (r *horizontalLayout) Render(availableWidth, availableHeight int) Layer {
 	var spaces int
 	var totalFixedWidth int
 
-	layers := make([]Layer, 0, len(r.children))
+	layers := make([]*lipgloss.Layer, 0, len(r.children))
 
 	for _, child := range r.children {
 		if IsSpace(child) {
@@ -40,7 +42,7 @@ func (r *horizontalLayout) Render(availableWidth, availableHeight int) Layer {
 		if layer == nil {
 			continue
 		}
-		totalFixedWidth += layer.Bounds().Dx()
+		totalFixedWidth += layer.Width()
 		layers = append(layers, layer)
 	}
 
@@ -62,10 +64,10 @@ func (r *horizontalLayout) Render(availableWidth, availableHeight int) Layer {
 		}
 		xOffset += layer.GetX()
 		layer.X(xOffset).Z(2)
-		xOffset += layer.Bounds().Dx()
+		xOffset += layer.Width()
 	}
 
-	return NewLayer("", "").
+	return lipgloss.NewLayer("").
 		Z(1).
-		AddChild(filterNilLayers(layers)...)
+		AddLayers(filterNilLayers(layers)...)
 }

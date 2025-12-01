@@ -4,12 +4,14 @@
 
 package layout
 
+import "charm.land/lipgloss/v2"
+
 // Layout is a generic layout interface. All layouts must implement this interface.
 type Layout interface {
 	// Render renders the layout into a [lipgloss.Layer]. The child can use the provided
 	// availableWidth and availableHeight to calculate the size of the layout it can
 	// consume.
-	Render(availableWidth, availableHeight int) Layer
+	Render(availableWidth, availableHeight int) *lipgloss.Layer
 }
 
 var (
@@ -20,7 +22,7 @@ var (
 // baseLayout is a base layout implementation that has no-op generation methods.
 type baseLayout struct{}
 
-func (r *baseLayout) Render(_, _ int) Layer {
+func (r *baseLayout) Render(_, _ int) *lipgloss.Layer {
 	return nil
 }
 
