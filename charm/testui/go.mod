@@ -9,8 +9,8 @@ require (
 	charm.land/bubbletea/v2 v2.0.0-rc.2.0.20251120234600-e78528df7958
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251121225325-f6fbdf23b0ff
 	github.com/charmbracelet/colorprofile v0.3.3
-	github.com/charmbracelet/ultraviolet v0.0.0-20251120225753-26363bddd922
-	github.com/charmbracelet/x/ansi v0.11.1
+	github.com/charmbracelet/ultraviolet v0.0.0-20251201184010-2006a959db8b
+	github.com/charmbracelet/x/ansi v0.11.2
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20250904123553-b4e2667e5ad5
 	github.com/gkampitakis/go-snaps v0.5.14
 )
