@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/charmbracelet/x/ansi v0.11.1
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.0
 	github.com/rivo/uniseg v0.4.7
 )
 
