@@ -9,6 +9,7 @@ vars:
     - logging/handlers
     - scheduler
     - text/corpse
+    - text/tail
     - text/fuzzy
     - text/lemm
     - text/stem
