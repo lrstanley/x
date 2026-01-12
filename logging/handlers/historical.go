@@ -34,6 +34,9 @@ func NewHistorical(maxEntries int, minLevel slog.Level, handler slog.Handler) *H
 	}
 }
 
+// WithOnAddedHook sets a hook that will be called when a new log entry is added.
+// This is useful for things like sending the log entries to a remote server.
+// The hook will be called in a new goroutine.
 func (h *Historical) WithOnAddedHook(hook func()) *Historical {
 	h.mu.Lock()
 	h.onAddedHook = hook
@@ -51,8 +54,8 @@ func (h *Historical) Enabled(ctx context.Context, l slog.Level) bool {
 func (h *Historical) Handle(ctx context.Context, r slog.Record) error {
 	// Store in memory if level is at or above minLevel.
 	if r.Level >= h.minLevel {
-		h.mu.Lock()
 		cloned := r.Clone()
+		h.mu.Lock()
 		h.entries = append(h.entries, cloned)
 		// Trim from front if we exceed maxEntries.
 		if len(h.entries) > h.maxEntries {
@@ -64,7 +67,7 @@ func (h *Historical) Handle(ctx context.Context, r slog.Record) error {
 		fn := h.onAddedHook
 		h.mu.RUnlock()
 		if fn != nil {
-			fn()
+			go fn()
 		}
 	}
 
@@ -87,7 +90,6 @@ func (h *Historical) WithGroup(name string) slog.Handler {
 func (h *Historical) GetEntries() []slog.Record {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-
 	return h.entries
 }
 
