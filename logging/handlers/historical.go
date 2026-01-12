@@ -90,3 +90,9 @@ func (h *Historical) GetEntries() []slog.Record {
 
 	return h.entries
 }
+
+func (h *Historical) Count() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.entries)
+}
