@@ -14,11 +14,12 @@ var _ slog.Handler = (*Historical)(nil) // Ensure we implement the [log/slog.Han
 
 // Historical stores the last X log entries in memory while wrapping another handler.
 type Historical struct {
-	handler    slog.Handler
-	maxEntries int
-	minLevel   slog.Level
-	mu         sync.RWMutex
-	entries    []slog.Record
+	handler     slog.Handler
+	maxEntries  int
+	minLevel    slog.Level
+	mu          sync.RWMutex
+	entries     []slog.Record
+	onAddedHook func()
 }
 
 // NewHistorical creates a new [log/slog.Handler] that stores the last maxEntries log
@@ -31,6 +32,13 @@ func NewHistorical(maxEntries int, minLevel slog.Level, handler slog.Handler) *H
 		minLevel:   minLevel,
 		entries:    make([]slog.Record, 0, maxEntries),
 	}
+}
+
+func (h *Historical) WithOnAddedHook(hook func()) *Historical {
+	h.mu.Lock()
+	h.onAddedHook = hook
+	h.mu.Unlock()
+	return h
 }
 
 // Enabled checks if the wrapped handler is enabled for the given level.
@@ -51,6 +59,13 @@ func (h *Historical) Handle(ctx context.Context, r slog.Record) error {
 			h.entries = h.entries[len(h.entries)-h.maxEntries:]
 		}
 		h.mu.Unlock()
+
+		h.mu.RLock()
+		fn := h.onAddedHook
+		h.mu.RUnlock()
+		if fn != nil {
+			fn()
+		}
 	}
 
 	// Always pass to wrapped handler, regardless of level.
