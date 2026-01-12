@@ -46,7 +46,7 @@ func (h *Historical) WithOnAddedHook(hook func()) *Historical {
 
 // Enabled checks if the wrapped handler is enabled for the given level.
 func (h *Historical) Enabled(ctx context.Context, l slog.Level) bool {
-	return h.handler.Enabled(ctx, l)
+	return h.handler.Enabled(ctx, l) || l >= h.minLevel
 }
 
 // Handle stores the log record in memory (if level >= minLevel) and passes it to
