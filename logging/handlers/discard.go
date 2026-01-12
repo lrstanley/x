@@ -13,6 +13,8 @@ import (
 type discard struct{}
 
 // NewDiscard creates a new discard handler.
+//
+// Deprecated: Use [log/slog.DiscardHandler] instead.
 func NewDiscard() slog.Handler {
 	return &discard{}
 }
