@@ -7,12 +7,13 @@ vars:
     - charm/testui
     - http/utils
     - logging/handlers
+    - pid
     - scheduler
     - text/corpse
-    - text/tail
     - text/fuzzy
     - text/lemm
     - text/stem
+    - text/tail
   CURRENT_PKG:
     sh: echo "github.com/lrstanley/x/$(git rev-parse --show-prefix | sed -r 's:/$::g')"
 method: timestamp

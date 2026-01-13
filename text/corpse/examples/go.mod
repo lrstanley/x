@@ -1,6 +1,6 @@
 module github.com/lrstanley/x/text/corpse/examples
 
-go 1.24.4
+go 1.25.4
 
 replace (
 	github.com/lrstanley/x/text/corpse => ../
@@ -22,7 +22,7 @@ require (
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/gkampitakis/ciinfo v0.3.3 // indirect
 	github.com/gkampitakis/go-diff v1.3.2 // indirect
-	github.com/goccy/go-yaml v1.18.0 // indirect
+	github.com/goccy/go-yaml v1.19.0 // indirect
 	github.com/google/renameio v1.0.1 // indirect
 	github.com/kljensen/snowball v0.10.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
