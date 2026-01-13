@@ -5,12 +5,11 @@
 package pid
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,7 +19,7 @@ import (
 
 const (
 	MaxSignalRetries = 10
-	SignalRetryDelay = 100 * time.Millisecond
+	SignalRetryDelay = 250 * time.Millisecond
 )
 
 // File represents a pidfile for a given application.
@@ -126,10 +125,15 @@ func lookupProcess(pid int) *os.Process {
 	if err != nil {
 		return nil
 	}
-	err = process.Signal(syscall.Signal(0))
-	if err != nil {
-		return nil
+	if runtime.GOOS != "windows" {
+		// On Unix, we can check if the process exists by sending signal 0
+		err = process.Signal(syscall.Signal(0))
+		if err != nil {
+			return nil
+		}
 	}
+	// On Windows, os.FindProcess always succeeds, so we can't verify
+	// if the process is actually running without attempting to open it
 	return process
 }
 
@@ -142,21 +146,7 @@ func (pf *File) Create() error {
 
 	if hook != nil {
 		go func() {
-			c := make(chan os.Signal, 1)
-			signal.Notify(c, sig)
-			for {
-				<-c
-				pf.log().Debug("secondary process signal received", "signal", sig)
-				_, err := os.Stat(pf.path() + ".args")
-				if errors.Is(err, os.ErrNotExist) {
-					pf.log().Debug("secondary process args file not found", "path", pf.path()+".args")
-					continue
-				}
-				args, _ := os.ReadFile(pf.path() + ".args")
-				_ = os.Remove(pf.path() + ".args")
-				pf.log().Debug("secondary process args file found, invoking hook", "path", pf.path()+".args", "args", string(args))
-				hook(strings.Split(string(args), "\b"))
-			}
+			monitorHook(pf.log(), sig, pf.path()+".args", hook)
 		}()
 	}
 
@@ -173,30 +163,34 @@ func (pf *File) Create() error {
 	_ = f.Close()
 
 	if !os.IsExist(err) {
-		return err
+		return fmt.Errorf("failed to create pidfile: %w", err)
 	}
 
 	time.Sleep(time.Millisecond * 100)
 	data, err := os.ReadFile(pf.path())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read pidfile: %w", err)
 	}
 
 	pid, err = strconv.Atoi(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse pidfile: %w", err)
 	}
 
 	process := lookupProcess(pid)
 
 	if process == nil {
 		// Process not found, but file exists, delete and recreate it.
-		pf.log().Debug("process not found, deleting and recreating pidfile", "path", pf.path())
+		pf.log().Debug("process not found, deleting and recreating pidfile", "path", pf.path(), "old_pid", pid)
 		err = os.Remove(pf.path())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to remove pidfile: %w", err)
 		}
-		return os.WriteFile(pf.path(), []byte(strconv.Itoa(os.Getpid())), 0o640) //nolint:gosec
+		err = os.WriteFile(pf.path(), []byte(strconv.Itoa(os.Getpid())), 0o640) //nolint:gosec
+		if err != nil {
+			return fmt.Errorf("failed to write pidfile: %w", err)
+		}
+		return nil
 	}
 
 	pf.firstPID = pid
@@ -218,15 +212,21 @@ func (pf *File) Create() error {
 		pf.log().Debug("writing args to file", "path", pf.path()+".args", "args", strings.Join(os.Args, "\b"))
 		err = os.WriteFile(pf.path()+".args", []byte(strings.Join(os.Args, "\b")), 0o640) //nolint:gosec
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to write args file: %w", err)
 		}
 
-		time.Sleep(SignalRetryDelay)
-
-		pf.log().Debug("signaling primary process", "signal", sig)
-		err = process.Signal(sig)
-		if err != nil {
-			return err
+		if runtime.GOOS == "windows" {
+			// On Windows, signals aren't supported, so we rely on file-based polling.
+			// The first process will detect the .args file via polling.
+			pf.log().Debug("args file written, first process will detect via polling")
+		} else {
+			// On Unix, signal the first process to notify it
+			time.Sleep(SignalRetryDelay)
+			pf.log().Debug("signaling primary process", "signal", sig)
+			err = process.Signal(sig)
+			if err != nil {
+				return fmt.Errorf("failed to signal primary process: %w", err)
+			}
 		}
 	}
 	return nil
@@ -234,20 +234,14 @@ func (pf *File) Create() error {
 
 // Remove removes the pidfile.
 func (pf *File) Remove() error {
-	pid, err := os.ReadFile(pf.path())
-	if err != nil {
-		return err
-	}
-
-	if string(pid) != strconv.Itoa(os.Getpid()) {
-		pf.log().Debug("pidfile does not match current process, skipping removal", "path", pf.path(), "pid", string(pid), "current_pid", os.Getpid())
+	if !pf.IsFirst() {
 		return nil
 	}
 
 	pf.log().Debug("removing pidfile", "path", pf.path())
-	err = os.Remove(pf.path())
+	err := os.Remove(pf.path())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to remove pidfile: %w", err)
 	}
 
 	pf.mu.RLock()
