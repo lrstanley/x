@@ -30,6 +30,14 @@ func (r JobFunc) Invoke(ctx context.Context) error {
 	return r(ctx)
 }
 
+// JobLoggerFunc is a function that can be used to create a [Job] that has a logger,
+// in addition to the context.
+type JobLoggerFunc func(ctx context.Context, l *slog.Logger) error
+
+func (f JobLoggerFunc) Invoke(ctx context.Context) error {
+	return f(ctx, LoggerFromContext(ctx))
+}
+
 // Run invokes all jobs concurrently, and listens for any termination signals
 // (SIGINT, SIGTERM, SIGQUIT, etc).
 //
@@ -133,7 +141,7 @@ func (c *Cron) WithExitOnError(enabled bool) *Cron {
 }
 
 // WithLogger sets the logger for the cron job. This defaults to the default
-// logger.
+// logger. You can obtain the logger from the context via [LoggerFromContext].
 func (c *Cron) WithLogger(logger *slog.Logger) *Cron {
 	if logger != nil {
 		c.logger = logger
@@ -158,7 +166,7 @@ func (c *Cron) Invoke(ctx context.Context) error {
 
 		lastRun = time.Now()
 		l.InfoContext(ctx, "invoking cron")
-		if err := c.job.Invoke(ctx); err != nil {
+		if err := c.job.Invoke(withLogger(ctx, l)); err != nil {
 			l.ErrorContext(
 				ctx,
 				"cron failed",
@@ -188,7 +196,7 @@ func (c *Cron) Invoke(ctx context.Context) error {
 
 			lastRun = time.Now()
 			l.InfoContext(ctx, "invoking cron")
-			if err := c.job.Invoke(ctx); err != nil {
+			if err := c.job.Invoke(withLogger(ctx, l)); err != nil {
 				l.ErrorContext(
 					ctx,
 					"cron failed",
