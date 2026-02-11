@@ -20,6 +20,8 @@ type fanout struct {
 
 // NewFanout creates a new fanout handler that distributes records to multiple
 // [log/slog.Handler] instances.
+//
+// Deprecated: use [log/slog.NewMultiHandler] instead.
 func NewFanout(handlers ...slog.Handler) slog.Handler {
 	return &fanout{
 		handlers: handlers,
