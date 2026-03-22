@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/chewxy/math32"
+	"github.com/lrstanley/x/sync/pool"
 	"github.com/lrstanley/x/text/corpse/internal/utils"
 )
 
@@ -26,8 +27,8 @@ type Corpus struct {
 	documents int                      // How many documents have been indexed.
 	hasPruned bool
 
-	seenTermPool utils.Pool[map[string]struct{}]
-	termFreqPool utils.Pool[map[string]int]
+	seenTermPool pool.Pool[map[string]struct{}]
+	termFreqPool pool.Pool[map[string]int]
 }
 
 // New creates a new corpus with the given options.
@@ -37,7 +38,7 @@ func New(options ...Option) *Corpus {
 		tokenizer:     DefaultTokenizer,
 		termFreq:      make(map[string]int),
 		termIndex:     &utils.SortedSet[string]{},
-		seenTermPool: utils.Pool[map[string]struct{}]{
+		seenTermPool: pool.Pool[map[string]struct{}]{
 			New: func() map[string]struct{} { return make(map[string]struct{}) },
 			Prepare: func(v map[string]struct{}) map[string]struct{} {
 				for k := range v {
@@ -46,7 +47,7 @@ func New(options ...Option) *Corpus {
 				return v
 			},
 		},
-		termFreqPool: utils.Pool[map[string]int]{
+		termFreqPool: pool.Pool[map[string]int]{
 			New: func() map[string]int { return make(map[string]int) },
 			Prepare: func(v map[string]int) map[string]int {
 				for k := range v {
