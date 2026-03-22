@@ -158,22 +158,22 @@ func NewClient(config *Config) *http.Client {
 	}
 }
 
-func (l *transport) shouldTraceRequest(req *http.Request) bool {
-	if l.config.Trace || l.config.TraceRequest {
+func (rt *transport) shouldTraceRequest(req *http.Request) bool {
+	if rt.config.Trace || rt.config.TraceRequest {
 		return true
 	}
-	if l.config.TraceRequestFunc != nil {
-		return l.config.TraceRequestFunc(req)
+	if rt.config.TraceRequestFunc != nil {
+		return rt.config.TraceRequestFunc(req)
 	}
 	return false
 }
 
-func (l *transport) shouldTraceResponse(resp *http.Response) bool {
-	if l.config.Trace || l.config.TraceResponse {
+func (rt *transport) shouldTraceResponse(resp *http.Response) bool {
+	if rt.config.Trace || rt.config.TraceResponse {
 		return true
 	}
-	if l.config.TraceResponseFunc != nil {
-		return l.config.TraceResponseFunc(resp)
+	if rt.config.TraceResponseFunc != nil {
+		return rt.config.TraceResponseFunc(resp)
 	}
 	return false
 }
@@ -284,10 +284,10 @@ func (rt *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func (l *transport) headersAsAttrs(headers http.Header) []slog.Attr {
+func (rt *transport) headersAsAttrs(headers http.Header) []slog.Attr {
 	attrs := make([]slog.Attr, 0, len(headers))
 	for k, v := range headers {
-		if len(l.config.Headers) > 0 && !slices.Contains(l.config.Headers, k) {
+		if len(rt.config.Headers) > 0 && !slices.Contains(rt.config.Headers, k) {
 			continue
 		}
 		attrs = append(attrs, slog.String(k, strings.Join(v, ", ")))

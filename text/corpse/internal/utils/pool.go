@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package utils
+package utils //nolint:revive
 
 import "sync"
 
@@ -24,9 +24,9 @@ func (p *Pool[T]) Get() T {
 	})
 
 	if p.Prepare == nil {
-		return p.internal.New().(T)
+		return p.internal.New().(T) //nolint:errcheck
 	}
-	return p.Prepare(p.internal.New().(T))
+	return p.Prepare(p.internal.New().(T)) //nolint:errcheck
 }
 
 func (p *Pool[T]) Put(v T) {

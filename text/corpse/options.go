@@ -70,7 +70,7 @@ func TermFilterFunc(filter func(string) string) TermFilter {
 // - lemmatization
 // - stemming
 //
-// Order of operations: tokenizer -> filter (1st call) -> filter (2nd call) -> ... -> filter (n-th call)
+// Order of operations: tokenizer -> filter (1st call) -> filter (2nd call) -> ... -> filter (n-th call).
 func WithTermFilters(filters ...TermFilter) Option {
 	return func(c *Corpus) {
 		c.termFilters = filters
@@ -143,7 +143,7 @@ func PruneLessThan(count int) PruneHook {
 				toRemove = append(toRemove, term)
 			}
 		}
-		return
+		return toRemove
 	}
 }
 
@@ -157,7 +157,7 @@ func PruneLessThanPercent(percent int) PruneHook {
 				toRemove = append(toRemove, term)
 			}
 		}
-		return
+		return toRemove
 	}
 }
 
@@ -171,7 +171,7 @@ func PruneMoreThan(count int) PruneHook {
 				toRemove = append(toRemove, term)
 			}
 		}
-		return
+		return toRemove
 	}
 }
 
@@ -185,6 +185,6 @@ func PruneMoreThanPercent(percent int) PruneHook {
 				toRemove = append(toRemove, term)
 			}
 		}
-		return
+		return toRemove
 	}
 }

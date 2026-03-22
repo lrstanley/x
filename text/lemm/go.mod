@@ -2,8 +2,6 @@ module github.com/lrstanley/x/text/lemm
 
 go 1.24.4
 
-replace github.com/lrstanley/x/text/corpse => ../corpse
-
 require (
 	github.com/aaaton/golem/v4 v4.0.2
 	github.com/aaaton/golem/v4/dicts/en v1.0.1

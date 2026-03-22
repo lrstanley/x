@@ -4,11 +4,12 @@ vars:
   PACKAGES:
     - charm/formatter
     - charm/layout
-    - charm/testui
+    # - charm/testui
     - http/utils
     - logging/handlers
     - pid
     - scheduler
+    - sync
     - text/corpse
     - text/fuzzy
     - text/lemm
@@ -57,14 +58,18 @@ tasks:
     run: once
     preconditions: [test -f go.mod]
     cmds:
-      - golangci-lint run
+      - go fix ./...
+      - go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
+      - golangci-lint run --fix
   lint:all:
     desc: run linting for all packages
     run: once
     deps: [fmt:all]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && golangci-lint run
+        cmd: cd {{ .PKG }} && go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
+      - for: { var: PACKAGES, as: "PKG" }
+        cmd: cd {{ .PKG }} && golangci-lint run --fix
   prepare:
     aliases: [generate]
     desc: prepare packages (go generate & similar)
@@ -89,27 +94,27 @@ tasks:
     deps: [prepare]
     preconditions: [test -f go.mod]
     cmds:
-      - go test ./... {{.CLI_ARGS}}
+      - go test -v ./... {{.CLI_ARGS}}
   test:all:
     desc: run tests for all packages
     run: once
     deps: [prepare:all]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && go test ./... {{.CLI_ARGS}}
+        cmd: cd {{ .PKG }} && go test -v ./... {{.CLI_ARGS}}
   test:extended:
     desc: run comprehensive tests
     run: once
     deps: [prepare]
     cmds:
-      - go test -race -count 5 {{ or .CLI_ARGS "./..." }}
+      - go test -v -race -count 5 -cpu 1,4 {{ or .CLI_ARGS "./..." }}
   test:extended:all:
     desc: run comprehensive tests for all packages
     run: once
     deps: [prepare:all]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && go test -race -count 5 {{ or .CLI_ARGS "./..." }}
+        cmd: cd {{ .PKG }} && go test -v -race -count 5 -cpu 1,4 {{ or .CLI_ARGS "./..." }}
 
   # dependency-related tasks.
   work:all:
