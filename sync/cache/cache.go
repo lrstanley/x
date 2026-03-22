@@ -93,7 +93,7 @@ func (c *Cache[K, V]) Get(key K) (zero V, ok bool) {
 // GetOrSet atomically gets a keys value from the cache, or if the key is not present,
 // sets the given value. The loaded result is true if the value was loaded, false
 // if the value was stored.
-func (c *Cache[K, V]) GetOrSet(key K, val V, opts ...EntryOption[K, V]) (actual V, loaded bool) {
+func (c *Cache[K, V]) GetOrSet(key K, val V, opts ...EntryOption) (actual V, loaded bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.cache.Get(key)
@@ -132,7 +132,7 @@ func (c *Cache[K, V]) DeleteExpired() {
 
 // Set sets a value in the cache with the specified key, replacing any existing
 // value.
-func (c *Cache[K, V]) Set(key K, val V, opts ...EntryOption[K, V]) {
+func (c *Cache[K, V]) Set(key K, val V, opts ...EntryOption) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e := newEntry(key, val, opts...)

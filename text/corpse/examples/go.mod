@@ -1,6 +1,6 @@
 module github.com/lrstanley/x/text/corpse/examples
 
-go 1.25.4
+go 1.26.0
 
 replace (
 	github.com/lrstanley/x/text/corpse => ../
@@ -11,7 +11,7 @@ replace (
 require (
 	github.com/coder/hnsw v0.6.1
 	github.com/gkampitakis/go-snaps v0.5.14
-	github.com/lrstanley/x/text/corpse v0.0.0-20250929050902-72a64f8d56ef
+	github.com/lrstanley/x/text/corpse v0.0.0-20260322085623-a72b861b32b9
 	github.com/lrstanley/x/text/lemm v0.0.0-20250929050902-72a64f8d56ef
 	github.com/lrstanley/x/text/stem v0.0.0-20250929050902-72a64f8d56ef
 )
@@ -27,6 +27,7 @@ require (
 	github.com/kljensen/snowball v0.10.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/lrstanley/x/sync v0.0.0-20260322090610-da323d6bc6c8 // indirect
 	github.com/maruel/natural v1.1.1 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

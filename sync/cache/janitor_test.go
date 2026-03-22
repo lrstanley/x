@@ -44,9 +44,9 @@ func TestCacheJanitor(t *testing.T) {
 		WithJanitorInterval[string, int](100*time.Millisecond),
 	)
 
-	c.Set("1", 10, WithExpiration[string, int](10*time.Millisecond))
-	c.Set("2", 20, WithExpiration[string, int](20*time.Millisecond))
-	c.Set("3", 30, WithExpiration[string, int](30*time.Millisecond))
+	c.Set("1", 10, WithExpiration(10*time.Millisecond))
+	c.Set("2", 20, WithExpiration(20*time.Millisecond))
+	c.Set("3", 30, WithExpiration(30*time.Millisecond))
 
 	<-time.After(300 * time.Millisecond)
 

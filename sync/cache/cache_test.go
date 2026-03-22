@@ -26,7 +26,7 @@ func TestDeletedCache(t *testing.T) {
 
 		nc := New[string, int](ctx)
 		key := "key"
-		nc.Set(key, 1, WithExpiration[string, int](1*time.Second))
+		nc.Set(key, 1, WithExpiration(1*time.Second))
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
 		_, ok := nc.cache.Get(key)
@@ -49,7 +49,7 @@ func TestGetOrSetUpdatesExpirationManager(t *testing.T) {
 		defer cancel()
 
 		c := New[string, int](ctx)
-		_, loaded := c.GetOrSet("k", 1, WithExpiration[string, int](time.Millisecond))
+		_, loaded := c.GetOrSet("k", 1, WithExpiration(time.Millisecond))
 		if loaded {
 			t.Fatal("want store")
 		}
@@ -72,10 +72,10 @@ func TestDeleteExpired(t *testing.T) {
 			c := New[string, int](ctx)
 
 			c.Set("0", 0)
-			c.Set("1", 10, WithExpiration[string, int](10*time.Millisecond))
-			c.Set("2", 20, WithExpiration[string, int](20*time.Millisecond))
-			c.Set("3", 30, WithExpiration[string, int](30*time.Millisecond))
-			c.Set("4", 40, WithExpiration[string, int](40*time.Millisecond))
+			c.Set("1", 10, WithExpiration(10*time.Millisecond))
+			c.Set("2", 20, WithExpiration(20*time.Millisecond))
+			c.Set("3", 30, WithExpiration(30*time.Millisecond))
+			c.Set("4", 40, WithExpiration(40*time.Millisecond))
 			c.Set("5", 50)
 
 			maxEntries := c.Len()
@@ -106,8 +106,8 @@ func TestDeleteExpired(t *testing.T) {
 			c := New[string, int](ctx)
 
 			c.Set("0", 0)
-			c.Set("1", 10, WithExpiration[string, int](10*time.Millisecond))
-			c.Set("2", 20, WithExpiration[string, int](20*time.Millisecond))
+			c.Set("1", 10, WithExpiration(10*time.Millisecond))
+			c.Set("2", 20, WithExpiration(20*time.Millisecond))
 
 			c.Delete("1")
 
@@ -132,9 +132,9 @@ func TestDeleteExpired(t *testing.T) {
 			c := New[string, int](ctx)
 
 			c.Set("0", 0)
-			c.Set("1", 10, WithExpiration[string, int](10*time.Millisecond))
-			c.Set("2", 20, WithExpiration[string, int](20*time.Millisecond))
-			c.Set("1", 30, WithExpiration[string, int](30*time.Millisecond)) // update
+			c.Set("1", 10, WithExpiration(10*time.Millisecond))
+			c.Set("2", 20, WithExpiration(20*time.Millisecond))
+			c.Set("1", 30, WithExpiration(30*time.Millisecond)) // update
 
 			maxEntries := c.Len()
 
@@ -168,9 +168,9 @@ func TestDeleteExpired(t *testing.T) {
 			base := time.Now()
 			c := New[string, int](ctx)
 
-			c.Set("1", 10, WithExpiration[string, int](10*time.Millisecond))
-			c.Set("2", 20, WithExpiration[string, int](20*time.Millisecond))
-			c.Set("1", 30, WithExpiration[string, int](100*time.Millisecond)) // Do not expire key "1" because it is reset.
+			c.Set("1", 10, WithExpiration(10*time.Millisecond))
+			c.Set("2", 20, WithExpiration(20*time.Millisecond))
+			c.Set("1", 30, WithExpiration(100*time.Millisecond)) // Do not expire key "1" because it is reset.
 
 			time.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
 			synctest.Wait()
@@ -185,9 +185,9 @@ func TestDeleteExpired(t *testing.T) {
 
 	t.Run("expect not expired set zero expiration", func(t *testing.T) {
 		c := New[string, int](t.Context())
-		c.Set("1", 4, WithExpiration[string, int](0))  // These should not be expired.
-		c.Set("2", 5, WithExpiration[string, int](-1)) // These should not be expired.
-		c.Set("3", 6, WithExpiration[string, int](1*time.Hour))
+		c.Set("1", 4, WithExpiration(0))  // These should not be expired.
+		c.Set("2", 5, WithExpiration(-1)) // These should not be expired.
+		c.Set("3", 6, WithExpiration(1*time.Hour))
 
 		want := true
 		_, ok := c.Get("1")
@@ -213,7 +213,7 @@ func TestDeleteExpiredConcurrent(t *testing.T) {
 
 		c := New[string, int](ctx)
 		for i := range 50 {
-			c.Set(strconv.Itoa(i), i, WithExpiration[string, int](time.Millisecond))
+			c.Set(strconv.Itoa(i), i, WithExpiration(time.Millisecond))
 		}
 		time.Sleep(2 * time.Millisecond)
 		synctest.Wait()
