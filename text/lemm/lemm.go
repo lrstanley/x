@@ -10,7 +10,6 @@ import (
 
 	"github.com/aaaton/golem/v4"
 	"github.com/aaaton/golem/v4/dicts/en"
-	"github.com/lrstanley/x/text/corpse"
 )
 
 var (
@@ -18,7 +17,7 @@ var (
 	initOnce   sync.Once
 )
 
-func NewTermFilter() corpse.TermFilter {
+func NewTermFilter() func(iter.Seq[string]) iter.Seq[string] {
 	initOnce.Do(func() {
 		var err error
 		lemmatizer, err = golem.New(en.New())

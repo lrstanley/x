@@ -1,0 +1,41 @@
+flowchart TD
+  requestIn[Request] --> shouldCache{ShouldCacheRequest}
+  shouldCache -->|no| bypass[BypassToUpstream]
+  shouldCache -->|yes| key[CanonicalCacheKey]
+  key --> lookup[StorageGet]
+
+  lookup -->|hitFresh| serveCached[ReturnCachedResponse]
+  lookup -->|hitStaleWithValidators| revalidate[ConditionalUpstreamRevalidate]
+  lookup -->|missOrNotFound| upstreamFetch[UpstreamRoundTrip]
+  lookup -->|storageError| upstreamBypass[BypassAsStorageError]
+
+  revalidate -->|304| refreshMeta[StorageSetMetadataOnly]
+  revalidate -->|not304| upstreamFetch
+
+  upstreamFetch --> cacheable{ResponseCacheable}
+  cacheable -->|no| passThrough[ReturnUpstreamResponse]
+  cacheable -->|yes| storeFull[StorageSetMetadataAndBody]
+  storeFull --> reopenStored[StorageGetStoredBodyAndMeta]
+
+  refreshMeta --> responseOut[ReturnResponse]
+  serveCached --> responseOut
+  passThrough --> responseOut
+  bypass --> responseOut
+  upstreamBypass --> responseOut
+  reopenStored --> responseOut
+
+  subgraph storageBackends [StorageBackends]
+    memoryStore[MemoryStorage]
+    fileStore[FileStorage]
+    memoryStore --> memoryNotes[InMemoryEntryRefAndBodyBytes]
+    memoryNotes --> memoryPrune[PruneByMaxAgeAndMaxEntries]
+    fileStore --> fileName[FilenameSha256DotVnDotCache]
+    fileStore --> fileFormat[MetadataJsonNewlineBodyBytes]
+    fileStore --> fileRead[BodyFromSectionReaderOffsetToEOF]
+    fileStore --> fileVersion[GetIgnoresWrongVersionFiles]
+    fileStore --> filePrune[PrunePurgesWrongVersionAndExpired]
+  end
+
+  lookup -. uses .-> storageBackends
+  storeFull -. uses .-> storageBackends
+  refreshMeta -. uses .-> storageBackends

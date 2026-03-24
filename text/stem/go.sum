@@ -1,6 +1,2 @@
-github.com/chewxy/math32 v1.11.1 h1:b7PGHlp8KjylDoU8RrcEsRuGZhJuz8haxnKfuMMRqy8=
-github.com/chewxy/math32 v1.11.1/go.mod h1:dOB2rcuFrCn6UHrze36WSLVPKtzPMRAQvBvUwkSsLqs=
 github.com/kljensen/snowball v0.10.0 h1:8qgaBLraSuUVHtGH5tJ+VdGpqgfcaE2WkswL/C3nVhY=
 github.com/kljensen/snowball v0.10.0/go.mod h1:bJcxtur1W5Qw4fVj9tk5W88zyRcGQQjqahFErdcDTHk=
-github.com/lrstanley/x/text/corpse v0.0.0-20260322085623-a72b861b32b9 h1:4R91g3IWrok4NdSoRwbuGcetNnVZtrzl18zgcndqGDw=
-github.com/lrstanley/x/text/corpse v0.0.0-20260322085623-a72b861b32b9/go.mod h1:21FQhADEbNI7rSh/7mcHke+ScOiIzRJzMYmilcMBscU=

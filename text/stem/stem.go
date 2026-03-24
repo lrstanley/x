@@ -8,13 +8,12 @@ import (
 	"iter"
 
 	"github.com/kljensen/snowball/english"
-	"github.com/lrstanley/x/text/corpse"
 )
 
 // NewTermFilter returns a term filter that stems the terms using the provided
 // language. This is english only. Take a look at the source if you'd like to use
 // a different language from the snowball package.
-func NewTermFilter() corpse.TermFilter {
+func NewTermFilter() func(iter.Seq[string]) iter.Seq[string] {
 	return func(seq iter.Seq[string]) iter.Seq[string] {
 		return func(yield func(string) bool) {
 			for term := range seq {
