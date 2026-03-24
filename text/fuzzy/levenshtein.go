@@ -63,6 +63,9 @@ func ShortestDistance(match string, values []string) string {
 	bestDist := ComputeDistance(match, best)
 	for i := 1; i < len(values); i++ {
 		d := ComputeDistance(match, values[i])
+		if d == 0 {
+			return values[i]
+		}
 		if d < bestDist {
 			bestDist = d
 			best = values[i]
