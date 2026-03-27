@@ -2,6 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package httpcretry (http client retry) provides a [net/http.RoundTripper] that
+// retries failed requests with configurable policies, backoff, and optional
+// logging hooks.
 package httpcretry
 
 import (

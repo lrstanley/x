@@ -2,6 +2,8 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package tail follows a file as it grows, yielding new content (for example
+// lines) when data is appended, using filesystem notifications and retries.
 package tail
 
 import (

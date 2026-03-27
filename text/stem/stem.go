@@ -2,6 +2,8 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package stem provides English word stemming as a term filter for text pipelines
+// built on iterators of strings.
 package stem
 
 import (

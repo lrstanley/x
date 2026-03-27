@@ -2,6 +2,8 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package cache provides a concurrent-safe generic cache with pluggable eviction
+// policies, optional entry expiration, and a background janitor for cleanup.
 package cache
 
 import (

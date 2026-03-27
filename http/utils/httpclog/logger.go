@@ -2,6 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package httpclog (http client log) provides a [net/http.RoundTripper] that logs
+// structured metadata for outbound HTTP requests and responses, with optional full
+// tracing.
 package httpclog
 
 import (

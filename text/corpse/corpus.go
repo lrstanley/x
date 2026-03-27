@@ -2,6 +2,8 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package corpse builds a document corpus with global term frequencies and
+// document counts for text similarity and vector-style operations over token streams.
 package corpse
 
 import (

@@ -2,6 +2,8 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package pool wraps [sync.Pool] with generics and an optional prepare step run
+// on values before [Pool.Get] returns them.
 package pool
 
 import "sync"

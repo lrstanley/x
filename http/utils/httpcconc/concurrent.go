@@ -2,6 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package httpcconc (http client concurrency) provides a [net/http.RoundTripper]
+// that caps how many HTTP requests run at once; additional callers block until a
+// slot is free.
 package httpcconc
 
 import "net/http"
