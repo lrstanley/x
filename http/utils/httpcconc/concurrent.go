@@ -7,7 +7,10 @@
 // slot is free.
 package httpcconc
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 type transport struct {
 	base      http.RoundTripper // The underlying [net/http.RoundTripper] to delegate requests to.
@@ -30,6 +33,15 @@ func NewTransport(maxConcurrent int, baseTransport http.RoundTripper) http.Round
 	return &transport{
 		base:      baseTransport,
 		semaphore: make(chan struct{}, maxConcurrent),
+	}
+}
+
+// NewClient returns an [http.Client] whose transport limits concurrent in-flight
+// requests. See [NewTransport]. The default timeout is 60 seconds.
+func NewClient(maxConcurrent int, baseTransport http.RoundTripper) *http.Client {
+	return &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: NewTransport(maxConcurrent, baseTransport),
 	}
 }
 
