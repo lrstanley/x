@@ -146,6 +146,7 @@ tasks:
     cmds:
       - go get -u ./... && go mod tidy
       - go get -u -t ./... && go mod tidy
+      - go work sync
   up:all:
     desc: upgrade dependencies for all packages
     run: once
@@ -157,7 +158,7 @@ tasks:
           cd {{ .PKG }}
           go get -u ./... && go mod tidy
           go get -u -t ./... && go mod tidy
-
+      - go work sync
   # debug-related tasks.
   profile:cpu: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/profile?seconds=15'
   profile:heap: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/heap'
