@@ -112,3 +112,9 @@ func (c *Policy[K, V]) Delete(key K) {
 func (c *Policy[K, V]) Len() int {
 	return c.queue.Len()
 }
+
+// Clear removes all entries from the cache.
+func (c *Policy[K, V]) Clear() {
+	clear(c.entries)
+	c.queue = newPriorityQueue[K, V](c.capacity)
+}

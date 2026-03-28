@@ -113,6 +113,12 @@ func (c *Policy[K, V]) Delete(key K) {
 	}
 }
 
+// Clear removes all entries from the cache.
+func (c *Policy[K, V]) Clear() {
+	clear(c.entries)
+	c.queue.Init()
+}
+
 func (c *Policy[K, V]) deleteOldest() {
 	c.remove(c.queue.Back())
 }

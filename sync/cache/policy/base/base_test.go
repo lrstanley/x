@@ -84,3 +84,19 @@ func TestKeys(t *testing.T) {
 		t.Errorf("want number of keys %d, but got %d", len(cache.Keys()), cache.Len())
 	}
 }
+
+func TestClear(t *testing.T) {
+	cache := New[string, int]()
+	cache.Set("foo", 1)
+	cache.Set("bar", 2)
+	cache.Clear()
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("invalid length after clear: %d", got)
+	}
+	if _, ok := cache.Get("foo"); ok {
+		t.Fatalf("expected foo to be gone after clear")
+	}
+	if _, ok := cache.Get("bar"); ok {
+		t.Fatalf("expected bar to be gone after clear")
+	}
+}

@@ -237,6 +237,43 @@ func TestDeleteExpiredConcurrent(t *testing.T) {
 	})
 }
 
+func TestClear(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy Option[string, int]
+	}{
+		{name: "base", policy: nil},
+		{name: "lru", policy: WithLRU[string, int](lru.WithCapacity(10))},
+		{name: "mru", policy: WithMRU[string, int](mru.WithCapacity(10))},
+		{name: "fifo", policy: WithFIFO[string, int](fifo.WithCapacity(10))},
+		{name: "lfu", policy: WithLFU[string, int](lfu.WithCapacity(10))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var c *Cache[string, int]
+			if tc.policy == nil {
+				c = New[string, int](ctx)
+			} else {
+				c = New(ctx, tc.policy)
+			}
+			c.Set("a", 1, WithExpiration(time.Hour))
+			c.Set("b", 2, WithExpiration(2*time.Hour))
+			c.Clear()
+			if c.Len() != 0 {
+				t.Fatalf("want len 0, got %d", c.Len())
+			}
+			if _, ok := c.Get("a"); ok {
+				t.Fatal("want miss for a")
+			}
+			if _, ok := c.Get("b"); ok {
+				t.Fatal("want miss for b")
+			}
+		})
+	}
+}
+
 func TestConcurrent(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -108,6 +108,12 @@ func (c *Policy[K, V]) Len() int {
 	return c.queue.Len()
 }
 
+// Clear removes all entries from the cache.
+func (c *Policy[K, V]) Clear() {
+	clear(c.entries)
+	c.queue.Init()
+}
+
 func (c *Policy[K, V]) dequeue() *list.Element {
 	e := c.queue.Front()
 	c.queue.Remove(e)

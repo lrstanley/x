@@ -28,6 +28,8 @@ type Interface[K comparable, V any] interface {
 	Keys() []K
 	// Delete deletes the entry with the provided key from the cache.
 	Delete(key K)
+	// Clear clears the cache.
+	Clear()
 	// Len returns the number of entries in the cache.
 	Len() int
 }
@@ -112,6 +114,14 @@ func (c *Cache[K, V]) GetOrSet(key K, val V, opts ...EntryOption) (actual V, loa
 	return e.Value, true
 }
 
+// Delete deletes the entry with the specified key from the cache.
+func (c *Cache[K, V]) Delete(key K) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache.Delete(key)
+	c.expManager.remove(key)
+}
+
 // DeleteExpired deletes all expired entries from the cache.
 func (c *Cache[K, V]) DeleteExpired() {
 	c.mu.Lock()
@@ -132,6 +142,14 @@ func (c *Cache[K, V]) DeleteExpired() {
 	}
 }
 
+// Clear clears the cache.
+func (c *Cache[K, V]) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache.Clear()
+	c.expManager.clear()
+}
+
 // Set sets a value in the cache with the specified key, replacing any existing
 // value.
 func (c *Cache[K, V]) Set(key K, val V, opts ...EntryOption) {
@@ -149,14 +167,6 @@ func (c *Cache[K, V]) Keys() []K {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.cache.Keys()
-}
-
-// Delete deletes the entry with the specified key from the cache.
-func (c *Cache[K, V]) Delete(key K) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cache.Delete(key)
-	c.expManager.remove(key)
 }
 
 // Len returns the number of entries currently in the cache.

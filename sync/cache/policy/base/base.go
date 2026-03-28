@@ -68,3 +68,8 @@ func (c *Policy[K, V]) Delete(key K) {
 func (c *Policy[K, V]) Len() int {
 	return len(c.entries)
 }
+
+// Clear removes all entries from the cache.
+func (c *Policy[K, V]) Clear() {
+	clear(c.entries)
+}

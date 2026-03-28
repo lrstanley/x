@@ -61,6 +61,14 @@ func (m *expirationManager[K]) remove(key K) {
 	}
 }
 
+// clear clears the expiration manager.
+func (m *expirationManager[K]) clear() {
+	clear(m.queue)
+	m.queue = m.queue[:0]
+	heap.Init(&m.queue)
+	clear(m.mapping)
+}
+
 type expirationKey[K comparable] struct {
 	key        K
 	expiration time.Time

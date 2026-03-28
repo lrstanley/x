@@ -62,3 +62,19 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("invalid get after deleted %v", ok)
 	}
 }
+
+func TestClear(t *testing.T) {
+	cache := New[string, int]()
+	cache.Set("foo", 1)
+	cache.Set("bar", 2)
+	cache.Clear()
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("invalid length after clear: %d", got)
+	}
+	if _, ok := cache.Get("foo"); ok {
+		t.Fatalf("expected foo to be gone after clear")
+	}
+	if _, ok := cache.Get("bar"); ok {
+		t.Fatalf("expected bar to be gone after clear")
+	}
+}
