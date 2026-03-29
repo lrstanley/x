@@ -44,8 +44,9 @@ var ( // Ensure that all of our policies implement [Interface].
 
 // Cache is a concurrent-safe generic cache implementation.
 type Cache[K comparable, V any] struct {
-	janitorInterval time.Duration
-	janitor         *janitor
+	janitorInterval  time.Duration
+	janitor          *janitor
+	defaultEntryOpts []EntryOption
 
 	mu         sync.Mutex
 	cache      Interface[K, *Entry[K, V]]
@@ -103,7 +104,7 @@ func (c *Cache[K, V]) GetOrSet(key K, val V, opts ...EntryOption) (actual V, loa
 	e, ok := c.cache.Get(key)
 
 	if !ok || e.Expired() {
-		e = newEntry(key, val, opts...)
+		e = newEntry(key, val, append(c.defaultEntryOpts, opts...)...)
 		if !e.Expiration.IsZero() {
 			c.expManager.update(key, e.Expiration)
 		}
@@ -155,7 +156,7 @@ func (c *Cache[K, V]) Clear() {
 func (c *Cache[K, V]) Set(key K, val V, opts ...EntryOption) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e := newEntry(key, val, opts...)
+	e := newEntry(key, val, append(c.defaultEntryOpts, opts...)...)
 	if !e.Expiration.IsZero() { // Entry doesn't have expiration.
 		c.expManager.update(key, e.Expiration)
 	}
@@ -223,5 +224,14 @@ func WithJanitorInterval[K comparable, V any](d time.Duration) Option[K, V] {
 	}
 	return func(c *Cache[K, V]) {
 		c.janitorInterval = d
+	}
+}
+
+// WithDefaultEntryOptions sets default [EntryOption]s applied to every new entry
+// created via [Cache.Set] or [Cache.GetOrSet]. Per-call entry options are applied
+// after these defaults and will override them.
+func WithDefaultEntryOptions[K comparable, V any](opts ...EntryOption) Option[K, V] {
+	return func(c *Cache[K, V]) {
+		c.defaultEntryOpts = opts
 	}
 }

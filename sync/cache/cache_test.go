@@ -274,6 +274,27 @@ func TestClear(t *testing.T) {
 	}
 }
 
+func TestWithDefaultEntryOptions(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		c := New(ctx, WithDefaultEntryOptions[string, int](WithExpiration(10*time.Millisecond)))
+
+		c.Set("a", 1)
+		if _, ok := c.Get("a"); !ok {
+			t.Fatal("want hit for a before expiry")
+		}
+
+		time.Sleep(20 * time.Millisecond)
+		synctest.Wait()
+
+		if _, ok := c.Get("a"); ok {
+			t.Fatal("want miss for a after default expiration elapsed")
+		}
+	})
+}
+
 func TestConcurrent(t *testing.T) {
 	cases := []struct {
 		name   string
