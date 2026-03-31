@@ -3,8 +3,9 @@
 // the LICENSE file.
 
 // Package sync is the module root for concurrency helpers: generic caches,
-// semaphores, rate limiters, and a typed pool built on the standard library's
-// sync.Pool. Import subpackages for APIs.
+// semaphores, rate limiters, a typed pool built on the standard library's
+// sync.Pool, and a scheduler for concurrent jobs using cron-style scheduling
+// and crontab parsing. Import subpackages for APIs.
 //
 // This package exists only for module documentation.
 package sync

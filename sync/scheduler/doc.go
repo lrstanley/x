@@ -4,8 +4,4 @@
 
 // Package scheduler runs concurrent jobs with OS signal-aware cancellation,
 // including cron-style scheduling and parsing of traditional crontab specs.
-//
-// Deprecated: Use the [github.com/lrstanley/x/sync/scheduler] package instead,
-// which is included in [github.com/lrstanley/x/sync], and includes various other
-// concurrency primitives in addition to the same scheduler sub-package.
 package scheduler
