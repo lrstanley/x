@@ -11,11 +11,17 @@ import (
 )
 
 const (
-	defaultWidth         = 80
-	defaultHeight        = 24
+	// DefaultTermWidth is the default terminal width used by program harnesses.
+	DefaultTermWidth = 80
+	// DefaultTermHeight is the default terminal height used by program harnesses.
+	DefaultTermHeight = 24
+)
+
+const (
+	defaultWidth         = DefaultTermWidth
+	defaultHeight        = DefaultTermHeight
 	defaultTimeout       = 3 * time.Second
 	defaultCheckInterval = 10 * time.Millisecond
-	defaultCommandLimit  = 100
 )
 
 type options struct {
@@ -24,7 +30,6 @@ type options struct {
 	timeout       time.Duration
 	checkInterval time.Duration
 	programOpts   []tea.ProgramOption
-	commandLimit  int
 }
 
 func defaultOptions() options {
@@ -33,7 +38,6 @@ func defaultOptions() options {
 		height:        defaultHeight,
 		timeout:       defaultTimeout,
 		checkInterval: defaultCheckInterval,
-		commandLimit:  defaultCommandLimit,
 	}
 }
 
@@ -49,9 +53,6 @@ func collectOptions(opts ...Option) options {
 	}
 	if cfg.timeout <= 0 {
 		cfg.timeout = defaultTimeout
-	}
-	if cfg.commandLimit <= 0 {
-		cfg.commandLimit = defaultCommandLimit
 	}
 	return cfg
 }
@@ -90,13 +91,5 @@ func WithFinalTimeout(timeout time.Duration) Option {
 func WithCheckInterval(interval time.Duration) Option {
 	return func(cfg *options) {
 		cfg.checkInterval = interval
-	}
-}
-
-// WithCommandLimit configures the maximum number of command messages processed
-// by generic view models from a single Send call.
-func WithCommandLimit(limit int) Option {
-	return func(cfg *options) {
-		cfg.commandLimit = limit
 	}
 }

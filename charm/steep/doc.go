@@ -15,5 +15,5 @@
 //	tm.WaitFinished(t)
 //
 // Use NewViewModel to drive smaller components that expose View() string and an
-// Update method without starting a full Bubble Tea program.
+// Update method through the asynchronous Bubble Tea runtime.
 package steep

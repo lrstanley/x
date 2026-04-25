@@ -83,3 +83,24 @@ func TestModelHarness(t *testing.T) {
 		t.Fatalf("final model text = %q, want done", finalModel.text)
 	}
 }
+
+func TestModelRequirePlainSnapshotUsesCurrentOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("UPDATE_SNAPSHOTS", "true")
+
+	tm := NewModel(t, rootTestModel{text: "\x1b[31mred\x1b[0m"})
+	t.Cleanup(func() {
+		if err := tm.Quit(); err != nil {
+			t.Fatalf("quit failed: %v", err)
+		}
+		tm.WaitFinished(t, WithFinalTimeout(time.Second))
+	})
+
+	tm.WaitContainsString(t, "size=80x24", "red")
+	tm.RequirePlainSnapshot(t)
+
+	got := readSteepSnapshot(t, "TestModelRequirePlainSnapshotUsesCurrentOutput.snap")
+	if got != "size=80x24\ntext=red" {
+		t.Fatalf("snapshot = %q, want current plain output", got)
+	}
+}
