@@ -131,7 +131,7 @@ func FuzzTruncPath(f *testing.F) {
 		f.Add(tt.input, tt.length)
 	}
 
-	f.Fuzz(func(t *testing.T, input string, length int) {
+	f.Fuzz(func(_ *testing.T, input string, length int) {
 		_ = TruncPath(input, length)
 		// TODO: https://github.com/charmbracelet/x/issues/541
 		// w := ansi.StringWidth(s)

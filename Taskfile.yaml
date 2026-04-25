@@ -4,7 +4,7 @@ vars:
   PACKAGES:
     - charm/formatter
     - charm/layout
-    # - charm/testui
+    - charm/steep
     - http/utils
     - logging/handlers
     - pid

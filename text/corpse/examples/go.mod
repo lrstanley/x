@@ -22,7 +22,7 @@ require (
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/gkampitakis/ciinfo v0.3.3 // indirect
 	github.com/gkampitakis/go-diff v1.3.2 // indirect
-	github.com/goccy/go-yaml v1.19.0 // indirect
+	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/google/renameio v1.0.1 // indirect
 	github.com/kljensen/snowball v0.10.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -37,5 +37,5 @@ require (
 	github.com/viterin/partial v1.1.0 // indirect
 	github.com/viterin/vek v0.4.2 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
-	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
 )
