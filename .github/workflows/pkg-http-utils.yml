@@ -4,11 +4,19 @@ name: pkg-http-utils
 on:
   pull_request:
     branches: [master]
-    paths: ["http/utils/**", ".github/workflows/pkg-test-http-utils.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "http/utils/**"
+      - ".github/workflows/pkg-test-http-utils.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["http/utils/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "http/utils/**"
+      - ".github/workflows/pkg-test-http-utils.yml"
   workflow_dispatch: {}
 
 jobs:

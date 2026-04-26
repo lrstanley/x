@@ -4,11 +4,19 @@ name: pkg-text-fuzzy
 on:
   pull_request:
     branches: [master]
-    paths: ["text/fuzzy/**", ".github/workflows/pkg-test-text-fuzzy.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "text/fuzzy/**"
+      - ".github/workflows/pkg-test-text-fuzzy.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["text/fuzzy/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "text/fuzzy/**"
+      - ".github/workflows/pkg-test-text-fuzzy.yml"
   workflow_dispatch: {}
 
 jobs:

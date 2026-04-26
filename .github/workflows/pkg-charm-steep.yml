@@ -4,11 +4,19 @@ name: pkg-charm-steep
 on:
   pull_request:
     branches: [master]
-    paths: ["charm/steep/**", ".github/workflows/pkg-test-charm-steep.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "charm/steep/**"
+      - ".github/workflows/pkg-test-charm-steep.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["charm/steep/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "charm/steep/**"
+      - ".github/workflows/pkg-test-charm-steep.yml"
   workflow_dispatch: {}
 
 jobs:

@@ -12,11 +12,19 @@ name: pkg-${SLUG}
 on:
   pull_request:
     branches: [master]
-    paths: ["${PKG}/**", ".github/workflows/pkg-test-${SLUG}.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "${PKG}/**"
+      - ".github/workflows/pkg-test-${SLUG}.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["${PKG}/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "${PKG}/**"
+      - ".github/workflows/pkg-test-${SLUG}.yml"
   workflow_dispatch: {}
 
 jobs:

@@ -4,11 +4,19 @@ name: pkg-logging-handlers
 on:
   pull_request:
     branches: [master]
-    paths: ["logging/handlers/**", ".github/workflows/pkg-test-logging-handlers.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "logging/handlers/**"
+      - ".github/workflows/pkg-test-logging-handlers.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["logging/handlers/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "logging/handlers/**"
+      - ".github/workflows/pkg-test-logging-handlers.yml"
   workflow_dispatch: {}
 
 jobs:

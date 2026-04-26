@@ -4,11 +4,19 @@ name: pkg-text-corpse
 on:
   pull_request:
     branches: [master]
-    paths: ["text/corpse/**", ".github/workflows/pkg-test-text-corpse.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "text/corpse/**"
+      - ".github/workflows/pkg-test-text-corpse.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["text/corpse/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "text/corpse/**"
+      - ".github/workflows/pkg-test-text-corpse.yml"
   workflow_dispatch: {}
 
 jobs:

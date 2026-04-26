@@ -4,11 +4,19 @@ name: pkg-text-tail
 on:
   pull_request:
     branches: [master]
-    paths: ["text/tail/**", ".github/workflows/pkg-test-text-tail.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "text/tail/**"
+      - ".github/workflows/pkg-test-text-tail.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["text/tail/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "text/tail/**"
+      - ".github/workflows/pkg-test-text-tail.yml"
   workflow_dispatch: {}
 
 jobs:

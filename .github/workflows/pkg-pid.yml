@@ -4,11 +4,19 @@ name: pkg-pid
 on:
   pull_request:
     branches: [master]
-    paths: ["pid/**", ".github/workflows/pkg-test-pid.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "pid/**"
+      - ".github/workflows/pkg-test-pid.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["pid/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "pid/**"
+      - ".github/workflows/pkg-test-pid.yml"
   workflow_dispatch: {}
 
 jobs:

@@ -4,11 +4,19 @@ name: pkg-sync
 on:
   pull_request:
     branches: [master]
-    paths: ["sync/**", ".github/workflows/pkg-test-sync.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "sync/**"
+      - ".github/workflows/pkg-test-sync.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["sync/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "sync/**"
+      - ".github/workflows/pkg-test-sync.yml"
   workflow_dispatch: {}
 
 jobs:

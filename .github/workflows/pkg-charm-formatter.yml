@@ -4,11 +4,19 @@ name: pkg-charm-formatter
 on:
   pull_request:
     branches: [master]
-    paths: ["charm/formatter/**", ".github/workflows/pkg-test-charm-formatter.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "charm/formatter/**"
+      - ".github/workflows/pkg-test-charm-formatter.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["charm/formatter/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "charm/formatter/**"
+      - ".github/workflows/pkg-test-charm-formatter.yml"
   workflow_dispatch: {}
 
 jobs:

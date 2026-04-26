@@ -4,11 +4,19 @@ name: pkg-charm-layout
 on:
   pull_request:
     branches: [master]
-    paths: ["charm/layout/**", ".github/workflows/pkg-test-charm-layout.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "charm/layout/**"
+      - ".github/workflows/pkg-test-charm-layout.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["charm/layout/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "charm/layout/**"
+      - ".github/workflows/pkg-test-charm-layout.yml"
   workflow_dispatch: {}
 
 jobs:

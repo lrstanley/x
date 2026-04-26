@@ -4,11 +4,19 @@ name: pkg-scheduler
 on:
   pull_request:
     branches: [master]
-    paths: ["scheduler/**", ".github/workflows/pkg-test-scheduler.yml"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "scheduler/**"
+      - ".github/workflows/pkg-test-scheduler.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
-    paths-ignore: ["scheduler/**/*.md"]
+    paths:
+      - "Taskfile.yaml"
+      - "go.work*"
+      - "scheduler/**"
+      - ".github/workflows/pkg-test-scheduler.yml"
   workflow_dispatch: {}
 
 jobs:
