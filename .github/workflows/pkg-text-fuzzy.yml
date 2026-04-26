@@ -8,7 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "text/fuzzy/**"
-      - ".github/workflows/pkg-test-text-fuzzy.yml"
+      - ".github/workflows/pkg-text-fuzzy.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "text/fuzzy/**"
-      - ".github/workflows/pkg-test-text-fuzzy.yml"
+      - ".github/workflows/pkg-text-fuzzy.yml"
   workflow_dispatch: {}
 
 jobs:

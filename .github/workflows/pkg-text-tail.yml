@@ -8,7 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "text/tail/**"
-      - ".github/workflows/pkg-test-text-tail.yml"
+      - ".github/workflows/pkg-text-tail.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "text/tail/**"
-      - ".github/workflows/pkg-test-text-tail.yml"
+      - ".github/workflows/pkg-text-tail.yml"
   workflow_dispatch: {}
 
 jobs:

@@ -8,7 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "logging/handlers/**"
-      - ".github/workflows/pkg-test-logging-handlers.yml"
+      - ".github/workflows/pkg-logging-handlers.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "logging/handlers/**"
-      - ".github/workflows/pkg-test-logging-handlers.yml"
+      - ".github/workflows/pkg-logging-handlers.yml"
   workflow_dispatch: {}
 
 jobs:

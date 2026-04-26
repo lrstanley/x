@@ -8,7 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "text/lemm/**"
-      - ".github/workflows/pkg-test-text-lemm.yml"
+      - ".github/workflows/pkg-text-lemm.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "text/lemm/**"
-      - ".github/workflows/pkg-test-text-lemm.yml"
+      - ".github/workflows/pkg-text-lemm.yml"
   workflow_dispatch: {}
 
 jobs:

@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "${PKG}/**"
-      - ".github/workflows/pkg-test-${SLUG}.yml"
+      - ".github/workflows/pkg-${SLUG}.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -24,7 +24,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "${PKG}/**"
-      - ".github/workflows/pkg-test-${SLUG}.yml"
+      - ".github/workflows/pkg-${SLUG}.yml"
   workflow_dispatch: {}
 
 jobs:

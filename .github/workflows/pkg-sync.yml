@@ -8,7 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "sync/**"
-      - ".github/workflows/pkg-test-sync.yml"
+      - ".github/workflows/pkg-sync.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "sync/**"
-      - ".github/workflows/pkg-test-sync.yml"
+      - ".github/workflows/pkg-sync.yml"
   workflow_dispatch: {}
 
 jobs:

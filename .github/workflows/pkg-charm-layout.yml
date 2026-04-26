@@ -8,7 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "charm/layout/**"
-      - ".github/workflows/pkg-test-charm-layout.yml"
+      - ".github/workflows/pkg-charm-layout.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
@@ -16,7 +16,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "charm/layout/**"
-      - ".github/workflows/pkg-test-charm-layout.yml"
+      - ".github/workflows/pkg-charm-layout.yml"
   workflow_dispatch: {}
 
 jobs:
