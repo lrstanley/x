@@ -15,8 +15,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// MessageLog exposes messages observed by a test harness.
-type MessageLog interface {
+// MessageCollector exposes messages observed by a test harness.
+type MessageCollector interface {
 	Messages() []tea.Msg
 }
 
@@ -39,7 +39,7 @@ func MessagesOfType[T tea.Msg](messages []tea.Msg) []T {
 
 // WaitForMessage waits until at least one message with the same concrete type
 // as T has been observed, then returns the first match.
-func WaitForMessage[T tea.Msg](tb testing.TB, log MessageLog, opts ...Option) T {
+func WaitForMessage[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 
 	return WaitForMessages[T](tb, log, opts...)[0]
@@ -47,7 +47,7 @@ func WaitForMessage[T tea.Msg](tb testing.TB, log MessageLog, opts ...Option) T 
 
 // WaitForMessages waits until at least one message with the same concrete type
 // as T has been observed, then returns all current matches.
-func WaitForMessages[T tea.Msg](tb testing.TB, log MessageLog, opts ...Option) []T {
+func WaitForMessages[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) []T {
 	tb.Helper()
 
 	return waitForMessages(tb, log, func(T) bool { return true }, opts...)
@@ -55,7 +55,7 @@ func WaitForMessages[T tea.Msg](tb testing.TB, log MessageLog, opts ...Option) [
 
 // WaitForMessageWhere waits until a message with the same concrete type as T
 // has been observed and match returns true.
-func WaitForMessageWhere[T tea.Msg](tb testing.TB, log MessageLog, match func(T) bool, opts ...Option) T {
+func WaitForMessageWhere[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) T {
 	tb.Helper()
 
 	if match == nil {
@@ -64,7 +64,7 @@ func WaitForMessageWhere[T tea.Msg](tb testing.TB, log MessageLog, match func(T)
 	return waitForMessages(tb, log, match, opts...)[0]
 }
 
-func waitForMessages[T tea.Msg](tb testing.TB, log MessageLog, match func(T) bool, opts ...Option) []T {
+func waitForMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) []T {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)

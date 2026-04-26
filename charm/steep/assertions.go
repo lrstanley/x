@@ -13,141 +13,182 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-type outputter interface {
-	outputBytes() []byte
-}
-
 // WaitFor waits until condition returns true for the latest view output.
-func WaitFor(tb testing.TB, model outputter, condition func(bts []byte) bool, opts ...Option) []byte {
+func WaitFor[T ~string | ~[]byte](tb testing.TB, model View, condition func(view T) bool, opts ...Option) T {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
 
 	for {
-		out := model.outputBytes()
+		out := T(model.View())
 		if condition(out) {
 			return out
 		}
 		if time.Now().After(deadline) {
-			tb.Fatalf("timeout waiting for condition\nlast output:\n%s", string(out))
+			tb.Fatalf("timeout waiting for condition\nlast output:\n%s", out)
 		}
 		time.Sleep(cfg.checkInterval)
 	}
 }
 
-// WaitContains waits until output contains all substrings.
-func WaitContains(tb testing.TB, model outputter, substr ...[]byte) []byte {
+// WaitContainsBytes waits until output contains contents.
+func WaitContainsBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
 	tb.Helper()
 	return WaitFor(tb, model, func(bts []byte) bool {
-		for _, sub := range substr {
-			if !bytes.Contains(bts, sub) {
+		return bytes.Contains(bts, contents)
+	}, opts...)
+}
+
+// WaitContainsString waits until output contains contents.
+func WaitContainsString(tb testing.TB, model View, contents string, opts ...Option) string {
+	tb.Helper()
+	return WaitFor(tb, model, func(str string) bool {
+		return strings.Contains(str, contents)
+	}, opts...)
+}
+
+// WaitContainsStrings waits until output contains all contents.
+func WaitContainsStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
+	tb.Helper()
+	return WaitFor(tb, model, func(str string) bool {
+		for _, content := range contents {
+			if !strings.Contains(str, content) {
 				return false
 			}
 		}
 		return true
-	})
+	}, opts...)
 }
 
-// WaitContainsString waits until output contains all substrings.
-func WaitContainsString(tb testing.TB, model outputter, substr ...string) []byte {
-	tb.Helper()
-	return WaitContains(tb, model, stringsToBytes(substr)...)
-}
-
-// WaitNotContains waits until output contains none of the substrings.
-func WaitNotContains(tb testing.TB, model outputter, substr ...[]byte) []byte {
+// WaitNotContainsBytes waits until output contains none of the contents.
+func WaitNotContainsBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
 	tb.Helper()
 	return WaitFor(tb, model, func(bts []byte) bool {
-		for _, sub := range substr {
-			if bytes.Contains(bts, sub) {
+		return !bytes.Contains(bts, contents)
+	}, opts...)
+}
+
+// WaitNotContainsString waits until output contains none of the contents.
+func WaitNotContainsString(tb testing.TB, model View, contents string, opts ...Option) string {
+	tb.Helper()
+	return WaitFor(tb, model, func(str string) bool {
+		return !strings.Contains(str, contents)
+	}, opts...)
+}
+
+// WaitNotContainsStrings waits until output contains none of the contents.
+func WaitNotContainsStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
+	tb.Helper()
+	return WaitFor(tb, model, func(str string) bool {
+		for _, content := range contents {
+			if strings.Contains(str, content) {
 				return false
 			}
 		}
 		return true
-	})
+	}, opts...)
 }
 
-// WaitNotContainsString waits until output contains none of the substrings.
-func WaitNotContainsString(tb testing.TB, model outputter, substr ...string) []byte {
+// WaitSettleView waits until the rendered view string has not changed for the
+// configured settle timeout. It polls [View.View] and compares each result to
+// the previous sample. See also [WithSettleTimeout], [WithCheckInterval], and
+// [WithTimeout].
+func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 	tb.Helper()
-	return WaitNotContains(tb, model, stringsToBytes(substr)...)
+
+	cfg := collectOptions(opts...)
+	deadline := time.Now().Add(cfg.timeout)
+
+	prev := model.View()
+	lastChange := time.Now()
+
+	for {
+		v := model.View()
+		now := time.Now()
+		if v != prev {
+			prev = v
+			lastChange = now
+		}
+		quietFor := now.Sub(lastChange)
+
+		if quietFor >= cfg.settleTimeout {
+			return
+		}
+
+		remainingTimeout := deadline.Sub(now)
+		if remainingTimeout <= 0 {
+			tb.Fatalf(
+				"timeout waiting for View() to settle after %s; last observed view change was %s ago",
+				cfg.timeout,
+				quietFor,
+			)
+			return
+		}
+
+		time.Sleep(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
+	}
 }
 
-func expectStringContains(tb testing.TB, model outputter, substr ...string) {
+func expectStringContains(tb testing.TB, model View, substr ...string) {
 	tb.Helper()
 
-	out := model.outputBytes()
+	out := model.View()
 	for _, sub := range substr {
-		if !bytes.Contains(out, []byte(sub)) {
-			tb.Fatalf("expected output to contain %q\noutput:\n%s", sub, string(out))
+		if !strings.Contains(out, sub) {
+			tb.Fatalf("expected output to contain %q\noutput:\n%s", sub, out)
 		}
 	}
 }
 
-func expectStringNotContains(tb testing.TB, model outputter, substr ...string) {
+func expectStringNotContains(tb testing.TB, model View, substr ...string) {
 	tb.Helper()
 
-	out := model.outputBytes()
+	out := model.View()
 	for _, sub := range substr {
-		if bytes.Contains(out, []byte(sub)) {
-			tb.Fatalf("expected output not to contain %q\noutput:\n%s", sub, string(out))
+		if strings.Contains(out, sub) {
+			tb.Fatalf("expected output not to contain %q\noutput:\n%s", sub, out)
 		}
 	}
 }
 
-func stringsToBytes(values []string) [][]byte {
-	out := make([][]byte, 0, len(values))
-	for _, value := range values {
-		out = append(out, []byte(value))
-	}
-	return out
-}
-
-func expectHeight(tb testing.TB, model outputter, height int) {
+func expectHeight(tb testing.TB, model View, height int) {
 	tb.Helper()
 
-	got := dimensions(string(model.outputBytes()))
-	if got.height != height {
-		tb.Fatalf("expected output height %d, got %d", height, got.height)
+	_, goth := dimensions(model.View())
+	if goth != height {
+		tb.Fatalf("expected output height %d, got %d", height, goth)
 	}
 }
 
-func expectWidth(tb testing.TB, model outputter, width int) {
+func expectWidth(tb testing.TB, model View, width int) {
 	tb.Helper()
 
-	got := dimensions(string(model.outputBytes()))
-	if got.width != width {
-		tb.Fatalf("expected output width %d, got %d", width, got.width)
+	gotw, _ := dimensions(model.View())
+	if gotw != width {
+		tb.Fatalf("expected output width %d, got %d", width, gotw)
 	}
 }
 
-func expectDimensions(tb testing.TB, model outputter, width, height int) {
+func expectDimensions(tb testing.TB, model View, width, height int) {
 	tb.Helper()
 
-	got := dimensions(string(model.outputBytes()))
-	if got.width != width || got.height != height {
-		tb.Fatalf("expected output dimensions %dx%d, got %dx%d", width, height, got.width, got.height)
+	gotw, goth := dimensions(model.View())
+	if gotw != width || goth != height {
+		tb.Fatalf("expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
 	}
 }
 
-type outputDimensions struct {
-	width  int
-	height int
-}
-
-func dimensions(out string) outputDimensions {
+func dimensions(out string) (w, h int) {
 	if out == "" {
-		return outputDimensions{}
+		return 0, 0
 	}
 
-	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
-	width := 0
-	for _, line := range lines {
+	var width int
+	var height int
+	for line := range strings.SplitSeq(strings.TrimSuffix(out, "\n"), "\n") {
 		width = max(width, ansi.StringWidth(line))
+		height++
 	}
-	return outputDimensions{
-		width:  width,
-		height: len(lines),
-	}
+	return width, height
 }

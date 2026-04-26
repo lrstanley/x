@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -84,12 +83,7 @@ func normalize[T ~[]byte | ~string](got T, cfg options) []byte {
 		bts = transform(bts)
 	}
 
-	lines := strings.Split(string(bts), "\n")
-	for i, line := range lines {
-		quoted := strconv.Quote(line)
-		lines[i] = strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`)
-	}
-	return []byte(strings.Join(lines, "\n"))
+	return bts
 }
 
 // snapshotPath builds the testdata path for a test name and optional suffix.

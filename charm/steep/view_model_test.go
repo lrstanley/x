@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -47,7 +48,7 @@ func (m replacementViewModel) View() string {
 	return "text=" + m.text
 }
 
-func (m replacementViewModel) Update(msg tea.Msg) (any, tea.Cmd) {
+func (m replacementViewModel) Update(msg tea.Msg) (replacementViewModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		m.text += msg.Key().Text
@@ -59,15 +60,14 @@ func (m replacementViewModel) Update(msg tea.Msg) (any, tea.Cmd) {
 
 func TestViewModelMutableUpdate(t *testing.T) {
 	vm := NewViewModel(t, &mutableViewModel{})
-	cleanupTestModel(t, vm)
 
 	vm.Type("ab")
-	vm.WaitContains(t, []byte("text=ab"))
+	vm.WaitContainsBytes(t, []byte("text=ab"))
 	vm.ExpectStringContains(t, "text=ab")
 
 	vm.Send(appendMsg("?"))
 	vm.WaitContainsString(t, "text=ab?!")
-	vm.WaitNotContains(t, []byte("missing"))
+	vm.WaitNotContainsBytes(t, []byte("missing"))
 	vm.ExpectStringContains(t, "text=ab?!")
 	vm.ExpectStringNotContains(t, "missing")
 	vm.ExpectWidth(t, 9)
@@ -81,11 +81,10 @@ func TestViewModelMutableUpdate(t *testing.T) {
 
 func TestViewModelReplacementUpdate(t *testing.T) {
 	vm := NewViewModel(t, replacementViewModel{})
-	cleanupTestModel(t, vm)
 
 	vm.Type("go")
 	vm.Send(appendMsg("!"))
-	vm.WaitFor(t, func(bts []byte) bool {
+	vm.WaitForBytes(t, func(bts []byte) bool {
 		return strings.Contains(string(bts), "text=go!")
 	})
 }
@@ -110,7 +109,6 @@ func (m *sizeViewModel) Update(msg tea.Msg) tea.Cmd {
 func TestViewModelInitialSize(t *testing.T) {
 	t.Run("uses program default size", func(t *testing.T) {
 		vm := NewViewModel(t, &sizeViewModel{})
-		cleanupTestModel(t, vm)
 
 		vm.WaitContainsString(t, "size=80x24")
 		msg := WaitForMessage[tea.WindowSizeMsg](t, vm)
@@ -121,7 +119,6 @@ func TestViewModelInitialSize(t *testing.T) {
 
 	t.Run("explicit size", func(t *testing.T) {
 		vm := NewViewModel(t, &sizeViewModel{}, WithInitialTermSize(70, 10))
-		cleanupTestModel(t, vm)
 
 		vm.WaitContainsString(t, "size=70x10")
 		msg := WaitForMessage[tea.WindowSizeMsg](t, vm)
@@ -132,11 +129,11 @@ func TestViewModelInitialSize(t *testing.T) {
 
 	t.Run("explicit zero size", func(t *testing.T) {
 		vm := NewViewModel(t, &sizeViewModel{}, WithInitialTermSize(0, 0))
-		cleanupTestModel(t, vm)
 
 		vm.WaitContainsString(t, "size=0x0")
-		if len(vm.Messages()) != 0 {
-			t.Fatalf("messages = %d, want 0", len(vm.Messages()))
+		msg := WaitForMessage[tea.WindowSizeMsg](t, vm)
+		if msg.Width != 0 || msg.Height != 0 {
+			t.Fatalf("initial size = %dx%d, want 0x0", msg.Width, msg.Height)
 		}
 	})
 }
@@ -170,13 +167,135 @@ func (m *asyncViewModel) Update(msg tea.Msg) tea.Cmd {
 
 func TestViewModelAsyncBridge(t *testing.T) {
 	tm := NewViewModel(t, &asyncViewModel{}, WithInitialTermSize(33, 4))
-	cleanupTestModel(t, tm)
 
-	tm.WaitContainsString(t, "size=33x4", "text=ready")
+	tm.WaitContainsStrings(t, []string{"size=33x4", "text=ready"})
 
 	msg := WaitForMessage[appendMsg](t, tm)
 	if msg != "ready" {
 		t.Fatalf("message = %q, want ready", msg)
+	}
+}
+
+type settleMsg struct{}
+
+type settlingViewModel struct {
+	updates int
+}
+
+func (m *settlingViewModel) View() string {
+	return fmt.Sprintf("updates=%d", m.updates)
+}
+
+func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
+	if _, ok := msg.(settleMsg); !ok {
+		return nil
+	}
+
+	m.updates++
+	if m.updates >= 3 {
+		return nil
+	}
+
+	return func() tea.Msg {
+		time.Sleep(10 * time.Millisecond)
+		return settleMsg{}
+	}
+}
+
+func TestViewModelWaitSettled(t *testing.T) {
+	vm := NewViewModel(t, &settlingViewModel{})
+	vm.Send(settleMsg{})
+	vm.WaitContainsString(t, "updates=3")
+
+	vm.WaitSettleMessages(
+		t,
+		WithSettleTimeout(25*time.Millisecond),
+		WithTimeout(500*time.Millisecond),
+		WithCheckInterval(5*time.Millisecond),
+	)
+	out := vm.View()
+	if !strings.Contains(out, "updates=3") {
+		t.Fatalf("output = %q, want updates=3", out)
+	}
+
+	matches := MessagesOfType[settleMsg](vm.Messages())
+	if len(matches) != 3 {
+		t.Fatalf("settle messages = %d, want 3", len(matches))
+	}
+}
+
+type viewSettleTick struct{}
+
+type viewSettleStableModel struct {
+	ticks int
+}
+
+func (m *viewSettleStableModel) View() string {
+	return "stable"
+}
+
+func (m *viewSettleStableModel) Init() tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(2 * time.Millisecond)
+		return viewSettleTick{}
+	}
+}
+
+func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
+	if _, ok := msg.(viewSettleTick); !ok {
+		return nil
+	}
+	if m.ticks >= 15 {
+		return nil
+	}
+	m.ticks++
+	return func() tea.Msg {
+		time.Sleep(2 * time.Millisecond)
+		return viewSettleTick{}
+	}
+}
+
+func TestViewModelWaitSettledView(t *testing.T) {
+	vm := NewViewModel(t, &viewSettleStableModel{})
+	vm.WaitContainsString(t, "stable")
+
+	vm.WaitSettleView(
+		t,
+		WithSettleTimeout(25*time.Millisecond),
+		WithTimeout(2*time.Second),
+		WithCheckInterval(5*time.Millisecond),
+	)
+	if !strings.Contains(vm.View(), "stable") {
+		t.Fatalf("view = %q, want stable", vm.View())
+	}
+	if len(vm.Messages()) < 5 {
+		t.Fatalf("messages = %d, want at least 5 (view settled while msgs still arrived)", len(vm.Messages()))
+	}
+}
+
+func TestViewModelSendFilterReceivesOriginalMessage(t *testing.T) {
+	seen := make(chan struct{}, 1)
+	vm := NewViewModel(
+		t,
+		&mutableViewModel{},
+		WithProgramOptions(tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+			if _, ok := msg.(appendMsg); ok {
+				select {
+				case seen <- struct{}{}:
+				default:
+				}
+			}
+			return msg
+		})),
+	)
+
+	vm.Send(appendMsg("x"))
+	vm.WaitContainsString(t, "text=x")
+
+	select {
+	case <-seen:
+	default:
+		t.Fatalf("filter did not receive appendMsg")
 	}
 }
 
@@ -185,9 +304,8 @@ func TestViewModelRequirePlainSnapshot(t *testing.T) {
 	t.Setenv("UPDATE_SNAPSHOTS", "true")
 
 	vm := NewViewModel(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"})
-	cleanupTestModel(t, vm)
 	vm.WaitContainsString(t, "red")
-	vm.RequirePlainSnapshot(t)
+	vm.RequireSnapshotNoANSI(t)
 
 	got := readSteepSnapshot(t, "TestViewModelRequirePlainSnapshot.snap")
 	if got != "text=red" {
@@ -203,15 +321,4 @@ func readSteepSnapshot(t *testing.T, name string) string {
 		t.Fatalf("failed to read snapshot: %v", err)
 	}
 	return string(bts)
-}
-
-func cleanupTestModel(t *testing.T, tm *Model) {
-	t.Helper()
-
-	t.Cleanup(func() {
-		if err := tm.Quit(); err != nil {
-			t.Fatalf("quit failed: %v", err)
-		}
-		tm.WaitFinished(t)
-	})
 }

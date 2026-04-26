@@ -15,13 +15,14 @@ const (
 	DefaultTermWidth = 80
 	// DefaultTermHeight is the default terminal height used by program harnesses.
 	DefaultTermHeight = 24
-)
 
-const (
-	defaultWidth         = DefaultTermWidth
-	defaultHeight        = DefaultTermHeight
-	defaultTimeout       = 3 * time.Second
-	defaultCheckInterval = 10 * time.Millisecond
+	// DefaultTimeout is the default timeout used by program harnesses.
+	DefaultTimeout = 1 * time.Second
+	// DefaultCheckInterval is the default check interval used by program harnesses.
+	DefaultCheckInterval = 20 * time.Millisecond
+	// DefaultSettleTimeout is the default settle timeout used by program harnesses.
+	// This must be less than 80% of the timeout set by [WithTimeout].
+	DefaultSettleTimeout = 200 * time.Millisecond
 )
 
 type options struct {
@@ -29,15 +30,17 @@ type options struct {
 	height        int
 	timeout       time.Duration
 	checkInterval time.Duration
+	settleTimeout time.Duration
 	programOpts   []tea.ProgramOption
 }
 
 func defaultOptions() options {
 	return options{
-		width:         defaultWidth,
-		height:        defaultHeight,
-		timeout:       defaultTimeout,
-		checkInterval: defaultCheckInterval,
+		width:         DefaultTermWidth,
+		height:        DefaultTermHeight,
+		timeout:       DefaultTimeout,
+		checkInterval: DefaultCheckInterval,
+		settleTimeout: DefaultSettleTimeout,
 	}
 }
 
@@ -49,10 +52,16 @@ func collectOptions(opts ...Option) options {
 		}
 	}
 	if cfg.checkInterval <= 0 {
-		cfg.checkInterval = defaultCheckInterval
+		cfg.checkInterval = DefaultCheckInterval
 	}
 	if cfg.timeout <= 0 {
-		cfg.timeout = defaultTimeout
+		cfg.timeout = DefaultTimeout
+	}
+	if cfg.settleTimeout <= 0 {
+		cfg.settleTimeout = DefaultSettleTimeout
+	}
+	if maxSettleTimeout := cfg.timeout * 8 / 10; cfg.settleTimeout > maxSettleTimeout {
+		cfg.settleTimeout = maxSettleTimeout
 	}
 	return cfg
 }
@@ -82,14 +91,16 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithFinalTimeout configures how long final waits may run.
-func WithFinalTimeout(timeout time.Duration) Option {
-	return WithTimeout(timeout)
-}
-
 // WithCheckInterval configures how often waits and expectations are checked.
 func WithCheckInterval(interval time.Duration) Option {
 	return func(cfg *options) {
 		cfg.checkInterval = interval
+	}
+}
+
+// WithSettleTimeout configures how long to wait for the program to settle.
+func WithSettleTimeout(timeout time.Duration) Option {
+	return func(cfg *options) {
+		cfg.settleTimeout = timeout
 	}
 }

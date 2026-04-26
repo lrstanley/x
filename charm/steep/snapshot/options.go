@@ -40,6 +40,7 @@ func collectOptions(tb testing.TB, opts ...Option) options {
 
 	withNormalizeCRLF()(&cfg)
 	withStripSpinners()(&cfg)
+	withEscapeESC()(&cfg)
 
 	return cfg
 }
@@ -155,4 +156,14 @@ func withNormalizeCRLF() Option {
 
 func normalizeCRLF(bts []byte) []byte {
 	return bytes.ReplaceAll(bts, []byte("\r\n"), []byte("\n"))
+}
+
+// withEscapeESC writes ESC bytes as the four-character sequence \x1b so ANSI
+// sequences stay visible and diff-friendly in snapshot files.
+func withEscapeESC() Option {
+	return WithTransform(escapeESC)
+}
+
+func escapeESC(bts []byte) []byte {
+	return bytes.ReplaceAll(bts, []byte{0x1b}, []byte(`\x1b`))
 }

@@ -5,7 +5,9 @@
 package steep
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -22,9 +24,9 @@ type runResult struct {
 type Model struct {
 	program *tea.Program
 	wrapper *modelWrapper
-	output  *safeBuffer
+	output  *bytes.Buffer
 
-	resultMu sync.Mutex
+	resultMu sync.RWMutex
 	result   *runResult
 	done     chan runResult
 }
@@ -34,13 +36,13 @@ func NewModel(tb testing.TB, model tea.Model, opts ...Option) *Model {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := &safeBuffer{}
 	wrapper := newModelWrapper(model)
+	buf := &bytes.Buffer{}
 
 	programOpts := append([]tea.ProgramOption{}, cfg.programOpts...)
 	programOpts = append(programOpts,
 		tea.WithInput(nil),
-		tea.WithOutput(out),
+		tea.WithOutput(buf),
 		tea.WithoutSignals(),
 		tea.WithWindowSize(cfg.width, cfg.height),
 	)
@@ -48,9 +50,14 @@ func NewModel(tb testing.TB, model tea.Model, opts ...Option) *Model {
 	h := &Model{
 		program: tea.NewProgram(wrapper, programOpts...),
 		wrapper: wrapper,
-		output:  out,
+		output:  buf,
 		done:    make(chan runResult, 1),
 	}
+
+	tb.Cleanup(func() {
+		_ = h.Quit()
+		h.WaitFinished(tb)
+	})
 
 	go func() {
 		finalModel, err := h.program.Run()
@@ -85,18 +92,27 @@ func (m *Model) Quit() error {
 	return nil
 }
 
-// WaitFinished waits for the Bubble Tea program to finish.
-func (m *Model) WaitFinished(tb testing.TB, opts ...Option) {
+// FinalOutput waits for the Bubble Tea program to finish and returns the last
+// captured output.
+func (m *Model) FinalOutput(tb testing.TB, opts ...Option) io.Reader {
 	tb.Helper()
 	m.waitFinished(tb, opts...)
+	return m.Output()
 }
 
-// FinalOutput waits for the Bubble Tea program to finish and returns the last
+// Output returns the last captured output.
+func (m *Model) Output() io.Reader {
+	return m.output
+}
+
+// FinalView waits for the Bubble Tea program to finish and returns the last
 // captured view content.
-func (m *Model) FinalOutput(tb testing.TB, opts ...Option) []byte {
+func (m *Model) FinalView(tb testing.TB, opts ...Option) string {
 	tb.Helper()
 	m.waitFinished(tb, opts...)
-	return m.outputBytes()
+	m.wrapper.mu.RLock()
+	defer m.wrapper.mu.RUnlock()
+	return m.wrapper.lastViewSnapshot
 }
 
 // FinalModel waits for the Bubble Tea program to finish and returns the latest
@@ -107,88 +123,163 @@ func (m *Model) FinalModel(tb testing.TB, opts ...Option) tea.Model {
 	return m.wrapper.currentModel()
 }
 
-// WaitFor waits until condition returns true for the latest view output.
-func (m *Model) WaitFor(tb testing.TB, condition func(bts []byte) bool, opts ...Option) []byte {
-	tb.Helper()
-	return WaitFor(tb, m, condition, opts...)
-}
-
-// WaitContains waits until output contains all substrings.
-func (m *Model) WaitContains(tb testing.TB, substr ...[]byte) []byte {
-	tb.Helper()
-	return WaitContains(tb, m, substr...)
-}
-
-// WaitContainsString waits until output contains all substrings.
-func (m *Model) WaitContainsString(tb testing.TB, substr ...string) []byte {
-	tb.Helper()
-	return WaitContainsString(tb, m, substr...)
-}
-
-// WaitNotContains waits until output contains none of the substrings.
-func (m *Model) WaitNotContains(tb testing.TB, substr ...[]byte) []byte {
-	tb.Helper()
-	return WaitNotContains(tb, m, substr...)
-}
-
-// WaitNotContainsString waits until output contains none of the substrings.
-func (m *Model) WaitNotContainsString(tb testing.TB, substr ...string) []byte {
-	tb.Helper()
-	return WaitNotContainsString(tb, m, substr...)
-}
-
-// ExpectStringContains fails the test unless all substrings appear in output.
-func (m *Model) ExpectStringContains(tb testing.TB, substr ...string) {
-	tb.Helper()
-	expectStringContains(tb, m, substr...)
-}
-
-// ExpectStringNotContains fails the test if any substring appears in output.
-func (m *Model) ExpectStringNotContains(tb testing.TB, substr ...string) {
-	tb.Helper()
-	expectStringNotContains(tb, m, substr...)
-}
-
-// ExpectHeight fails the test unless output has height rows.
-func (m *Model) ExpectHeight(tb testing.TB, height int) {
-	tb.Helper()
-	expectHeight(tb, m, height)
-}
-
-// ExpectWidth fails the test unless output has width columns.
-func (m *Model) ExpectWidth(tb testing.TB, width int) {
-	tb.Helper()
-	expectWidth(tb, m, width)
-}
-
-// ExpectDimensions fails the test unless output has width columns and height rows.
-func (m *Model) ExpectDimensions(tb testing.TB, width, height int) {
-	tb.Helper()
-	expectDimensions(tb, m, width, height)
-}
-
-// Messages returns a copy of messages observed by the root model wrapper.
+// Messages returns a copy of messages observed by the underlying model.
 func (m *Model) Messages() []tea.Msg {
 	return m.wrapper.messages()
 }
 
-func (m *Model) outputBytes() []byte {
-	return []byte(m.wrapper.output())
+// View invokes the current underlying models View method and returns the result.
+func (m *Model) View() string {
+	return m.wrapper.View().Content
+}
+
+// WaitFinished waits for the Bubble Tea program to finish.
+func (m *Model) WaitFinished(tb testing.TB, opts ...Option) {
+	tb.Helper()
+	m.waitFinished(tb, opts...)
+}
+
+// WaitSettleMessages waits until no messages have been observed for the
+// configured settle timeout. See also [WithSettleTimeout], [WithCheckInterval],
+// and [WithTimeout].
+func (m *Model) WaitSettleMessages(tb testing.TB, opts ...Option) *Model {
+	tb.Helper()
+
+	cfg := collectOptions(opts...)
+	deadline := time.Now().Add(cfg.timeout)
+
+	for {
+		m.wrapper.mu.RLock()
+		updateCount, lastReceivedMessage := len(m.wrapper.observedMsgs), m.wrapper.lastReceivedMessage
+		m.wrapper.mu.RUnlock()
+		now := time.Now()
+		quietFor := now.Sub(lastReceivedMessage)
+
+		if quietFor >= cfg.settleTimeout {
+			return m
+		}
+
+		remainingTimeout := deadline.Sub(now)
+		if remainingTimeout <= 0 {
+			tb.Fatalf(
+				"timeout waiting for Update() to settle after %s; last update was %s ago after %d update(s)",
+				cfg.timeout,
+				quietFor,
+				updateCount,
+			)
+			return m
+		}
+
+		time.Sleep(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
+	}
+}
+
+// WaitSettleView waits until the rendered view string has not changed for the
+// configured settle timeout. It polls [Model.View] and compares each result to
+// the previous sample. See also [WithSettleTimeout], [WithCheckInterval], and
+// [WithTimeout].
+func (m *Model) WaitSettleView(tb testing.TB, opts ...Option) *Model {
+	tb.Helper()
+	WaitSettleView(tb, m, opts...)
+	return m
+}
+
+// WaitForBytes waits until condition returns true for the latest view output.
+func (m *Model) WaitForBytes(tb testing.TB, condition func(view []byte) bool, opts ...Option) []byte {
+	tb.Helper()
+	return WaitFor(tb, m, condition, opts...)
+}
+
+// WaitForString waits until condition returns true for the latest view output.
+func (m *Model) WaitForString(tb testing.TB, condition func(view string) bool, opts ...Option) string {
+	tb.Helper()
+	return WaitFor(tb, m, condition, opts...)
+}
+
+// WaitContainsBytes waits until output contains contents.
+func (m *Model) WaitContainsBytes(tb testing.TB, contents []byte, opts ...Option) []byte {
+	tb.Helper()
+	return WaitContainsBytes(tb, m, contents, opts...)
+}
+
+// WaitContainsString waits until output contains contents.
+func (m *Model) WaitContainsString(tb testing.TB, contents string, opts ...Option) string {
+	tb.Helper()
+	return WaitContainsString(tb, m, contents, opts...)
+}
+
+// WaitContainsStrings waits until output contains all contents.
+func (m *Model) WaitContainsStrings(tb testing.TB, contents []string, opts ...Option) string {
+	tb.Helper()
+	return WaitContainsStrings(tb, m, contents, opts...)
+}
+
+// WaitNotContainsBytes waits until output contains none of the contents.
+func (m *Model) WaitNotContainsBytes(tb testing.TB, contents []byte, opts ...Option) []byte {
+	tb.Helper()
+	return WaitNotContainsBytes(tb, m, contents, opts...)
+}
+
+// WaitNotContainsString waits until output contains none of the contents.
+func (m *Model) WaitNotContainsString(tb testing.TB, contents string, opts ...Option) string {
+	tb.Helper()
+	return WaitNotContainsString(tb, m, contents, opts...)
+}
+
+// WaitNotContainsStrings waits until output contains none of the contents.
+func (m *Model) WaitNotContainsStrings(tb testing.TB, contents []string, opts ...Option) string {
+	tb.Helper()
+	return WaitNotContainsStrings(tb, m, contents, opts...)
+}
+
+// ExpectStringContains fails the test unless all substrings appear in output.
+func (m *Model) ExpectStringContains(tb testing.TB, substr ...string) *Model {
+	tb.Helper()
+	expectStringContains(tb, m, substr...)
+	return m
+}
+
+// ExpectStringNotContains fails the test if any substring appears in output.
+func (m *Model) ExpectStringNotContains(tb testing.TB, substr ...string) *Model {
+	tb.Helper()
+	expectStringNotContains(tb, m, substr...)
+	return m
+}
+
+// ExpectHeight fails the test unless output has height rows.
+func (m *Model) ExpectHeight(tb testing.TB, height int) *Model {
+	tb.Helper()
+	expectHeight(tb, m, height)
+	return m
+}
+
+// ExpectWidth fails the test unless output has width columns.
+func (m *Model) ExpectWidth(tb testing.TB, width int) *Model {
+	tb.Helper()
+	expectWidth(tb, m, width)
+	return m
+}
+
+// ExpectDimensions fails the test unless output has width columns and height rows.
+func (m *Model) ExpectDimensions(tb testing.TB, width, height int) *Model {
+	tb.Helper()
+	expectDimensions(tb, m, width, height)
+	return m
 }
 
 func (m *Model) waitFinished(tb testing.TB, opts ...Option) {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	m.resultMu.Lock()
+	m.resultMu.RLock()
 	if result := m.result; result != nil {
-		m.resultMu.Unlock()
+		m.resultMu.RUnlock()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
 			tb.Fatalf("bubble tea program failed: %v", result.err)
 		}
 		return
 	}
-	m.resultMu.Unlock()
+	m.resultMu.RUnlock()
 
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
@@ -207,81 +298,4 @@ func (m *Model) waitFinished(tb testing.TB, opts ...Option) {
 	case <-timer.C:
 		tb.Fatalf("timeout waiting for bubble tea program to finish after %s", cfg.timeout)
 	}
-}
-
-type modelWrapper struct {
-	mu           sync.Mutex
-	model        tea.Model
-	viewOutput   string
-	observedMsgs []tea.Msg
-}
-
-func newModelWrapper(model tea.Model) *modelWrapper {
-	w := &modelWrapper{model: model}
-	w.capture()
-	return w
-}
-
-func (w *modelWrapper) Init() tea.Cmd {
-	cmd := w.currentModel().Init()
-	w.capture()
-	return cmd
-}
-
-func (w *modelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	w.mu.Lock()
-	w.observedMsgs = append(w.observedMsgs, msg)
-	model := w.model
-	w.mu.Unlock()
-
-	next, cmd := model.Update(msg)
-	if next != nil {
-		w.replace(next)
-	}
-	w.capture()
-
-	return w, cmd
-}
-
-func (w *modelWrapper) View() tea.View {
-	view := w.currentModel().View()
-	w.mu.Lock()
-	w.viewOutput = view.Content
-	w.mu.Unlock()
-	return view
-}
-
-func (w *modelWrapper) currentModel() tea.Model {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.model
-}
-
-func (w *modelWrapper) replace(model tea.Model) {
-	if model == nil {
-		return
-	}
-	if wrapper, ok := model.(*modelWrapper); ok {
-		model = wrapper.currentModel()
-	}
-
-	w.mu.Lock()
-	w.model = model
-	w.mu.Unlock()
-}
-
-func (w *modelWrapper) capture() {
-	_ = w.View()
-}
-
-func (w *modelWrapper) output() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.viewOutput
-}
-
-func (w *modelWrapper) messages() []tea.Msg {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return append([]tea.Msg(nil), w.observedMsgs...)
 }

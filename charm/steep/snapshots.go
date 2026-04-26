@@ -12,23 +12,17 @@ import (
 
 // RequireSnapshot compares the latest captured program output against a
 // snapshot without waiting for the program to finish.
-func (m *Model) RequireSnapshot(tb testing.TB, opts ...snapshot.Option) {
+func (m *Model) RequireSnapshot(tb testing.TB, opts ...snapshot.Option) *Model {
 	tb.Helper()
-
-	snapshot.RequireEqual(tb, m.outputBytes(), opts...)
+	snapshot.RequireEqual(tb, m.View(), opts...)
+	return m
 }
 
-// RequirePlainSnapshot compares the latest captured program output against a
+// RequireSnapshotNoANSI compares the latest captured program output against a
 // snapshot after stripping ANSI sequences and without waiting for the program
 // to finish.
-func (m *Model) RequirePlainSnapshot(tb testing.TB, opts ...snapshot.Option) {
+func (m *Model) RequireSnapshotNoANSI(tb testing.TB, opts ...snapshot.Option) *Model {
 	tb.Helper()
-
-	m.RequireSnapshot(tb, appendPlainSnapshotOptions(opts)...)
-}
-
-func appendPlainSnapshotOptions(opts []snapshot.Option) []snapshot.Option {
-	out := append([]snapshot.Option{}, opts...)
-	out = append(out, snapshot.WithStripANSI())
-	return out
+	m.RequireSnapshot(tb, append(opts, snapshot.WithStripANSI())...)
+	return m
 }

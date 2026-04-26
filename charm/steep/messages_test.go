@@ -30,7 +30,6 @@ func TestMessagesOfType(t *testing.T) {
 
 func TestWaitForMessageWhere(t *testing.T) {
 	vm := NewViewModel(t, &mutableViewModel{})
-	cleanupTestModel(t, vm)
 	vm.Send(appendMsg("first"))
 	vm.Send(appendMsg("second"))
 

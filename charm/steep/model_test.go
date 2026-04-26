@@ -54,7 +54,7 @@ func TestModelHarness(t *testing.T) {
 	tm.ExpectDimensions(t, 9, 2)
 
 	tm.Type("ab")
-	tm.WaitContains(t, []byte("text=ab"))
+	tm.WaitContainsBytes(t, []byte("text=ab"))
 
 	tm.Send(setTextMsg("done"))
 	tm.WaitContainsString(t, "text=done")
@@ -68,9 +68,9 @@ func TestModelHarness(t *testing.T) {
 	if err := tm.Quit(); err != nil {
 		t.Fatalf("quit failed: %v", err)
 	}
-	tm.WaitFinished(t, WithFinalTimeout(time.Second))
+	tm.WaitFinished(t, WithTimeout(time.Second))
 
-	out := string(tm.FinalOutput(t))
+	out := tm.FinalView(t)
 	if !strings.Contains(out, "text=done") {
 		t.Fatalf("final output = %q, want text=done", out)
 	}
@@ -89,15 +89,9 @@ func TestModelRequirePlainSnapshotUsesCurrentOutput(t *testing.T) {
 	t.Setenv("UPDATE_SNAPSHOTS", "true")
 
 	tm := NewModel(t, rootTestModel{text: "\x1b[31mred\x1b[0m"})
-	t.Cleanup(func() {
-		if err := tm.Quit(); err != nil {
-			t.Fatalf("quit failed: %v", err)
-		}
-		tm.WaitFinished(t, WithFinalTimeout(time.Second))
-	})
 
-	tm.WaitContainsString(t, "size=80x24", "red")
-	tm.RequirePlainSnapshot(t)
+	tm.WaitContainsStrings(t, []string{"size=80x24", "red"})
+	tm.RequireSnapshotNoANSI(t)
 
 	got := readSteepSnapshot(t, "TestModelRequirePlainSnapshotUsesCurrentOutput.snap")
 	if got != "size=80x24\ntext=red" {
