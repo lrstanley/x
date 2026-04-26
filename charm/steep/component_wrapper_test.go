@@ -58,33 +58,33 @@ func (m replacementViewModel) Update(msg tea.Msg) (replacementViewModel, tea.Cmd
 	return m, nil
 }
 
-func TestViewModelMutableUpdate(t *testing.T) {
-	vm := NewViewModel(t, &mutableViewModel{})
+func TestComponentHarnessMutableUpdate(t *testing.T) {
+	h := NewComponentHarness(t, &mutableViewModel{})
 
-	vm.Type("ab")
-	vm.WaitContainsBytes(t, []byte("text=ab"))
-	vm.ExpectStringContains(t, "text=ab")
+	h.Type("ab")
+	h.WaitContainsBytes(t, []byte("text=ab"))
+	h.ExpectStringContains(t, "text=ab")
 
-	vm.Send(appendMsg("?"))
-	vm.WaitContainsString(t, "text=ab?!")
-	vm.WaitNotContainsBytes(t, []byte("missing"))
-	vm.ExpectStringContains(t, "text=ab?!")
-	vm.ExpectStringNotContains(t, "missing")
-	vm.ExpectWidth(t, 9)
-	vm.ExpectHeight(t, 1)
-	vm.ExpectDimensions(t, 9, 1)
+	h.Send(appendMsg("?"))
+	h.WaitContainsString(t, "text=ab?!")
+	h.WaitNotContainsBytes(t, []byte("missing"))
+	h.ExpectStringContains(t, "text=ab?!")
+	h.ExpectStringNotContains(t, "missing")
+	h.ExpectWidth(t, 9)
+	h.ExpectHeight(t, 1)
+	h.ExpectDimensions(t, 9, 1)
 
-	if len(vm.Messages()) < 5 {
-		t.Fatalf("messages = %d, want at least 5", len(vm.Messages()))
+	if len(h.Messages()) < 5 {
+		t.Fatalf("messages = %d, want at least 5", len(h.Messages()))
 	}
 }
 
-func TestViewModelReplacementUpdate(t *testing.T) {
-	vm := NewViewModel(t, replacementViewModel{})
+func TestComponentHarnessReplacementUpdate(t *testing.T) {
+	h := NewComponentHarness(t, replacementViewModel{})
 
-	vm.Type("go")
-	vm.Send(appendMsg("!"))
-	vm.WaitForBytes(t, func(bts []byte) bool {
+	h.Type("go")
+	h.Send(appendMsg("!"))
+	h.WaitForBytes(t, func(bts []byte) bool {
 		return strings.Contains(string(bts), "text=go!")
 	})
 }
@@ -106,32 +106,32 @@ func (m *sizeViewModel) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func TestViewModelInitialSize(t *testing.T) {
+func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("uses program default size", func(t *testing.T) {
-		vm := NewViewModel(t, &sizeViewModel{})
+		h := NewComponentHarness(t, &sizeViewModel{})
 
-		vm.WaitContainsString(t, "size=80x24")
-		msg := WaitForMessage[tea.WindowSizeMsg](t, vm)
+		h.WaitContainsString(t, "size=80x24")
+		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 80 || msg.Height != 24 {
 			t.Fatalf("initial size = %dx%d, want 80x24", msg.Width, msg.Height)
 		}
 	})
 
 	t.Run("explicit size", func(t *testing.T) {
-		vm := NewViewModel(t, &sizeViewModel{}, WithInitialTermSize(70, 10))
+		h := NewComponentHarness(t, &sizeViewModel{}, WithInitialTermSize(70, 10))
 
-		vm.WaitContainsString(t, "size=70x10")
-		msg := WaitForMessage[tea.WindowSizeMsg](t, vm)
+		h.WaitContainsString(t, "size=70x10")
+		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 70 || msg.Height != 10 {
 			t.Fatalf("initial size = %dx%d, want 70x10", msg.Width, msg.Height)
 		}
 	})
 
 	t.Run("explicit zero size", func(t *testing.T) {
-		vm := NewViewModel(t, &sizeViewModel{}, WithInitialTermSize(0, 0))
+		h := NewComponentHarness(t, &sizeViewModel{}, WithInitialTermSize(0, 0))
 
-		vm.WaitContainsString(t, "size=0x0")
-		msg := WaitForMessage[tea.WindowSizeMsg](t, vm)
+		h.WaitContainsString(t, "size=0x0")
+		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 0 || msg.Height != 0 {
 			t.Fatalf("initial size = %dx%d, want 0x0", msg.Width, msg.Height)
 		}
@@ -165,12 +165,12 @@ func (m *asyncViewModel) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func TestViewModelAsyncBridge(t *testing.T) {
-	tm := NewViewModel(t, &asyncViewModel{}, WithInitialTermSize(33, 4))
+func TestComponentHarnessAsyncBridge(t *testing.T) {
+	h := NewComponentHarness(t, &asyncViewModel{}, WithInitialTermSize(33, 4))
 
-	tm.WaitContainsStrings(t, []string{"size=33x4", "text=ready"})
+	h.WaitContainsStrings(t, []string{"size=33x4", "text=ready"})
 
-	msg := WaitForMessage[appendMsg](t, tm)
+	msg := WaitMessage[appendMsg](t, h)
 	if msg != "ready" {
 		t.Fatalf("message = %q, want ready", msg)
 	}
@@ -202,23 +202,23 @@ func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
 	}
 }
 
-func TestViewModelWaitSettled(t *testing.T) {
-	vm := NewViewModel(t, &settlingViewModel{})
-	vm.Send(settleMsg{})
-	vm.WaitContainsString(t, "updates=3")
+func TestComponentHarnessWaitSettled(t *testing.T) {
+	h := NewComponentHarness(t, &settlingViewModel{})
+	h.Send(settleMsg{})
+	h.WaitContainsString(t, "updates=3")
 
-	vm.WaitSettleMessages(
+	h.WaitSettleMessages(
 		t,
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(500*time.Millisecond),
 		WithCheckInterval(5*time.Millisecond),
 	)
-	out := vm.View()
+	out := h.View()
 	if !strings.Contains(out, "updates=3") {
 		t.Fatalf("output = %q, want updates=3", out)
 	}
 
-	matches := MessagesOfType[settleMsg](vm.Messages())
+	matches := MessagesOfType[settleMsg](h.Messages())
 	if len(matches) != 3 {
 		t.Fatalf("settle messages = %d, want 3", len(matches))
 	}
@@ -255,27 +255,27 @@ func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
 	}
 }
 
-func TestViewModelWaitSettledView(t *testing.T) {
-	vm := NewViewModel(t, &viewSettleStableModel{})
-	vm.WaitContainsString(t, "stable")
+func TestComponentHarnessWaitSettledView(t *testing.T) {
+	h := NewComponentHarness(t, &viewSettleStableModel{})
+	h.WaitContainsString(t, "stable")
 
-	vm.WaitSettleView(
+	h.WaitSettleView(
 		t,
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(2*time.Second),
 		WithCheckInterval(5*time.Millisecond),
 	)
-	if !strings.Contains(vm.View(), "stable") {
-		t.Fatalf("view = %q, want stable", vm.View())
+	if !strings.Contains(h.View(), "stable") {
+		t.Fatalf("view = %q, want stable", h.View())
 	}
-	if len(vm.Messages()) < 5 {
-		t.Fatalf("messages = %d, want at least 5 (view settled while msgs still arrived)", len(vm.Messages()))
+	if len(h.Messages()) < 5 {
+		t.Fatalf("messages = %d, want at least 5 (view settled while msgs still arrived)", len(h.Messages()))
 	}
 }
 
-func TestViewModelSendFilterReceivesOriginalMessage(t *testing.T) {
+func TestComponentHarnessSendFilterReceivesOriginalMessage(t *testing.T) {
 	seen := make(chan struct{}, 1)
-	vm := NewViewModel(
+	h := NewComponentHarness(
 		t,
 		&mutableViewModel{},
 		WithProgramOptions(tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
@@ -289,8 +289,8 @@ func TestViewModelSendFilterReceivesOriginalMessage(t *testing.T) {
 		})),
 	)
 
-	vm.Send(appendMsg("x"))
-	vm.WaitContainsString(t, "text=x")
+	h.Send(appendMsg("x"))
+	h.WaitContainsString(t, "text=x")
 
 	select {
 	case <-seen:
@@ -299,15 +299,15 @@ func TestViewModelSendFilterReceivesOriginalMessage(t *testing.T) {
 	}
 }
 
-func TestViewModelRequirePlainSnapshot(t *testing.T) {
+func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("UPDATE_SNAPSHOTS", "true")
 
-	vm := NewViewModel(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"})
-	vm.WaitContainsString(t, "red")
-	vm.RequireSnapshotNoANSI(t)
+	h := NewComponentHarness(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"})
+	h.WaitContainsString(t, "red")
+	h.RequireSnapshotNoANSI(t)
 
-	got := readSteepSnapshot(t, "TestViewModelRequirePlainSnapshot.snap")
+	got := readSteepSnapshot(t, "TestComponentHarnessRequirePlainSnapshot.snap")
 	if got != "text=red" {
 		t.Fatalf("snapshot = %q, want text=red", got)
 	}

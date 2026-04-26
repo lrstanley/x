@@ -7,7 +7,7 @@ package steep
 import (
 	"fmt"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,34 +37,34 @@ func MessagesOfType[T tea.Msg](messages []tea.Msg) []T {
 	return out
 }
 
-// WaitForMessage waits until at least one message with the same concrete type
+// WaitMessage waits until at least one message with the same concrete type
 // as T has been observed, then returns the first match.
-func WaitForMessage[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) T {
+func WaitMessage[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 
-	return WaitForMessages[T](tb, log, opts...)[0]
+	return WaitMessages[T](tb, log, opts...)[0]
 }
 
-// WaitForMessages waits until at least one message with the same concrete type
+// WaitMessages waits until at least one message with the same concrete type
 // as T has been observed, then returns all current matches.
-func WaitForMessages[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) []T {
+func WaitMessages[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) []T {
 	tb.Helper()
 
-	return waitForMessages(tb, log, func(T) bool { return true }, opts...)
+	return waitMessages(tb, log, func(T) bool { return true }, opts...)
 }
 
-// WaitForMessageWhere waits until a message with the same concrete type as T
+// WaitMessageWhere waits until a message with the same concrete type as T
 // has been observed and match returns true.
-func WaitForMessageWhere[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) T {
+func WaitMessageWhere[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) T {
 	tb.Helper()
 
 	if match == nil {
 		tb.Fatalf("message matcher must not be nil")
 	}
-	return waitForMessages(tb, log, match, opts...)[0]
+	return waitMessages(tb, log, match, opts...)[0]
 }
 
-func waitForMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) []T {
+func waitMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) []T {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -127,6 +127,6 @@ func observedMessageTypes(messages []tea.Msg) string {
 	for name := range seen {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return strings.Join(names, ", ")
 }

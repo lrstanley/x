@@ -28,19 +28,19 @@ func TestMessagesOfType(t *testing.T) {
 	}
 }
 
-func TestWaitForMessageWhere(t *testing.T) {
-	vm := NewViewModel(t, &mutableViewModel{})
-	vm.Send(appendMsg("first"))
-	vm.Send(appendMsg("second"))
+func TestWaitMessageWhere(t *testing.T) {
+	h := NewComponentHarness(t, &mutableViewModel{})
+	h.Send(appendMsg("first"))
+	h.Send(appendMsg("second"))
 
-	got := WaitForMessageWhere(t, vm, func(msg appendMsg) bool {
+	got := WaitMessageWhere(t, h, func(msg appendMsg) bool {
 		return msg == "second"
 	})
 	if got != "second" {
 		t.Fatalf("message = %q, want second", got)
 	}
 
-	matches := WaitForMessages[appendMsg](t, vm)
+	matches := WaitMessages[appendMsg](t, h)
 	if len(matches) != 2 {
 		t.Fatalf("messages = %d, want 2", len(matches))
 	}

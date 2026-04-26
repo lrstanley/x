@@ -17,12 +17,12 @@ const (
 	DefaultTermHeight = 24
 
 	// DefaultTimeout is the default timeout used by program harnesses.
-	DefaultTimeout = 1 * time.Second
+	DefaultTimeout = 2 * time.Second
 	// DefaultCheckInterval is the default check interval used by program harnesses.
 	DefaultCheckInterval = 20 * time.Millisecond
 	// DefaultSettleTimeout is the default settle timeout used by program harnesses.
 	// This must be less than 80% of the timeout set by [WithTimeout].
-	DefaultSettleTimeout = 200 * time.Millisecond
+	DefaultSettleTimeout = 100 * time.Millisecond
 )
 
 type options struct {
@@ -66,10 +66,11 @@ func collectOptions(opts ...Option) options {
 	return cfg
 }
 
-// Option configures a test model or assertion.
+// Option configures a [Harness] or assertion helper.
 type Option func(*options)
 
-// WithInitialTermSize configures the starting terminal size.
+// WithInitialTermSize configures the starting terminal size. See also
+// [DefaultTermWidth] and [DefaultTermHeight].
 func WithInitialTermSize(width, height int) Option {
 	return func(cfg *options) {
 		cfg.width = width
@@ -77,7 +78,14 @@ func WithInitialTermSize(width, height int) Option {
 	}
 }
 
-// WithProgramOptions appends Bubble Tea program options to the test program.
+// WithProgramOptions appends BubbleTea program options to the test program. Note
+// that the following options are always set (and cannot be overridden):
+// - tea.WithInput(nil)
+// - tea.WithOutput(buf)
+// - tea.WithoutSignals()
+// - tea.WithWindowSize(cfg.width, cfg.height)
+//
+// This is ignored for all but [NewHarness] and [NewComponentHarness].
 func WithProgramOptions(opts ...tea.ProgramOption) Option {
 	return func(cfg *options) {
 		cfg.programOpts = append(cfg.programOpts, opts...)
@@ -98,7 +106,9 @@ func WithCheckInterval(interval time.Duration) Option {
 	}
 }
 
-// WithSettleTimeout configures how long to wait for the program to settle.
+// WithSettleTimeout configures how long to wait for the program to settle. See
+// [Harness.WaitSettleMessages], [Harness.WaitSettleView] and [WaitSettleView] for
+// more details.
 func WithSettleTimeout(timeout time.Duration) Option {
 	return func(cfg *options) {
 		cfg.settleTimeout = timeout

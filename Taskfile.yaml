@@ -16,9 +16,10 @@ vars:
     - text/stem
     - text/tail
   CURRENT_PKG:
-    sh: echo "github.com/lrstanley/x/$(git rev-parse --show-prefix | sed -r 's:/$::g')"
+    sh: |
+      echo "github.com/lrstanley/x/$(git rev-parse --show-prefix | sed -r 's:/$::g')"
 method: timestamp
-set: [errexit, nounset, pipefail, xtrace]
+set: [ errexit, nounset, pipefail, xtrace ]
 tasks:
   # file-related tasks.
   workflows:all:
@@ -31,7 +32,7 @@ tasks:
   license:
     desc: add license header
     run: once
-    preconditions: [test -f go.mod]
+    preconditions: [ test -f go.mod ]
     cmds:
       - curl -sL https://liam.sh/-/gh/g/license-header.sh | bash -s
   license:all:
@@ -39,49 +40,53 @@ tasks:
     run: once
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && curl -sL https://liam.sh/-/gh/g/license-header.sh | bash -s
+        cmd: cd {{ .PKG }} && curl -sL https://liam.sh/-/gh/g/license-header.sh | bash
+          -s
   fmt:
     desc: run gofumpt
     run: once
-    preconditions: [test -f go.mod]
+    preconditions: [ test -f go.mod ]
     cmds:
       - gofumpt -w .
   fmt:all:
     desc: run gofumpt for all packages
     run: once
-    deps: [license:all]
+    deps: [ license:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
         cmd: cd {{ .PKG }} && gofumpt -w .
   lint:
     desc: run linting
     run: once
-    preconditions: [test -f go.mod]
+    preconditions: [ test -f go.mod ]
     cmds:
       - go fix ./...
-      - go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
+      - |
+        go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
       - golangci-lint run --fix
   lint:all:
     desc: run linting for all packages
     run: once
-    deps: [fmt:all]
+    deps: [ fmt:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
+        cmd: |
+          cd {{ .PKG }} \
+            && go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
       - for: { var: PACKAGES, as: "PKG" }
         cmd: cd {{ .PKG }} && golangci-lint run --fix
   prepare:
-    aliases: [generate]
+    aliases: [ generate ]
     desc: prepare packages (go generate & similar)
     run: once
-    deps: [tidy]
-    preconditions: [test -f go.mod]
+    deps: [ tidy ]
+    preconditions: [ test -f go.mod ]
     cmds:
       - go generate -x ./...
   prepare:all:
-    aliases: [generate:all, workflows:all]
+    aliases: [ generate:all, workflows:all ]
     run: once
-    deps: [fmt:all, tidy:all]
+    deps: [ fmt:all, tidy:all ]
     desc: prepare all packages (go generate & similar)
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
@@ -91,33 +96,35 @@ tasks:
   test:
     desc: run tests
     run: once
-    deps: [prepare]
-    preconditions: [test -f go.mod]
+    deps: [ prepare ]
+    preconditions: [ test -f go.mod ]
     cmds:
       - go test -v ./... {{.CLI_ARGS}}
   test:all:
     desc: run tests for all packages
     run: once
-    deps: [prepare:all]
+    deps: [ prepare:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
         cmd: cd {{ .PKG }} && go test -v ./... {{.CLI_ARGS}}
   test:extended:
     desc: run comprehensive tests
     run: once
-    deps: [prepare]
+    deps: [ prepare ]
     cmds:
       - go test -v -race -count 5 -cpu 1,4 {{ or .CLI_ARGS "./..." }}
   test:extended:all:
     desc: run comprehensive tests for all packages
     run: once
-    deps: [prepare:all]
+    deps: [ prepare:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && go test -v -race -count 5 -cpu 1,4 {{ or .CLI_ARGS "./..." }}
+        cmd: |
+          cd {{ .PKG }} \
+          && go test -v -race -count 5 -cpu 1,4 {{ or .CLI_ARGS "./..." }}
 
   # dependency-related tasks.
-  work:all:
+  sync:all:
     desc: ensure go work is synced
     run: once
     cmds:
@@ -127,22 +134,22 @@ tasks:
   tidy:
     desc: run `go mod tidy`
     run: once
-    deps: [work:all]
-    preconditions: [test -f go.mod]
+    deps: [ sync:all ]
+    preconditions: [ test -f go.mod ]
     cmds:
       - go mod tidy
   tidy:all:
     desc: run `go mod tidy` for all packages
     run: once
-    deps: [work:all]
+    deps: [ sync:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
         cmd: cd {{ .PKG }} && go mod tidy
   up:
     desc: upgrade dependencies
     run: once
-    deps: [work:all]
-    preconditions: [test -f go.mod]
+    deps: [ sync:all ]
+    preconditions: [ test -f go.mod ]
     cmds:
       - go get -u ./... && go mod tidy
       - go get -u -t ./... && go mod tidy
@@ -150,7 +157,7 @@ tasks:
   up:all:
     desc: upgrade dependencies for all packages
     run: once
-    deps: [workflows:all, work:all]
+    deps: [ workflows:all, sync:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
         cmd: |
@@ -160,14 +167,15 @@ tasks:
           go get -u -t ./... && go mod tidy
       - go work sync
   # debug-related tasks.
-  profile:cpu: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/profile?seconds=15'
+  profile:cpu: go tool pprof -http :6061
+    'http://127.0.0.1:6060/debug/pprof/profile?seconds=15'
   profile:heap: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/heap'
   profile:allocs: go tool pprof -http :6061 'http://127.0.0.1:6060/debug/pprof/allocs'
   dlv:
     desc: run with delve debugger
-    deps: [prepare]
+    deps: [ prepare ]
     interactive: true
-    aliases: [delve, debugger]
+    aliases: [ delve, debugger ]
     cmds:
       - |
         dlv debug \

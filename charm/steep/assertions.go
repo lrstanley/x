@@ -91,9 +91,9 @@ func WaitNotContainsStrings(tb testing.TB, model View, contents []string, opts .
 }
 
 // WaitSettleView waits until the rendered view string has not changed for the
-// configured settle timeout. It polls [View.View] and compares each result to
-// the previous sample. See also [WithSettleTimeout], [WithCheckInterval], and
-// [WithTimeout].
+// configured settle timeout. The model must implement [View]; each check calls
+// View() and compares the string to the previous sample. See also
+// [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
 func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 	tb.Helper()
 
@@ -130,56 +130,66 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 	}
 }
 
-func expectStringContains(tb testing.TB, model View, substr ...string) {
+// ExpectStringContains fails the test unless all substrings appear in output.
+func ExpectStringContains(tb testing.TB, model View, contents ...string) {
 	tb.Helper()
 
 	out := model.View()
-	for _, sub := range substr {
+	for _, sub := range contents {
 		if !strings.Contains(out, sub) {
 			tb.Fatalf("expected output to contain %q\noutput:\n%s", sub, out)
 		}
 	}
 }
 
-func expectStringNotContains(tb testing.TB, model View, substr ...string) {
+// ExpectStringNotContains fails the test if any substring appears in output.
+func ExpectStringNotContains(tb testing.TB, model View, contents ...string) {
 	tb.Helper()
 
 	out := model.View()
-	for _, sub := range substr {
+	for _, sub := range contents {
 		if strings.Contains(out, sub) {
 			tb.Fatalf("expected output not to contain %q\noutput:\n%s", sub, out)
 		}
 	}
 }
 
-func expectHeight(tb testing.TB, model View, height int) {
+// ExpectHeight fails the test unless output has n rows. Note that this behaves
+// differently to [charm.land/lipgloss/v2.Height] which always assumes a minimum
+// height of 1.
+func ExpectHeight(tb testing.TB, model View, n int) {
 	tb.Helper()
 
-	_, goth := dimensions(model.View())
-	if goth != height {
-		tb.Fatalf("expected output height %d, got %d", height, goth)
+	_, goth := Dimensions(model.View())
+	if goth != n {
+		tb.Fatalf("expected output height %d, got %d", n, goth)
 	}
 }
 
-func expectWidth(tb testing.TB, model View, width int) {
+// ExpectWidth fails the test unless output has n columns.
+func ExpectWidth(tb testing.TB, model View, n int) {
 	tb.Helper()
 
-	gotw, _ := dimensions(model.View())
-	if gotw != width {
-		tb.Fatalf("expected output width %d, got %d", width, gotw)
+	gotw, _ := Dimensions(model.View())
+	if gotw != n {
+		tb.Fatalf("expected output width %d, got %d", n, gotw)
 	}
 }
 
-func expectDimensions(tb testing.TB, model View, width, height int) {
+// ExpectDimensions fails the test unless output has specified dimensions. Note
+// that this behaves differently to [charm.land/lipgloss/v2.Size] which always
+// assumes a minimum height of 1.
+func ExpectDimensions(tb testing.TB, model View, width, height int) {
 	tb.Helper()
 
-	gotw, goth := dimensions(model.View())
+	gotw, goth := Dimensions(model.View())
 	if gotw != width || goth != height {
 		tb.Fatalf("expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
 	}
 }
 
-func dimensions(out string) (w, h int) {
+// Dimensions returns the width and height of the output.
+func Dimensions(out string) (w, h int) {
 	if out == "" {
 		return 0, 0
 	}
