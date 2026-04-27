@@ -69,6 +69,9 @@ func waitMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) 
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
+	ctx := tb.Context()
+	timer := time.NewTimer(cfg.timeout)
+	defer timer.Stop()
 
 	for {
 		messages := log.Messages()
@@ -79,14 +82,22 @@ func waitMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) 
 		if len(matches) > 0 {
 			return matches
 		}
-		if time.Now().After(deadline) {
+		remainingTimeout := time.Until(deadline)
+		if remainingTimeout <= 0 {
 			tb.Fatalf(
 				"timeout waiting for message of type %s\nobserved message types: %s",
 				messageTypeName[T](),
 				observedMessageTypes(messages),
 			)
 		}
-		time.Sleep(cfg.checkInterval)
+
+		timer.Reset(min(cfg.checkInterval, remainingTimeout))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			tb.Fatalf("wait for message canceled: %v", ctx.Err())
+		}
 	}
 }
 

@@ -19,16 +19,27 @@ func WaitFor[T ~string | ~[]byte](tb testing.TB, model View, condition func(view
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
+	ctx := tb.Context()
+	timer := time.NewTimer(cfg.timeout)
+	defer timer.Stop()
 
 	for {
 		out := T(model.View())
 		if condition(out) {
 			return out
 		}
-		if time.Now().After(deadline) {
+		remainingTimeout := time.Until(deadline)
+		if remainingTimeout <= 0 {
 			tb.Fatalf("timeout waiting for condition\nlast output:\n%s", out)
 		}
-		time.Sleep(cfg.checkInterval)
+
+		timer.Reset(min(cfg.checkInterval, remainingTimeout))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			tb.Fatalf("wait for condition canceled: %v", ctx.Err())
+		}
 	}
 }
 
@@ -99,6 +110,9 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
+	ctx := tb.Context()
+	timer := time.NewTimer(cfg.timeout)
+	defer timer.Stop()
 
 	prev := model.View()
 	lastChange := time.Now()
@@ -126,7 +140,13 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 			return
 		}
 
-		time.Sleep(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
+		timer.Reset(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			tb.Fatalf("wait for View() to settle canceled: %v", ctx.Err())
+		}
 	}
 }
 

@@ -36,6 +36,13 @@ func (o *observer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	if msg, ok := msg.(mutateRequest); ok {
+		err := o.mutateLocked(msg)
+		o.lastReceivedMessage = time.Now()
+		msg.respond(err)
+		return o, nil
+	}
+
 	next, cmd := o.model.Update(msg)
 	if next != nil {
 		o.replaceLocked(next)
@@ -81,6 +88,29 @@ func (o *observer) replace(model tea.Model) {
 	o.mu.Lock()
 	o.replaceLocked(model)
 	o.mu.Unlock()
+}
+
+func (o *observer) mutate(req mutateRequest) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.mutateLocked(req)
+}
+
+func (o *observer) mutateLocked(req mutateRequest) error {
+	if wrapper, ok := o.model.(*observer); ok && wrapper != o {
+		return wrapper.mutate(req)
+	}
+
+	if model, ok := o.model.(mutatableModel); ok {
+		return model.mutate(req)
+	}
+
+	next, err := req.mutateTeaModel(o.model)
+	if err != nil {
+		return err
+	}
+	o.replaceLocked(next)
+	return nil
 }
 
 func (o *observer) messages() []tea.Msg {

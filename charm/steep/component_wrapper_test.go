@@ -89,6 +89,30 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 	})
 }
 
+func TestComponentHarnessMutateMutableModel(t *testing.T) {
+	h := NewComponentHarness(t, &mutableViewModel{text: "start"})
+
+	Mutate(t, h, func(m *mutableViewModel) *mutableViewModel {
+		m.text = "mutated"
+		return m
+	})
+	h.Send(appendMsg("!"))
+
+	h.WaitContainsString(t, "text=mutated!")
+}
+
+func TestComponentHarnessMutateReplacementModel(t *testing.T) {
+	h := NewComponentHarness(t, replacementViewModel{text: "start"})
+
+	Mutate(t, h, func(m replacementViewModel) replacementViewModel {
+		m.text = "mutated"
+		return m
+	})
+	h.Send(appendMsg("!"))
+
+	h.WaitContainsString(t, "text=mutated!")
+}
+
 type sizeViewModel struct {
 	width  int
 	height int
@@ -196,10 +220,9 @@ func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	return func() tea.Msg {
-		time.Sleep(10 * time.Millisecond)
+	return tea.Tick(10*time.Millisecond, func(time.Time) tea.Msg {
 		return settleMsg{}
-	}
+	})
 }
 
 func TestComponentHarnessWaitSettled(t *testing.T) {
@@ -235,10 +258,9 @@ func (m *viewSettleStableModel) View() string {
 }
 
 func (m *viewSettleStableModel) Init() tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(2 * time.Millisecond)
+	return tea.Tick(2*time.Millisecond, func(time.Time) tea.Msg {
 		return viewSettleTick{}
-	}
+	})
 }
 
 func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
@@ -249,10 +271,9 @@ func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	m.ticks++
-	return func() tea.Msg {
-		time.Sleep(2 * time.Millisecond)
+	return tea.Tick(2*time.Millisecond, func(time.Time) tea.Msg {
 		return viewSettleTick{}
-	}
+	})
 }
 
 func TestComponentHarnessWaitSettledView(t *testing.T) {

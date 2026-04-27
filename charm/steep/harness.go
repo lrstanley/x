@@ -54,6 +54,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		h.observer,
 		append(
 			cfg.programOpts,
+			tea.WithContext(tb.Context()),
 			tea.WithInput(nil),
 			tea.WithOutput(h.output),
 			tea.WithoutSignals(),
@@ -62,7 +63,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	)
 
 	tb.Cleanup(func() {
-		go h.program.Kill() //nolint:errcheck
+		h.program.Quit()
 		h.WaitFinished(tb)
 	})
 
@@ -199,6 +200,9 @@ func (h *Harness) WaitSettleMessages(tb testing.TB, opts ...Option) *Harness {
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
+	ctx := tb.Context()
+	timer := time.NewTimer(cfg.timeout)
+	defer timer.Stop()
 
 	for {
 		h.observer.mu.RLock()
@@ -222,7 +226,13 @@ func (h *Harness) WaitSettleMessages(tb testing.TB, opts ...Option) *Harness {
 			return h
 		}
 
-		time.Sleep(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
+		timer.Reset(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			tb.Fatalf("wait for Update() to settle canceled: %v", ctx.Err())
+		}
 	}
 }
 

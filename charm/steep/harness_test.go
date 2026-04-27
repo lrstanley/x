@@ -84,6 +84,23 @@ func TestHarness(t *testing.T) {
 	}
 }
 
+func TestHarnessMutateRootModel(t *testing.T) {
+	h := NewHarness(t, rootTestModel{text: "start"})
+
+	Mutate(t, h, func(m rootTestModel) rootTestModel {
+		m.text = "mutated"
+		return m
+	})
+
+	got := h.View()
+	if !strings.Contains(got, "text=mutated") {
+		t.Fatalf("view = %q, want text=mutated", got)
+	}
+	if len(MessagesOfType[mutateMsg[rootTestModel]](h.Messages())) != 0 {
+		t.Fatalf("mutate messages should not be exposed")
+	}
+}
+
 func TestHarnessRequirePlainSnapshotUsesCurrentOutput(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("UPDATE_SNAPSHOTS", "true")
