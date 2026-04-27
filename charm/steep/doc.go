@@ -8,11 +8,11 @@
 //
 //	h := steep.NewHarness(t, model, steep.WithInitialTermSize(80, 24))
 //	h.Type("hello")
-//	h.AssertStringContains(t, "hello")
+//	h.AssertStringContains("hello")
 //	if err := h.Quit(); err != nil {
 //		t.Fatal(err)
 //	}
-//	h.WaitFinished(t)
+//	h.WaitFinished()
 //
 // Use NewComponentHarness for components that expose View() string and an Update
 // method through the asynchronous Bubble Tea runtime.

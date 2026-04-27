@@ -6,7 +6,6 @@ package steep
 
 import (
 	"fmt"
-	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,34 +35,35 @@ type mutatableModel interface {
 // Mutate applies fn to the current underlying model from within the Bubble Tea
 // Update loop. This should be used sparingly, and only when necessary to test
 // a specific scenario that is otherwise not possible or would pollute your
-// model with unnecessary state.
+// model with unnecessary state. It uses the [testing.TB] from [NewHarness] or
+// [NewComponentHarness] (generics cannot be expressed as a method on [Harness]).
 //
 // fn should use the same model type originally passed to [NewHarness] or
 // [NewComponentHarness], such as func(Model) Model or func(*Model) *Model.
-func Mutate[M any](tb testing.TB, h *Harness, fn func(M) M, opts ...Option) *Harness {
-	tb.Helper()
+func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
+	h.tb.Helper()
 
 	if fn == nil {
-		tb.Fatalf("mutate function must not be nil")
+		h.tb.Fatalf("mutate function must not be nil")
 	}
 
 	cfg := collectOptions(opts...)
 	done := make(chan error, 1)
 	h.Send(mutateMsg[M]{fn: fn, done: done})
 
-	ctx := tb.Context()
+	ctx := h.tb.Context()
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
 	select {
 	case err := <-done:
 		if err != nil {
-			tb.Fatalf("mutate failed: %v", err)
+			h.tb.Fatalf("mutate failed: %v", err)
 		}
 	case <-timer.C:
-		tb.Fatalf("timeout waiting for mutation after %s", cfg.timeout)
+		h.tb.Fatalf("timeout waiting for mutation after %s", cfg.timeout)
 	case <-ctx.Done():
-		tb.Fatalf("test context canceled waiting for mutation: %v", ctx.Err())
+		h.tb.Fatalf("test context canceled waiting for mutation: %v", ctx.Err())
 	}
 
 	return h

@@ -110,14 +110,14 @@ func TestCommandPalette(t *testing.T) {
 	}
 	h := steep.NewHarness(t, model, steep.WithInitialTermSize(48, 8))
 
-	h.WaitContainsStrings(t, []string{"size=48x8", "vault read", "vault status"})
+	h.WaitContainsStrings([]string{"size=48x8", "vault read", "vault status"})
 	h.Type("status")
-	h.WaitContainsString(t, "query=status")
-	h.AssertStringNotContains(t, "vault read secret/data/app")
+	h.WaitContainsString("query=status")
+	h.AssertStringNotContains("vault read secret/data/app")
 
 	h.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	selected := steep.WaitMessage[openCommandMsg](t, h)
-	h.WaitContainsString(t, "opened=vault status")
+	h.WaitContainsString("opened=vault status")
 
 	if selected.Command != "vault status" {
 		t.Fatalf("selected command = %q, want vault status", selected.Command)
@@ -230,7 +230,7 @@ func TestInventoryTable(t *testing.T) {
 	table := &inventoryTable{}
 	h := steep.NewComponentHarness(t, table, steep.WithInitialTermSize(32, 6))
 
-	steep.Mutate(t, h, func(m *inventoryTable) *inventoryTable {
+	steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
 		m.rows = []inventoryRow{
 			{ID: "secret-app", Name: "secret/app", Type: "kv"},
 			{ID: "database", Name: "database", Type: "database"},
@@ -238,25 +238,24 @@ func TestInventoryTable(t *testing.T) {
 		}
 		return m
 	})
-	h.WaitContainsStrings(t, []string{"secret/app", "database", "token"})
+	h.WaitContainsStrings([]string{"secret/app", "database", "token"})
 
 	h.Type("j")
 	h.WaitSettleMessages(
-		t,
 		steep.WithSettleTimeout(25*time.Millisecond),
 		steep.WithCheckInterval(5*time.Millisecond),
 	)
 
-	steep.Mutate(t, h, func(m *inventoryTable) *inventoryTable {
+	steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
 		m.filter = "secret"
 		m.selected = 0
 		return m
 	})
-	h.WaitContainsString(t, "secret/app")
-	h.WaitSettleView(t).
-		AssertStringNotContains(t, "database", "token").
-		AssertDimensions(t, table.GetWidth(), table.GetHeight()).
-		RequireSnapshotNoANSI(t, snapshot.WithSuffix("inventory"))
+	h.WaitContainsString("secret/app")
+	h.WaitSettleView().
+		AssertStringNotContains("database", "token").
+		AssertDimensions(table.GetWidth(), table.GetHeight()).
+		RequireSnapshotNoANSI(snapshot.WithSuffix("inventory"))
 }
 ```
 
@@ -296,18 +295,18 @@ state:
 ```go
 h := steep.NewComponentHarness(t, model)
 h.Type("j")
-h.WaitContainsString(t, "selected")
+h.WaitContainsString("selected")
 ```
 
 Harness `Wait*` methods (except [WaitFinished]), assertion, and snapshot methods
 return `*Harness`, so they can be chained:
 
 ```go
-h.WaitContainsString(t, "ready").
-	WaitSettleView(t).
-	AssertStringContains(t, "ready").
-	AssertStringNotContains(t, "loading").
-	RequireSnapshotNoANSI(t)
+h.WaitContainsString("ready").
+	WaitSettleView().
+	AssertStringContains("ready").
+	AssertStringNotContains("loading").
+	RequireSnapshotNoANSI()
 ```
 
 When the model keeps scheduling ticks or other chatter after the interesting
@@ -315,7 +314,7 @@ work finishes, pass sample values so those dynamic types are skipped for
 settlement:
 
 ```go
-h.WaitSettleMessages(t,
+h.WaitSettleMessages(
 	steep.WithSettleIgnoreMsgs(heartbeatTick{}),
 	steep.WithSettleTimeout(25*time.Millisecond),
 )
@@ -325,7 +324,7 @@ To read the view after a content wait, use [Harness.View] (or the package-level
 [WaitContainsString] / [WaitView] helpers, which return the matched view):
 
 ```go
-h.WaitContainsString(t, "ready")
+h.WaitContainsString("ready")
 if strings.Contains(h.View(), "warning") {
 	t.Fatal("unexpected warning")
 }
@@ -343,7 +342,7 @@ state that has no public message.
 the harness state consistent:
 
 ```go
-steep.Mutate(t, h, func(m *inventoryTable) *inventoryTable {
+steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
 	m.rows = rows
 	m.filter = "secret"
 	return m
@@ -381,10 +380,10 @@ Use `snapshot.RequireEqual` when a mismatch should stop the test immediately.
 For harnesses, use the convenience methods:
 
 ```go
-h.AssertSnapshot(t, snapshot.WithSuffix("ansi"))
-h.AssertSnapshotNoANSI(t, snapshot.WithSuffix("plain"))
-h.RequireSnapshot(t, snapshot.WithSuffix("ansi"))
-h.RequireSnapshotNoANSI(t, snapshot.WithSuffix("plain"))
+h.AssertSnapshot(snapshot.WithSuffix("ansi"))
+h.AssertSnapshotNoANSI(snapshot.WithSuffix("plain"))
+h.RequireSnapshot(snapshot.WithSuffix("ansi"))
+h.RequireSnapshotNoANSI(snapshot.WithSuffix("plain"))
 ```
 
 Use `WithSuffix` when a test writes more than one snapshot or when a subtest

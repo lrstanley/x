@@ -8,12 +8,14 @@ import (
 	"reflect"
 	"slices"
 	"sync"
+	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 type observer struct {
+	tb                  testing.TB
 	mu                  sync.RWMutex
 	model               tea.Model
 	lastViewSnapshot    string
@@ -22,18 +24,21 @@ type observer struct {
 	settleIgnore        []reflect.Type
 }
 
-func newObserver(model tea.Model) *observer {
+func newObserver(tb testing.TB, model tea.Model) *observer {
 	return &observer{
+		tb:                  tb,
 		model:               model,
 		lastReceivedMessage: time.Now(),
 	}
 }
 
 func (o *observer) Init() tea.Cmd {
+	o.tb.Helper()
 	return o.currentModel().Init()
 }
 
 func (o *observer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	o.tb.Helper()
 	copiedMsg := msg
 
 	o.mu.Lock()
@@ -69,6 +74,7 @@ func (o *observer) setSettleIgnore(types []reflect.Type) {
 }
 
 func (o *observer) View() tea.View {
+	o.tb.Helper()
 	o.mu.Lock()
 	defer o.mu.Unlock()
 

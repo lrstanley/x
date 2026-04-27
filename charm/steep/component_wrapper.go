@@ -27,23 +27,25 @@ type initializer interface {
 }
 
 type componentWrapper[M any] struct {
+	tb    testing.TB
 	model M
 }
 
-func (cw *componentWrapper[M]) validate(tb testing.TB) {
-	tb.Helper()
+func (cw *componentWrapper[M]) validate() {
+	cw.tb.Helper()
 
 	if _, ok := any(cw.model).(View); !ok {
-		tb.Fatalf("model must implement View() string")
+		cw.tb.Fatalf("model must implement View() string")
 	}
 	_, supportsCommandUpdate := any(cw.model).(simpleUpdater)
 	_, supportsReplacementUpdate := any(cw.model).(replacementUpdater[M])
 	if !supportsCommandUpdate && !supportsReplacementUpdate {
-		tb.Fatalf("model must implement Update(tea.Msg) tea.Cmd or Update(tea.Msg) (%T, tea.Cmd)", cw.model)
+		cw.tb.Fatalf("model must implement Update(tea.Msg) tea.Cmd or Update(tea.Msg) (%T, tea.Cmd)", cw.model)
 	}
 }
 
 func (cw *componentWrapper[M]) Init() tea.Cmd {
+	cw.tb.Helper()
 	if m, ok := any(cw.model).(initializer); ok {
 		return m.Init()
 	}
@@ -51,6 +53,7 @@ func (cw *componentWrapper[M]) Init() tea.Cmd {
 }
 
 func (cw *componentWrapper[M]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cw.tb.Helper()
 	switch m := any(cw.model).(type) {
 	case replacementUpdater[M]:
 		next, cmd := m.Update(msg)
@@ -64,6 +67,7 @@ func (cw *componentWrapper[M]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (cw *componentWrapper[M]) View() tea.View {
+	cw.tb.Helper()
 	viewer, ok := any(cw.model).(View)
 	if !ok {
 		panic("model must implement View() string")

@@ -47,19 +47,19 @@ func (m rootTestModel) View() tea.View {
 func TestHarness(t *testing.T) {
 	h := NewHarness(t, rootTestModel{}, WithInitialTermSize(12, 3))
 
-	h.WaitContainsString(t, "size=12x3")
-	h.RequireStringContains(t, "size=12x3")
-	h.RequireWidth(t, 9)
-	h.RequireHeight(t, 2)
-	h.RequireDimensions(t, 9, 2)
+	h.WaitContainsString("size=12x3")
+	h.RequireStringContains("size=12x3")
+	h.RequireWidth(9)
+	h.RequireHeight(2)
+	h.RequireDimensions(9, 2)
 
 	h.Type("ab")
-	h.WaitContainsBytes(t, []byte("text=ab"))
+	h.WaitContainsBytes([]byte("text=ab"))
 
 	h.Send(setTextMsg("done"))
-	h.WaitContainsString(t, "text=done")
-	h.WaitNotContainsString(t, "text=ab")
-	h.RequireStringNotContains(t, "text=ab")
+	h.WaitContainsString("text=done")
+	h.WaitNotContainsString("text=ab")
+	h.RequireStringNotContains("text=ab")
 
 	if len(h.Messages()) < 4 {
 		t.Fatalf("expected at least 4 messages, got %d", len(h.Messages()))
@@ -68,16 +68,16 @@ func TestHarness(t *testing.T) {
 	if err := h.Quit(); err != nil {
 		t.Fatalf("quit failed: %v", err)
 	}
-	h.WaitFinished(t, WithTimeout(time.Second))
+	h.WaitFinished(WithTimeout(time.Second))
 
-	out := h.FinalView(t)
+	out := h.FinalView()
 	if !strings.Contains(out, "text=done") {
 		t.Fatalf("final output = %q, want text=done", out)
 	}
 
-	finalModel, ok := h.FinalModel(t).(rootTestModel)
+	finalModel, ok := h.FinalModel().(rootTestModel)
 	if !ok {
-		t.Fatalf("final model type = %T, want rootTestModel", h.FinalModel(t))
+		t.Fatalf("final model type = %T, want rootTestModel", h.FinalModel())
 	}
 	if finalModel.text != "done" {
 		t.Fatalf("final model text = %q, want done", finalModel.text)
@@ -87,7 +87,7 @@ func TestHarness(t *testing.T) {
 func TestHarnessMutateRootModel(t *testing.T) {
 	h := NewHarness(t, rootTestModel{text: "start"})
 
-	Mutate(t, h, func(m rootTestModel) rootTestModel {
+	Mutate(h, func(m rootTestModel) rootTestModel {
 		m.text = "mutated"
 		return m
 	})
@@ -107,8 +107,8 @@ func TestHarnessRequirePlainSnapshotUsesCurrentOutput(t *testing.T) {
 
 	h := NewHarness(t, rootTestModel{text: "\x1b[31mred\x1b[0m"})
 
-	h.WaitContainsStrings(t, []string{"size=80x24", "red"})
-	h.RequireSnapshotNoANSI(t)
+	h.WaitContainsStrings([]string{"size=80x24", "red"})
+	h.RequireSnapshotNoANSI()
 
 	got := readSteepSnapshot(t, "TestHarnessRequirePlainSnapshotUsesCurrentOutput.snap")
 	if got != "size=80x24\ntext=red" {

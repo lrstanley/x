@@ -62,17 +62,17 @@ func TestComponentHarnessMutableUpdate(t *testing.T) {
 	h := NewComponentHarness(t, &mutableViewModel{})
 
 	h.Type("ab")
-	h.WaitContainsBytes(t, []byte("text=ab"))
-	h.RequireStringContains(t, "text=ab")
+	h.WaitContainsBytes([]byte("text=ab"))
+	h.RequireStringContains("text=ab")
 
 	h.Send(appendMsg("?"))
-	h.WaitContainsString(t, "text=ab?!")
-	h.WaitNotContainsBytes(t, []byte("missing"))
-	h.RequireStringContains(t, "text=ab?!")
-	h.RequireStringNotContains(t, "missing")
-	h.RequireWidth(t, 9)
-	h.RequireHeight(t, 1)
-	h.RequireDimensions(t, 9, 1)
+	h.WaitContainsString("text=ab?!")
+	h.WaitNotContainsBytes([]byte("missing"))
+	h.RequireStringContains("text=ab?!")
+	h.RequireStringNotContains("missing")
+	h.RequireWidth(9)
+	h.RequireHeight(1)
+	h.RequireDimensions(9, 1)
 
 	if len(h.Messages()) < 5 {
 		t.Fatalf("messages = %d, want at least 5", len(h.Messages()))
@@ -84,7 +84,7 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 
 	h.Type("go")
 	h.Send(appendMsg("!"))
-	h.WaitViewBytes(t, func(bts []byte) bool {
+	h.WaitViewBytes(func(bts []byte) bool {
 		return strings.Contains(string(bts), "text=go!")
 	})
 }
@@ -92,25 +92,25 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 func TestComponentHarnessMutateMutableModel(t *testing.T) {
 	h := NewComponentHarness(t, &mutableViewModel{text: "start"})
 
-	Mutate(t, h, func(m *mutableViewModel) *mutableViewModel {
+	Mutate(h, func(m *mutableViewModel) *mutableViewModel {
 		m.text = "mutated"
 		return m
 	})
 	h.Send(appendMsg("!"))
 
-	h.WaitContainsString(t, "text=mutated!")
+	h.WaitContainsString("text=mutated!")
 }
 
 func TestComponentHarnessMutateReplacementModel(t *testing.T) {
 	h := NewComponentHarness(t, replacementViewModel{text: "start"})
 
-	Mutate(t, h, func(m replacementViewModel) replacementViewModel {
+	Mutate(h, func(m replacementViewModel) replacementViewModel {
 		m.text = "mutated"
 		return m
 	})
 	h.Send(appendMsg("!"))
 
-	h.WaitContainsString(t, "text=mutated!")
+	h.WaitContainsString("text=mutated!")
 }
 
 type sizeViewModel struct {
@@ -134,7 +134,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("uses program default size", func(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{})
 
-		h.WaitContainsString(t, "size=80x24")
+		h.WaitContainsString("size=80x24")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 80 || msg.Height != 24 {
 			t.Fatalf("initial size = %dx%d, want 80x24", msg.Width, msg.Height)
@@ -144,7 +144,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("explicit size", func(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{}, WithInitialTermSize(70, 10))
 
-		h.WaitContainsString(t, "size=70x10")
+		h.WaitContainsString("size=70x10")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 70 || msg.Height != 10 {
 			t.Fatalf("initial size = %dx%d, want 70x10", msg.Width, msg.Height)
@@ -154,7 +154,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("explicit zero size", func(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{}, WithInitialTermSize(0, 0))
 
-		h.WaitContainsString(t, "size=0x0")
+		h.WaitContainsString("size=0x0")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 0 || msg.Height != 0 {
 			t.Fatalf("initial size = %dx%d, want 0x0", msg.Width, msg.Height)
@@ -192,7 +192,7 @@ func (m *asyncViewModel) Update(msg tea.Msg) tea.Cmd {
 func TestComponentHarnessAsyncBridge(t *testing.T) {
 	h := NewComponentHarness(t, &asyncViewModel{}, WithInitialTermSize(33, 4))
 
-	h.WaitContainsStrings(t, []string{"size=33x4", "text=ready"})
+	h.WaitContainsStrings([]string{"size=33x4", "text=ready"})
 
 	msg := WaitMessage[appendMsg](t, h)
 	if msg != "ready" {
@@ -228,10 +228,9 @@ func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
 func TestComponentHarnessWaitSettled(t *testing.T) {
 	h := NewComponentHarness(t, &settlingViewModel{})
 	h.Send(settleMsg{})
-	h.WaitContainsString(t, "updates=3")
+	h.WaitContainsString("updates=3")
 
 	h.WaitSettleMessages(
-		t,
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(500*time.Millisecond),
 		WithCheckInterval(5*time.Millisecond),
@@ -284,10 +283,9 @@ func (m *settlingWithNoiseModel) Update(msg tea.Msg) tea.Cmd {
 func TestComponentHarnessWaitSettledIgnoreMsgs(t *testing.T) {
 	h := NewComponentHarness(t, &settlingWithNoiseModel{})
 	h.Send(settleMsg{})
-	h.WaitContainsString(t, "updates=2")
+	h.WaitContainsString("updates=2")
 
 	h.WaitSettleMessages(
-		t,
 		WithSettleIgnoreMsgs(settleNoiseTick{}),
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(500*time.Millisecond),
@@ -332,10 +330,9 @@ func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
 
 func TestComponentHarnessWaitSettledView(t *testing.T) {
 	h := NewComponentHarness(t, &viewSettleStableModel{})
-	h.WaitContainsString(t, "stable")
+	h.WaitContainsString("stable")
 
 	h.WaitSettleView(
-		t,
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(2*time.Second),
 		WithCheckInterval(5*time.Millisecond),
@@ -365,7 +362,7 @@ func TestComponentHarnessSendFilterReceivesOriginalMessage(t *testing.T) {
 	)
 
 	h.Send(appendMsg("x"))
-	h.WaitContainsString(t, "text=x")
+	h.WaitContainsString("text=x")
 
 	select {
 	case <-seen:
@@ -379,8 +376,8 @@ func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
 	t.Setenv("UPDATE_SNAPSHOTS", "true")
 
 	h := NewComponentHarness(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"})
-	h.WaitContainsString(t, "red")
-	h.RequireSnapshotNoANSI(t)
+	h.WaitContainsString("red")
+	h.RequireSnapshotNoANSI()
 
 	got := readSteepSnapshot(t, "TestComponentHarnessRequirePlainSnapshot.snap")
 	if got != "text=red" {
