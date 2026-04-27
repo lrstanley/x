@@ -248,52 +248,60 @@ func (h *Harness) WaitSettleView(tb testing.TB, opts ...Option) *Harness {
 	return h
 }
 
-// WaitForBytes waits until condition returns true for the latest view output.
-func (h *Harness) WaitForBytes(tb testing.TB, condition func(view []byte) bool, opts ...Option) []byte {
+// WaitViewBytes waits until condition returns true for the latest view output.
+func (h *Harness) WaitViewBytes(tb testing.TB, condition func(view []byte) bool, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitFor(tb, h, condition, opts...)
+	WaitView(tb, h, condition, opts...)
+	return h
 }
 
-// WaitForString waits until condition returns true for the latest view output.
-func (h *Harness) WaitForString(tb testing.TB, condition func(view string) bool, opts ...Option) string {
+// WaitViewString waits until condition returns true for the latest view output.
+func (h *Harness) WaitViewString(tb testing.TB, condition func(view string) bool, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitFor(tb, h, condition, opts...)
+	WaitView(tb, h, condition, opts...)
+	return h
 }
 
 // WaitContainsBytes waits until output contains contents.
-func (h *Harness) WaitContainsBytes(tb testing.TB, contents []byte, opts ...Option) []byte {
+func (h *Harness) WaitContainsBytes(tb testing.TB, contents []byte, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitContainsBytes(tb, h, contents, opts...)
+	WaitContainsBytes(tb, h, contents, opts...)
+	return h
 }
 
 // WaitContainsString waits until output contains contents.
-func (h *Harness) WaitContainsString(tb testing.TB, contents string, opts ...Option) string {
+func (h *Harness) WaitContainsString(tb testing.TB, contents string, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitContainsString(tb, h, contents, opts...)
+	WaitContainsString(tb, h, contents, opts...)
+	return h
 }
 
 // WaitContainsStrings waits until output contains all contents.
-func (h *Harness) WaitContainsStrings(tb testing.TB, contents []string, opts ...Option) string {
+func (h *Harness) WaitContainsStrings(tb testing.TB, contents []string, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitContainsStrings(tb, h, contents, opts...)
+	WaitContainsStrings(tb, h, contents, opts...)
+	return h
 }
 
 // WaitNotContainsBytes waits until output contains none of the contents.
-func (h *Harness) WaitNotContainsBytes(tb testing.TB, contents []byte, opts ...Option) []byte {
+func (h *Harness) WaitNotContainsBytes(tb testing.TB, contents []byte, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitNotContainsBytes(tb, h, contents, opts...)
+	WaitNotContainsBytes(tb, h, contents, opts...)
+	return h
 }
 
 // WaitNotContainsString waits until output contains none of the contents.
-func (h *Harness) WaitNotContainsString(tb testing.TB, contents string, opts ...Option) string {
+func (h *Harness) WaitNotContainsString(tb testing.TB, contents string, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitNotContainsString(tb, h, contents, opts...)
+	WaitNotContainsString(tb, h, contents, opts...)
+	return h
 }
 
 // WaitNotContainsStrings waits until output contains none of the contents.
-func (h *Harness) WaitNotContainsStrings(tb testing.TB, contents []string, opts ...Option) string {
+func (h *Harness) WaitNotContainsStrings(tb testing.TB, contents []string, opts ...Option) *Harness {
 	tb.Helper()
-	return WaitNotContainsStrings(tb, h, contents, opts...)
+	WaitNotContainsStrings(tb, h, contents, opts...)
+	return h
 }
 
 // AssertStringContains reports an error unless all substrings appear in output.

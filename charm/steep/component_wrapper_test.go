@@ -84,7 +84,7 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 
 	h.Type("go")
 	h.Send(appendMsg("!"))
-	h.WaitForBytes(t, func(bts []byte) bool {
+	h.WaitViewBytes(t, func(bts []byte) bool {
 		return strings.Contains(string(bts), "text=go!")
 	})
 }

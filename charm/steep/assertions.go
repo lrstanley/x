@@ -13,8 +13,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// WaitFor waits until condition returns true for the latest view output.
-func WaitFor[T ~string | ~[]byte](tb testing.TB, model View, condition func(view T) bool, opts ...Option) T {
+// WaitView waits until condition returns true for the latest view output.
+func WaitView[T ~string | ~[]byte](tb testing.TB, model View, condition func(view T) bool, opts ...Option) T {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -46,7 +46,7 @@ func WaitFor[T ~string | ~[]byte](tb testing.TB, model View, condition func(view
 // WaitContainsBytes waits until output contains contents.
 func WaitContainsBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
 	tb.Helper()
-	return WaitFor(tb, model, func(bts []byte) bool {
+	return WaitView(tb, model, func(bts []byte) bool {
 		return bytes.Contains(bts, contents)
 	}, opts...)
 }
@@ -54,7 +54,7 @@ func WaitContainsBytes(tb testing.TB, model View, contents []byte, opts ...Optio
 // WaitContainsString waits until output contains contents.
 func WaitContainsString(tb testing.TB, model View, contents string, opts ...Option) string {
 	tb.Helper()
-	return WaitFor(tb, model, func(str string) bool {
+	return WaitView(tb, model, func(str string) bool {
 		return strings.Contains(str, contents)
 	}, opts...)
 }
@@ -62,7 +62,7 @@ func WaitContainsString(tb testing.TB, model View, contents string, opts ...Opti
 // WaitContainsStrings waits until output contains all contents.
 func WaitContainsStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
 	tb.Helper()
-	return WaitFor(tb, model, func(str string) bool {
+	return WaitView(tb, model, func(str string) bool {
 		for _, content := range contents {
 			if !strings.Contains(str, content) {
 				return false
@@ -75,7 +75,7 @@ func WaitContainsStrings(tb testing.TB, model View, contents []string, opts ...O
 // WaitNotContainsBytes waits until output contains none of the contents.
 func WaitNotContainsBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
 	tb.Helper()
-	return WaitFor(tb, model, func(bts []byte) bool {
+	return WaitView(tb, model, func(bts []byte) bool {
 		return !bytes.Contains(bts, contents)
 	}, opts...)
 }
@@ -83,7 +83,7 @@ func WaitNotContainsBytes(tb testing.TB, model View, contents []byte, opts ...Op
 // WaitNotContainsString waits until output contains none of the contents.
 func WaitNotContainsString(tb testing.TB, model View, contents string, opts ...Option) string {
 	tb.Helper()
-	return WaitFor(tb, model, func(str string) bool {
+	return WaitView(tb, model, func(str string) bool {
 		return !strings.Contains(str, contents)
 	}, opts...)
 }
@@ -91,7 +91,7 @@ func WaitNotContainsString(tb testing.TB, model View, contents string, opts ...O
 // WaitNotContainsStrings waits until output contains none of the contents.
 func WaitNotContainsStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
 	tb.Helper()
-	return WaitFor(tb, model, func(str string) bool {
+	return WaitView(tb, model, func(str string) bool {
 		for _, content := range contents {
 			if strings.Contains(str, content) {
 				return false

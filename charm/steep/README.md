@@ -299,11 +299,12 @@ h.Type("j")
 h.WaitContainsString(t, "selected")
 ```
 
-Harness assertion and snapshot methods return `*Harness`, so they can be
-chained after settle-style waits:
+Harness `Wait*` methods (except [WaitFinished]), assertion, and snapshot methods
+return `*Harness`, so they can be chained:
 
 ```go
-h.WaitSettleView(t).
+h.WaitContainsString(t, "ready").
+	WaitSettleView(t).
 	AssertStringContains(t, "ready").
 	AssertStringNotContains(t, "loading").
 	RequireSnapshotNoANSI(t)
@@ -320,12 +321,12 @@ h.WaitSettleMessages(t,
 )
 ```
 
-Content waits such as `WaitContainsString` return the matched view output
-instead. Use those when you need to inspect the output directly:
+To read the view after a content wait, use [Harness.View] (or the package-level
+[WaitContainsString] / [WaitView] helpers, which return the matched view):
 
 ```go
-out := h.WaitContainsString(t, "ready")
-if strings.Contains(out, "warning") {
+h.WaitContainsString(t, "ready")
+if strings.Contains(h.View(), "warning") {
 	t.Fatal("unexpected warning")
 }
 ```
