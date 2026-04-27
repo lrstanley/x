@@ -14,9 +14,11 @@ import (
 )
 
 type options struct {
-	suffix     string
-	update     bool
-	transforms []func([]byte) []byte
+	suffix               string
+	update               bool
+	transforms           []func([]byte) []byte
+	disableEscapeESC     bool
+	disableStripSpinners bool
 }
 
 // collectOptions applies functional options into a single configuration.
@@ -36,9 +38,15 @@ func collectOptions(tb testing.TB, opts ...Option) options {
 		}
 	}
 
-	withNormalizeCRLF()(&cfg)
-	withStripSpinners()(&cfg)
-	withEscapeESC()(&cfg)
+	cfg.transforms = append(cfg.transforms, xansi.NormalizeCRLF[[]byte])
+
+	if !cfg.disableStripSpinners {
+		cfg.transforms = append(cfg.transforms, xansi.StripSpinners[[]byte])
+	}
+
+	if !cfg.disableEscapeESC {
+		cfg.transforms = append(cfg.transforms, xansi.EscapeESC[[]byte])
+	}
 
 	return cfg
 }
@@ -82,18 +90,18 @@ func WithStripPrivate() Option {
 	return WithTransform(xansi.StripPrivateUse)
 }
 
-// withStripSpinners replaces spinner characters with "?".
-func withStripSpinners() Option {
-	return WithTransform(xansi.StripSpinners)
+// WithEnableSpinners prevents spinner characters from being replaced with "?",
+// which is the default behavior.
+func WithEnableSpinners() Option {
+	return func(cfg *options) {
+		cfg.disableStripSpinners = false
+	}
 }
 
-// withNormalizeCRLF adds Windows line ending normalization to the transform chain.
-func withNormalizeCRLF() Option {
-	return WithTransform(xansi.NormalizeCRLF)
-}
-
-// withEscapeESC writes ESC bytes as the four-character sequence \x1b so ANSI
-// sequences stay visible and diff-friendly in snapshot files.
-func withEscapeESC() Option {
-	return WithTransform(xansi.EscapeESC)
+// WithESC prevents ESC bytes from being escaped with "\x1b", which is the default
+// behavior.
+func WithESC() Option {
+	return func(cfg *options) {
+		cfg.disableEscapeESC = false
+	}
 }
