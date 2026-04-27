@@ -5,6 +5,16 @@ runs a model through the real Bubble Tea runtime, captures the latest view, and
 adds helpers for sending input, waiting for output, checking messages, mutating
 state inside `Update`, and writing snapshots.
 
+Example of waiting condition failures:
+
+<img width="833" height="302" alt="image" src="https://github.com/user-attachments/assets/f5f2cf9e-c0ba-48e7-a5f3-2cc63353a8ae" />
+
+Example of failures when there is a snapshot mismatch (with stripping of ANSI data, to loosen constraints on snapshot comparisons):
+
+<img width="961" height="390" alt="image" src="https://github.com/user-attachments/assets/63a26069-1dc9-49fa-93d4-8afd27850a4d" />
+
+---
+
 ```go
 import "github.com/lrstanley/x/charm/steep"
 ```
