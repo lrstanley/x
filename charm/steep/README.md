@@ -1,4 +1,6 @@
-# steep
+<img width="1176" height="280" alt="banner" src="https://github.com/user-attachments/assets/b75ed18b-3bf7-4716-b1df-5d66f0a142d8" />
+
+---
 
 `steep` provides test helpers for Bubble Tea programs and component models. It
 runs a model through the real Bubble Tea runtime, captures the latest view, and
