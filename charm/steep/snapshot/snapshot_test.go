@@ -75,30 +75,6 @@ func TestRequireEqualEscapesANSI(t *testing.T) {
 	}
 }
 
-func TestRequireEqualStripANSI(t *testing.T) {
-	t.Chdir(t.TempDir())
-	t.Setenv(envUpdateSnapshots, "true")
-
-	RequireEqual(t, "hello \x1b[31mred\x1b[0m\n", WithStripANSI())
-
-	got := readSnapshot(t, "TestRequireEqualStripANSI.snap")
-	if got != "hello red\n" {
-		t.Fatalf("snapshot = %q, want %q", got, "hello red\n")
-	}
-}
-
-func TestRequireEqualStripGlyphs(t *testing.T) {
-	t.Chdir(t.TempDir())
-	t.Setenv(envUpdateSnapshots, "true")
-
-	RequireEqual(t, "hello 😀  #️⃣\n", WithStripPrivate())
-
-	got := readSnapshot(t, "TestRequireEqualStripGlyphs.snap")
-	if got != "hello 😀 ? #️⃣\n" {
-		t.Fatalf("snapshot = %q, want %q", got, "hello 😀 ? #️⃣\n")
-	}
-}
-
 func writeSnapshot(t *testing.T, name, content string) {
 	t.Helper()
 

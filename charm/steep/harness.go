@@ -306,6 +306,22 @@ func (h *Harness) WaitNotContainsStrings(contents []string, opts ...Option) *Har
 	return h
 }
 
+// WaitMatch waits until the latest view output matches the regular expression
+// pattern. See [WaitMatch].
+func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
+	h.tb.Helper()
+	WaitMatch(h.tb, h, pattern, opts...)
+	return h
+}
+
+// WaitNotMatch waits until the latest view output does not match the regular
+// expression pattern. See [WaitNotMatch].
+func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
+	h.tb.Helper()
+	WaitNotMatch(h.tb, h, pattern, opts...)
+	return h
+}
+
 // AssertStringContains reports an error unless all substrings appear in output.
 // It allows the test to continue.
 func (h *Harness) AssertStringContains(substr ...string) *Harness {
@@ -337,6 +353,42 @@ func (h *Harness) AssertStringNotContains(substr ...string) *Harness {
 func (h *Harness) RequireStringNotContains(substr ...string) *Harness {
 	h.tb.Helper()
 	if !AssertStringNotContains(h.tb, h, substr...) {
+		h.tb.FailNow()
+	}
+	return h
+}
+
+// AssertMatch reports an error unless output matches the regular expression
+// pattern. See [AssertMatch].
+func (h *Harness) AssertMatch(pattern string) *Harness {
+	h.tb.Helper()
+	AssertMatch(h.tb, h, pattern)
+	return h
+}
+
+// RequireMatch fails the test immediately unless output matches the regular
+// expression pattern.
+func (h *Harness) RequireMatch(pattern string) *Harness {
+	h.tb.Helper()
+	if !AssertMatch(h.tb, h, pattern) {
+		h.tb.FailNow()
+	}
+	return h
+}
+
+// AssertNotMatch reports an error if output matches the regular expression
+// pattern. See [AssertNotMatch].
+func (h *Harness) AssertNotMatch(pattern string) *Harness {
+	h.tb.Helper()
+	AssertNotMatch(h.tb, h, pattern)
+	return h
+}
+
+// RequireNotMatch fails the test immediately if output matches the regular
+// expression pattern.
+func (h *Harness) RequireNotMatch(pattern string) *Harness {
+	h.tb.Helper()
+	if !AssertNotMatch(h.tb, h, pattern) {
 		h.tb.FailNow()
 	}
 	return h

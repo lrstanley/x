@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/aymanbagabas/go-udiff"
+	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
 const (
@@ -73,7 +74,7 @@ func AssertEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) bool
 	}
 
 	// Keep snapshots stable even when files are checked out or edited with CRLF.
-	expected = normalizeCRLF(expected)
+	expected = xansi.NormalizeCRLF(expected)
 	if bytes.Equal(expected, actual) {
 		return true
 	}

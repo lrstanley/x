@@ -5,14 +5,12 @@
 package snapshot
 
 import (
-	"bytes"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/x/ansi"
-	"github.com/rivo/uniseg"
+	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
 type options struct {
@@ -75,95 +73,27 @@ func WithTransform(fn func([]byte) []byte) Option {
 
 // WithStripANSI strips ANSI sequences before comparison.
 func WithStripANSI() Option {
-	return WithTransform(func(bts []byte) []byte {
-		return []byte(ansi.Strip(string(bts)))
-	})
+	return WithTransform(xansi.StripANSI)
 }
 
 // WithStripPrivate replaces private use grapheme clusters before
 // comparison (e.g. Nerd Font glyphs).
 func WithStripPrivate() Option {
-	return WithTransform(stripPrivateUse)
-}
-
-func stripPrivateUse(bts []byte) []byte {
-	gr := uniseg.NewGraphemes(string(bts))
-	var out []byte
-
-	for gr.Next() {
-		cluster := gr.Str()
-
-		containsPrivate := false
-		for _, r := range cluster {
-			if isPrivateUse(r) {
-				containsPrivate = true
-				break
-			}
-		}
-		if containsPrivate {
-			out = append(out, '?')
-			continue
-		}
-		out = append(out, cluster...)
-	}
-
-	return out
-}
-
-func isPrivateUse(r rune) bool {
-	return inRanges(r,
-		[2]rune{0xE000, 0xF8FF},
-		[2]rune{0xF0000, 0xFFFFD},
-		[2]rune{0x100000, 0x10FFFD},
-	)
-}
-
-func inRanges(r rune, ranges ...[2]rune) bool {
-	for _, rng := range ranges {
-		if rng[0] <= r && r <= rng[1] {
-			return true
-		}
-	}
-	return false
-}
-
-var spinnerReplacements = [...]string{
-	"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷", "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-	"⢄", "⢂", "⢁", "⡁", "⡈", "⡐", "⡠",
-	"█", "▓", "▒", "░",
-	"∙", "●",
-	"🌍", "🌎", "🌏",
-	"🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘",
-	"🙈", "🙉", "🙊",
-	"▱", "▰",
-	"☱", "☲", "☴",
+	return WithTransform(xansi.StripPrivateUse)
 }
 
 // withStripSpinners replaces spinner characters with "?".
 func withStripSpinners() Option {
-	return WithTransform(func(bts []byte) []byte {
-		for _, replacement := range &spinnerReplacements {
-			bts = bytes.ReplaceAll(bts, []byte(replacement), []byte("?"))
-		}
-		return bts
-	})
+	return WithTransform(xansi.StripSpinners)
 }
 
 // withNormalizeCRLF adds Windows line ending normalization to the transform chain.
 func withNormalizeCRLF() Option {
-	return WithTransform(normalizeCRLF)
-}
-
-func normalizeCRLF(bts []byte) []byte {
-	return bytes.ReplaceAll(bts, []byte("\r\n"), []byte("\n"))
+	return WithTransform(xansi.NormalizeCRLF)
 }
 
 // withEscapeESC writes ESC bytes as the four-character sequence \x1b so ANSI
 // sequences stay visible and diff-friendly in snapshot files.
 func withEscapeESC() Option {
-	return WithTransform(escapeESC)
-}
-
-func escapeESC(bts []byte) []byte {
-	return bytes.ReplaceAll(bts, []byte{0x1b}, []byte(`\x1b`))
+	return WithTransform(xansi.EscapeESC)
 }

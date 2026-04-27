@@ -265,6 +265,11 @@ func TestInventoryTable(t *testing.T) {
 - `Send(msg)` sends any `tea.Msg` to the running program.
 - `WaitContainsString` and `WaitContainsStrings` wait until the view matches.
 - `WaitNotContainsString` waits until unwanted content disappears.
+- `WaitMatch` and `WaitNotMatch` wait until the view matches, or no longer
+  matches, a regular expression (compiled with the standard `regexp` package
+  and checked with `MatchString`). Invalid patterns fail the test when the
+  helper runs. Use `^` and `$` in the pattern when the whole buffer must
+  match, not a substring.
 - `WaitSettleMessages` waits until `Update` stops receiving messages for the
   configured settle timeout. Use `WithSettleIgnoreMsgs` with one value per type
   to ignore (for example `steep.WithSettleIgnoreMsgs(myTickMsg{})`) so periodic
@@ -275,6 +280,9 @@ func TestInventoryTable(t *testing.T) {
   `WaitMessageWhere[T]` inspect messages by concrete type.
 - `Dimensions`, `AssertWidth`, `RequireWidth`, `AssertHeight`, `RequireHeight`,
   `AssertDimensions`, and `RequireDimensions` use ANSI-aware display width.
+- `AssertMatch`, `AssertNotMatch`, `RequireMatch`, and `RequireNotMatch` check
+  the current view against a regular expression the same way as `WaitMatch` /
+  `WaitNotMatch`.
 - `Assert*` helpers report errors and keep the test running. Use `Require*`
   helpers when the next step depends on the check passing and should stop
   immediately.
@@ -306,6 +314,8 @@ h.WaitContainsString("ready").
 	WaitSettleView().
 	AssertStringContains("ready").
 	AssertStringNotContains("loading").
+	AssertMatch("ready").
+	AssertNotMatch("(?i)error|panic").
 	RequireSnapshotNoANSI()
 ```
 
@@ -321,7 +331,8 @@ h.WaitSettleMessages(
 ```
 
 To read the view after a content wait, use [Harness.View] (or the package-level
-[WaitContainsString] / [WaitView] helpers, which return the matched view):
+[WaitContainsString], [WaitMatch] / [WaitNotMatch], or [WaitView] helpers, which
+return the last sampled view that satisfied the wait):
 
 ```go
 h.WaitContainsString("ready")

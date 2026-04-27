@@ -6,6 +6,7 @@ package steep
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +99,34 @@ func WaitNotContainsStrings(tb testing.TB, model View, contents []string, opts .
 			}
 		}
 		return true
+	}, opts...)
+}
+
+// WaitMatch waits until the latest view output matches the regular expression
+// pattern. pattern is compiled with [regexp.Compile]; a compile error fails the
+// test immediately.
+func WaitMatch(tb testing.TB, model View, pattern string, opts ...Option) string {
+	tb.Helper()
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		tb.Fatalf("invalid regexp: %v", err)
+	}
+	return WaitView(tb, model, func(str string) bool {
+		return re.MatchString(str)
+	}, opts...)
+}
+
+// WaitNotMatch waits until the latest view output does not match the regular
+// expression pattern. pattern is compiled with [regexp.Compile]; a compile
+// error fails the test immediately.
+func WaitNotMatch(tb testing.TB, model View, pattern string, opts ...Option) string {
+	tb.Helper()
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		tb.Fatalf("invalid regexp: %v", err)
+	}
+	return WaitView(tb, model, func(str string) bool {
+		return !re.MatchString(str)
 	}, opts...)
 }
 
@@ -198,6 +227,62 @@ func RequireStringNotContains(tb testing.TB, model View, contents ...string) {
 	tb.Helper()
 
 	if !AssertStringNotContains(tb, model, contents...) {
+		tb.FailNow()
+	}
+}
+
+// AssertMatch reports an error unless output matches the regular expression
+// pattern. pattern is compiled with [regexp.Compile]; a compile error fails
+// the test immediately.
+// It returns whether the output matched and allows the test to continue.
+func AssertMatch(tb testing.TB, model View, pattern string) bool {
+	tb.Helper()
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		tb.Fatalf("invalid regexp: %v", err)
+	}
+	out := model.View()
+	if !re.MatchString(out) {
+		tb.Errorf("expected output to match %q\noutput:\n%s", pattern, out)
+		return false
+	}
+	return true
+}
+
+// RequireMatch fails the test immediately unless output matches the regular
+// expression pattern.
+func RequireMatch(tb testing.TB, model View, pattern string) {
+	tb.Helper()
+
+	if !AssertMatch(tb, model, pattern) {
+		tb.FailNow()
+	}
+}
+
+// AssertNotMatch reports an error if output matches the regular expression
+// pattern. pattern is compiled with [regexp.Compile]; a compile error fails
+// the test immediately.
+// It returns whether the output matched and allows the test to continue.
+func AssertNotMatch(tb testing.TB, model View, pattern string) bool {
+	tb.Helper()
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		tb.Fatalf("invalid regexp: %v", err)
+	}
+	out := model.View()
+	if re.MatchString(out) {
+		tb.Errorf("expected output not to match %q\noutput:\n%s", pattern, out)
+		return false
+	}
+	return true
+}
+
+// RequireNotMatch fails the test immediately if output matches the regular
+// expression pattern.
+func RequireNotMatch(tb testing.TB, model View, pattern string) {
+	tb.Helper()
+
+	if !AssertNotMatch(tb, model, pattern) {
 		tb.FailNow()
 	}
 }
