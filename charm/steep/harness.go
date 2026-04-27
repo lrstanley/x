@@ -198,6 +198,9 @@ func (h *Harness) WaitSettleMessages(tb testing.TB, opts ...Option) *Harness {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
+	h.observer.setSettleIgnore(cfg.settleIgnore)
+	defer h.observer.setSettleIgnore(nil)
+
 	deadline := time.Now().Add(cfg.timeout)
 	ctx := tb.Context()
 	timer := time.NewTimer(cfg.timeout)

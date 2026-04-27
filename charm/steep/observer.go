@@ -5,6 +5,8 @@
 package steep
 
 import (
+	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -17,6 +19,7 @@ type observer struct {
 	lastViewSnapshot    string
 	observedMsgs        []tea.Msg
 	lastReceivedMessage time.Time
+	settleIgnore        []reflect.Type
 }
 
 func newObserver(model tea.Model) *observer {
@@ -48,9 +51,21 @@ func (o *observer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		o.replaceLocked(next)
 	}
 	o.observedMsgs = append(o.observedMsgs, copiedMsg)
-	o.lastReceivedMessage = time.Now()
+	if len(o.settleIgnore) == 0 || !slices.Contains(o.settleIgnore, reflect.TypeOf(copiedMsg)) {
+		o.lastReceivedMessage = time.Now()
+	}
 
 	return o, cmd
+}
+
+func (o *observer) setSettleIgnore(types []reflect.Type) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(types) == 0 {
+		o.settleIgnore = nil
+		return
+	}
+	o.settleIgnore = append([]reflect.Type(nil), types...)
 }
 
 func (o *observer) View() tea.View {

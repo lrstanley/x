@@ -267,7 +267,9 @@ func TestInventoryTable(t *testing.T) {
 - `WaitContainsString` and `WaitContainsStrings` wait until the view matches.
 - `WaitNotContainsString` waits until unwanted content disappears.
 - `WaitSettleMessages` waits until `Update` stops receiving messages for the
-  configured settle timeout.
+  configured settle timeout. Use `WithSettleIgnoreMsgs` with one value per type
+  to ignore (for example `steep.WithSettleIgnoreMsgs(myTickMsg{})`) so periodic
+  or background message types do not reset the quiet period.
 - `WaitSettleView` waits until repeated `View` samples stop changing.
 - `Messages` returns observed messages, excluding internal mutation messages.
 - `MessagesOfType[T]`, `WaitMessage[T]`, `WaitMessages[T]`, and
@@ -305,6 +307,17 @@ h.WaitSettleView(t).
 	AssertStringContains(t, "ready").
 	AssertStringNotContains(t, "loading").
 	RequireSnapshotNoANSI(t)
+```
+
+When the model keeps scheduling ticks or other chatter after the interesting
+work finishes, pass sample values so those dynamic types are skipped for
+settlement:
+
+```go
+h.WaitSettleMessages(t,
+	steep.WithSettleIgnoreMsgs(heartbeatTick{}),
+	steep.WithSettleTimeout(25*time.Millisecond),
+)
 ```
 
 Content waits such as `WaitContainsString` return the matched view output

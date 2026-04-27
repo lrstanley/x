@@ -247,6 +247,60 @@ func TestComponentHarnessWaitSettled(t *testing.T) {
 	}
 }
 
+type settleNoiseTick struct{}
+
+type settlingWithNoiseModel struct {
+	updates int
+}
+
+func (m *settlingWithNoiseModel) View() string {
+	return fmt.Sprintf("updates=%d", m.updates)
+}
+
+func (m *settlingWithNoiseModel) Init() tea.Cmd {
+	return tea.Tick(5*time.Millisecond, func(time.Time) tea.Msg {
+		return settleNoiseTick{}
+	})
+}
+
+func (m *settlingWithNoiseModel) Update(msg tea.Msg) tea.Cmd {
+	if _, ok := msg.(settleNoiseTick); ok {
+		return tea.Tick(5*time.Millisecond, func(time.Time) tea.Msg {
+			return settleNoiseTick{}
+		})
+	}
+	if _, ok := msg.(settleMsg); !ok {
+		return nil
+	}
+	m.updates++
+	if m.updates >= 2 {
+		return nil
+	}
+	return tea.Tick(10*time.Millisecond, func(time.Time) tea.Msg {
+		return settleMsg{}
+	})
+}
+
+func TestComponentHarnessWaitSettledIgnoreMsgs(t *testing.T) {
+	h := NewComponentHarness(t, &settlingWithNoiseModel{})
+	h.Send(settleMsg{})
+	h.WaitContainsString(t, "updates=2")
+
+	h.WaitSettleMessages(
+		t,
+		WithSettleIgnoreMsgs(settleNoiseTick{}),
+		WithSettleTimeout(25*time.Millisecond),
+		WithTimeout(500*time.Millisecond),
+		WithCheckInterval(5*time.Millisecond),
+	)
+	if !strings.Contains(h.View(), "updates=2") {
+		t.Fatalf("output = %q, want updates=2", h.View())
+	}
+	if len(MessagesOfType[settleNoiseTick](h.Messages())) < 3 {
+		t.Fatalf("expected periodic noise ticks in message log")
+	}
+}
+
 type viewSettleTick struct{}
 
 type viewSettleStableModel struct {

@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"reflect"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,8 +31,10 @@ type options struct {
 	height        int
 	timeout       time.Duration
 	checkInterval time.Duration
-	settleTimeout time.Duration
 	programOpts   []tea.ProgramOption
+
+	settleTimeout time.Duration
+	settleIgnore  []reflect.Type
 }
 
 func defaultOptions() options {
@@ -112,5 +115,21 @@ func WithCheckInterval(interval time.Duration) Option {
 func WithSettleTimeout(timeout time.Duration) Option {
 	return func(cfg *options) {
 		cfg.settleTimeout = timeout
+	}
+}
+
+// WithSettleIgnoreMsgs marks message types that do not reset the quiet period
+// used by [Harness.WaitSettleMessages]. Pass a value of each type to ignore (for
+// example a zero value of your periodic tick type). The dynamic type of each
+// observed message is compared with [reflect.TypeOf] on those samples; nil
+// samples are skipped.
+func WithSettleIgnoreMsgs(types ...any) Option {
+	return func(cfg *options) {
+		for _, s := range types {
+			if s == nil {
+				continue
+			}
+			cfg.settleIgnore = append(cfg.settleIgnore, reflect.TypeOf(s))
+		}
 	}
 }
