@@ -13,6 +13,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/lrstanley/x/charm/steep/snapshot"
 )
 
 type appendMsg string
@@ -62,14 +64,14 @@ func TestComponentHarnessMutableUpdate(t *testing.T) {
 	h := NewComponentHarness(t, &mutableViewModel{})
 
 	h.Type("ab")
-	h.WaitContainsBytes([]byte("text=ab"))
-	h.RequireStringContains("text=ab")
+	h.WaitBytes([]byte("text=ab"))
+	h.RequireString("text=ab")
 
 	h.Send(appendMsg("?"))
-	h.WaitContainsString("text=ab?!")
-	h.WaitNotContainsBytes([]byte("missing"))
-	h.RequireStringContains("text=ab?!")
-	h.RequireStringNotContains("missing")
+	h.WaitString("text=ab?!")
+	h.WaitNotBytes([]byte("missing"))
+	h.RequireString("text=ab?!")
+	h.RequireNotString("missing")
 	h.RequireWidth(9)
 	h.RequireHeight(1)
 	h.RequireDimensions(9, 1)
@@ -98,7 +100,7 @@ func TestComponentHarnessMutateMutableModel(t *testing.T) {
 	})
 	h.Send(appendMsg("!"))
 
-	h.WaitContainsString("text=mutated!")
+	h.WaitString("text=mutated!")
 }
 
 func TestComponentHarnessMutateReplacementModel(t *testing.T) {
@@ -110,7 +112,7 @@ func TestComponentHarnessMutateReplacementModel(t *testing.T) {
 	})
 	h.Send(appendMsg("!"))
 
-	h.WaitContainsString("text=mutated!")
+	h.WaitString("text=mutated!")
 }
 
 type sizeViewModel struct {
@@ -134,7 +136,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("uses program default size", func(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{})
 
-		h.WaitContainsString("size=80x24")
+		h.WaitString("size=80x24")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 80 || msg.Height != 24 {
 			t.Fatalf("initial size = %dx%d, want 80x24", msg.Width, msg.Height)
@@ -144,7 +146,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("explicit size", func(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{}, WithInitialTermSize(70, 10))
 
-		h.WaitContainsString("size=70x10")
+		h.WaitString("size=70x10")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 70 || msg.Height != 10 {
 			t.Fatalf("initial size = %dx%d, want 70x10", msg.Width, msg.Height)
@@ -154,7 +156,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 	t.Run("explicit zero size", func(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{}, WithInitialTermSize(0, 0))
 
-		h.WaitContainsString("size=0x0")
+		h.WaitString("size=0x0")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 0 || msg.Height != 0 {
 			t.Fatalf("initial size = %dx%d, want 0x0", msg.Width, msg.Height)
@@ -192,7 +194,7 @@ func (m *asyncViewModel) Update(msg tea.Msg) tea.Cmd {
 func TestComponentHarnessAsyncBridge(t *testing.T) {
 	h := NewComponentHarness(t, &asyncViewModel{}, WithInitialTermSize(33, 4))
 
-	h.WaitContainsStrings([]string{"size=33x4", "text=ready"})
+	h.WaitStrings([]string{"size=33x4", "text=ready"})
 
 	msg := WaitMessage[appendMsg](t, h)
 	if msg != "ready" {
@@ -228,7 +230,7 @@ func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
 func TestComponentHarnessWaitSettled(t *testing.T) {
 	h := NewComponentHarness(t, &settlingViewModel{})
 	h.Send(settleMsg{})
-	h.WaitContainsString("updates=3")
+	h.WaitString("updates=3")
 
 	h.WaitSettleMessages(
 		WithSettleTimeout(25*time.Millisecond),
@@ -283,7 +285,7 @@ func (m *settlingWithNoiseModel) Update(msg tea.Msg) tea.Cmd {
 func TestComponentHarnessWaitSettledIgnoreMsgs(t *testing.T) {
 	h := NewComponentHarness(t, &settlingWithNoiseModel{})
 	h.Send(settleMsg{})
-	h.WaitContainsString("updates=2")
+	h.WaitString("updates=2")
 
 	h.WaitSettleMessages(
 		WithSettleIgnoreMsgs(settleNoiseTick{}),
@@ -330,7 +332,7 @@ func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
 
 func TestComponentHarnessWaitSettledView(t *testing.T) {
 	h := NewComponentHarness(t, &viewSettleStableModel{})
-	h.WaitContainsString("stable")
+	h.WaitString("stable")
 
 	h.WaitSettleView(
 		WithSettleTimeout(25*time.Millisecond),
@@ -362,7 +364,7 @@ func TestComponentHarnessSendFilterReceivesOriginalMessage(t *testing.T) {
 	)
 
 	h.Send(appendMsg("x"))
-	h.WaitContainsString("text=x")
+	h.WaitString("text=x")
 
 	select {
 	case <-seen:
@@ -376,8 +378,8 @@ func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
 	t.Setenv("UPDATE_SNAPSHOTS", "true")
 
 	h := NewComponentHarness(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"})
-	h.WaitContainsString("red")
-	h.RequireSnapshotNoANSI()
+	h.WaitString("red")
+	h.RequireSnapshot(snapshot.WithStripANSI())
 
 	got := readSteepSnapshot(t, "TestComponentHarnessRequirePlainSnapshot.snap")
 	if got != "text=red" {

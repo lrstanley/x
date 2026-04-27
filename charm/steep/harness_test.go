@@ -47,19 +47,19 @@ func (m rootTestModel) View() tea.View {
 func TestHarness(t *testing.T) {
 	h := NewHarness(t, rootTestModel{}, WithInitialTermSize(12, 3))
 
-	h.WaitContainsString("size=12x3")
-	h.RequireStringContains("size=12x3")
+	h.WaitString("size=12x3")
+	h.RequireString("size=12x3")
 	h.RequireWidth(9)
 	h.RequireHeight(2)
 	h.RequireDimensions(9, 2)
 
 	h.Type("ab")
-	h.WaitContainsBytes([]byte("text=ab"))
+	h.WaitBytes([]byte("text=ab"))
 
 	h.Send(setTextMsg("done"))
-	h.WaitContainsString("text=done")
-	h.WaitNotContainsString("text=ab")
-	h.RequireStringNotContains("text=ab")
+	h.WaitString("text=done")
+	h.WaitNotString("text=ab")
+	h.RequireNotString("text=ab")
 
 	if len(h.Messages()) < 4 {
 		t.Fatalf("expected at least 4 messages, got %d", len(h.Messages()))
@@ -107,7 +107,7 @@ func TestHarnessRequirePlainSnapshotUsesCurrentOutput(t *testing.T) {
 
 	h := NewHarness(t, rootTestModel{text: "\x1b[31mred\x1b[0m"})
 
-	h.WaitContainsStrings([]string{"size=80x24", "red"})
+	h.WaitStrings([]string{"size=80x24", "red"})
 	h.RequireSnapshotNoANSI()
 
 	got := readSteepSnapshot(t, "TestHarnessRequirePlainSnapshotUsesCurrentOutput.snap")

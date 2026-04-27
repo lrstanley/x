@@ -47,7 +47,7 @@ func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
 		h.tb.Fatalf("mutate function must not be nil")
 	}
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(h.mergedOpts(opts...)...)
 	done := make(chan error, 1)
 	h.Send(mutateMsg[M]{fn: fn, done: done})
 

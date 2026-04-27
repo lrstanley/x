@@ -5,6 +5,7 @@
 package xansi
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestStripANSI(t *testing.T) {
 	}
 	bin := []byte(in)
 	bwant := []byte(want)
-	if got := StripANSI(bin); string(got) != string(bwant) {
+	if got := StripANSI(bin); !bytes.Equal(got, bwant) {
 		t.Fatalf("[]byte: got %q, want %q", got, bwant)
 	}
 }

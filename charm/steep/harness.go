@@ -30,6 +30,7 @@ type Harness struct {
 	program  *tea.Program
 	observer *observer
 	output   *bytes.Buffer
+	opts     []Option
 
 	resultMu sync.RWMutex
 	result   *runResult
@@ -49,6 +50,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		observer: newObserver(tb, model),
 		output:   &bytes.Buffer{},
 		done:     make(chan runResult, 1),
+		opts:     append([]Option(nil), opts...),
 	}
 
 	h.program = tea.NewProgram(
@@ -98,6 +100,10 @@ func NewComponentHarness[M any](tb testing.TB, model M, opts ...Option) *Harness
 	m.validate()
 
 	return NewHarness(tb, m, opts...)
+}
+
+func (h *Harness) mergedOpts(call ...Option) []Option {
+	return append(h.opts, call...)
 }
 
 // Send sends msg to the running Bubble Tea program.
@@ -163,7 +169,7 @@ func (h *Harness) View() string {
 func (h *Harness) WaitFinished(opts ...Option) {
 	h.tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(h.mergedOpts(opts...)...)
 	h.resultMu.RLock()
 	if result := h.result; result != nil {
 		h.resultMu.RUnlock()
@@ -199,7 +205,7 @@ func (h *Harness) WaitFinished(opts ...Option) {
 func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 	h.tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(h.mergedOpts(opts...)...)
 	h.observer.setSettleIgnore(cfg.settleIgnore)
 	defer h.observer.setSettleIgnore(nil)
 
@@ -246,63 +252,63 @@ func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 // [WithCheckInterval], and [WithTimeout].
 func (h *Harness) WaitSettleView(opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitSettleView(h.tb, h, opts...)
+	WaitSettleView(h.tb, h, h.mergedOpts(opts...)...)
 	return h
 }
 
 // WaitViewBytes waits until condition returns true for the latest view output.
 func (h *Harness) WaitViewBytes(condition func(view []byte) bool, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitView(h.tb, h, condition, opts...)
+	WaitView(h.tb, h, condition, h.mergedOpts(opts...)...)
 	return h
 }
 
 // WaitViewString waits until condition returns true for the latest view output.
 func (h *Harness) WaitViewString(condition func(view string) bool, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitView(h.tb, h, condition, opts...)
+	WaitView(h.tb, h, condition, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitContainsBytes waits until output contains contents.
-func (h *Harness) WaitContainsBytes(contents []byte, opts ...Option) *Harness {
+// WaitBytes waits until output contains contents.
+func (h *Harness) WaitBytes(contents []byte, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitContainsBytes(h.tb, h, contents, opts...)
+	WaitBytes(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitContainsString waits until output contains contents.
-func (h *Harness) WaitContainsString(contents string, opts ...Option) *Harness {
+// WaitString waits until output contains contents.
+func (h *Harness) WaitString(contents string, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitContainsString(h.tb, h, contents, opts...)
+	WaitString(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitContainsStrings waits until output contains all contents.
-func (h *Harness) WaitContainsStrings(contents []string, opts ...Option) *Harness {
+// WaitStrings waits until output contains all contents.
+func (h *Harness) WaitStrings(contents []string, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitContainsStrings(h.tb, h, contents, opts...)
+	WaitStrings(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitNotContainsBytes waits until output contains none of the contents.
-func (h *Harness) WaitNotContainsBytes(contents []byte, opts ...Option) *Harness {
+// WaitNotBytes waits until output contains none of the contents.
+func (h *Harness) WaitNotBytes(contents []byte, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitNotContainsBytes(h.tb, h, contents, opts...)
+	WaitNotBytes(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitNotContainsString waits until output contains none of the contents.
-func (h *Harness) WaitNotContainsString(contents string, opts ...Option) *Harness {
+// WaitNotString waits until output contains none of the contents.
+func (h *Harness) WaitNotString(contents string, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitNotContainsString(h.tb, h, contents, opts...)
+	WaitNotString(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitNotContainsStrings waits until output contains none of the contents.
-func (h *Harness) WaitNotContainsStrings(contents []string, opts ...Option) *Harness {
+// WaitNotStrings waits until output contains none of the contents.
+func (h *Harness) WaitNotStrings(contents []string, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitNotContainsStrings(h.tb, h, contents, opts...)
+	WaitNotStrings(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -310,7 +316,7 @@ func (h *Harness) WaitNotContainsStrings(contents []string, opts ...Option) *Har
 // pattern. See [WaitMatch].
 func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitMatch(h.tb, h, pattern, opts...)
+	WaitMatch(h.tb, h, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -318,41 +324,75 @@ func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 // expression pattern. See [WaitNotMatch].
 func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitNotMatch(h.tb, h, pattern, opts...)
+	WaitNotMatch(h.tb, h, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
-// AssertStringContains reports an error unless all substrings appear in output.
-// It allows the test to continue.
-func (h *Harness) AssertStringContains(substr ...string) *Harness {
+// AssertString reports an error unless content appears in output. It
+// allows the test to continue.
+func (h *Harness) AssertString(content string, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertStringContains(h.tb, h, substr...)
+	AssertString(h.tb, h, content, h.mergedOpts(opts...)...)
 	return h
 }
 
-// RequireStringContains fails the test immediately unless all substrings appear
-// in output.
-func (h *Harness) RequireStringContains(substr ...string) *Harness {
+// RequireString fails the test immediately unless content appears in output.
+func (h *Harness) RequireString(content string, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertStringContains(h.tb, h, substr...) {
+	if !AssertString(h.tb, h, content, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
 }
 
-// AssertStringNotContains reports an error if any substring appears in output.
-// It allows the test to continue.
-func (h *Harness) AssertStringNotContains(substr ...string) *Harness {
+// AssertStrings reports an error unless every substring in contents
+// appears in output. It allows the test to continue.
+func (h *Harness) AssertStrings(contents []string, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertStringNotContains(h.tb, h, substr...)
+	AssertStrings(h.tb, h, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// RequireStringNotContains fails the test immediately if any substring appears
-// in output.
-func (h *Harness) RequireStringNotContains(substr ...string) *Harness {
+// RequireStrings fails the test immediately unless every substring in
+// contents appears in output.
+func (h *Harness) RequireStrings(contents []string, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertStringNotContains(h.tb, h, substr...) {
+	if !AssertStrings(h.tb, h, contents, h.mergedOpts(opts...)...) {
+		h.tb.FailNow()
+	}
+	return h
+}
+
+// AssertNotString reports an error if content appears in output. It
+// allows the test to continue.
+func (h *Harness) AssertNotString(content string, opts ...Option) *Harness {
+	h.tb.Helper()
+	AssertNotString(h.tb, h, content, h.mergedOpts(opts...)...)
+	return h
+}
+
+// RequireNotString fails the test immediately if content appears in output.
+func (h *Harness) RequireNotString(content string, opts ...Option) *Harness {
+	h.tb.Helper()
+	if !AssertNotString(h.tb, h, content, h.mergedOpts(opts...)...) {
+		h.tb.FailNow()
+	}
+	return h
+}
+
+// AssertNotStrings reports an error if any substring in contents
+// appears in output. It allows the test to continue.
+func (h *Harness) AssertNotStrings(contents []string, opts ...Option) *Harness {
+	h.tb.Helper()
+	AssertNotStrings(h.tb, h, contents, h.mergedOpts(opts...)...)
+	return h
+}
+
+// RequireNotStrings fails the test immediately if any substring in
+// contents appears in output.
+func (h *Harness) RequireNotStrings(contents []string, opts ...Option) *Harness {
+	h.tb.Helper()
+	if !AssertNotStrings(h.tb, h, contents, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
@@ -360,17 +400,17 @@ func (h *Harness) RequireStringNotContains(substr ...string) *Harness {
 
 // AssertMatch reports an error unless output matches the regular expression
 // pattern. See [AssertMatch].
-func (h *Harness) AssertMatch(pattern string) *Harness {
+func (h *Harness) AssertMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertMatch(h.tb, h, pattern)
+	AssertMatch(h.tb, h, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
 // RequireMatch fails the test immediately unless output matches the regular
 // expression pattern.
-func (h *Harness) RequireMatch(pattern string) *Harness {
+func (h *Harness) RequireMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertMatch(h.tb, h, pattern) {
+	if !AssertMatch(h.tb, h, pattern, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
@@ -378,17 +418,17 @@ func (h *Harness) RequireMatch(pattern string) *Harness {
 
 // AssertNotMatch reports an error if output matches the regular expression
 // pattern. See [AssertNotMatch].
-func (h *Harness) AssertNotMatch(pattern string) *Harness {
+func (h *Harness) AssertNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertNotMatch(h.tb, h, pattern)
+	AssertNotMatch(h.tb, h, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
 // RequireNotMatch fails the test immediately if output matches the regular
 // expression pattern.
-func (h *Harness) RequireNotMatch(pattern string) *Harness {
+func (h *Harness) RequireNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertNotMatch(h.tb, h, pattern) {
+	if !AssertNotMatch(h.tb, h, pattern, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
@@ -396,16 +436,16 @@ func (h *Harness) RequireNotMatch(pattern string) *Harness {
 
 // AssertHeight reports an error unless output has height rows. It allows the
 // test to continue.
-func (h *Harness) AssertHeight(height int) *Harness {
+func (h *Harness) AssertHeight(height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertHeight(h.tb, h, height)
+	AssertHeight(h.tb, h, height, h.mergedOpts(opts...)...)
 	return h
 }
 
 // RequireHeight fails the test immediately unless output has height rows.
-func (h *Harness) RequireHeight(height int) *Harness {
+func (h *Harness) RequireHeight(height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertHeight(h.tb, h, height) {
+	if !AssertHeight(h.tb, h, height, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
@@ -413,16 +453,16 @@ func (h *Harness) RequireHeight(height int) *Harness {
 
 // AssertWidth reports an error unless output has width columns. It allows the
 // test to continue.
-func (h *Harness) AssertWidth(width int) *Harness {
+func (h *Harness) AssertWidth(width int, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertWidth(h.tb, h, width)
+	AssertWidth(h.tb, h, width, h.mergedOpts(opts...)...)
 	return h
 }
 
 // RequireWidth fails the test immediately unless output has width columns.
-func (h *Harness) RequireWidth(width int) *Harness {
+func (h *Harness) RequireWidth(width int, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertWidth(h.tb, h, width) {
+	if !AssertWidth(h.tb, h, width, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
@@ -430,17 +470,17 @@ func (h *Harness) RequireWidth(width int) *Harness {
 
 // AssertDimensions reports an error unless output has width columns and height
 // rows. It allows the test to continue.
-func (h *Harness) AssertDimensions(width, height int) *Harness {
+func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	AssertDimensions(h.tb, h, width, height)
+	AssertDimensions(h.tb, h, width, height, h.mergedOpts(opts...)...)
 	return h
 }
 
 // RequireDimensions fails the test immediately unless output has width columns
 // and height rows.
-func (h *Harness) RequireDimensions(width, height int) *Harness {
+func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	if !AssertDimensions(h.tb, h, width, height) {
+	if !AssertDimensions(h.tb, h, width, height, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
@@ -450,7 +490,7 @@ func (h *Harness) RequireDimensions(width, height int) *Harness {
 // without waiting for the program to finish. It allows the test to continue.
 func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	snapshot.AssertEqual(h.tb, h.View(), opts...)
+	snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...)
 	return h
 }
 
@@ -459,10 +499,17 @@ func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 // immediately if the snapshot does not match.
 func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	if !snapshot.AssertEqual(h.tb, h.View(), opts...) {
+	if !snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...) {
 		h.tb.FailNow()
 	}
 	return h
+}
+
+func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
+	if !collectOptions(h.mergedOpts()...).stripANSI {
+		return opts
+	}
+	return append([]snapshot.Option{snapshot.WithStripANSI()}, opts...)
 }
 
 // AssertSnapshotNoANSI compares the latest captured program output against a

@@ -8,7 +8,7 @@
 //
 //	h := steep.NewHarness(t, model, steep.WithInitialTermSize(80, 24))
 //	h.Type("hello")
-//	h.AssertStringContains("hello")
+//	h.AssertString("hello")
 //	if err := h.Quit(); err != nil {
 //		t.Fatal(err)
 //	}

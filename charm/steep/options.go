@@ -35,6 +35,8 @@ type options struct {
 
 	settleTimeout time.Duration
 	settleIgnore  []reflect.Type
+
+	stripANSI bool
 }
 
 func defaultOptions() options {
@@ -69,7 +71,10 @@ func collectOptions(opts ...Option) options {
 	return cfg
 }
 
-// Option configures a [Harness] or assertion helper.
+// Option configures a [Harness] or assertion helper. [NewHarness] and
+// [NewComponentHarness] store these options and merge them (before per-call
+// options) on any [Harness] method that accepts more options, so a harness can
+// be configured with defaults once and overridden per call.
 type Option func(*options)
 
 // WithInitialTermSize configures the starting terminal size. See also
@@ -131,5 +136,16 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 			}
 			cfg.settleIgnore = append(cfg.settleIgnore, reflect.TypeOf(s))
 		}
+	}
+}
+
+// WithStripANSI strips ANSI escape and control sequences from view text before
+// string/regex [WaitView] and [AssertString] (and related) comparisons,
+// and from [Dimensions] for layout assertions. When set on a [NewHarness] or
+// [NewComponentHarness], it is also applied to [Harness.AssertSnapshot] and
+// [Harness.RequireSnapshot] on that harness.
+func WithStripANSI() Option {
+	return func(cfg *options) {
+		cfg.stripANSI = true
 	}
 }

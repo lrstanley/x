@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
 // WaitView waits until condition returns true for the latest view output.
@@ -25,7 +26,11 @@ func WaitView[T ~string | ~[]byte](tb testing.TB, model View, condition func(vie
 	defer timer.Stop()
 
 	for {
-		out := T(model.View())
+		raw := model.View()
+		if cfg.stripANSI {
+			raw = xansi.StripANSI(raw)
+		}
+		out := T(raw)
 		if condition(out) {
 			return out
 		}
@@ -44,24 +49,24 @@ func WaitView[T ~string | ~[]byte](tb testing.TB, model View, condition func(vie
 	}
 }
 
-// WaitContainsBytes waits until output contains contents.
-func WaitContainsBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
+// WaitBytes waits until output contains contents.
+func WaitBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
 	tb.Helper()
 	return WaitView(tb, model, func(bts []byte) bool {
 		return bytes.Contains(bts, contents)
 	}, opts...)
 }
 
-// WaitContainsString waits until output contains contents.
-func WaitContainsString(tb testing.TB, model View, contents string, opts ...Option) string {
+// WaitString waits until output contains contents.
+func WaitString(tb testing.TB, model View, contents string, opts ...Option) string {
 	tb.Helper()
 	return WaitView(tb, model, func(str string) bool {
 		return strings.Contains(str, contents)
 	}, opts...)
 }
 
-// WaitContainsStrings waits until output contains all contents.
-func WaitContainsStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
+// WaitStrings waits until output contains all contents.
+func WaitStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
 	tb.Helper()
 	return WaitView(tb, model, func(str string) bool {
 		for _, content := range contents {
@@ -73,24 +78,24 @@ func WaitContainsStrings(tb testing.TB, model View, contents []string, opts ...O
 	}, opts...)
 }
 
-// WaitNotContainsBytes waits until output contains none of the contents.
-func WaitNotContainsBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
+// WaitNotBytes waits until output contains none of the contents.
+func WaitNotBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
 	tb.Helper()
 	return WaitView(tb, model, func(bts []byte) bool {
 		return !bytes.Contains(bts, contents)
 	}, opts...)
 }
 
-// WaitNotContainsString waits until output contains none of the contents.
-func WaitNotContainsString(tb testing.TB, model View, contents string, opts ...Option) string {
+// WaitNotString waits until output contains none of the contents.
+func WaitNotString(tb testing.TB, model View, contents string, opts ...Option) string {
 	tb.Helper()
 	return WaitView(tb, model, func(str string) bool {
 		return !strings.Contains(str, contents)
 	}, opts...)
 }
 
-// WaitNotContainsStrings waits until output contains none of the contents.
-func WaitNotContainsStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
+// WaitNotStrings waits until output contains none of the contents.
+func WaitNotStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
 	tb.Helper()
 	return WaitView(tb, model, func(str string) bool {
 		for _, content := range contents {
@@ -144,10 +149,16 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 	defer timer.Stop()
 
 	prev := model.View()
+	if cfg.stripANSI {
+		prev = xansi.StripANSI(prev)
+	}
 	lastChange := time.Now()
 
 	for {
 		v := model.View()
+		if cfg.stripANSI {
+			v = xansi.StripANSI(v)
+		}
 		now := time.Now()
 		if v != prev {
 			prev = v
@@ -179,12 +190,43 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 	}
 }
 
-// AssertStringContains reports an error unless all substrings appear in output.
-// It returns whether the output matched and allows the test to continue.
-func AssertStringContains(tb testing.TB, model View, contents ...string) bool {
+// AssertString reports an error unless content appears in output. It
+// returns whether the output matched and allows the test to continue.
+func AssertString(tb testing.TB, model View, content string, opts ...Option) bool {
 	tb.Helper()
 
+	cfg := collectOptions(opts...)
 	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
+	if !strings.Contains(out, content) {
+		tb.Errorf("expected output to contain %q\noutput:\n%s", content, out)
+		return false
+	}
+	return true
+}
+
+// RequireString fails the test immediately unless content appears in output.
+func RequireString(tb testing.TB, model View, content string, opts ...Option) {
+	tb.Helper()
+
+	if !AssertString(tb, model, content, opts...) {
+		tb.FailNow()
+	}
+}
+
+// AssertStrings reports an error unless every substring in contents
+// appears in output. It returns whether the output matched and allows the test
+// to continue.
+func AssertStrings(tb testing.TB, model View, contents []string, opts ...Option) bool {
+	tb.Helper()
+
+	cfg := collectOptions(opts...)
+	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
 	matched := true
 	for _, sub := range contents {
 		if !strings.Contains(out, sub) {
@@ -195,22 +237,53 @@ func AssertStringContains(tb testing.TB, model View, contents ...string) bool {
 	return matched
 }
 
-// RequireStringContains fails the test immediately unless all substrings appear
-// in output.
-func RequireStringContains(tb testing.TB, model View, contents ...string) {
+// RequireStrings fails the test immediately unless every substring in
+// contents appears in output.
+func RequireStrings(tb testing.TB, model View, contents []string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertStringContains(tb, model, contents...) {
+	if !AssertStrings(tb, model, contents, opts...) {
 		tb.FailNow()
 	}
 }
 
-// AssertStringNotContains reports an error if any substring appears in output.
-// It returns whether the output matched and allows the test to continue.
-func AssertStringNotContains(tb testing.TB, model View, contents ...string) bool {
+// AssertNotString reports an error if content appears in output. It
+// returns whether the output matched and allows the test to continue.
+func AssertNotString(tb testing.TB, model View, content string, opts ...Option) bool {
 	tb.Helper()
 
+	cfg := collectOptions(opts...)
 	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
+	if strings.Contains(out, content) {
+		tb.Errorf("expected output not to contain %q\noutput:\n%s", content, out)
+		return false
+	}
+	return true
+}
+
+// RequireNotString fails the test immediately if content appears in output.
+func RequireNotString(tb testing.TB, model View, content string, opts ...Option) {
+	tb.Helper()
+
+	if !AssertNotString(tb, model, content, opts...) {
+		tb.FailNow()
+	}
+}
+
+// AssertNotStrings reports an error if any substring in contents
+// appears in output. It returns whether the output matched and allows the test
+// to continue.
+func AssertNotStrings(tb testing.TB, model View, contents []string, opts ...Option) bool {
+	tb.Helper()
+
+	cfg := collectOptions(opts...)
+	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
 	matched := true
 	for _, sub := range contents {
 		if strings.Contains(out, sub) {
@@ -221,12 +294,12 @@ func AssertStringNotContains(tb testing.TB, model View, contents ...string) bool
 	return matched
 }
 
-// RequireStringNotContains fails the test immediately if any substring appears
-// in output.
-func RequireStringNotContains(tb testing.TB, model View, contents ...string) {
+// RequireNotStrings fails the test immediately if any substring in
+// contents appears in output.
+func RequireNotStrings(tb testing.TB, model View, contents []string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertStringNotContains(tb, model, contents...) {
+	if !AssertNotStrings(tb, model, contents, opts...) {
 		tb.FailNow()
 	}
 }
@@ -235,13 +308,17 @@ func RequireStringNotContains(tb testing.TB, model View, contents ...string) {
 // pattern. pattern is compiled with [regexp.Compile]; a compile error fails
 // the test immediately.
 // It returns whether the output matched and allows the test to continue.
-func AssertMatch(tb testing.TB, model View, pattern string) bool {
+func AssertMatch(tb testing.TB, model View, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
+	cfg := collectOptions(opts...)
 	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
 	if !re.MatchString(out) {
 		tb.Errorf("expected output to match %q\noutput:\n%s", pattern, out)
 		return false
@@ -251,10 +328,10 @@ func AssertMatch(tb testing.TB, model View, pattern string) bool {
 
 // RequireMatch fails the test immediately unless output matches the regular
 // expression pattern.
-func RequireMatch(tb testing.TB, model View, pattern string) {
+func RequireMatch(tb testing.TB, model View, pattern string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertMatch(tb, model, pattern) {
+	if !AssertMatch(tb, model, pattern, opts...) {
 		tb.FailNow()
 	}
 }
@@ -263,13 +340,17 @@ func RequireMatch(tb testing.TB, model View, pattern string) {
 // pattern. pattern is compiled with [regexp.Compile]; a compile error fails
 // the test immediately.
 // It returns whether the output matched and allows the test to continue.
-func AssertNotMatch(tb testing.TB, model View, pattern string) bool {
+func AssertNotMatch(tb testing.TB, model View, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
+	cfg := collectOptions(opts...)
 	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
 	if re.MatchString(out) {
 		tb.Errorf("expected output not to match %q\noutput:\n%s", pattern, out)
 		return false
@@ -279,10 +360,10 @@ func AssertNotMatch(tb testing.TB, model View, pattern string) bool {
 
 // RequireNotMatch fails the test immediately if output matches the regular
 // expression pattern.
-func RequireNotMatch(tb testing.TB, model View, pattern string) {
+func RequireNotMatch(tb testing.TB, model View, pattern string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertNotMatch(tb, model, pattern) {
+	if !AssertNotMatch(tb, model, pattern, opts...) {
 		tb.FailNow()
 	}
 }
@@ -291,10 +372,15 @@ func RequireNotMatch(tb testing.TB, model View, pattern string) {
 // differently to [charm.land/lipgloss/v2.Height] which always assumes a minimum
 // height of 1.
 // It returns whether the output matched and allows the test to continue.
-func AssertHeight(tb testing.TB, model View, n int) bool {
+func AssertHeight(tb testing.TB, model View, n int, opts ...Option) bool {
 	tb.Helper()
 
-	_, goth := Dimensions(model.View())
+	cfg := collectOptions(opts...)
+	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
+	_, goth := Dimensions(out)
 	if goth != n {
 		tb.Errorf("expected output height %d, got %d", n, goth)
 		return false
@@ -303,20 +389,25 @@ func AssertHeight(tb testing.TB, model View, n int) bool {
 }
 
 // RequireHeight fails the test immediately unless output has n rows.
-func RequireHeight(tb testing.TB, model View, n int) {
+func RequireHeight(tb testing.TB, model View, n int, opts ...Option) {
 	tb.Helper()
 
-	if !AssertHeight(tb, model, n) {
+	if !AssertHeight(tb, model, n, opts...) {
 		tb.FailNow()
 	}
 }
 
 // AssertWidth reports an error unless output has n columns. It returns whether
 // the output matched and allows the test to continue.
-func AssertWidth(tb testing.TB, model View, n int) bool {
+func AssertWidth(tb testing.TB, model View, n int, opts ...Option) bool {
 	tb.Helper()
 
-	gotw, _ := Dimensions(model.View())
+	cfg := collectOptions(opts...)
+	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
+	gotw, _ := Dimensions(out)
 	if gotw != n {
 		tb.Errorf("expected output width %d, got %d", n, gotw)
 		return false
@@ -325,10 +416,10 @@ func AssertWidth(tb testing.TB, model View, n int) bool {
 }
 
 // RequireWidth fails the test immediately unless output has n columns.
-func RequireWidth(tb testing.TB, model View, n int) {
+func RequireWidth(tb testing.TB, model View, n int, opts ...Option) {
 	tb.Helper()
 
-	if !AssertWidth(tb, model, n) {
+	if !AssertWidth(tb, model, n, opts...) {
 		tb.FailNow()
 	}
 }
@@ -337,10 +428,15 @@ func RequireWidth(tb testing.TB, model View, n int) {
 // that this behaves differently to [charm.land/lipgloss/v2.Size] which always
 // assumes a minimum height of 1.
 // It returns whether the output matched and allows the test to continue.
-func AssertDimensions(tb testing.TB, model View, width, height int) bool {
+func AssertDimensions(tb testing.TB, model View, width, height int, opts ...Option) bool {
 	tb.Helper()
 
-	gotw, goth := Dimensions(model.View())
+	cfg := collectOptions(opts...)
+	out := model.View()
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
+	gotw, goth := Dimensions(out)
 	if gotw != width || goth != height {
 		tb.Errorf("expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
 		return false
@@ -349,10 +445,10 @@ func AssertDimensions(tb testing.TB, model View, width, height int) bool {
 }
 
 // RequireDimensions fails the test immediately unless output has specified dimensions.
-func RequireDimensions(tb testing.TB, model View, width, height int) {
+func RequireDimensions(tb testing.TB, model View, width, height int, opts ...Option) {
 	tb.Helper()
 
-	if !AssertDimensions(tb, model, width, height) {
+	if !AssertDimensions(tb, model, width, height, opts...) {
 		tb.FailNow()
 	}
 }

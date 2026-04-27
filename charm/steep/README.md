@@ -110,14 +110,14 @@ func TestCommandPalette(t *testing.T) {
 	}
 	h := steep.NewHarness(t, model, steep.WithInitialTermSize(48, 8))
 
-	h.WaitContainsStrings([]string{"size=48x8", "vault read", "vault status"})
+	h.WaitStrings([]string{"size=48x8", "vault read", "vault status"})
 	h.Type("status")
-	h.WaitContainsString("query=status")
-	h.AssertStringNotContains("vault read secret/data/app")
+	h.WaitString("query=status")
+	h.AssertNotString("vault read secret/data/app")
 
 	h.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	selected := steep.WaitMessage[openCommandMsg](t, h)
-	h.WaitContainsString("opened=vault status")
+	h.WaitString("opened=vault status")
 
 	if selected.Command != "vault status" {
 		t.Fatalf("selected command = %q, want vault status", selected.Command)
@@ -228,7 +228,10 @@ func (m *inventoryTable) moveUp() {
 
 func TestInventoryTable(t *testing.T) {
 	table := &inventoryTable{}
-	h := steep.NewComponentHarness(t, table, steep.WithInitialTermSize(32, 6))
+	h := steep.NewComponentHarness(t, table,
+		steep.WithInitialTermSize(32, 6),
+		steep.WithStripANSI(),
+	)
 
 	steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
 		m.rows = []inventoryRow{
@@ -238,7 +241,7 @@ func TestInventoryTable(t *testing.T) {
 		}
 		return m
 	})
-	h.WaitContainsStrings([]string{"secret/app", "database", "token"})
+	h.WaitStrings([]string{"secret/app", "database", "token"})
 
 	h.Type("j")
 	h.WaitSettleMessages(
@@ -251,11 +254,11 @@ func TestInventoryTable(t *testing.T) {
 		m.selected = 0
 		return m
 	})
-	h.WaitContainsString("secret/app")
+	h.WaitString("secret/app")
 	h.WaitSettleView().
-		AssertStringNotContains("database", "token").
+		AssertNotString("database").
 		AssertDimensions(table.GetWidth(), table.GetHeight()).
-		RequireSnapshotNoANSI(snapshot.WithSuffix("inventory"))
+		RequireSnapshot(snapshot.WithSuffix("inventory"))
 }
 ```
 
@@ -263,8 +266,8 @@ func TestInventoryTable(t *testing.T) {
 
 - `Type("text")` sends one key press per rune.
 - `Send(msg)` sends any `tea.Msg` to the running program.
-- `WaitContainsString` and `WaitContainsStrings` wait until the view matches.
-- `WaitNotContainsString` waits until unwanted content disappears.
+- `WaitString` and `WaitStrings` wait until the view matches.
+- `WaitNotString` waits until unwanted content disappears.
 - `WaitMatch` and `WaitNotMatch` wait until the view matches, or no longer
   matches, a regular expression (compiled with the standard `regexp` package
   and checked with `MatchString`). Invalid patterns fail the test when the
@@ -278,11 +281,19 @@ func TestInventoryTable(t *testing.T) {
 - `Messages` returns observed messages, excluding internal mutation messages.
 - `MessagesOfType[T]`, `WaitMessage[T]`, `WaitMessages[T]`, and
   `WaitMessageWhere[T]` inspect messages by concrete type.
+- `WithStripANSI` removes ANSI from the view before string/regex waits, substring
+  assertions, layout checks, and (when set on the harness) snapshot comparisons.
 - `Dimensions`, `AssertWidth`, `RequireWidth`, `AssertHeight`, `RequireHeight`,
-  `AssertDimensions`, and `RequireDimensions` use ANSI-aware display width.
+  `AssertDimensions`, and `RequireDimensions` use ANSI-aware display width
+  (on the view with ANSI stripped when `WithStripANSI` is set).
 - `AssertMatch`, `AssertNotMatch`, `RequireMatch`, and `RequireNotMatch` check
   the current view against a regular expression the same way as `WaitMatch` /
   `WaitNotMatch`.
+- `AssertString` / `RequireString` (and `AssertNotString` /
+  `RequireNotString`) check a single substring. Use `AssertStrings` /
+  `RequireStrings` (and `AssertNotStrings` / `RequireNotStrings`)
+  when the view must contain, or must omit, every string in a list (same idea as
+  [WaitStrings] / [WaitNotStrings]).
 - `Assert*` helpers report errors and keep the test running. Use `Require*`
   helpers when the next step depends on the check passing and should stop
   immediately.
@@ -292,7 +303,7 @@ package-level helpers when you already have a simple value that implements
 `View() string` and do not need the Bubble Tea runtime:
 
 ```go
-steep.AssertStringContains(t, model, "ready")
+steep.AssertString(t, model, "ready")
 steep.AssertDimensions(t, model, 80, 24)
 ```
 
@@ -303,20 +314,39 @@ state:
 ```go
 h := steep.NewComponentHarness(t, model)
 h.Type("j")
-h.WaitContainsString("selected")
+h.WaitString("selected")
+```
+
+Options you pass to `NewHarness` or `NewComponentHarness` are kept on the
+`Harness` and merged with the options on each method that accepts `...Option`
+(for example `Wait*`, `Assert*`, `Require*`, `Mutate`, and `WaitFinished`).
+Harness-level options are applied first; options on a specific call are applied
+after and win for the same setting (a per-call `WithTimeout(5*time.Second)`
+overrides a default `WithTimeout(2*time.Second)` on the constructor for that call
+only). Snapshot methods still take `snapshot.Option` arguments separately; the
+harness’s `WithStripANSI` is mapped into the snapshot path when you use
+`AssertSnapshot` or `RequireSnapshot`, as before.
+
+```go
+h := steep.NewHarness(t, model,
+	steep.WithTimeout(5*time.Second),
+	steep.WithStripANSI(),
+)
+h.WaitString("ok") // uses 5s timeout and strips ANSI
+h.WaitString("slow", steep.WithTimeout(30*time.Second)) // 30s, still strips ANSI
 ```
 
 Harness `Wait*` methods (except [WaitFinished]), assertion, and snapshot methods
 return `*Harness`, so they can be chained:
 
 ```go
-h.WaitContainsString("ready").
+h.WaitString("ready").
 	WaitSettleView().
-	AssertStringContains("ready").
-	AssertStringNotContains("loading").
+	AssertString("ready").
+	AssertNotString("loading").
 	AssertMatch("ready").
 	AssertNotMatch("(?i)error|panic").
-	RequireSnapshotNoANSI()
+	RequireSnapshot(snapshot.WithStripANSI())
 ```
 
 When the model keeps scheduling ticks or other chatter after the interesting
@@ -331,11 +361,11 @@ h.WaitSettleMessages(
 ```
 
 To read the view after a content wait, use [Harness.View] (or the package-level
-[WaitContainsString], [WaitMatch] / [WaitNotMatch], or [WaitView] helpers, which
+[WaitString], [WaitMatch] / [WaitNotMatch], or [WaitView] helpers, which
 return the last sampled view that satisfied the wait):
 
 ```go
-h.WaitContainsString("ready")
+h.WaitString("ready")
 if strings.Contains(h.View(), "warning") {
 	t.Fatal("unexpected warning")
 }
@@ -392,8 +422,10 @@ For harnesses, use the convenience methods:
 
 ```go
 h.AssertSnapshot(snapshot.WithSuffix("ansi"))
-h.AssertSnapshotNoANSI(snapshot.WithSuffix("plain"))
+h.AssertSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
 h.RequireSnapshot(snapshot.WithSuffix("ansi"))
+h.RequireSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
+h.AssertSnapshotNoANSI(snapshot.WithSuffix("plain"))
 h.RequireSnapshotNoANSI(snapshot.WithSuffix("plain"))
 ```
 
