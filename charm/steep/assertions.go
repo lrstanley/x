@@ -150,61 +150,125 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 	}
 }
 
-// ExpectStringContains fails the test unless all substrings appear in output.
-func ExpectStringContains(tb testing.TB, model View, contents ...string) {
+// AssertStringContains reports an error unless all substrings appear in output.
+// It returns whether the output matched and allows the test to continue.
+func AssertStringContains(tb testing.TB, model View, contents ...string) bool {
 	tb.Helper()
 
 	out := model.View()
+	matched := true
 	for _, sub := range contents {
 		if !strings.Contains(out, sub) {
-			tb.Fatalf("expected output to contain %q\noutput:\n%s", sub, out)
+			tb.Errorf("expected output to contain %q\noutput:\n%s", sub, out)
+			matched = false
 		}
+	}
+	return matched
+}
+
+// RequireStringContains fails the test immediately unless all substrings appear
+// in output.
+func RequireStringContains(tb testing.TB, model View, contents ...string) {
+	tb.Helper()
+
+	if !AssertStringContains(tb, model, contents...) {
+		tb.FailNow()
 	}
 }
 
-// ExpectStringNotContains fails the test if any substring appears in output.
-func ExpectStringNotContains(tb testing.TB, model View, contents ...string) {
+// AssertStringNotContains reports an error if any substring appears in output.
+// It returns whether the output matched and allows the test to continue.
+func AssertStringNotContains(tb testing.TB, model View, contents ...string) bool {
 	tb.Helper()
 
 	out := model.View()
+	matched := true
 	for _, sub := range contents {
 		if strings.Contains(out, sub) {
-			tb.Fatalf("expected output not to contain %q\noutput:\n%s", sub, out)
+			tb.Errorf("expected output not to contain %q\noutput:\n%s", sub, out)
+			matched = false
 		}
+	}
+	return matched
+}
+
+// RequireStringNotContains fails the test immediately if any substring appears
+// in output.
+func RequireStringNotContains(tb testing.TB, model View, contents ...string) {
+	tb.Helper()
+
+	if !AssertStringNotContains(tb, model, contents...) {
+		tb.FailNow()
 	}
 }
 
-// ExpectHeight fails the test unless output has n rows. Note that this behaves
+// AssertHeight reports an error unless output has n rows. Note that this behaves
 // differently to [charm.land/lipgloss/v2.Height] which always assumes a minimum
 // height of 1.
-func ExpectHeight(tb testing.TB, model View, n int) {
+// It returns whether the output matched and allows the test to continue.
+func AssertHeight(tb testing.TB, model View, n int) bool {
 	tb.Helper()
 
 	_, goth := Dimensions(model.View())
 	if goth != n {
-		tb.Fatalf("expected output height %d, got %d", n, goth)
+		tb.Errorf("expected output height %d, got %d", n, goth)
+		return false
+	}
+	return true
+}
+
+// RequireHeight fails the test immediately unless output has n rows.
+func RequireHeight(tb testing.TB, model View, n int) {
+	tb.Helper()
+
+	if !AssertHeight(tb, model, n) {
+		tb.FailNow()
 	}
 }
 
-// ExpectWidth fails the test unless output has n columns.
-func ExpectWidth(tb testing.TB, model View, n int) {
+// AssertWidth reports an error unless output has n columns. It returns whether
+// the output matched and allows the test to continue.
+func AssertWidth(tb testing.TB, model View, n int) bool {
 	tb.Helper()
 
 	gotw, _ := Dimensions(model.View())
 	if gotw != n {
-		tb.Fatalf("expected output width %d, got %d", n, gotw)
+		tb.Errorf("expected output width %d, got %d", n, gotw)
+		return false
+	}
+	return true
+}
+
+// RequireWidth fails the test immediately unless output has n columns.
+func RequireWidth(tb testing.TB, model View, n int) {
+	tb.Helper()
+
+	if !AssertWidth(tb, model, n) {
+		tb.FailNow()
 	}
 }
 
-// ExpectDimensions fails the test unless output has specified dimensions. Note
+// AssertDimensions reports an error unless output has specified dimensions. Note
 // that this behaves differently to [charm.land/lipgloss/v2.Size] which always
 // assumes a minimum height of 1.
-func ExpectDimensions(tb testing.TB, model View, width, height int) {
+// It returns whether the output matched and allows the test to continue.
+func AssertDimensions(tb testing.TB, model View, width, height int) bool {
 	tb.Helper()
 
 	gotw, goth := Dimensions(model.View())
 	if gotw != width || goth != height {
-		tb.Fatalf("expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
+		tb.Errorf("expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
+		return false
+	}
+	return true
+}
+
+// RequireDimensions fails the test immediately unless output has specified dimensions.
+func RequireDimensions(tb testing.TB, model View, width, height int) {
+	tb.Helper()
+
+	if !AssertDimensions(tb, model, width, height) {
+		tb.FailNow()
 	}
 }
 

@@ -30,6 +30,17 @@ var snapshotCounters sync.Map
 func RequireEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) {
 	tb.Helper()
 
+	if !AssertEqual(tb, got, opts...) {
+		tb.FailNow()
+	}
+}
+
+// AssertEqual compares "got" against this test's generated snapshot file,
+// reporting errors without stopping the test immediately. It returns whether
+// the snapshot matched.
+func AssertEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) bool {
+	tb.Helper()
+
 	cfg := collectOptions(tb, opts...)
 
 	testName := tb.Name()
@@ -42,29 +53,34 @@ func RequireEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) {
 
 	if cfg.update {
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			tb.Fatalf("failed to create snapshot directory: %v", err)
+			tb.Errorf("failed to create snapshot directory: %v", err)
+			return false
 		}
 		if err := os.WriteFile(path, actual, 0o600); err != nil {
-			tb.Fatalf("failed to write snapshot %q: %v", path, err)
+			tb.Errorf("failed to write snapshot %q: %v", path, err)
+			return false
 		}
 	}
 
 	expected, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			tb.Fatalf("snapshot %q does not exist; set %s=true to create it", path, envUpdateSnapshots)
+			tb.Errorf("snapshot %q does not exist; set %s=true to create it", path, envUpdateSnapshots)
+			return false
 		}
-		tb.Fatalf("failed to read snapshot %q: %v", path, err)
+		tb.Errorf("failed to read snapshot %q: %v", path, err)
+		return false
 	}
 
 	// Keep snapshots stable even when files are checked out or edited with CRLF.
 	expected = normalizeCRLF(expected)
 	if bytes.Equal(expected, actual) {
-		return
+		return true
 	}
 
 	diff := udiff.Unified(path, "actual", string(expected), string(actual))
-	tb.Fatalf("snapshot %q does not match:\n%s", path, diff)
+	tb.Errorf("snapshot %q does not match:\n%s", path, diff)
+	return false
 }
 
 // normalize converts supported values to a stable byte representation.

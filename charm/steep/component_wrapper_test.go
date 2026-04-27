@@ -63,16 +63,16 @@ func TestComponentHarnessMutableUpdate(t *testing.T) {
 
 	h.Type("ab")
 	h.WaitContainsBytes(t, []byte("text=ab"))
-	h.ExpectStringContains(t, "text=ab")
+	h.RequireStringContains(t, "text=ab")
 
 	h.Send(appendMsg("?"))
 	h.WaitContainsString(t, "text=ab?!")
 	h.WaitNotContainsBytes(t, []byte("missing"))
-	h.ExpectStringContains(t, "text=ab?!")
-	h.ExpectStringNotContains(t, "missing")
-	h.ExpectWidth(t, 9)
-	h.ExpectHeight(t, 1)
-	h.ExpectDimensions(t, 9, 1)
+	h.RequireStringContains(t, "text=ab?!")
+	h.RequireStringNotContains(t, "missing")
+	h.RequireWidth(t, 9)
+	h.RequireHeight(t, 1)
+	h.RequireDimensions(t, 9, 1)
 
 	if len(h.Messages()) < 5 {
 		t.Fatalf("messages = %d, want at least 5", len(h.Messages()))

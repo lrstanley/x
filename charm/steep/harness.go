@@ -37,8 +37,7 @@ type Harness struct {
 
 // NewHarness creates a new test harness for a Bubble Tea program (one which has
 // a [tea.Model] as the root model). The test harness will run the program,
-// capture its output, and provide assertions and expectations for the program's
-// behavior.
+// capture its output, and provide assertions for the program's behavior.
 func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	tb.Helper()
 
@@ -294,54 +293,125 @@ func (h *Harness) WaitNotContainsStrings(tb testing.TB, contents []string, opts 
 	return WaitNotContainsStrings(tb, h, contents, opts...)
 }
 
-// ExpectStringContains fails the test unless all substrings appear in output.
-func (h *Harness) ExpectStringContains(tb testing.TB, substr ...string) *Harness {
+// AssertStringContains reports an error unless all substrings appear in output.
+// It allows the test to continue.
+func (h *Harness) AssertStringContains(tb testing.TB, substr ...string) *Harness {
 	tb.Helper()
-	ExpectStringContains(tb, h, substr...)
+	AssertStringContains(tb, h, substr...)
 	return h
 }
 
-// ExpectStringNotContains fails the test if any substring appears in output.
-func (h *Harness) ExpectStringNotContains(tb testing.TB, substr ...string) *Harness {
+// RequireStringContains fails the test immediately unless all substrings appear
+// in output.
+func (h *Harness) RequireStringContains(tb testing.TB, substr ...string) *Harness {
 	tb.Helper()
-	ExpectStringNotContains(tb, h, substr...)
+	if !AssertStringContains(tb, h, substr...) {
+		tb.FailNow()
+	}
 	return h
 }
 
-// ExpectHeight fails the test unless output has height rows.
-func (h *Harness) ExpectHeight(tb testing.TB, height int) *Harness {
+// AssertStringNotContains reports an error if any substring appears in output.
+// It allows the test to continue.
+func (h *Harness) AssertStringNotContains(tb testing.TB, substr ...string) *Harness {
 	tb.Helper()
-	ExpectHeight(tb, h, height)
+	AssertStringNotContains(tb, h, substr...)
 	return h
 }
 
-// ExpectWidth fails the test unless output has width columns.
-func (h *Harness) ExpectWidth(tb testing.TB, width int) *Harness {
+// RequireStringNotContains fails the test immediately if any substring appears
+// in output.
+func (h *Harness) RequireStringNotContains(tb testing.TB, substr ...string) *Harness {
 	tb.Helper()
-	ExpectWidth(tb, h, width)
+	if !AssertStringNotContains(tb, h, substr...) {
+		tb.FailNow()
+	}
 	return h
 }
 
-// ExpectDimensions fails the test unless output has width columns and height rows.
-func (h *Harness) ExpectDimensions(tb testing.TB, width, height int) *Harness {
+// AssertHeight reports an error unless output has height rows. It allows the
+// test to continue.
+func (h *Harness) AssertHeight(tb testing.TB, height int) *Harness {
 	tb.Helper()
-	ExpectDimensions(tb, h, width, height)
+	AssertHeight(tb, h, height)
+	return h
+}
+
+// RequireHeight fails the test immediately unless output has height rows.
+func (h *Harness) RequireHeight(tb testing.TB, height int) *Harness {
+	tb.Helper()
+	if !AssertHeight(tb, h, height) {
+		tb.FailNow()
+	}
+	return h
+}
+
+// AssertWidth reports an error unless output has width columns. It allows the
+// test to continue.
+func (h *Harness) AssertWidth(tb testing.TB, width int) *Harness {
+	tb.Helper()
+	AssertWidth(tb, h, width)
+	return h
+}
+
+// RequireWidth fails the test immediately unless output has width columns.
+func (h *Harness) RequireWidth(tb testing.TB, width int) *Harness {
+	tb.Helper()
+	if !AssertWidth(tb, h, width) {
+		tb.FailNow()
+	}
+	return h
+}
+
+// AssertDimensions reports an error unless output has width columns and height
+// rows. It allows the test to continue.
+func (h *Harness) AssertDimensions(tb testing.TB, width, height int) *Harness {
+	tb.Helper()
+	AssertDimensions(tb, h, width, height)
+	return h
+}
+
+// RequireDimensions fails the test immediately unless output has width columns
+// and height rows.
+func (h *Harness) RequireDimensions(tb testing.TB, width, height int) *Harness {
+	tb.Helper()
+	if !AssertDimensions(tb, h, width, height) {
+		tb.FailNow()
+	}
+	return h
+}
+
+// AssertSnapshot compares the latest captured program output against a snapshot
+// without waiting for the program to finish. It allows the test to continue.
+func (h *Harness) AssertSnapshot(tb testing.TB, opts ...snapshot.Option) *Harness {
+	tb.Helper()
+	snapshot.AssertEqual(tb, h.View(), opts...)
 	return h
 }
 
 // RequireSnapshot compares the latest captured program output against a
-// snapshot without waiting for the program to finish.
+// snapshot without waiting for the program to finish, failing the test
+// immediately if the snapshot does not match.
 func (h *Harness) RequireSnapshot(tb testing.TB, opts ...snapshot.Option) *Harness {
 	tb.Helper()
-	snapshot.RequireEqual(tb, h.View(), opts...)
+	if !snapshot.AssertEqual(tb, h.View(), opts...) {
+		tb.FailNow()
+	}
 	return h
+}
+
+// AssertSnapshotNoANSI compares the latest captured program output against a
+// snapshot after stripping ANSI sequences and without waiting for the program
+// to finish. It allows the test to continue.
+func (h *Harness) AssertSnapshotNoANSI(tb testing.TB, opts ...snapshot.Option) *Harness {
+	tb.Helper()
+	return h.AssertSnapshot(tb, append(opts, snapshot.WithStripANSI())...)
 }
 
 // RequireSnapshotNoANSI compares the latest captured program output against a
 // snapshot after stripping ANSI sequences and without waiting for the program
-// to finish.
+// to finish, failing the test immediately if the snapshot does not match.
 func (h *Harness) RequireSnapshotNoANSI(tb testing.TB, opts ...snapshot.Option) *Harness {
 	tb.Helper()
-	h.RequireSnapshot(tb, append(opts, snapshot.WithStripANSI())...)
-	return h
+	return h.RequireSnapshot(tb, append(opts, snapshot.WithStripANSI())...)
 }

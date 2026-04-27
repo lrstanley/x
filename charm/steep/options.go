@@ -92,14 +92,14 @@ func WithProgramOptions(opts ...tea.ProgramOption) Option {
 	}
 }
 
-// WithTimeout configures how long waits and expectations may run.
+// WithTimeout configures how long waits may run.
 func WithTimeout(timeout time.Duration) Option {
 	return func(cfg *options) {
 		cfg.timeout = timeout
 	}
 }
 
-// WithCheckInterval configures how often waits and expectations are checked.
+// WithCheckInterval configures how often waits are checked.
 func WithCheckInterval(interval time.Duration) Option {
 	return func(cfg *options) {
 		cfg.checkInterval = interval

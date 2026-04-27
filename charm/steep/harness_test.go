@@ -48,10 +48,10 @@ func TestHarness(t *testing.T) {
 	h := NewHarness(t, rootTestModel{}, WithInitialTermSize(12, 3))
 
 	h.WaitContainsString(t, "size=12x3")
-	h.ExpectStringContains(t, "size=12x3")
-	h.ExpectWidth(t, 9)
-	h.ExpectHeight(t, 2)
-	h.ExpectDimensions(t, 9, 2)
+	h.RequireStringContains(t, "size=12x3")
+	h.RequireWidth(t, 9)
+	h.RequireHeight(t, 2)
+	h.RequireDimensions(t, 9, 2)
 
 	h.Type("ab")
 	h.WaitContainsBytes(t, []byte("text=ab"))
@@ -59,7 +59,7 @@ func TestHarness(t *testing.T) {
 	h.Send(setTextMsg("done"))
 	h.WaitContainsString(t, "text=done")
 	h.WaitNotContainsString(t, "text=ab")
-	h.ExpectStringNotContains(t, "text=ab")
+	h.RequireStringNotContains(t, "text=ab")
 
 	if len(h.Messages()) < 4 {
 		t.Fatalf("expected at least 4 messages, got %d", len(h.Messages()))
