@@ -8,18 +8,15 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
-type View interface {
-	View() string
-}
-
 type simpleUpdater interface {
-	Update(tea.Msg) tea.Cmd
+	Update(uv.Event) tea.Cmd
 }
 
 type replacementUpdater[T any] interface {
-	Update(tea.Msg) (T, tea.Cmd)
+	Update(uv.Event) (T, tea.Cmd)
 }
 
 type initializer interface {
@@ -34,13 +31,13 @@ type componentWrapper[M any] struct {
 func (cw *componentWrapper[M]) validate() {
 	cw.tb.Helper()
 
-	if _, ok := any(cw.model).(View); !ok {
+	if _, ok := any(cw.model).(Viewable); !ok {
 		cw.tb.Fatalf("model must implement View() string")
 	}
 	_, supportsCommandUpdate := any(cw.model).(simpleUpdater)
 	_, supportsReplacementUpdate := any(cw.model).(replacementUpdater[M])
 	if !supportsCommandUpdate && !supportsReplacementUpdate {
-		cw.tb.Fatalf("model must implement Update(tea.Msg) tea.Cmd or Update(tea.Msg) (%T, tea.Cmd)", cw.model)
+		cw.tb.Fatalf("model must implement Update(uv.Msg) tea.Cmd or Update(uv.Msg) (%T, tea.Cmd)", cw.model)
 	}
 }
 
@@ -52,7 +49,7 @@ func (cw *componentWrapper[M]) Init() tea.Cmd {
 	return nil
 }
 
-func (cw *componentWrapper[M]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (cw *componentWrapper[M]) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	cw.tb.Helper()
 	switch m := any(cw.model).(type) {
 	case replacementUpdater[M]:
@@ -68,12 +65,12 @@ func (cw *componentWrapper[M]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (cw *componentWrapper[M]) View() tea.View {
 	cw.tb.Helper()
-	viewer, ok := any(cw.model).(View)
+	viewer, ok := any(cw.model).(Viewable)
 	if !ok {
 		panic("model must implement View() string")
 	}
 
 	v := tea.NewView(viewer.View())
-	v.AltScreen = true
+	v.AltScreen = false
 	return v
 }

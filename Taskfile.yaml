@@ -99,20 +99,21 @@ tasks:
     deps: [ prepare ]
     preconditions: [ test -f go.mod ]
     cmds:
-      - go test -v ./... {{.CLI_ARGS}}
+      - go test -v -timeout 30s ./... {{.CLI_ARGS}}
   test:all:
     desc: run tests for all packages
     run: once
     deps: [ prepare:all ]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && go test -v ./... {{.CLI_ARGS}}
+        cmd: cd {{ .PKG }} && go test -v -timeout 30s ./... {{.CLI_ARGS}}
   test:extended:
     desc: run comprehensive tests
     run: once
     deps: [ prepare ]
     cmds:
-      - go test -v -race -count 5 -cpu 1,4 {{ or .CLI_ARGS "./..." }}
+      - go test -v -race -count 5 -cpu 1,4 -timeout 30s {{ or .CLI_ARGS "./..."
+        }}
   test:extended:all:
     desc: run comprehensive tests for all packages
     run: once

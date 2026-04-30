@@ -12,16 +12,16 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // MessageCollector exposes messages observed by a test harness.
 type MessageCollector interface {
-	Messages() []tea.Msg
+	Messages() []uv.Event
 }
 
 // MessagesOfType returns messages with the same concrete type as T.
-func MessagesOfType[T tea.Msg](messages []tea.Msg) []T {
+func MessagesOfType[T uv.Event](messages []uv.Event) []T {
 	var out []T
 	target := messageReflectType[T]()
 
@@ -39,7 +39,7 @@ func MessagesOfType[T tea.Msg](messages []tea.Msg) []T {
 
 // WaitMessage waits until at least one message with the same concrete type
 // as T has been observed, then returns the first match.
-func WaitMessage[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) T {
+func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 
 	return WaitMessages[T](tb, log, opts...)[0]
@@ -47,7 +47,7 @@ func WaitMessage[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option)
 
 // WaitMessages waits until at least one message with the same concrete type
 // as T has been observed, then returns all current matches.
-func WaitMessages[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option) []T {
+func WaitMessages[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) []T {
 	tb.Helper()
 
 	return waitMessages(tb, log, func(T) bool { return true }, opts...)
@@ -55,7 +55,7 @@ func WaitMessages[T tea.Msg](tb testing.TB, log MessageCollector, opts ...Option
 
 // WaitMessageWhere waits until a message with the same concrete type as T
 // has been observed and match returns true.
-func WaitMessageWhere[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) T {
+func WaitMessageWhere[T uv.Event](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) T {
 	tb.Helper()
 
 	if match == nil {
@@ -64,7 +64,7 @@ func WaitMessageWhere[T tea.Msg](tb testing.TB, log MessageCollector, match func
 	return waitMessages(tb, log, match, opts...)[0]
 }
 
-func waitMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) []T {
+func waitMessages[T uv.Event](tb testing.TB, log MessageCollector, match func(T) bool, opts ...Option) []T {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -101,7 +101,7 @@ func waitMessages[T tea.Msg](tb testing.TB, log MessageCollector, match func(T) 
 	}
 }
 
-func filterMessages[T tea.Msg](messages []T, match func(T) bool) []T {
+func filterMessages[T uv.Event](messages []T, match func(T) bool) []T {
 	out := make([]T, 0, len(messages))
 	for _, msg := range messages {
 		if match(msg) {
@@ -111,7 +111,7 @@ func filterMessages[T tea.Msg](messages []T, match func(T) bool) []T {
 	return out
 }
 
-func messageTypeName[T tea.Msg]() string {
+func messageTypeName[T uv.Event]() string {
 	typ := messageReflectType[T]()
 	if typ == nil {
 		return "<nil>"
@@ -119,12 +119,12 @@ func messageTypeName[T tea.Msg]() string {
 	return typ.String()
 }
 
-func messageReflectType[T tea.Msg]() reflect.Type {
+func messageReflectType[T uv.Event]() reflect.Type {
 	var zero T
 	return reflect.TypeOf(zero)
 }
 
-func observedMessageTypes(messages []tea.Msg) string {
+func observedMessageTypes(messages []uv.Event) string {
 	if len(messages) == 0 {
 		return "none"
 	}

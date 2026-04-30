@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 type setTextMsg string
@@ -25,7 +26,7 @@ func (m rootTestModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m rootTestModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m rootTestModel) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -65,9 +66,7 @@ func TestHarness(t *testing.T) {
 		t.Fatalf("expected at least 4 messages, got %d", len(h.Messages()))
 	}
 
-	if err := h.Quit(); err != nil {
-		t.Fatalf("quit failed: %v", err)
-	}
+	h.Quit()
 	h.WaitFinished(WithTimeout(time.Second))
 
 	out := h.FinalView()
@@ -98,20 +97,5 @@ func TestHarnessMutateRootModel(t *testing.T) {
 	}
 	if len(MessagesOfType[mutateMsg[rootTestModel]](h.Messages())) != 0 {
 		t.Fatalf("mutate messages should not be exposed")
-	}
-}
-
-func TestHarnessRequirePlainSnapshotUsesCurrentOutput(t *testing.T) {
-	t.Chdir(t.TempDir())
-	t.Setenv("UPDATE_SNAPSHOTS", "true")
-
-	h := NewHarness(t, rootTestModel{text: "\x1b[31mred\x1b[0m"})
-
-	h.WaitStrings([]string{"size=80x24", "red"})
-	h.RequireSnapshotNoANSI()
-
-	got := readSteepSnapshot(t, "TestHarnessRequirePlainSnapshotUsesCurrentOutput.snap")
-	if got != "size=80x24\ntext=red" {
-		t.Fatalf("snapshot = %q, want current plain output", got)
 	}
 }

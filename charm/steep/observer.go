@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 type observer struct {
@@ -19,7 +20,7 @@ type observer struct {
 	mu                  sync.RWMutex
 	model               tea.Model
 	lastViewSnapshot    string
-	observedMsgs        []tea.Msg
+	observedMsgs        []uv.Event
 	lastReceivedMessage time.Time
 	settleIgnore        []reflect.Type
 }
@@ -37,7 +38,7 @@ func (o *observer) Init() tea.Cmd {
 	return o.currentModel().Init()
 }
 
-func (o *observer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (o *observer) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	o.tb.Helper()
 	copiedMsg := msg
 
@@ -134,8 +135,8 @@ func (o *observer) mutateLocked(req mutateRequest) error {
 	return nil
 }
 
-func (o *observer) messages() []tea.Msg {
+func (o *observer) messages() []uv.Event {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	return append([]tea.Msg(nil), o.observedMsgs...)
+	return append([]uv.Event(nil), o.observedMsgs...)
 }

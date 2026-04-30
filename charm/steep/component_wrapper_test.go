@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/charm/steep/snapshot"
 )
 
@@ -27,14 +28,14 @@ func (m *mutableViewModel) View() string {
 	return "text=" + m.text
 }
 
-func (m *mutableViewModel) Update(msg tea.Msg) tea.Cmd {
+func (m *mutableViewModel) Update(msg uv.Event) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		m.text += msg.Key().Text
 	case appendMsg:
 		m.text += string(msg)
 		if msg == "?" {
-			return func() tea.Msg {
+			return func() uv.Event {
 				return appendMsg("!")
 			}
 		}
@@ -50,7 +51,7 @@ func (m replacementViewModel) View() string {
 	return "text=" + m.text
 }
 
-func (m replacementViewModel) Update(msg tea.Msg) (replacementViewModel, tea.Cmd) {
+func (m replacementViewModel) Update(msg uv.Event) (replacementViewModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		m.text += msg.Key().Text
@@ -86,7 +87,7 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 
 	h.Type("go")
 	h.Send(appendMsg("!"))
-	h.WaitViewBytes(func(bts []byte) bool {
+	h.WaitBytesFunc(func(bts []byte) bool {
 		return strings.Contains(string(bts), "text=go!")
 	})
 }
@@ -124,7 +125,7 @@ func (m *sizeViewModel) View() string {
 	return fmt.Sprintf("size=%dx%d", m.width, m.height)
 }
 
-func (m *sizeViewModel) Update(msg tea.Msg) tea.Cmd {
+func (m *sizeViewModel) Update(msg uv.Event) tea.Cmd {
 	if msg, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = msg.Width
 		m.height = msg.Height
@@ -171,7 +172,7 @@ type asyncViewModel struct {
 }
 
 func (m *asyncViewModel) Init() tea.Cmd {
-	return func() tea.Msg {
+	return func() uv.Event {
 		return appendMsg("ready")
 	}
 }
@@ -180,7 +181,7 @@ func (m *asyncViewModel) View() string {
 	return fmt.Sprintf("size=%dx%d\ntext=%s", m.width, m.height, m.text)
 }
 
-func (m *asyncViewModel) Update(msg tea.Msg) tea.Cmd {
+func (m *asyncViewModel) Update(msg uv.Event) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -212,7 +213,7 @@ func (m *settlingViewModel) View() string {
 	return fmt.Sprintf("updates=%d", m.updates)
 }
 
-func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
+func (m *settlingViewModel) Update(msg uv.Event) tea.Cmd {
 	if _, ok := msg.(settleMsg); !ok {
 		return nil
 	}
@@ -222,7 +223,7 @@ func (m *settlingViewModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	return tea.Tick(10*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(10*time.Millisecond, func(time.Time) uv.Event {
 		return settleMsg{}
 	})
 }
@@ -259,14 +260,14 @@ func (m *settlingWithNoiseModel) View() string {
 }
 
 func (m *settlingWithNoiseModel) Init() tea.Cmd {
-	return tea.Tick(5*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(5*time.Millisecond, func(time.Time) uv.Event {
 		return settleNoiseTick{}
 	})
 }
 
-func (m *settlingWithNoiseModel) Update(msg tea.Msg) tea.Cmd {
+func (m *settlingWithNoiseModel) Update(msg uv.Event) tea.Cmd {
 	if _, ok := msg.(settleNoiseTick); ok {
-		return tea.Tick(5*time.Millisecond, func(time.Time) tea.Msg {
+		return tea.Tick(5*time.Millisecond, func(time.Time) uv.Event {
 			return settleNoiseTick{}
 		})
 	}
@@ -277,7 +278,7 @@ func (m *settlingWithNoiseModel) Update(msg tea.Msg) tea.Cmd {
 	if m.updates >= 2 {
 		return nil
 	}
-	return tea.Tick(10*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(10*time.Millisecond, func(time.Time) uv.Event {
 		return settleMsg{}
 	})
 }
@@ -312,12 +313,12 @@ func (m *viewSettleStableModel) View() string {
 }
 
 func (m *viewSettleStableModel) Init() tea.Cmd {
-	return tea.Tick(2*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(2*time.Millisecond, func(time.Time) uv.Event {
 		return viewSettleTick{}
 	})
 }
 
-func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
+func (m *viewSettleStableModel) Update(msg uv.Event) tea.Cmd {
 	if _, ok := msg.(viewSettleTick); !ok {
 		return nil
 	}
@@ -325,7 +326,7 @@ func (m *viewSettleStableModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	m.ticks++
-	return tea.Tick(2*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(2*time.Millisecond, func(time.Time) uv.Event {
 		return viewSettleTick{}
 	})
 }
@@ -352,7 +353,7 @@ func TestComponentHarnessSendFilterReceivesOriginalMessage(t *testing.T) {
 	h := NewComponentHarness(
 		t,
 		&mutableViewModel{},
-		WithProgramOptions(tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+		WithProgramOptions(tea.WithFilter(func(_ tea.Model, msg uv.Event) uv.Event {
 			if _, ok := msg.(appendMsg); ok {
 				select {
 				case seen <- struct{}{}:
@@ -379,7 +380,7 @@ func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
 
 	h := NewComponentHarness(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"})
 	h.WaitString("red")
-	h.RequireSnapshot(snapshot.WithStripANSI())
+	h.RequireViewSnapshot(snapshot.WithStripANSI())
 
 	got := readSteepSnapshot(t, "TestComponentHarnessRequirePlainSnapshot.snap")
 	if got != "text=red" {

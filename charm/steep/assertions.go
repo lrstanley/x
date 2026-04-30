@@ -15,8 +15,20 @@ import (
 	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
-// WaitView waits until condition returns true for the latest view output.
-func WaitView[T ~string | ~[]byte](tb testing.TB, model View, condition func(view T) bool, opts ...Option) T {
+type Viewable interface {
+	View() string
+}
+
+// WaitViewFunc waits until condition returns true for the latest view output.
+//
+// See also [Harness.WaitBytesFunc], [Harness.WaitStringFunc], [WaitBytes],
+// [WaitMatch], and [WaitStrings].
+func WaitViewFunc[T ~string | ~[]byte](
+	tb testing.TB,
+	model Viewable,
+	condition func(view T) bool,
+	opts ...Option,
+) T {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -50,25 +62,31 @@ func WaitView[T ~string | ~[]byte](tb testing.TB, model View, condition func(vie
 }
 
 // WaitBytes waits until output contains contents.
-func WaitBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
+//
+// See also [Harness.WaitBytes], [WaitViewFunc], [WaitStrings], and [WaitNotBytes].
+func WaitBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) []byte {
 	tb.Helper()
-	return WaitView(tb, model, func(bts []byte) bool {
+	return WaitViewFunc(tb, model, func(bts []byte) bool {
 		return bytes.Contains(bts, contents)
 	}, opts...)
 }
 
 // WaitString waits until output contains contents.
-func WaitString(tb testing.TB, model View, contents string, opts ...Option) string {
+//
+// See also [Harness.WaitString], [WaitViewFunc], [WaitStrings], and [WaitNotString].
+func WaitString(tb testing.TB, model Viewable, contents string, opts ...Option) string {
 	tb.Helper()
-	return WaitView(tb, model, func(str string) bool {
+	return WaitViewFunc(tb, model, func(str string) bool {
 		return strings.Contains(str, contents)
 	}, opts...)
 }
 
 // WaitStrings waits until output contains all contents.
-func WaitStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
+//
+// See also [Harness.WaitStrings], [WaitString], and [WaitNotStrings].
+func WaitStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) string {
 	tb.Helper()
-	return WaitView(tb, model, func(str string) bool {
+	return WaitViewFunc(tb, model, func(str string) bool {
 		for _, content := range contents {
 			if !strings.Contains(str, content) {
 				return false
@@ -79,25 +97,31 @@ func WaitStrings(tb testing.TB, model View, contents []string, opts ...Option) s
 }
 
 // WaitNotBytes waits until output contains none of the contents.
-func WaitNotBytes(tb testing.TB, model View, contents []byte, opts ...Option) []byte {
+//
+// See also [Harness.WaitNotBytes], [WaitBytes], and [WaitStrings].
+func WaitNotBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) []byte {
 	tb.Helper()
-	return WaitView(tb, model, func(bts []byte) bool {
+	return WaitViewFunc(tb, model, func(bts []byte) bool {
 		return !bytes.Contains(bts, contents)
 	}, opts...)
 }
 
 // WaitNotString waits until output contains none of the contents.
-func WaitNotString(tb testing.TB, model View, contents string, opts ...Option) string {
+//
+// See also [Harness.WaitNotString], [WaitString], and [WaitNotStrings].
+func WaitNotString(tb testing.TB, model Viewable, contents string, opts ...Option) string {
 	tb.Helper()
-	return WaitView(tb, model, func(str string) bool {
+	return WaitViewFunc(tb, model, func(str string) bool {
 		return !strings.Contains(str, contents)
 	}, opts...)
 }
 
 // WaitNotStrings waits until output contains none of the contents.
-func WaitNotStrings(tb testing.TB, model View, contents []string, opts ...Option) string {
+//
+// See also [Harness.WaitNotStrings], [WaitStrings], and [WaitNotString].
+func WaitNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) string {
 	tb.Helper()
-	return WaitView(tb, model, func(str string) bool {
+	return WaitViewFunc(tb, model, func(str string) bool {
 		for _, content := range contents {
 			if strings.Contains(str, content) {
 				return false
@@ -110,13 +134,15 @@ func WaitNotStrings(tb testing.TB, model View, contents []string, opts ...Option
 // WaitMatch waits until the latest view output matches the regular expression
 // pattern. pattern is compiled with [regexp.Compile]; a compile error fails the
 // test immediately.
-func WaitMatch(tb testing.TB, model View, pattern string, opts ...Option) string {
+//
+// See also [Harness.WaitMatch], [AssertMatch], [WaitNotMatch], and [RequireMatch].
+func WaitMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) string {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
-	return WaitView(tb, model, func(str string) bool {
+	return WaitViewFunc(tb, model, func(str string) bool {
 		return re.MatchString(str)
 	}, opts...)
 }
@@ -124,22 +150,27 @@ func WaitMatch(tb testing.TB, model View, pattern string, opts ...Option) string
 // WaitNotMatch waits until the latest view output does not match the regular
 // expression pattern. pattern is compiled with [regexp.Compile]; a compile
 // error fails the test immediately.
-func WaitNotMatch(tb testing.TB, model View, pattern string, opts ...Option) string {
+//
+// See also [Harness.WaitNotMatch], [WaitMatch], [AssertNotMatch], and
+// [RequireNotMatch].
+func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) string {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
-	return WaitView(tb, model, func(str string) bool {
+	return WaitViewFunc(tb, model, func(str string) bool {
 		return !re.MatchString(str)
 	}, opts...)
 }
 
 // WaitSettleView waits until the rendered view string has not changed for the
-// configured settle timeout. The model must implement [View]; each check calls
-// View() and compares the string to the previous sample. See also
+// configured settle timeout. The model must implement [Viewable]; each check calls
+// View() and compares the string to the previous sample.
+//
+// See also [Harness.WaitSettleView], [Harness.WaitSettleMessages],
 // [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
-func WaitSettleView(tb testing.TB, model View, opts ...Option) {
+func WaitSettleView(tb testing.TB, model Viewable, opts ...Option) {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -192,7 +223,10 @@ func WaitSettleView(tb testing.TB, model View, opts ...Option) {
 
 // AssertString reports an error unless content appears in output. It
 // returns whether the output matched and allows the test to continue.
-func AssertString(tb testing.TB, model View, content string, opts ...Option) bool {
+//
+// See also [Harness.AssertString], [AssertStrings], [AssertNotString], and
+// [WaitString].
+func AssertString(tb testing.TB, model Viewable, content string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -208,7 +242,9 @@ func AssertString(tb testing.TB, model View, content string, opts ...Option) boo
 }
 
 // RequireString fails the test immediately unless content appears in output.
-func RequireString(tb testing.TB, model View, content string, opts ...Option) {
+//
+// See also [Harness.RequireString], [AssertString], and [RequireStrings].
+func RequireString(tb testing.TB, model Viewable, content string, opts ...Option) {
 	tb.Helper()
 
 	if !AssertString(tb, model, content, opts...) {
@@ -219,7 +255,10 @@ func RequireString(tb testing.TB, model View, content string, opts ...Option) {
 // AssertStrings reports an error unless every substring in contents
 // appears in output. It returns whether the output matched and allows the test
 // to continue.
-func AssertStrings(tb testing.TB, model View, contents []string, opts ...Option) bool {
+//
+// See also [Harness.AssertStrings], [AssertString], [RequireStrings], and
+// [WaitStrings].
+func AssertStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -239,7 +278,9 @@ func AssertStrings(tb testing.TB, model View, contents []string, opts ...Option)
 
 // RequireStrings fails the test immediately unless every substring in
 // contents appears in output.
-func RequireStrings(tb testing.TB, model View, contents []string, opts ...Option) {
+//
+// See also [Harness.RequireStrings], [AssertStrings], and [RequireString].
+func RequireStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) {
 	tb.Helper()
 
 	if !AssertStrings(tb, model, contents, opts...) {
@@ -249,7 +290,10 @@ func RequireStrings(tb testing.TB, model View, contents []string, opts ...Option
 
 // AssertNotString reports an error if content appears in output. It
 // returns whether the output matched and allows the test to continue.
-func AssertNotString(tb testing.TB, model View, content string, opts ...Option) bool {
+//
+// See also [Harness.AssertNotString], [AssertString], [AssertNotStrings], and
+// [WaitNotString].
+func AssertNotString(tb testing.TB, model Viewable, content string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -265,7 +309,10 @@ func AssertNotString(tb testing.TB, model View, content string, opts ...Option) 
 }
 
 // RequireNotString fails the test immediately if content appears in output.
-func RequireNotString(tb testing.TB, model View, content string, opts ...Option) {
+//
+// See also [Harness.RequireNotString], [AssertNotString], [RequireString],
+// [AssertNotStrings], and [RequireNotStrings].
+func RequireNotString(tb testing.TB, model Viewable, content string, opts ...Option) {
 	tb.Helper()
 
 	if !AssertNotString(tb, model, content, opts...) {
@@ -276,7 +323,10 @@ func RequireNotString(tb testing.TB, model View, content string, opts ...Option)
 // AssertNotStrings reports an error if any substring in contents
 // appears in output. It returns whether the output matched and allows the test
 // to continue.
-func AssertNotStrings(tb testing.TB, model View, contents []string, opts ...Option) bool {
+//
+// See also [Harness.AssertNotStrings], [AssertStrings], [AssertNotString],
+// [WaitStrings], and [WaitNotStrings].
+func AssertNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -296,7 +346,10 @@ func AssertNotStrings(tb testing.TB, model View, contents []string, opts ...Opti
 
 // RequireNotStrings fails the test immediately if any substring in
 // contents appears in output.
-func RequireNotStrings(tb testing.TB, model View, contents []string, opts ...Option) {
+//
+// See also [Harness.RequireNotStrings], [AssertNotStrings], [RequireStrings],
+// and [RequireNotString].
+func RequireNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) {
 	tb.Helper()
 
 	if !AssertNotStrings(tb, model, contents, opts...) {
@@ -308,7 +361,9 @@ func RequireNotStrings(tb testing.TB, model View, contents []string, opts ...Opt
 // pattern. pattern is compiled with [regexp.Compile]; a compile error fails
 // the test immediately.
 // It returns whether the output matched and allows the test to continue.
-func AssertMatch(tb testing.TB, model View, pattern string, opts ...Option) bool {
+//
+// See also [Harness.AssertMatch], [WaitMatch], [AssertNotMatch], and [RequireMatch].
+func AssertMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -328,7 +383,9 @@ func AssertMatch(tb testing.TB, model View, pattern string, opts ...Option) bool
 
 // RequireMatch fails the test immediately unless output matches the regular
 // expression pattern.
-func RequireMatch(tb testing.TB, model View, pattern string, opts ...Option) {
+//
+// See also [Harness.RequireMatch], [AssertMatch], [RequireNotMatch], and [WaitMatch].
+func RequireMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) {
 	tb.Helper()
 
 	if !AssertMatch(tb, model, pattern, opts...) {
@@ -340,7 +397,10 @@ func RequireMatch(tb testing.TB, model View, pattern string, opts ...Option) {
 // pattern. pattern is compiled with [regexp.Compile]; a compile error fails
 // the test immediately.
 // It returns whether the output matched and allows the test to continue.
-func AssertNotMatch(tb testing.TB, model View, pattern string, opts ...Option) bool {
+//
+// See also [Harness.AssertNotMatch], [AssertMatch], [WaitNotMatch], and
+// [RequireNotMatch].
+func AssertNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -360,7 +420,9 @@ func AssertNotMatch(tb testing.TB, model View, pattern string, opts ...Option) b
 
 // RequireNotMatch fails the test immediately if output matches the regular
 // expression pattern.
-func RequireNotMatch(tb testing.TB, model View, pattern string, opts ...Option) {
+//
+// See also [Harness.RequireNotMatch], [AssertNotMatch], and [RequireMatch].
+func RequireNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) {
 	tb.Helper()
 
 	if !AssertNotMatch(tb, model, pattern, opts...) {
@@ -372,7 +434,10 @@ func RequireNotMatch(tb testing.TB, model View, pattern string, opts ...Option) 
 // differently to [charm.land/lipgloss/v2.Height] which always assumes a minimum
 // height of 1.
 // It returns whether the output matched and allows the test to continue.
-func AssertHeight(tb testing.TB, model View, n int, opts ...Option) bool {
+//
+// See also [Harness.AssertHeight], [AssertDimensions], [AssertWidth], [Dimensions],
+// and [RequireHeight].
+func AssertHeight(tb testing.TB, model Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -389,7 +454,9 @@ func AssertHeight(tb testing.TB, model View, n int, opts ...Option) bool {
 }
 
 // RequireHeight fails the test immediately unless output has n rows.
-func RequireHeight(tb testing.TB, model View, n int, opts ...Option) {
+//
+// See also [Harness.RequireHeight], [AssertHeight], and [RequireDimensions].
+func RequireHeight(tb testing.TB, model Viewable, n int, opts ...Option) {
 	tb.Helper()
 
 	if !AssertHeight(tb, model, n, opts...) {
@@ -399,7 +466,10 @@ func RequireHeight(tb testing.TB, model View, n int, opts ...Option) {
 
 // AssertWidth reports an error unless output has n columns. It returns whether
 // the output matched and allows the test to continue.
-func AssertWidth(tb testing.TB, model View, n int, opts ...Option) bool {
+//
+// See also [Harness.AssertWidth], [AssertDimensions], [Dimensions], [AssertHeight],
+// and [RequireWidth].
+func AssertWidth(tb testing.TB, model Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -416,7 +486,9 @@ func AssertWidth(tb testing.TB, model View, n int, opts ...Option) bool {
 }
 
 // RequireWidth fails the test immediately unless output has n columns.
-func RequireWidth(tb testing.TB, model View, n int, opts ...Option) {
+//
+// See also [Harness.RequireWidth], [AssertWidth], and [RequireDimensions].
+func RequireWidth(tb testing.TB, model Viewable, n int, opts ...Option) {
 	tb.Helper()
 
 	if !AssertWidth(tb, model, n, opts...) {
@@ -424,11 +496,11 @@ func RequireWidth(tb testing.TB, model View, n int, opts ...Option) {
 	}
 }
 
-// AssertDimensions reports an error unless output has specified dimensions. Note
-// that this behaves differently to [charm.land/lipgloss/v2.Size] which always
-// assumes a minimum height of 1.
-// It returns whether the output matched and allows the test to continue.
-func AssertDimensions(tb testing.TB, model View, width, height int, opts ...Option) bool {
+// AssertDimensions reports an error unless output has specified dimensions.
+//
+// See also [Harness.AssertDimensions], [AssertWidth], [AssertHeight], [Dimensions],
+// [RequireDimensions], and [WithStripANSI].
+func AssertDimensions(tb testing.TB, model Viewable, width, height int, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -445,7 +517,10 @@ func AssertDimensions(tb testing.TB, model View, width, height int, opts ...Opti
 }
 
 // RequireDimensions fails the test immediately unless output has specified dimensions.
-func RequireDimensions(tb testing.TB, model View, width, height int, opts ...Option) {
+//
+// See also [Harness.RequireDimensions], [AssertDimensions], [RequireHeight],
+// [RequireWidth], and [Harness.AssertViewSnapshot].
+func RequireDimensions(tb testing.TB, model Viewable, width, height int, opts ...Option) {
 	tb.Helper()
 
 	if !AssertDimensions(tb, model, width, height, opts...) {
@@ -454,14 +529,22 @@ func RequireDimensions(tb testing.TB, model View, width, height int, opts ...Opt
 }
 
 // Dimensions returns the width and height of the output.
-func Dimensions(out string) (w, h int) {
+//
+// See also [AssertDimensions], [AssertWidth], [AssertHeight], and
+// [Harness.AssertDimensions].
+func Dimensions(out string, opts ...Option) (w, h int) {
+	cfg := collectOptions(opts...)
+	if cfg.stripANSI {
+		out = xansi.StripANSI(out)
+	}
+
 	if out == "" {
 		return 0, 0
 	}
 
 	var width int
 	var height int
-	for line := range strings.SplitSeq(strings.TrimSuffix(out, "\n"), "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		width = max(width, ansi.StringWidth(line))
 		height++
 	}

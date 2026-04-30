@@ -7,13 +7,13 @@ package steep
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 type otherMsg struct{}
 
 func TestMessagesOfType(t *testing.T) {
-	messages := []tea.Msg{
+	messages := []uv.Event{
 		appendMsg("a"),
 		otherMsg{},
 		appendMsg("b"),

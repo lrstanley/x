@@ -258,7 +258,7 @@ func TestInventoryTable(t *testing.T) {
 	h.WaitSettleView().
 		AssertNotString("database").
 		AssertDimensions(table.GetWidth(), table.GetHeight()).
-		RequireSnapshot(snapshot.WithSuffix("inventory"))
+		RequireViewSnapshot(snapshot.WithSuffix("inventory"))
 }
 ```
 
@@ -325,7 +325,7 @@ after and win for the same setting (a per-call `WithTimeout(5*time.Second)`
 overrides a default `WithTimeout(2*time.Second)` on the constructor for that call
 only). Snapshot methods still take `snapshot.Option` arguments separately; the
 harness’s `WithStripANSI` is mapped into the snapshot path when you use
-`AssertSnapshot` or `RequireSnapshot`, as before.
+`AssertViewSnapshot` or `RequireViewSnapshot`, as before.
 
 ```go
 h := steep.NewHarness(t, model,
@@ -346,7 +346,7 @@ h.WaitString("ready").
 	AssertNotString("loading").
 	AssertMatch("ready").
 	AssertNotMatch("(?i)error|panic").
-	RequireSnapshot(snapshot.WithStripANSI())
+	RequireViewSnapshot(snapshot.WithStripANSI())
 ```
 
 When the model keeps scheduling ticks or other chatter after the interesting
@@ -361,7 +361,7 @@ h.WaitSettleMessages(
 ```
 
 To read the view after a content wait, use [Harness.View] (or the package-level
-[WaitString], [WaitMatch] / [WaitNotMatch], or [WaitView] helpers, which
+[WaitString], [WaitMatch] / [WaitNotMatch], or [WaitViewFunc] helpers, which
 return the last sampled view that satisfied the wait):
 
 ```go
@@ -421,12 +421,12 @@ Use `snapshot.RequireEqual` when a mismatch should stop the test immediately.
 For harnesses, use the convenience methods:
 
 ```go
-h.AssertSnapshot(snapshot.WithSuffix("ansi"))
-h.AssertSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
-h.RequireSnapshot(snapshot.WithSuffix("ansi"))
-h.RequireSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
-h.AssertSnapshotNoANSI(snapshot.WithSuffix("plain"))
-h.RequireSnapshotNoANSI(snapshot.WithSuffix("plain"))
+h.AssertViewSnapshot(snapshot.WithSuffix("ansi"))
+h.AssertViewSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
+h.RequireViewSnapshot(snapshot.WithSuffix("ansi"))
+h.RequireViewSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
+h.AssertViewSnapshotNoANSI(snapshot.WithSuffix("plain"))
+h.RequireViewSnapshotNoANSI(snapshot.WithSuffix("plain"))
 ```
 
 Use `WithSuffix` when a test writes more than one snapshot or when a subtest

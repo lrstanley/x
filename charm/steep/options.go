@@ -140,10 +140,10 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 }
 
 // WithStripANSI strips ANSI escape and control sequences from view text before
-// string/regex [WaitView] and [AssertString] (and related) comparisons,
+// string/regex [WaitViewFunc] and [AssertString] (and related) comparisons,
 // and from [Dimensions] for layout assertions. When set on a [NewHarness] or
-// [NewComponentHarness], it is also applied to [Harness.AssertSnapshot] and
-// [Harness.RequireSnapshot] on that harness.
+// [NewComponentHarness], it is also applied to [Harness.AssertViewSnapshot]
+// and [Harness.RequireViewSnapshot] on that harness.
 func WithStripANSI() Option {
 	return func(cfg *options) {
 		cfg.stripANSI = true
