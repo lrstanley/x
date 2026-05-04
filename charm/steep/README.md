@@ -2,10 +2,7 @@
 
 ---
 
-`steep` provides test helpers for Bubble Tea programs and component models. It
-runs a model through the real Bubble Tea runtime, captures the latest view, and
-adds helpers for sending input, waiting for output, checking messages, mutating
-state inside `Update`, and writing snapshots.
+`steep` provides test helpers for [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) programs and component models. It runs a model through the real runtime with a `vt` terminal emulator as input/output, captures the latest model view text, and adds helpers for sending input, waiting on output, inspecting messages, mutating state inside `Update`, and writing snapshots. Events are [Ultraviolet](https://github.com/charmbracelet/ultraviolet) [`uv.Event`](https://pkg.go.dev/github.com/charmbracelet/ultraviolet#Event) values—the same kinds `Update` receives in Bubble Tea v2.
 
 Example of waiting condition failures:
 
@@ -21,12 +18,23 @@ Example of failures when there is a snapshot mismatch (with stripping of ANSI da
 import "github.com/lrstanley/x/charm/steep"
 ```
 
-## Root Models
+## Root models
 
 Use `NewHarness` when the thing under test is a full Bubble Tea root model that
-implements `tea.Model`.
+implements `tea.Model` with `Update(uv.Event)` and `View() tea.View`.
 
 ```go
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+
+	"github.com/lrstanley/x/charm/steep"
+)
+
 type openCommandMsg struct {
 	Command string
 }
@@ -40,7 +48,7 @@ type commandPalette struct {
 
 func (m commandPalette) Init() tea.Cmd { return nil }
 
-func (m commandPalette) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m commandPalette) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -108,7 +116,7 @@ func TestCommandPalette(t *testing.T) {
 			"vault token lookup",
 		},
 	}
-	h := steep.NewHarness(t, model, steep.WithInitialTermSize(48, 8))
+	h := steep.NewHarness(t, model, steep.WithWindowSize(48, 8))
 
 	h.WaitStrings([]string{"size=48x8", "vault read", "vault status"})
 	h.Type("status")
@@ -125,14 +133,14 @@ func TestCommandPalette(t *testing.T) {
 }
 ```
 
-## Component Models
+## Component models
 
 Use `NewComponentHarness` for components that are not full `tea.Model` roots, but
 do expose `View() string` and one of these update shapes:
 
 ```go
-Update(tea.Msg) tea.Cmd
-Update(tea.Msg) (M, tea.Cmd)
+Update(uv.Event) tea.Cmd
+Update(uv.Event) (M, tea.Cmd)
 ```
 
 This matches the style used by component-heavy TUIs: create the component with
@@ -140,6 +148,19 @@ mock data, drive it through key messages, wait for visible output, then assert
 dimensions or snapshots.
 
 ```go
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+
+	"github.com/lrstanley/x/charm/steep"
+	"github.com/lrstanley/x/charm/steep/snapshot"
+)
+
 type inventoryRow struct {
 	ID   string
 	Name string
@@ -153,7 +174,7 @@ type inventoryTable struct {
 	selected      int
 }
 
-func (m *inventoryTable) Update(msg tea.Msg) tea.Cmd {
+func (m *inventoryTable) Update(msg uv.Event) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -229,7 +250,7 @@ func (m *inventoryTable) moveUp() {
 func TestInventoryTable(t *testing.T) {
 	table := &inventoryTable{}
 	h := steep.NewComponentHarness(t, table,
-		steep.WithInitialTermSize(32, 6),
+		steep.WithWindowSize(32, 6),
 		steep.WithStripANSI(),
 	)
 
@@ -262,54 +283,48 @@ func TestInventoryTable(t *testing.T) {
 }
 ```
 
-## Common Helpers
+## Model view vs terminal output
 
-- `Type("text")` sends one key press per rune.
-- `Send(msg)` sends any `tea.Msg` to the running program.
-- `WaitString` and `WaitStrings` wait until the view matches.
-- `WaitNotString` waits until unwanted content disappears.
-- `WaitMatch` and `WaitNotMatch` wait until the view matches, or no longer
-  matches, a regular expression (compiled with the standard `regexp` package
-  and checked with `MatchString`). Invalid patterns fail the test when the
-  helper runs. Use `^` and `$` in the pattern when the whole buffer must
-  match, not a substring.
-- `WaitSettleMessages` waits until `Update` stops receiving messages for the
-  configured settle timeout. Use `WithSettleIgnoreMsgs` with one value per type
-  to ignore (for example `steep.WithSettleIgnoreMsgs(myTickMsg{})`) so periodic
-  or background message types do not reset the quiet period.
-- `WaitSettleView` waits until repeated `View` samples stop changing.
-- `Messages` returns observed messages, excluding internal mutation messages.
-- `MessagesOfType[T]`, `WaitMessage[T]`, `WaitMessages[T]`, and
-  `WaitMessageWhere[T]` inspect messages by concrete type.
-- `WithStripANSI` removes ANSI from the view before string/regex waits, substring
-  assertions, layout checks, and (when set on the harness) snapshot comparisons.
-- `Dimensions`, `AssertWidth`, `RequireWidth`, `AssertHeight`, `RequireHeight`,
-  `AssertDimensions`, and `RequireDimensions` use ANSI-aware display width
-  (on the view with ANSI stripped when `WithStripANSI` is set).
-- `AssertMatch`, `AssertNotMatch`, `RequireMatch`, and `RequireNotMatch` check
-  the current view against a regular expression the same way as `WaitMatch` /
-  `WaitNotMatch`.
-- `AssertString` / `RequireString` (and `AssertNotString` /
-  `RequireNotString`) check a single substring. Use `AssertStrings` /
-  `RequireStrings` (and `AssertNotStrings` / `RequireNotStrings`)
-  when the view must contain, or must omit, every string in a list (same idea as
-  [WaitStrings] / [WaitNotStrings]).
-- `Assert*` helpers report errors and keep the test running. Use `Require*`
-  helpers when the next step depends on the check passing and should stop
-  immediately.
+- **`Harness.View`** returns the latest **model view string** (`tea.View.Content` as observed by the harness). Waits and layout helpers that talk about “the view” use this unless noted otherwise.
+- **`Harness.TerminalView`** returns the **emulator screen** from `vt` (what a user would see after escape sequences), useful when exercising alt-screen, colors, or cursor behavior.
+- After shutdown, **`FinalView`** returns the last model view string; **`FinalOutput`** returns the last rendered terminal buffer; **`FinalModel`** returns the last root `tea.Model`.
 
-Most helpers exist in both package-level and harness-level forms. Use the
-package-level helpers when you already have a simple value that implements
-`View() string` and do not need the Bubble Tea runtime:
+## Terminal emulation
+
+The harness wires the program to a real `vt` emulator. Besides `Resize` (which should deliver `tea.WindowSizeMsg`), you can use:
+
+- **`Focus`** / **`Blur`** — focus in/out when focus reporting is enabled.
+- **`Paste`** — paste text (bracketed paste when enabled).
+- **`Bounds`**, **`TerminalWidth`**, **`TerminalHeight`**, **`TerminalDimensions`**, **`IsAltScreen`** — query terminal state.
+- **`Scrollback`**, **`ScrollbackCount`**, **`SetScrollbackSize`**, **`ClearScrollback`** — scrollback inspection and limits.
+- **`ForegroundColor`**, **`BackgroundColor`**, **`CursorColor`**, and **`Set*Color`** / **`SetDefault*Color`** — read or override palette state on the emulator.
+
+## Common helpers
+
+- **`Type("text")`** sends one `tea.KeyPressMsg` per rune (`Key` carries both `Code` and `Text`).
+- **`Send(msg)`** sends any **`uv.Event`** (Bubble Tea messages, terminal-driven events, or your own test messages).
+- **`WaitString`**, **`WaitStrings`**, **`WaitNotString`**, **`WaitNotStrings`** wait until the model view contains or omits substrings. **`WaitBytes`**, **`WaitNotBytes`**, **`WaitBytesFunc`**, and **`WaitStringFunc`** are the byte- and predicate-shaped variants (package-level and on **`Harness`**).
+- **`WaitMatch`** and **`WaitNotMatch`** wait until the view matches, or no longer matches, a regular expression (compiled with the standard `regexp` package and checked with `MatchString`). Invalid patterns fail the test when the helper runs. Use `^` and `$` in the pattern when the whole buffer must match, not a substring.
+- **`WaitSettleMessages`** waits until `Update` stops receiving messages for the configured settle timeout. Use **`WithSettleIgnoreMsgs`** with one value per type to ignore (for example `steep.WithSettleIgnoreMsgs(myTickMsg{})`) so periodic or background message types do not reset the quiet period.
+- **`WaitSettleView`** waits until repeated **`View()`** samples stop changing.
+- **`MessageHistory`** returns an iterator over all messages observed so far (excluding internal `Mutate` traffic). **`Messages(ctx)`** yields historical messages then streams live ones; **`LiveMessages(ctx)`** yields only messages that arrive after the call returns.
+- **`WaitMessage[T]`** waits until a message of concrete type **`T`** has been observed (history + live). **`WaitLiveMessage[T]`** waits only for a **new** message after the call. **`WaitMessageWhere`** / **`WaitLiveMessageWhere`** generalize that with a predicate on **`uv.Event`**.
+- **`AssertHasMessage[T]`** / **`RequireHasMessage[T]`** assert type presence in history.
+- **`FilterMessagesType[T]`**, **`FilterMessagesFunc[T]`**, and **`IgnoreMessagesReflect`** help narrow iterators when asserting on message streams.
+- **`WithStripANSI`** removes ANSI from the view before string/regex waits, substring assertions, layout checks, and (when set on the harness) snapshot comparisons.
+- **`Dimensions`**, **`AssertWidth`**, **`RequireWidth`**, **`AssertHeight`**, **`RequireHeight`**, **`AssertDimensions`**, and **`RequireDimensions`** use ANSI-aware display width (on the view with ANSI stripped when **`WithStripANSI`** is set). On a harness, **`ViewWidth`**, **`ViewHeight`**, and **`ViewDimensions`** measure the current model view.
+- **`AssertMatch`**, **`AssertNotMatch`**, **`RequireMatch`**, and **`RequireNotMatch`** check the current view against a regular expression the same way as **`WaitMatch`** / **`WaitNotMatch`**.
+- **`AssertString`** / **`RequireString`** (and **`AssertNotString`** / **`RequireNotString`**) check a single substring. Use **`AssertStrings`** / **`RequireStrings`** (and **`AssertNotStrings`** / **`RequireNotStrings`**) when the view must contain, or must omit, every string in a list (same idea as **`WaitStrings`** / **`WaitNotStrings`**).
+- **`Assert*`** helpers report errors and keep the test running. Use **`Require*`** helpers when the next step depends on the check passing and should stop immediately.
+
+Most helpers exist in both package-level and harness-level forms. Use the package-level helpers when you already have a simple value that implements **`View() string`** and do not need the Bubble Tea runtime:
 
 ```go
 steep.AssertString(t, model, "ready")
 steep.AssertDimensions(t, model, 80, 24)
 ```
 
-Use the harness methods when the test needs runtime behavior, such as window
-size messages, commands, key input, observed messages, snapshots, or final model
-state:
+Use the harness methods when the test needs runtime behavior, such as window size messages, commands, key input, observed messages, snapshots, terminal emulation, or final model state:
 
 ```go
 h := steep.NewComponentHarness(t, model)
@@ -317,15 +332,7 @@ h.Type("j")
 h.WaitString("selected")
 ```
 
-Options you pass to `NewHarness` or `NewComponentHarness` are kept on the
-`Harness` and merged with the options on each method that accepts `...Option`
-(for example `Wait*`, `Assert*`, `Require*`, `Mutate`, and `WaitFinished`).
-Harness-level options are applied first; options on a specific call are applied
-after and win for the same setting (a per-call `WithTimeout(5*time.Second)`
-overrides a default `WithTimeout(2*time.Second)` on the constructor for that call
-only). Snapshot methods still take `snapshot.Option` arguments separately; the
-harness’s `WithStripANSI` is mapped into the snapshot path when you use
-`AssertViewSnapshot` or `RequireViewSnapshot`, as before.
+Options you pass to **`NewHarness`** or **`NewComponentHarness`** are kept on the **`Harness`** and merged with the options on each method that accepts **`...Option`** (for example **`Wait*`**, **`Assert*`**, **`Require*`**, **`Mutate`**, and **`WaitFinished`**). Harness-level options are applied first; options on a specific call are applied after and win for the same setting (a per-call **`WithTimeout(5*time.Second)`** overrides a default **`WithTimeout(2*time.Second)`** on the constructor for that call only). Use **`WithProgramOptions`** to append extra **`tea.ProgramOption`** values when constructing the test program (input, output, signals, and initial window size are still fixed by the harness). Snapshot methods still take **`snapshot.Option`** arguments separately; the harness’s **`WithStripANSI`** is mapped into the snapshot path when you use **`AssertViewSnapshot`** or **`RequireViewSnapshot`**, as before.
 
 ```go
 h := steep.NewHarness(t, model,
@@ -336,8 +343,7 @@ h.WaitString("ok") // uses 5s timeout and strips ANSI
 h.WaitString("slow", steep.WithTimeout(30*time.Second)) // 30s, still strips ANSI
 ```
 
-Harness `Wait*` methods (except [WaitFinished]), assertion, and snapshot methods
-return `*Harness`, so they can be chained:
+Harness **`Wait*`** methods (except **`WaitFinished`**), assertion, snapshot, and **`Mutate`** methods return **`*Harness`**, so they can be chained:
 
 ```go
 h.WaitString("ready").
@@ -349,9 +355,7 @@ h.WaitString("ready").
 	RequireViewSnapshot(snapshot.WithStripANSI())
 ```
 
-When the model keeps scheduling ticks or other chatter after the interesting
-work finishes, pass sample values so those dynamic types are skipped for
-settlement:
+When the model keeps scheduling ticks or other chatter after the interesting work finishes, pass sample values so those dynamic types are skipped for settlement:
 
 ```go
 h.WaitSettleMessages(
@@ -360,9 +364,7 @@ h.WaitSettleMessages(
 )
 ```
 
-To read the view after a content wait, use [Harness.View] (or the package-level
-[WaitString], [WaitMatch] / [WaitNotMatch], or [WaitViewFunc] helpers, which
-return the last sampled view that satisfied the wait):
+To read the view after a content wait, use **`Harness.View`** (or the package-level **`WaitString`**, **`WaitMatch`** / **`WaitNotMatch`**, or **`WaitViewFunc`** helpers, which return the last sampled view that satisfied the wait):
 
 ```go
 h.WaitString("ready")
@@ -371,16 +373,13 @@ if strings.Contains(h.View(), "warning") {
 }
 ```
 
-## Mutating Models
+Shutting down: call **`Quit`** when the test should end the program, then **`WaitFinished`** (also invoked from harness cleanup) before **`FinalView`** / **`FinalOutput`** / **`FinalModel`** if you need the terminal or model after exit.
 
-Prefer to drive models through public behavior: send messages, type keys, or use
-commands that a user could actually trigger. `Mutate` is available for the cases
-where that would make a test noisy or impractical, such as seeding large
-component data sets, setting an internal filter, or moving a component into a
-state that has no public message.
+## Mutating models
 
-`Mutate` runs the change from inside the Bubble Tea `Update` loop, which keeps
-the harness state consistent:
+Prefer to drive models through public behavior: send messages, type keys, or use commands that a user could actually trigger. **`Mutate`** is available for the cases where that would make a test noisy or impractical, such as seeding large component data sets, setting an internal filter, or moving a component into a state that has no public message.
+
+**`Mutate`** runs the change from inside the Bubble Tea **`Update`** loop, which keeps the harness state consistent, and returns **`\*Harness`** for chaining:
 
 ```go
 steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
@@ -390,9 +389,7 @@ steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
 })
 ```
 
-Use it sparingly. If the behavior can be tested by sending `tea.Msg` values or
-typing keys, that usually gives a better test because it covers the same path a
-real program uses.
+Use it sparingly. If the behavior can be tested by sending **`uv.Event`** values or typing keys, that usually gives a better test because it covers the same path a real program uses.
 
 ## Snapshots
 
@@ -402,6 +399,13 @@ real program uses.
 create or update snapshots.
 
 ```go
+import (
+	"bytes"
+	"testing"
+
+	"github.com/lrstanley/x/charm/steep/snapshot"
+)
+
 func TestStatusView(t *testing.T) {
 	view := "\x1b[32mcluster=acme-corp\x1b[0m\nstatus=unsealed\ntoken=s.dev-token\n"
 

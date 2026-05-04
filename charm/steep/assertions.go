@@ -6,11 +6,17 @@ package steep
 
 import (
 	"bytes"
+	"context"
+	"iter"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
@@ -549,4 +555,222 @@ func Dimensions(out string, opts ...Option) (w, h int) {
 		height++
 	}
 	return width, height
+}
+
+// MessageCollector exposes messages observed by a test harness. [Harness] implements
+// this interface.
+type MessageCollector interface {
+	MessageHistory() iter.Seq[uv.Event]
+	Messages(ctx context.Context) iter.Seq[uv.Event]
+	LiveMessages(ctx context.Context) iter.Seq[uv.Event]
+}
+
+// AssertHasMessage asserts that at least one message with the same concrete type
+// as T has been observed.
+func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, _ ...Option) bool {
+	tb.Helper()
+
+	for msg := range log.MessageHistory() {
+		if _, ok := msg.(T); ok {
+			return true
+		}
+	}
+
+	var zero T
+	tb.Errorf("no message with type %T found", zero)
+	return false
+}
+
+// RequireHasMessage requires that at least one message with the same concrete type
+// as T has been observed.
+func RequireHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) {
+	tb.Helper()
+
+	if !AssertHasMessage[T](tb, log, opts...) {
+		tb.FailNow()
+	}
+}
+
+// WaitLiveMessage waits until a NEW message (only messages received since this
+// function was invoked) with the same concrete type as T has been observed,
+// then returns the first match.
+func WaitLiveMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
+	tb.Helper()
+
+	var match T
+	var ok bool
+
+	WaitLiveMessageWhere(tb, log, func(msg uv.Event) bool {
+		match, ok = msg.(T)
+		return ok
+	}, opts...)
+	return match
+}
+
+// WaitMessage waits until at least one message with the same concrete type
+// as T has been observed, then returns the first match.
+func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
+	tb.Helper()
+
+	var match T
+	var ok bool
+
+	WaitMessageWhere(tb, log, func(msg uv.Event) bool {
+		match, ok = msg.(T)
+		return ok
+	}, opts...)
+	return match
+}
+
+// WaitLiveMessageWhere waits until "fn" returns true for a NEW message (only messages
+// received since this function was invoked).
+//
+// See also [WaitMessageWhere].
+func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
+	tb.Helper()
+
+	cfg := collectOptions(opts...)
+	ctx, cancel := context.WithTimeout(tb.Context(), cfg.timeout)
+	defer cancel()
+
+	observedMessages := newTypeObserver[uv.Event]()
+
+	for msg := range log.LiveMessages(ctx) {
+		observedMessages.observe(msg)
+		if !fn(msg) {
+			continue
+		}
+		return msg
+	}
+
+	tb.Fatalf(
+		"error waiting for messages: %v\n\n%s",
+		ctx.Err(),
+		observedMessages,
+	)
+	return nil
+}
+
+// WaitMessageWhere waits until "fn" returns true for a message (across all
+// received messages).
+//
+// See also [WaitLiveMessageWhere].
+func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
+	tb.Helper()
+
+	cfg := collectOptions(opts...)
+	ctx, cancel := context.WithTimeout(tb.Context(), cfg.timeout)
+	defer cancel()
+
+	observedMessages := newTypeObserver[uv.Event]()
+
+	for msg := range log.Messages(ctx) {
+		observedMessages.observe(msg)
+		if !fn(msg) {
+			continue
+		}
+		return msg
+	}
+
+	tb.Fatalf(
+		"error waiting for messages: %v\n\n%s",
+		ctx.Err(),
+		observedMessages,
+	)
+	return nil
+}
+
+// WaitSettleMessages waits until no messages have been observed for the
+// configured settle timeout.
+//
+// See also [Harness.WaitSettleMessages], [WaitSettleView], [WithSettleTimeout],
+// [WithCheckInterval], and [WithTimeout].
+func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
+	tb.Helper()
+
+	cfg := collectOptions(opts...)
+	ctx, cancel := context.WithTimeout(tb.Context(), cfg.timeout)
+	defer cancel()
+
+	observedMessages := newTypeObserver[uv.Event]()
+	done := make(chan struct{})
+
+	var last atomic.Pointer[time.Time]
+	last.Store(new(time.Now()))
+
+	go func() {
+		defer close(done)
+		for msg := range log.LiveMessages(ctx) {
+			if len(cfg.settleIgnore) > 0 && slices.Contains(cfg.settleIgnore, reflect.TypeOf(msg)) {
+				continue
+			}
+
+			observedMessages.observe(msg)
+			last.Store(new(time.Now()))
+		}
+	}()
+
+	for {
+		if time.Since(*last.Load()) >= cfg.settleTimeout {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			tb.Fatalf("wait for messages to settle canceled: %v\n\n%s", ctx.Err(), observedMessages)
+		case <-time.After(min(cfg.checkInterval, cfg.checkInterval-time.Since(*last.Load())) + 5*time.Millisecond):
+		}
+	}
+}
+
+// IgnoreMessagesReflect filters an iterator of messages to exclude messages
+// with the same concrete type as any of the provided reflect.Types.
+func IgnoreMessagesReflect(tb testing.TB, messages iter.Seq[uv.Event], ignore ...reflect.Type) iter.Seq[uv.Event] {
+	tb.Helper()
+	return func(yield func(uv.Event) bool) {
+		tb.Helper()
+		for msg := range messages {
+			if len(ignore) > 0 && slices.Contains(ignore, reflect.TypeOf(msg)) {
+				continue
+			}
+			if !yield(msg) {
+				return
+			}
+		}
+	}
+}
+
+// FilterMessagesType filters an iterator of messages to only include messages
+// with the same concrete type as T.
+func FilterMessagesType[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event]) iter.Seq[T] {
+	tb.Helper()
+	var zero T
+	target := reflect.TypeOf(zero)
+	return func(yield func(T) bool) {
+		tb.Helper()
+		for msg := range messages {
+			if reflect.TypeOf(msg) != target {
+				continue
+			}
+			typed, ok := msg.(T)
+			if ok && !yield(typed) {
+				return
+			}
+		}
+	}
+}
+
+// FilterMessagesFunc filters an iterator of messages to only include messages
+// that return true from the provided "fn" function.
+func FilterMessagesFunc[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event], fn func(T) bool) iter.Seq[T] {
+	tb.Helper()
+	return func(yield func(T) bool) {
+		tb.Helper()
+		for msg := range messages {
+			typed, ok := msg.(T)
+			if ok && fn(typed) && !yield(typed) {
+				return
+			}
+		}
+	}
 }

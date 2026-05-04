@@ -2,13 +2,12 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package steep provides test helpers for Bubble Tea programs and models.
+// Package steep provides test helpers for [tea.Program] and models (root and component).
 //
 // Use NewHarness to run a root Bubble Tea model in a test:
 //
-//	h := steep.NewHarness(t, model, steep.WithInitialTermSize(80, 24))
-//	h.Type("hello")
-//	h.AssertString("hello")
+//	h := steep.NewHarness(t, model, steep.WithWindowSize(80, 24))
+//	h.Type("hello").WaitSettleView().AssertString("hello")
 //	if err := h.Quit(); err != nil {
 //		t.Fatal(err)
 //	}

@@ -20,22 +20,38 @@ const (
 	// DefaultTimeout is the default timeout used by program harnesses.
 	DefaultTimeout = 2 * time.Second
 	// DefaultCheckInterval is the default check interval used by program harnesses.
-	DefaultCheckInterval = 20 * time.Millisecond
+	DefaultCheckInterval = 10 * time.Millisecond
 	// DefaultSettleTimeout is the default settle timeout used by program harnesses.
 	// This must be less than 80% of the timeout set by [WithTimeout].
 	DefaultSettleTimeout = 100 * time.Millisecond
 )
 
 type options struct {
-	width         int
-	height        int
-	timeout       time.Duration
+	// width is the initial terminal width in cells for the [vt.Emulator] and
+	// [tea.Program].
+	width int
+	// height is the initial terminal height in cells for the [vt.Emulator] and
+	// [tea.Program].
+	height int
+	// timeout caps how long blocking waits (assertions, startup, settle,
+	// mutation) may run.
+	timeout time.Duration
+	// checkInterval is how often polling waits re-check their condition until
+	// timeout.
 	checkInterval time.Duration
-	programOpts   []tea.ProgramOption
+	// programOpts are extra Bubble Tea program options merged when creating the
+	// test program.
+	programOpts []tea.ProgramOption
 
+	// settleTimeout is the minimum quiet period with no relevant activity before
+	// settle waits succeed.
 	settleTimeout time.Duration
-	settleIgnore  []reflect.Type
+	// settleIgnore lists message types that do not reset the quiet period for
+	// [Harness.WaitSettleMessages].
+	settleIgnore []reflect.Type
 
+	// stripANSI removes ANSI sequences from view text and dimensions used in
+	// comparisons and snapshots.
 	stripANSI bool
 }
 
@@ -77,9 +93,9 @@ func collectOptions(opts ...Option) options {
 // be configured with defaults once and overridden per call.
 type Option func(*options)
 
-// WithInitialTermSize configures the starting terminal size. See also
+// WithWindowSize configures the starting terminal size. See also
 // [DefaultTermWidth] and [DefaultTermHeight].
-func WithInitialTermSize(width, height int) Option {
+func WithWindowSize(width, height int) Option {
 	return func(cfg *options) {
 		cfg.width = width
 		cfg.height = height

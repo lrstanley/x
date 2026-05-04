@@ -15,195 +15,226 @@ import (
 )
 
 var (
-	_ io.Reader = (*terminal)(nil) // [tea.WithInput]
-	_ io.Writer = (*terminal)(nil) // [tea.WithOutput]
-	_ Viewable  = (*terminal)(nil) // [Viewable]
+	_ io.Reader = (*emulator)(nil) // [tea.WithInput]
+	_ io.Writer = (*emulator)(nil) // [tea.WithOutput]
+	_ Viewable  = (*emulator)(nil) // [Viewable]
 )
 
-type terminal struct {
-	mu sync.RWMutex
-	vt *vt.Emulator
+type emulator struct {
+	mu             sync.RWMutex
+	vt             *vt.Emulator
+	inputCloseOnce sync.Once
+	focused        bool
 }
 
-func (t *terminal) Read(p []byte) (n int, err error) {
-	return t.vt.Read(p)
+func newEmulator(width, height int) *emulator {
+	emu := &emulator{
+		vt:      vt.NewEmulator(width, height),
+		focused: true,
+	}
+
+	go func() {
+		emu.mu.Lock()
+		emu.vt.Resize(width, height)
+		emu.vt.Focus()
+		emu.mu.Unlock()
+	}()
+
+	return emu
 }
 
-func (t *terminal) Write(p []byte) (n int, err error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.vt.Write(p)
+func (e *emulator) Read(p []byte) (n int, err error) {
+	return e.vt.Read(p)
 }
 
-func (t *terminal) View() string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.vt.Render()
+func (e *emulator) Write(p []byte) (n int, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.vt.Write(p)
 }
 
-// Focus sends the terminal a focus event if focus events mode is enabled.
+func (e *emulator) View() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.vt.Render()
+}
+
+func (e *emulator) closeInput() {
+	e.inputCloseOnce.Do(func() {
+		switch input := e.vt.InputPipe().(type) {
+		case interface{ CloseWithError(error) error }:
+			_ = input.CloseWithError(io.EOF)
+		case io.Closer:
+			_ = input.Close()
+		}
+	})
+}
+
+// TerminalFocus sends the terminal a focus event if focus events mode is enabled.
 // This is the opposite of [Harness.Blur].
-func (h *Harness) Focus() *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.Focus()
-	h.terminal.mu.Unlock()
+func (h *Harness) TerminalFocus() *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.Focus()
+	h.emulator.focused = true
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// Blur sends the terminal a blur event if focus events mode is enabled.
+// TerminalBlur sends the terminal a blur event if focus events mode is enabled.
 // This is the opposite of [Harness.Focus].
-func (h *Harness) Blur() *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.Blur()
-	h.terminal.mu.Unlock()
+func (h *Harness) TerminalBlur() *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.Blur()
+	h.emulator.focused = false
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// TerminalView renders the terminal's current screen as a string.
+// TerminalView renders the terminals current screen as a string.
 func (h *Harness) TerminalView() string {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.Render()
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.Render()
 }
 
-// Bounds returns the terminal's current screen bounds.
-func (h *Harness) Bounds() uv.Rectangle {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.Bounds()
+// TerminalBounds returns the terminals current screen bounds.
+func (h *Harness) TerminalBounds() uv.Rectangle {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.Bounds()
 }
 
 // IsAltScreen returns true if the terminal is in alt screen mode.
 func (h *Harness) IsAltScreen() bool {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.IsAltScreen()
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.IsAltScreen()
 }
 
-// TerminalWidth returns the terminal's current width.
+// TerminalWidth returns the terminals current width.
 func (h *Harness) TerminalWidth() int {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.Width()
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.Width()
 }
 
-// TerminalHeight returns the terminal's current height.
+// TerminalHeight returns the terminals current height.
 func (h *Harness) TerminalHeight() int {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.Height()
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.Height()
 }
 
-// TerminalDimensions returns the terminal's current dimensions.
+// TerminalDimensions returns the terminals current dimensions.
 func (h *Harness) TerminalDimensions() (width, height int) {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.Width(), h.terminal.vt.Height()
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.Width(), h.emulator.vt.Height()
 }
 
-// Resize resizes the terminal to the given width and height. This should result
-// in a [tea.WindowSizeMsg] being sent to the program.
-func (h *Harness) Resize(width, height int) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.Resize(width, height)
-	h.terminal.mu.Unlock()
+// TerminalResize resizes the terminal to the given width and height. This should
+// result in a [tea.WindowSizeMsg] being sent to the program.
+func (h *Harness) TerminalResize(width, height int) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.Resize(width, height)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// Paste text into the terminal. If bracketed paste mode is enabled,
+// TerminalPaste paste text into the terminal. If bracketed paste mode is enabled,
 // the text is bracketed with the appropriate escape sequences.
-func (h *Harness) Paste(text string) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.Paste(text)
-	h.terminal.mu.Unlock()
+func (h *Harness) TerminalPaste(text string) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.Paste(text)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// ForegroundColor returns the terminal emulator's foreground color.
-func (h *Harness) ForegroundColor() color.Color {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.ForegroundColor()
+// TerminalFgColor returns the terminal emulator's foreground color.
+func (h *Harness) TerminalFgColor() color.Color {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.ForegroundColor()
 }
 
-// BackgroundColor returns the terminal emulator's background color.
-func (h *Harness) BackgroundColor() color.Color {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.BackgroundColor()
+// TerminalBgColor returns the terminal emulator's background color.
+func (h *Harness) TerminalBgColor() color.Color {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.BackgroundColor()
 }
 
-// CursorColor returns the terminal emulator's cursor color.
-func (h *Harness) CursorColor() color.Color {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.CursorColor()
+// TerminalCursorColor returns the terminal emulator's cursor color.
+func (h *Harness) TerminalCursorColor() color.Color {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.CursorColor()
 }
 
-// SetForegroundColor sets the terminal emulator foreground color.
-func (h *Harness) SetForegroundColor(c color.Color) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetForegroundColor(c)
-	h.terminal.mu.Unlock()
+// SetTerminalFgColor sets the terminal emulator foreground color.
+func (h *Harness) SetTerminalFgColor(c color.Color) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetForegroundColor(c)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// SetBackgroundColor sets the terminal emulator background color.
-func (h *Harness) SetBackgroundColor(c color.Color) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetBackgroundColor(c)
-	h.terminal.mu.Unlock()
+// SetTerminalBgColor sets the terminal emulator background color.
+func (h *Harness) SetTerminalBgColor(c color.Color) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetBackgroundColor(c)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// SetCursorColor sets the terminal emulator cursor color.
-func (h *Harness) SetCursorColor(c color.Color) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetCursorColor(c)
-	h.terminal.mu.Unlock()
+// SetTerminalCursorColor sets the terminal emulator cursor color.
+func (h *Harness) SetTerminalCursorColor(c color.Color) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetCursorColor(c)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// SetDefaultForegroundColor sets default foreground color used when none is
+// SetDefaultTerminalFgColor sets default foreground color used when none is
 // specified.
-func (h *Harness) SetDefaultForegroundColor(c color.Color) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetDefaultForegroundColor(c)
-	h.terminal.mu.Unlock()
+func (h *Harness) SetDefaultTerminalFgColor(c color.Color) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetDefaultForegroundColor(c)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// SetDefaultBackgroundColor sets default background color used when none is
+// SetDefaultTerminalBgColor sets default background color used when none is
 // specified.
-func (h *Harness) SetDefaultBackgroundColor(c color.Color) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetDefaultBackgroundColor(c)
-	h.terminal.mu.Unlock()
+func (h *Harness) SetDefaultTerminalBgColor(c color.Color) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetDefaultBackgroundColor(c)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// SetDefaultCursorColor sets default cursor color used when none is specified.
-func (h *Harness) SetDefaultCursorColor(c color.Color) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetDefaultCursorColor(c)
-	h.terminal.mu.Unlock()
+// SetDefaultTerminalCursorColor sets default cursor color used when none is specified.
+func (h *Harness) SetDefaultTerminalCursorColor(c color.Color) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetDefaultCursorColor(c)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// CursorPosition returns the terminal emulator cursor position.
-func (h *Harness) CursorPosition() uv.Position {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.CursorPosition()
+// TerminalCursorPosition returns the terminal emulator cursor position.
+func (h *Harness) TerminalCursorPosition() uv.Position {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.CursorPosition()
 }
 
-// Scrollback returns a copy of the terminal's scrollback lines (oldest first).
+// TerminalScrollback returns a copy of the terminals scrollback lines (oldest first).
 // It is nil in alternate screen mode. An empty non-nil slice means the scrollback
 // buffer exists but has no lines yet.
-func (h *Harness) Scrollback() []uv.Line {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	sb := h.terminal.vt.Scrollback()
+func (h *Harness) TerminalScrollback() []uv.Line {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	sb := h.emulator.vt.Scrollback()
 	if sb == nil {
 		return nil
 	}
@@ -215,26 +246,56 @@ func (h *Harness) Scrollback() []uv.Line {
 	return out
 }
 
-// ScrollbackCount returns the count of scrollback lines.
-func (h *Harness) ScrollbackCount() int {
-	h.terminal.mu.RLock()
-	defer h.terminal.mu.RUnlock()
-	return h.terminal.vt.ScrollbackLen()
+// TerminalScrollbackCount returns the count of scrollback lines.
+func (h *Harness) TerminalScrollbackCount() int {
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return h.emulator.vt.ScrollbackLen()
 }
 
-// SetScrollbackSize sets maximum scrollback lines retained on the terminal's
+// SetTerminalScrollbackSize sets maximum scrollback lines retained on the terminals
 // screen buffer.
-func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.SetScrollbackSize(maxLines)
-	h.terminal.mu.Unlock()
+func (h *Harness) SetTerminalScrollbackSize(maxLines int) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SetScrollbackSize(maxLines)
+	h.emulator.mu.Unlock()
 	return h
 }
 
-// ClearScrollback clears all scrollback history on the screen buffer.
-func (h *Harness) ClearScrollback() *Harness {
-	h.terminal.mu.Lock()
-	h.terminal.vt.ClearScrollback()
-	h.terminal.mu.Unlock()
+// ClearTerminalScrollback clears all scrollback history on the screen buffer.
+func (h *Harness) ClearTerminalScrollback() *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.ClearScrollback()
+	h.emulator.mu.Unlock()
+	return h
+}
+
+// TerminalType sends a sequence of key press messages to the terminal emulator
+// itself. This is designed for providing regular text input, not more complex
+// key combinations (ctrl-key, alt-key, etc).
+//
+// Note that as this sends through the emulator, if paired with [Harness.Send],
+// The order of events that the [tea.Program] receives may not be the same as
+// order of invocation.
+func (h *Harness) TerminalType(s string) *Harness {
+	h.tb.Helper()
+	for _, r := range s {
+		h.emulator.mu.Lock()
+		h.emulator.vt.SendKey(vt.KeyPressEvent{Code: r, Text: string(r)})
+		h.emulator.mu.Unlock()
+	}
+	return h
+}
+
+// TerminalKey sends a single key press message to the terminal emulator itself,
+// e.g. "ctrl+a", "enter", "space", etc.
+//
+// Note that as this sends through the emulator, if paired with [Harness.Send],
+// The order of events that the [tea.Program] receives may not be the same as
+// order of invocation.
+func (h *Harness) TerminalKey(key string) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SendKey(mapKeyToEvent(key))
+	h.emulator.mu.Unlock()
 	return h
 }

@@ -22,6 +22,7 @@ func (h *Harness) WaitFinished(opts ...Option) {
 	h.resultMu.RLock()
 	if result := h.result; result != nil {
 		h.resultMu.RUnlock()
+		h.emulator.closeInput()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
 			h.tb.Fatalf("bubble tea program failed: %v", result.err)
 		}
@@ -37,6 +38,7 @@ func (h *Harness) WaitFinished(opts ...Option) {
 		h.resultMu.Lock()
 		h.result = &result
 		h.resultMu.Unlock()
+		h.emulator.closeInput()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
 			h.tb.Fatalf("bubble tea program failed: %v", result.err)
 		}
@@ -45,55 +47,6 @@ func (h *Harness) WaitFinished(opts ...Option) {
 		}
 	case <-timer.C:
 		h.tb.Fatalf("timeout waiting for bubble tea program to finish after %s", cfg.timeout)
-	}
-}
-
-// WaitSettleMessages waits until no messages have been observed for the
-// configured settle timeout.
-//
-// See also [Harness.WaitSettleView], [WaitSettleView], [WithSettleTimeout],
-// [WithCheckInterval], and [WithTimeout].
-func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
-	h.tb.Helper()
-
-	cfg := collectOptions(h.mergedOpts(opts...)...)
-	h.observer.setSettleIgnore(cfg.settleIgnore)
-	defer h.observer.setSettleIgnore(nil)
-
-	deadline := time.Now().Add(cfg.timeout)
-	ctx := h.tb.Context()
-	timer := time.NewTimer(cfg.timeout)
-	defer timer.Stop()
-
-	for {
-		h.observer.mu.RLock()
-		updateCount, lastReceivedMessage := len(h.observer.observedMsgs), h.observer.lastReceivedMessage
-		h.observer.mu.RUnlock()
-		now := time.Now()
-		quietFor := now.Sub(lastReceivedMessage)
-
-		if quietFor >= cfg.settleTimeout {
-			return h
-		}
-
-		remainingTimeout := deadline.Sub(now)
-		if remainingTimeout <= 0 {
-			h.tb.Fatalf(
-				"timeout waiting for Update() to settle after %s; last update was %s ago after %d update(s)",
-				cfg.timeout,
-				quietFor,
-				updateCount,
-			)
-			return h
-		}
-
-		timer.Reset(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			timer.Stop()
-			h.tb.Fatalf("wait for Update() to settle canceled: %v", ctx.Err())
-		}
 	}
 }
 
@@ -417,5 +370,16 @@ func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness 
 	if !AssertDimensions(h.tb, h, width, height, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
+	return h
+}
+
+// WaitSettleMessages waits until no messages have been observed for the
+// configured settle timeout.
+//
+// See also [WaitSettleMessages], [Harness.WaitSettleView], [WaitSettleView],
+// [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
+func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
+	h.tb.Helper()
+	WaitSettleMessages(h.tb, h, h.mergedOpts(opts...)...)
 	return h
 }

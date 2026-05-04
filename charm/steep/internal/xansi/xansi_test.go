@@ -10,6 +10,7 @@ import (
 )
 
 func TestStripANSI(t *testing.T) {
+	t.Parallel()
 	in := "hello \x1b[31mred\x1b[0m\n"
 	want := "hello red\n"
 	if got := StripANSI(in); got != want {
@@ -23,6 +24,7 @@ func TestStripANSI(t *testing.T) {
 }
 
 func TestStripSpinners(t *testing.T) {
+	t.Parallel()
 	// "⣾" is the first entry in spinnerReplacements.
 	if got := StripSpinners("a⣾b"); got != "a?b" {
 		t.Fatalf("string: got %q, want %q", got, "a?b")
@@ -33,6 +35,7 @@ func TestStripSpinners(t *testing.T) {
 }
 
 func TestStripPrivateUse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
@@ -51,6 +54,7 @@ func TestStripPrivateUse(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := StripPrivateUse(tc.in); got != tc.want {
 				t.Fatalf("string: got %q, want %q", got, tc.want)
 			}
@@ -62,6 +66,7 @@ func TestStripPrivateUse(t *testing.T) {
 }
 
 func TestIsPrivateUse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		r    rune
 		want bool
@@ -85,6 +90,7 @@ func TestIsPrivateUse(t *testing.T) {
 }
 
 func TestInRanges(t *testing.T) {
+	t.Parallel()
 	ranges := [][2]rune{{'a', 'c'}}
 	if !InRanges('b', ranges...) {
 		t.Fatal("InRanges: expected 'b' in [a,c]")
@@ -95,6 +101,7 @@ func TestInRanges(t *testing.T) {
 }
 
 func TestNormalizeCRLF(t *testing.T) {
+	t.Parallel()
 	if got := NormalizeCRLF("a\r\nb\nc"); got != "a\nb\nc" {
 		t.Fatalf("string: got %q, want %q", got, "a\nb\nc")
 	}
@@ -104,6 +111,7 @@ func TestNormalizeCRLF(t *testing.T) {
 }
 
 func TestEscapeESC(t *testing.T) {
+	t.Parallel()
 	if got := EscapeESC("pre\x1b[0mpost"); got != `pre\x1b[0mpost` {
 		t.Fatalf("string: got %q, want %q", got, `pre\x1b[0mpost`)
 	}
