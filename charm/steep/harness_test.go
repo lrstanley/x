@@ -48,28 +48,23 @@ func (m rootTestModel) View() tea.View {
 
 func TestHarness(t *testing.T) {
 	t.Parallel()
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(12, 3))
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 2))
 
-	h.WaitString("size=12x3").
-		RequireString("size=12x3").
-		RequireWidth(9).
+	h.WaitString("size=80x2").
+		RequireString("size=80x2").
+		RequireWidth(14).
 		RequireHeight(2).
-		RequireDimensions(9, 2).
+		RequireDimensions(14, 2).
 		Type("ab").WaitBytes([]byte("text=ab")).
-		Send(setTextMsg("done")).WaitString("text=done").WaitNotString("text=ab").RequireNotString("text=ab")
+		SendProgram(setTextMsg("done")).WaitString("text=done").WaitNotString("text=ab").RequireNotString("text=ab")
 
 	msgs := slices.Collect(h.MessageHistory())
 	if len(msgs) < 4 {
 		t.Fatalf("expected at least 4 messages, got %d", len(msgs))
 	}
 
-	h.Quit()
+	h.QuitProgram()
 	h.WaitFinished(WithTimeout(time.Second))
-
-	out := h.FinalView()
-	if !strings.Contains(out, "text=done") {
-		t.Fatalf("final output = %q, want text=done", out)
-	}
 
 	finalModel, ok := h.FinalModel().(rootTestModel)
 	if !ok {
@@ -82,13 +77,14 @@ func TestHarness(t *testing.T) {
 
 func TestHarnessMutateRootModel(t *testing.T) {
 	t.Parallel()
-	h := NewHarness(t, rootTestModel{text: "start"})
+	h := NewHarness(t, rootTestModel{text: "start"}, WithWindowSize(80, 3))
 
 	Mutate(h, func(m rootTestModel) rootTestModel {
 		m.text = "mutated"
 		return m
 	})
 
+	h.WaitString("text=mutated")
 	got := h.View()
 	if !strings.Contains(got, "text=mutated") {
 		t.Fatalf("view = %q, want text=mutated", got)
@@ -100,44 +96,22 @@ func TestHarnessMutateRootModel(t *testing.T) {
 
 func TestHarness_Send_returnsHarnessForChaining(t *testing.T) {
 	t.Parallel()
-	h := NewHarness(t, rootTestModel{})
-	if ptr := h.Send(setTextMsg("x")); ptr != h {
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
+	if ptr := h.SendProgram(setTextMsg("x")); ptr != h {
 		t.Fatalf("Send should return the same harness, got %p want %p", ptr, h)
 	}
 }
 
-func TestHarness_Type_returnsHarnessForChaining(t *testing.T) {
+func TestHarness_QuitProgram_returnsHarnessForChaining(t *testing.T) {
 	t.Parallel()
-	h := NewHarness(t, rootTestModel{})
-	if ptr := h.Type(""); ptr != h {
-		t.Fatalf("Type should return the same harness, got %p want %p", ptr, h)
-	}
-}
-
-func TestHarness_Quit_returnsHarnessForChaining(t *testing.T) {
-	t.Parallel()
-	h := NewHarness(t, rootTestModel{})
-	if ptr := h.Quit(); ptr != h {
-		t.Fatalf("Quit should return the same harness, got %p want %p", ptr, h)
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
+	if ptr := h.QuitProgram(); ptr != h {
+		t.Fatalf("QuitProgram should return the same harness, got %p want %p", ptr, h)
 	}
 	h.WaitFinished(WithTimeout(time.Second))
 }
 
-func TestHarness_Key_returnsHarnessForChaining(t *testing.T) {
-	t.Parallel()
-	h := NewHarness(t, rootTestModel{})
-	if ptr := h.Key("z"); ptr != h {
-		t.Fatalf("Key should return the same harness, got %p want %p", ptr, h)
-	}
-}
-
-func TestHarness_Key_accumulatesPrintableText(t *testing.T) {
-	t.Parallel()
-	h := NewHarness(t, rootTestModel{})
-	h.Key("a").Key("b").Key(" ").WaitString("text=ab ").RequireString("text=ab ")
-}
-
-func TestHarness_Key_mapsNamedKeys(t *testing.T) {
+func TestHarness_TerminalKey_mapsNamedKeys(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -170,7 +144,7 @@ func TestHarness_Key_mapsNamedKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := NewHarness(t, rootTestModel{})
+			h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
 			h.Key(tt.key)
 			got := WaitMessageWhere(t, h, func(msg uv.Event) bool {
 				km, ok := msg.(tea.KeyPressMsg)
@@ -196,17 +170,11 @@ func TestHarness_Key_mapsNamedKeys(t *testing.T) {
 	}
 }
 
-func TestHarness_Key_fallbackMultiCharacterLiteralText(t *testing.T) {
+func TestHarness_TerminalKey_fallbackMultiCharacterLiteralText(t *testing.T) {
 	t.Parallel()
 	const arbitrary = "custom-key-token"
-	h := NewHarness(t, rootTestModel{})
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 4))
 	h.Key(arbitrary)
-	got := WaitMessageWhere(t, h, func(msg uv.Event) bool {
-		km, ok := msg.(tea.KeyPressMsg)
-		return ok && km.Key().Text == arbitrary && km.Key().Mod == 0
-	})
-	km := got.(tea.KeyPressMsg)
-	if km.Key().Text != arbitrary {
-		t.Fatalf("Key.Text = %q, want %q", km.Key().Text, arbitrary)
-	}
+	// Unknown multi-char keys are sent as one press per rune through the vt layer.
+	h.WaitString("text=" + arbitrary).RequireString("text=" + arbitrary)
 }

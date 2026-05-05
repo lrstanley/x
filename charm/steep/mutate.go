@@ -32,8 +32,8 @@ type mutatableModel interface {
 	mutate(mutateRequest) error
 }
 
-// Mutate applies fn to the current underlying model from within the Bubble Tea
-// Update loop. This should be used sparingly, and only when necessary to test
+// Mutate applies fn to the current underlying model from within the [tea.Program]'s
+// Update handling. This should be used sparingly, and only when necessary to test
 // a specific scenario that is otherwise not possible or would pollute your
 // model with unnecessary state. It uses the [testing.TB] from [NewHarness] or
 // [NewComponentHarness] (generics cannot be expressed as a method on [Harness]).
@@ -42,6 +42,7 @@ type mutatableModel interface {
 // [NewComponentHarness], such as func(Model) Model or func(*Model) *Model.
 func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
 	h.tb.Helper()
+	h.requireProgram()
 
 	if fn == nil {
 		h.tb.Fatalf("mutate function must not be nil")
@@ -49,7 +50,7 @@ func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
 
 	cfg := collectOptions(h.mergedOpts(opts...)...)
 	done := make(chan error, 1)
-	h.Send(mutateMsg[M]{fn: fn, done: done})
+	h.SendProgram(mutateMsg[M]{fn: fn, done: done})
 
 	ctx := h.tb.Context()
 	timer := time.NewTimer(cfg.timeout)

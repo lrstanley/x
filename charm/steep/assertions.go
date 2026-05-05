@@ -52,7 +52,7 @@ func WaitViewFunc[T ~string | ~[]byte](
 		}
 		remainingTimeout := time.Until(deadline)
 		if remainingTimeout <= 0 {
-			tb.Fatalf("timeout waiting for condition\nlast output:\n%s", out)
+			cfg.Fatalf(tb, "timeout waiting for condition\nlast output:\n%s", out)
 		}
 
 		timer.Reset(min(cfg.checkInterval, remainingTimeout))
@@ -60,7 +60,7 @@ func WaitViewFunc[T ~string | ~[]byte](
 		case <-timer.C:
 		case <-ctx.Done():
 			timer.Stop()
-			tb.Fatalf("wait for condition canceled: %v", ctx.Err())
+			cfg.Fatalf(tb, "wait for condition canceled: %v", ctx.Err())
 		}
 	}
 }
@@ -70,6 +70,7 @@ func WaitViewFunc[T ~string | ~[]byte](
 // See also [Harness.WaitBytes], [WaitViewFunc], [WaitStrings], and [WaitNotBytes].
 func WaitBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) []byte {
 	tb.Helper()
+	opts = append(opts, withReason("WaitBytes(%q)", contents))
 	return WaitViewFunc(tb, model, func(bts []byte) bool {
 		return bytes.Contains(bts, contents)
 	}, opts...)
@@ -80,6 +81,7 @@ func WaitBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) [
 // See also [Harness.WaitString], [WaitViewFunc], [WaitStrings], and [WaitNotString].
 func WaitString(tb testing.TB, model Viewable, contents string, opts ...Option) string {
 	tb.Helper()
+	opts = append(opts, withReason("WaitString(%q)", contents))
 	return WaitViewFunc(tb, model, func(str string) bool {
 		return strings.Contains(str, contents)
 	}, opts...)
@@ -90,6 +92,7 @@ func WaitString(tb testing.TB, model Viewable, contents string, opts ...Option) 
 // See also [Harness.WaitStrings], [WaitString], and [WaitNotStrings].
 func WaitStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) string {
 	tb.Helper()
+	opts = append(opts, withReason("WaitStrings(%q)", contents))
 	return WaitViewFunc(tb, model, func(str string) bool {
 		for _, content := range contents {
 			if !strings.Contains(str, content) {
@@ -105,6 +108,7 @@ func WaitStrings(tb testing.TB, model Viewable, contents []string, opts ...Optio
 // See also [Harness.WaitNotBytes], [WaitBytes], and [WaitStrings].
 func WaitNotBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) []byte {
 	tb.Helper()
+	opts = append(opts, withReason("WaitNotBytes(%q)", contents))
 	return WaitViewFunc(tb, model, func(bts []byte) bool {
 		return !bytes.Contains(bts, contents)
 	}, opts...)
@@ -115,6 +119,7 @@ func WaitNotBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option
 // See also [Harness.WaitNotString], [WaitString], and [WaitNotStrings].
 func WaitNotString(tb testing.TB, model Viewable, contents string, opts ...Option) string {
 	tb.Helper()
+	opts = append(opts, withReason("WaitNotString(%q)", contents))
 	return WaitViewFunc(tb, model, func(str string) bool {
 		return !strings.Contains(str, contents)
 	}, opts...)
@@ -125,6 +130,7 @@ func WaitNotString(tb testing.TB, model Viewable, contents string, opts ...Optio
 // See also [Harness.WaitNotStrings], [WaitStrings], and [WaitNotString].
 func WaitNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) string {
 	tb.Helper()
+	opts = append(opts, withReason("WaitNotStrings(%q)", contents))
 	return WaitViewFunc(tb, model, func(str string) bool {
 		for _, content := range contents {
 			if strings.Contains(str, content) {
@@ -142,6 +148,7 @@ func WaitNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Op
 // See also [Harness.WaitMatch], [AssertMatch], [WaitNotMatch], and [RequireMatch].
 func WaitMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) string {
 	tb.Helper()
+	opts = append(opts, withReason("WaitMatch(%q)", pattern))
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
@@ -159,6 +166,7 @@ func WaitMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) st
 // [RequireNotMatch].
 func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) string {
 	tb.Helper()
+	opts = append(opts, withReason("WaitNotMatch(%q)", pattern))
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
@@ -168,13 +176,13 @@ func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option)
 	}, opts...)
 }
 
-// WaitSettleView waits until the rendered view string has not changed for the
+// WaitSettle waits until the rendered view string has not changed for the
 // configured settle timeout. The model must implement [Viewable]; each check calls
 // View() and compares the string to the previous sample.
 //
-// See also [Harness.WaitSettleView], [Harness.WaitSettleMessages],
+// See also [Harness.WaitSettle], [Harness.WaitSettleMessages],
 // [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
-func WaitSettleView(tb testing.TB, view Viewable, opts ...Option) {
+func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -208,7 +216,7 @@ func WaitSettleView(tb testing.TB, view Viewable, opts ...Option) {
 		remainingTimeout := deadline.Sub(now)
 		if remainingTimeout <= 0 {
 			tb.Fatalf(
-				"timeout waiting for View() to settle after %s; last observed view change was %s ago",
+				"timeout waiting for view to settle after %s; last observed view change was %s ago",
 				cfg.timeout,
 				quietFor,
 			)
@@ -220,7 +228,7 @@ func WaitSettleView(tb testing.TB, view Viewable, opts ...Option) {
 		case <-timer.C:
 		case <-ctx.Done():
 			timer.Stop()
-			tb.Fatalf("wait for View() to settle canceled: %v", ctx.Err())
+			tb.Fatalf("wait for view to settle canceled: %v", ctx.Err())
 		}
 	}
 }
@@ -239,7 +247,7 @@ func AssertString(tb testing.TB, view Viewable, content string, opts ...Option) 
 		out = xansi.StripANSI(out)
 	}
 	if !strings.Contains(out, content) {
-		tb.Errorf("expected output to contain %q\noutput:\n%s", content, out)
+		cfg.Errorf(tb, "expected output to contain %q\noutput:\n%s", content, out)
 		return false
 	}
 	return true
@@ -273,7 +281,7 @@ func AssertStrings(tb testing.TB, view Viewable, contents []string, opts ...Opti
 	matched := true
 	for _, sub := range contents {
 		if !strings.Contains(out, sub) {
-			tb.Errorf("expected output to contain %q\noutput:\n%s", sub, out)
+			cfg.Errorf(tb, "expected output to contain %q\noutput:\n%s", sub, out)
 			matched = false
 		}
 	}
@@ -306,7 +314,7 @@ func AssertNotString(tb testing.TB, view Viewable, content string, opts ...Optio
 		out = xansi.StripANSI(out)
 	}
 	if strings.Contains(out, content) {
-		tb.Errorf("expected output not to contain %q\noutput:\n%s", content, out)
+		cfg.Errorf(tb, "expected output not to contain %q\noutput:\n%s", content, out)
 		return false
 	}
 	return true
@@ -341,7 +349,7 @@ func AssertNotStrings(tb testing.TB, view Viewable, contents []string, opts ...O
 	matched := true
 	for _, sub := range contents {
 		if strings.Contains(out, sub) {
-			tb.Errorf("expected output not to contain %q\noutput:\n%s", sub, out)
+			cfg.Errorf(tb, "expected output not to contain %q\noutput:\n%s", sub, out)
 			matched = false
 		}
 	}
@@ -379,7 +387,7 @@ func AssertMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) b
 		out = xansi.StripANSI(out)
 	}
 	if !re.MatchString(out) {
-		tb.Errorf("expected output to match %q\noutput:\n%s", pattern, out)
+		cfg.Errorf(tb, "expected output to match %q\noutput:\n%s", pattern, out)
 		return false
 	}
 	return true
@@ -416,7 +424,7 @@ func AssertNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option
 		out = xansi.StripANSI(out)
 	}
 	if re.MatchString(out) {
-		tb.Errorf("expected output not to match %q\noutput:\n%s", pattern, out)
+		cfg.Errorf(tb, "expected output not to match %q\noutput:\n%s", pattern, out)
 		return false
 	}
 	return true
@@ -451,7 +459,7 @@ func AssertHeight(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	}
 	_, goth := Dimensions(out)
 	if goth != n {
-		tb.Errorf("expected output height %d, got %d", n, goth)
+		cfg.Errorf(tb, "expected output height %d, got %d", n, goth)
 		return false
 	}
 	return true
@@ -483,7 +491,7 @@ func AssertWidth(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	}
 	gotw, _ := Dimensions(out)
 	if gotw != n {
-		tb.Errorf("expected output width %d, got %d", n, gotw)
+		cfg.Errorf(tb, "expected output width %d, got %d", n, gotw)
 		return false
 	}
 	return true
@@ -514,7 +522,7 @@ func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...O
 	}
 	gotw, goth := Dimensions(out)
 	if gotw != width || goth != height {
-		tb.Errorf("expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
+		cfg.Errorf(tb, "expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
 		return false
 	}
 	return true
@@ -565,8 +573,9 @@ type MessageCollector interface {
 
 // AssertHasMessage asserts that at least one message with the same concrete type
 // as T has been observed.
-func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, _ ...Option) bool {
+func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) bool {
 	tb.Helper()
+	cfg := collectOptions(opts...)
 
 	for msg := range log.MessageHistory() {
 		if _, ok := msg.(T); ok {
@@ -575,7 +584,7 @@ func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, _ ...Opti
 	}
 
 	var zero T
-	tb.Errorf("no message with type %T found", zero)
+	cfg.Errorf(tb, "no message with type %T found", zero)
 	return false
 }
 
@@ -598,6 +607,8 @@ func WaitLiveMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Op
 	var match T
 	var ok bool
 
+	opts = append(opts, withReason("WaitLiveMessage[%T]", match))
+
 	WaitLiveMessageWhere(tb, log, func(msg uv.Event) bool {
 		match, ok = msg.(T)
 		return ok
@@ -612,6 +623,8 @@ func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option
 
 	var match T
 	var ok bool
+
+	opts = append(opts, withReason("WaitMessage[%T]", match))
 
 	WaitMessageWhere(tb, log, func(msg uv.Event) bool {
 		match, ok = msg.(T)
@@ -641,7 +654,7 @@ func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event)
 		return msg
 	}
 
-	tb.Fatalf(
+	cfg.Fatalf(tb,
 		"error waiting for messages: %v\n\n%s",
 		ctx.Err(),
 		observedMessages,
@@ -670,7 +683,7 @@ func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok
 		return msg
 	}
 
-	tb.Fatalf(
+	cfg.Fatalf(tb,
 		"error waiting for messages: %v\n\n%s",
 		ctx.Err(),
 		observedMessages,
@@ -681,7 +694,7 @@ func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok
 // WaitSettleMessages waits until no messages have been observed for the
 // configured settle timeout.
 //
-// See also [Harness.WaitSettleMessages], [WaitSettleView], [WithSettleTimeout],
+// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettleTimeout],
 // [WithCheckInterval], and [WithTimeout].
 func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()

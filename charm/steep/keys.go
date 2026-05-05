@@ -11,18 +11,6 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// keyEventToTea converts a [uv.KeyPressEvent] to a [tea.KeyPressMsg].
-func keyEventToTea(e uv.KeyPressEvent) tea.KeyPressMsg {
-	return tea.KeyPressMsg{
-		Text:        e.Text,
-		Mod:         e.Mod,
-		Code:        e.Code,
-		ShiftedCode: e.ShiftedCode,
-		BaseCode:    e.BaseCode,
-		IsRepeat:    e.IsRepeat,
-	}
-}
-
 // mapKeyToEvent converts a key string to a [uv.KeyPressEvent].
 func mapKeyToEvent(key string) uv.KeyPressEvent {
 	switch {

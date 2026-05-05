@@ -9,7 +9,7 @@ import (
 )
 
 // AssertViewSnapshot compares the latest captured view against a snapshot file
-// without waiting for the program to finish. It allows the test to continue.
+// without waiting for the [tea.Program] to finish. It allows the test to continue.
 //
 // See also [Harness.RequireViewSnapshot], [Harness.AssertViewSnapshotNoANSI],
 // and [Harness.RequireViewSnapshotNoANSI].
@@ -20,7 +20,7 @@ func (h *Harness) AssertViewSnapshot(opts ...snapshot.Option) *Harness {
 }
 
 // RequireViewSnapshot compares the latest captured view against a snapshot file
-// without waiting for the program to finish, failing the test immediately if
+// without waiting for the [tea.Program] to finish, failing the test immediately if
 // the snapshot does not match.
 //
 // See also [Harness.AssertViewSnapshot], [Harness.AssertViewSnapshotNoANSI],
@@ -41,7 +41,7 @@ func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
 }
 
 // AssertViewSnapshotNoANSI compares the latest captured view against a snapshot
-// file after stripping ANSI sequences and without waiting for the program to
+// file after stripping ANSI sequences and without waiting for the [tea.Program] to
 // finish. It allows the test to continue.
 //
 // Note that you can also use [WithStripANSI] on the harness constructor to
@@ -60,7 +60,7 @@ func (h *Harness) AssertViewSnapshotNoANSI(opts ...snapshot.Option) *Harness {
 
 // RequireViewSnapshotNoANSI compares the latest captured view against a
 // snapshot file after stripping ANSI sequences and without waiting for the
-// program to finish, failing the test immediately if the snapshot does not
+// [tea.Program] to finish, failing the test immediately if the snapshot does not
 // match.
 //
 // Note that you can also use [WithStripANSI] on the harness constructor to

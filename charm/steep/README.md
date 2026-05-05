@@ -2,7 +2,7 @@
 
 ---
 
-`steep` provides test helpers for [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) programs and component models. It runs a model through the real runtime with a `vt` terminal emulator as input/output, captures the latest model view text, and adds helpers for sending input, waiting on output, inspecting messages, mutating state inside `Update`, and writing snapshots. Events are [Ultraviolet](https://github.com/charmbracelet/ultraviolet) [`uv.Event`](https://pkg.go.dev/github.com/charmbracelet/ultraviolet#Event) values—the same kinds `Update` receives in Bubble Tea v2.
+`steep` provides test helpers for [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) programs and component models. It runs a model through the real runtime with a `vt` terminal emulator as input/output, captures the latest rendered terminal screen, and adds helpers for sending input, waiting on output, inspecting messages, mutating state inside `Update`, and writing snapshots. Those messages are [`tea.Msg`](https://pkg.go.dev/charm.land/bubbletea/v2#Msg) values—the same kinds `Update` receives in Bubble Tea v2. Go excerpts in this file are test-shaped snippets only; import `github.com/lrstanley/x/charm/steep`, `charm.land/bubbletea/v2` (as `tea`), and any other packages you use (`time`, `strings`, `github.com/lrstanley/x/charm/steep/snapshot`, and so on).
 
 Example of waiting condition failures:
 
@@ -14,108 +14,16 @@ Example of failures when there is a snapshot mismatch (with stripping of ANSI da
 
 ---
 
-```go
-import "github.com/lrstanley/x/charm/steep"
-```
-
 ## Root models
 
 Use `NewHarness` when the thing under test is a full Bubble Tea root model that
-implements `tea.Model` with `Update(uv.Event)` and `View() tea.View`.
+implements `tea.Model` with `Update(tea.Msg)` and `View() tea.View`.
+
+Example (construct `model` (`tea.Model`) in your test, plus any custom message types such as `openCommandMsg`):
 
 ```go
-import (
-	"fmt"
-	"strings"
-	"testing"
-
-	tea "charm.land/bubbletea/v2"
-	uv "github.com/charmbracelet/ultraviolet"
-
-	"github.com/lrstanley/x/charm/steep"
-)
-
-type openCommandMsg struct {
-	Command string
-}
-
-type commandPalette struct {
-	width, height int
-	query         string
-	commands      []string
-	opened        []string
-}
-
-func (m commandPalette) Init() tea.Cmd { return nil }
-
-func (m commandPalette) Update(msg uv.Event) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-	case tea.KeyPressMsg:
-		switch msg.Key().Code {
-		case tea.KeyEnter:
-			selection := m.firstVisibleCommand()
-			if selection == "" {
-				return m, nil
-			}
-			return m, func() tea.Msg {
-				return openCommandMsg{Command: selection}
-			}
-		default:
-			m.query += msg.Key().Text
-		}
-	case openCommandMsg:
-		m.opened = append(m.opened, msg.Command)
-	case tea.QuitMsg:
-		return m, tea.Quit
-	}
-	return m, nil
-}
-
-func (m commandPalette) View() tea.View {
-	var b strings.Builder
-	fmt.Fprintf(&b, "size=%dx%d\n", m.width, m.height)
-	fmt.Fprintf(&b, "query=%s\n", m.query)
-	for _, command := range m.visibleCommands() {
-		fmt.Fprintf(&b, "- %s\n", command)
-	}
-	if len(m.opened) > 0 {
-		fmt.Fprintf(&b, "opened=%s\n", m.opened[len(m.opened)-1])
-	}
-	return tea.NewView(strings.TrimSuffix(b.String(), "\n"))
-}
-
-func (m commandPalette) visibleCommands() []string {
-	if m.query == "" {
-		return m.commands
-	}
-
-	var out []string
-	for _, command := range m.commands {
-		if strings.Contains(command, m.query) {
-			out = append(out, command)
-		}
-	}
-	return out
-}
-
-func (m commandPalette) firstVisibleCommand() string {
-	visible := m.visibleCommands()
-	if len(visible) == 0 {
-		return ""
-	}
-	return visible[0]
-}
-
 func TestCommandPalette(t *testing.T) {
-	model := commandPalette{
-		commands: []string{
-			"vault read secret/data/app",
-			"vault status",
-			"vault token lookup",
-		},
-	}
+	// model := ...
 	h := steep.NewHarness(t, model, steep.WithWindowSize(48, 8))
 
 	h.WaitStrings([]string{"size=48x8", "vault read", "vault status"})
@@ -123,7 +31,7 @@ func TestCommandPalette(t *testing.T) {
 	h.WaitString("query=status")
 	h.AssertNotString("vault read secret/data/app")
 
-	h.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	h.SendProgram(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	selected := steep.WaitMessage[openCommandMsg](t, h)
 	h.WaitString("opened=vault status")
 
@@ -136,130 +44,24 @@ func TestCommandPalette(t *testing.T) {
 ## Component models
 
 Use `NewComponentHarness` for components that are not full `tea.Model` roots, but
-do expose `View() string` and one of these update shapes:
-
-```go
-Update(uv.Event) tea.Cmd
-Update(uv.Event) (M, tea.Cmd)
-```
+do expose `View() string` and one of these update shapes: `Update(tea.Msg) tea.Cmd` or `Update(tea.Msg) (M, tea.Cmd)`.
 
 This matches the style used by component-heavy TUIs: create the component with
 mock data, drive it through key messages, wait for visible output, then assert
 dimensions or snapshots.
 
+Example (`MyTable` is your component type; `*MyTable` matches what you pass to `NewComponentHarness`):
+
 ```go
-import (
-	"fmt"
-	"strings"
-	"testing"
-	"time"
-
-	tea "charm.land/bubbletea/v2"
-	uv "github.com/charmbracelet/ultraviolet"
-
-	"github.com/lrstanley/x/charm/steep"
-	"github.com/lrstanley/x/charm/steep/snapshot"
-)
-
-type inventoryRow struct {
-	ID   string
-	Name string
-	Type string
-}
-
-type inventoryTable struct {
-	width, height int
-	rows          []inventoryRow
-	filter        string
-	selected      int
-}
-
-func (m *inventoryTable) Update(msg uv.Event) tea.Cmd {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "down", "j":
-			m.moveDown()
-		case "up", "k":
-			m.moveUp()
-		}
-	}
-	return nil
-}
-
-func (m *inventoryTable) View() string {
-	if m.width == 0 || m.height == 0 {
-		return ""
-	}
-
-	rows := m.visibleRows()
-	var b strings.Builder
-	fmt.Fprintf(&b, "inventory %dx%d\n", m.width, m.height)
-	fmt.Fprintf(&b, "filter=%s\n", m.filter)
-	if len(rows) == 0 {
-		return b.String() + "no rows"
-	}
-	for i, row := range rows {
-		prefix := " "
-		if i == m.selected {
-			prefix = ">"
-		}
-		fmt.Fprintf(&b, "%s %-10s %s\n", prefix, row.Name, row.Type)
-	}
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
-func (m *inventoryTable) GetWidth() int {
-	w, _ := steep.Dimensions(m.View())
-	return w
-}
-
-func (m *inventoryTable) GetHeight() int {
-	_, h := steep.Dimensions(m.View())
-	return h
-}
-
-func (m *inventoryTable) visibleRows() []inventoryRow {
-	if m.filter == "" {
-		return m.rows
-	}
-
-	var out []inventoryRow
-	for _, row := range m.rows {
-		if strings.Contains(row.Name, m.filter) || strings.Contains(row.Type, m.filter) {
-			out = append(out, row)
-		}
-	}
-	return out
-}
-
-func (m *inventoryTable) moveDown() {
-	if m.selected < len(m.visibleRows())-1 {
-		m.selected++
-	}
-}
-
-func (m *inventoryTable) moveUp() {
-	if m.selected > 0 {
-		m.selected--
-	}
-}
-
 func TestInventoryTable(t *testing.T) {
-	table := &inventoryTable{}
+	table := &MyTable{}
 	h := steep.NewComponentHarness(t, table,
 		steep.WithWindowSize(32, 6),
 		steep.WithStripANSI(),
 	)
 
-	steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
-		m.rows = []inventoryRow{
-			{ID: "secret-app", Name: "secret/app", Type: "kv"},
-			{ID: "database", Name: "database", Type: "database"},
-			{ID: "token", Name: "token", Type: "auth"},
-		}
+	steep.Mutate(h, func(m *MyTable) *MyTable {
+		// seed rows, filters, etc.
 		return m
 	})
 	h.WaitStrings([]string{"secret/app", "database", "token"})
@@ -270,126 +72,146 @@ func TestInventoryTable(t *testing.T) {
 		steep.WithCheckInterval(5*time.Millisecond),
 	)
 
-	steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
+	steep.Mutate(h, func(m *MyTable) *MyTable {
 		m.filter = "secret"
 		m.selected = 0
 		return m
 	})
 	h.WaitString("secret/app")
+	w, ht := steep.Dimensions(h.View())
 	h.WaitSettleView().
 		AssertNotString("database").
-		AssertDimensions(table.GetWidth(), table.GetHeight()).
+		AssertDimensions(w, ht).
 		RequireViewSnapshot(snapshot.WithSuffix("inventory"))
 }
 ```
 
-## Model view vs terminal output
+## Harness view and terminal layout
 
-- **`Harness.View`** returns the latest **model view string** (`tea.View.Content` as observed by the harness). Waits and layout helpers that talk about “the view” use this unless noted otherwise.
-- **`Harness.TerminalView`** returns the **emulator screen** from `vt` (what a user would see after escape sequences), useful when exercising alt-screen, colors, or cursor behavior.
-- After shutdown, **`FinalView`** returns the last model view string; **`FinalOutput`** returns the last rendered terminal buffer; **`FinalModel`** returns the last root `tea.Model`.
+- **`Harness.View`** returns the current **terminal screen** from the vt emulator (`vt.Render`). **`Wait*`**, **`Assert*`**, **`Require*`**, **`WaitSettle`** (view settlement), layout helpers that measure the **`View()` string** (`**Dimensions**`, **`AssertWidth`**, and related), and snapshot methods all sample this output. Package-level helpers work the same way when you pass your own **`Viewable`**.
+- **`Harness.Width`**, **`Harness.Height`**, and **`Harness.Dimensions`** report the **emulator window size** in cells (from **`WithWindowSize`** and **`Resize`**). That is separate from measuring the **text layout** of **`Harness.View()`** via **`Dimensions(string)`** or harness layout assertions.
+- After shutdown, **`FinalModel`** returns the last root **`tea.Model`**. Use **`QuitProgram`** (alternatively rely on test cleanup), then **`WaitFinished`**, before **`FinalModel`** if you need the final model.
 
 ## Terminal emulation
 
-The harness wires the program to a real `vt` emulator. Besides `Resize` (which should deliver `tea.WindowSizeMsg`), you can use:
+The harness runs a `tea.Program` wired to a real `vt` emulator. Besides `Resize` (which should deliver `tea.WindowSizeMsg`), you can use:
 
 - **`Focus`** / **`Blur`** — focus in/out when focus reporting is enabled.
 - **`Paste`** — paste text (bracketed paste when enabled).
-- **`Bounds`**, **`TerminalWidth`**, **`TerminalHeight`**, **`TerminalDimensions`**, **`IsAltScreen`** — query terminal state.
+- **`Bounds`**, **`Width`**, **`Height`**, **`Dimensions`**, **`IsAltScreen`** — query terminal state.
 - **`Scrollback`**, **`ScrollbackCount`**, **`SetScrollbackSize`**, **`ClearScrollback`** — scrollback inspection and limits.
-- **`ForegroundColor`**, **`BackgroundColor`**, **`CursorColor`**, and **`Set*Color`** / **`SetDefault*Color`** — read or override palette state on the emulator.
+- **`FgColor`**, **`BgColor`**, **`CursorColor`**, and **`SetFgColor`** / **`SetBgColor`** / **`SetCursorColor`** / **`SetDefault*Color`** — read or override palette state on the emulator.
 
 ## Common helpers
 
 - **`Type("text")`** sends one `tea.KeyPressMsg` per rune (`Key` carries both `Code` and `Text`).
-- **`Send(msg)`** sends any **`uv.Event`** (Bubble Tea messages, terminal-driven events, or your own test messages).
+- **`SendProgram(msg)`** sends any **`tea.Msg`** (Bubble Tea messages, terminal-driven events, or your own test messages).
 - **`WaitString`**, **`WaitStrings`**, **`WaitNotString`**, **`WaitNotStrings`** wait until the model view contains or omits substrings. **`WaitBytes`**, **`WaitNotBytes`**, **`WaitBytesFunc`**, and **`WaitStringFunc`** are the byte- and predicate-shaped variants (package-level and on **`Harness`**).
 - **`WaitMatch`** and **`WaitNotMatch`** wait until the view matches, or no longer matches, a regular expression (compiled with the standard `regexp` package and checked with `MatchString`). Invalid patterns fail the test when the helper runs. Use `^` and `$` in the pattern when the whole buffer must match, not a substring.
 - **`WaitSettleMessages`** waits until `Update` stops receiving messages for the configured settle timeout. Use **`WithSettleIgnoreMsgs`** with one value per type to ignore (for example `steep.WithSettleIgnoreMsgs(myTickMsg{})`) so periodic or background message types do not reset the quiet period.
 - **`WaitSettleView`** waits until repeated **`View()`** samples stop changing.
 - **`MessageHistory`** returns an iterator over all messages observed so far (excluding internal `Mutate` traffic). **`Messages(ctx)`** yields historical messages then streams live ones; **`LiveMessages(ctx)`** yields only messages that arrive after the call returns.
-- **`WaitMessage[T]`** waits until a message of concrete type **`T`** has been observed (history + live). **`WaitLiveMessage[T]`** waits only for a **new** message after the call. **`WaitMessageWhere`** / **`WaitLiveMessageWhere`** generalize that with a predicate on **`uv.Event`**.
+- **`WaitMessage[T]`** waits until a message of concrete type **`T`** has been observed (history + live). **`WaitLiveMessage[T]`** waits only for a **new** message after the call. **`WaitMessageWhere`** / **`WaitLiveMessageWhere`** generalize that with a predicate on **`tea.Msg`**.
 - **`AssertHasMessage[T]`** / **`RequireHasMessage[T]`** assert type presence in history.
 - **`FilterMessagesType[T]`**, **`FilterMessagesFunc[T]`**, and **`IgnoreMessagesReflect`** help narrow iterators when asserting on message streams.
 - **`WithStripANSI`** removes ANSI from the view before string/regex waits, substring assertions, layout checks, and (when set on the harness) snapshot comparisons.
-- **`Dimensions`**, **`AssertWidth`**, **`RequireWidth`**, **`AssertHeight`**, **`RequireHeight`**, **`AssertDimensions`**, and **`RequireDimensions`** use ANSI-aware display width (on the view with ANSI stripped when **`WithStripANSI`** is set). On a harness, **`ViewWidth`**, **`ViewHeight`**, and **`ViewDimensions`** measure the current model view.
+- **`Dimensions`**, **`AssertWidth`**, **`RequireWidth`**, **`AssertHeight`**, **`RequireHeight`**, **`AssertDimensions`**, and **`RequireDimensions`** use ANSI-aware display width (on the view string with ANSI stripped when **`WithStripANSI`** is set). On a harness, those helpers measure the current **`Harness.View()`** buffer. **`Harness.Width`**, **`Harness.Height`**, and **`Harness.Dimensions`** report the terminal size in cells from the emulator, not the string dimensions of **`View()`**.
 - **`AssertMatch`**, **`AssertNotMatch`**, **`RequireMatch`**, and **`RequireNotMatch`** check the current view against a regular expression the same way as **`WaitMatch`** / **`WaitNotMatch`**.
 - **`AssertString`** / **`RequireString`** (and **`AssertNotString`** / **`RequireNotString`**) check a single substring. Use **`AssertStrings`** / **`RequireStrings`** (and **`AssertNotStrings`** / **`RequireNotStrings`**) when the view must contain, or must omit, every string in a list (same idea as **`WaitStrings`** / **`WaitNotStrings`**).
 - **`Assert*`** helpers report errors and keep the test running. Use **`Require*`** helpers when the next step depends on the check passing and should stop immediately.
 
-Most helpers exist in both package-level and harness-level forms. Use the package-level helpers when you already have a simple value that implements **`View() string`** and do not need the Bubble Tea runtime:
+Most helpers exist in both package-level and harness-level forms. Use the package-level helpers when you already have a simple value that implements **`View() string`** and do not need a **`tea.Program`**:
 
 ```go
-steep.AssertString(t, model, "ready")
-steep.AssertDimensions(t, model, 80, 24)
+func TestReadyLayout(t *testing.T) {
+	// model exposes View() string
+	steep.AssertString(t, model.View, "ready")
+	steep.AssertDimensions(t, model.View, 80, 24)
+}
 ```
 
 Use the harness methods when the test needs runtime behavior, such as window size messages, commands, key input, observed messages, snapshots, terminal emulation, or final model state:
 
 ```go
-h := steep.NewComponentHarness(t, model)
-h.Type("j")
-h.WaitString("selected")
+func TestSelection(t *testing.T) {
+	// model / table: your component or root model
+	h := steep.NewComponentHarness(t, model)
+	h.Type("j")
+	h.WaitString("selected")
+}
 ```
 
-Options you pass to **`NewHarness`** or **`NewComponentHarness`** are kept on the **`Harness`** and merged with the options on each method that accepts **`...Option`** (for example **`Wait*`**, **`Assert*`**, **`Require*`**, **`Mutate`**, and **`WaitFinished`**). Harness-level options are applied first; options on a specific call are applied after and win for the same setting (a per-call **`WithTimeout(5*time.Second)`** overrides a default **`WithTimeout(2*time.Second)`** on the constructor for that call only). Use **`WithProgramOptions`** to append extra **`tea.ProgramOption`** values when constructing the test program (input, output, signals, and initial window size are still fixed by the harness). Snapshot methods still take **`snapshot.Option`** arguments separately; the harness’s **`WithStripANSI`** is mapped into the snapshot path when you use **`AssertViewSnapshot`** or **`RequireViewSnapshot`**, as before.
+Options you pass to **`NewHarness`** or **`NewComponentHarness`** are kept on the **`Harness`** and merged with the options on each method that accepts **`...Option`** (for example **`Wait*`**, **`Assert*`**, **`Require*`**, **`Mutate`**, and **`WaitFinished`**). Harness-level options are applied first; options on a specific call are applied after and win for the same setting (a per-call **`WithTimeout(5*time.Second)`** overrides a default **`WithTimeout(2*time.Second)`** on the constructor for that call only). Use **`WithProgramOptions`** to append extra **`tea.ProgramOption`** values when constructing the **`tea.Program`** (input, output, signals, and initial window size are still fixed by the harness). Snapshot methods still take **`snapshot.Option`** arguments separately; the harness’s **`WithStripANSI`** is mapped into the snapshot path when you use **`AssertViewSnapshot`** or **`RequireViewSnapshot`**, as before.
 
 ```go
-h := steep.NewHarness(t, model,
-	steep.WithTimeout(5*time.Second),
-	steep.WithStripANSI(),
-)
-h.WaitString("ok") // uses 5s timeout and strips ANSI
-h.WaitString("slow", steep.WithTimeout(30*time.Second)) // 30s, still strips ANSI
+func TestTimeouts(t *testing.T) {
+	// model := ...
+	h := steep.NewHarness(t, model,
+		steep.WithTimeout(5*time.Second),
+		steep.WithStripANSI(),
+	)
+	h.WaitString("ok")                                     // 5s timeout, strips ANSI
+	h.WaitString("slow", steep.WithTimeout(30*time.Second)) // 30s for this call only
+}
 ```
 
 Harness **`Wait*`** methods (except **`WaitFinished`**), assertion, snapshot, and **`Mutate`** methods return **`*Harness`**, so they can be chained:
 
 ```go
-h.WaitString("ready").
-	WaitSettleView().
-	AssertString("ready").
-	AssertNotString("loading").
-	AssertMatch("ready").
-	AssertNotMatch("(?i)error|panic").
-	RequireViewSnapshot(snapshot.WithStripANSI())
+func TestChained(t *testing.T) {
+	// h from NewHarness / NewComponentHarness
+	h.WaitString("ready").
+		WaitSettleView().
+		AssertString("ready").
+		AssertNotString("loading").
+		AssertMatch("ready").
+		AssertNotMatch("(?i)error|panic").
+		RequireViewSnapshot(snapshot.WithStripANSI())
+}
 ```
 
 When the model keeps scheduling ticks or other chatter after the interesting work finishes, pass sample values so those dynamic types are skipped for settlement:
 
 ```go
-h.WaitSettleMessages(
-	steep.WithSettleIgnoreMsgs(heartbeatTick{}),
-	steep.WithSettleTimeout(25*time.Millisecond),
-)
+func TestSettleIgnoringTick(t *testing.T) {
+	// h from NewHarness / NewComponentHarness
+	h.WaitSettleMessages(
+		steep.WithSettleIgnoreMsgs(myTickMsg{}),
+		steep.WithSettleTimeout(25*time.Millisecond),
+	)
+}
 ```
 
 To read the view after a content wait, use **`Harness.View`** (or the package-level **`WaitString`**, **`WaitMatch`** / **`WaitNotMatch`**, or **`WaitViewFunc`** helpers, which return the last sampled view that satisfied the wait):
 
 ```go
-h.WaitString("ready")
-if strings.Contains(h.View(), "warning") {
-	t.Fatal("unexpected warning")
+func TestInspectView(t *testing.T) {
+	// h from NewHarness / NewComponentHarness
+	h.WaitString("ready")
+	// e.g. fail if strings.Contains(h.View(), "warning")
 }
 ```
 
-Shutting down: call **`Quit`** when the test should end the program, then **`WaitFinished`** (also invoked from harness cleanup) before **`FinalView`** / **`FinalOutput`** / **`FinalModel`** if you need the terminal or model after exit.
+Shutting down: call **`QuitProgram`** when the test should end the program, then **`WaitFinished`** (also invoked from harness cleanup) before **`FinalModel`** if you need the model after exit.
 
 ## Mutating models
 
 Prefer to drive models through public behavior: send messages, type keys, or use commands that a user could actually trigger. **`Mutate`** is available for the cases where that would make a test noisy or impractical, such as seeding large component data sets, setting an internal filter, or moving a component into a state that has no public message.
 
-**`Mutate`** runs the change from inside the Bubble Tea **`Update`** loop, which keeps the harness state consistent, and returns **`\*Harness`** for chaining:
+**`Mutate`** runs the change from inside the `tea.Program`'s **`Update`** handling, which keeps the harness state consistent, and returns **`*Harness`** for chaining:
 
 ```go
-steep.Mutate(h, func(m *inventoryTable) *inventoryTable {
-	m.rows = rows
-	m.filter = "secret"
-	return m
-})
+func TestMutate(t *testing.T) {
+	// h := steep.NewHarness(t, model) or NewComponentHarness(...)
+	steep.Mutate(h, func(m *MyModel) *MyModel {
+		// m.rows = ...
+		m.filter = "secret"
+		return m
+	})
+}
 ```
 
-Use it sparingly. If the behavior can be tested by sending **`uv.Event`** values or typing keys, that usually gives a better test because it covers the same path a real program uses.
+Use it sparingly. If the behavior can be tested by sending **`tea.Msg`** values or typing keys, that usually gives a better test because it covers the same path a real `tea.Program` uses.
 
 ## Snapshots
 
@@ -398,39 +220,33 @@ Use it sparingly. If the behavior can be tested by sending **`uv.Event`** values
 `testdata`. Set `UPDATE_SNAPSHOTS=true` or pass `snapshot.WithUpdate(true)` to
 create or update snapshots.
 
+Package-only snapshot check (for harness snapshots, see below):
+
 ```go
-import (
-	"bytes"
-	"testing"
-
-	"github.com/lrstanley/x/charm/steep/snapshot"
-)
-
-func TestStatusView(t *testing.T) {
-	view := "\x1b[32mcluster=acme-corp\x1b[0m\nstatus=unsealed\ntoken=s.dev-token\n"
-
-	snapshot.AssertEqual(
-		t,
-		view, // Or yourModel.View()
+func TestSnapshotPlain(t *testing.T) {
+	// view := expected rendered output or golden string
+	snapshot.AssertEqual(t, view,
 		snapshot.WithSuffix("status"),
 		snapshot.WithStripANSI(),
-		snapshot.WithTransform(func(bts []byte) []byte {
-			return bytes.ReplaceAll(bts, []byte("s.dev-token"), []byte("<token>"))
-		}),
 	)
 }
 ```
+
+Use `snapshot.WithTransform` with `bytes.ReplaceAll` (or similar) when you need to normalize unstable substrings before comparison.
 
 Use `snapshot.RequireEqual` when a mismatch should stop the test immediately.
 For harnesses, use the convenience methods:
 
 ```go
-h.AssertViewSnapshot(snapshot.WithSuffix("ansi"))
-h.AssertViewSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
-h.RequireViewSnapshot(snapshot.WithSuffix("ansi"))
-h.RequireViewSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
-h.AssertViewSnapshotNoANSI(snapshot.WithSuffix("plain"))
-h.RequireViewSnapshotNoANSI(snapshot.WithSuffix("plain"))
+func TestHarnessSnapshots(t *testing.T) {
+	// h := steep.NewHarness(t, model) or NewComponentHarness(...)
+	h.AssertViewSnapshot(snapshot.WithSuffix("ansi"))
+	h.AssertViewSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
+	h.RequireViewSnapshot(snapshot.WithSuffix("ansi"))
+	h.RequireViewSnapshot(snapshot.WithStripANSI(), snapshot.WithSuffix("plain"))
+	h.AssertViewSnapshotNoANSI(snapshot.WithSuffix("plain"))
+	h.RequireViewSnapshotNoANSI(snapshot.WithSuffix("plain"))
+}
 ```
 
 Use `WithSuffix` when a test writes more than one snapshot or when a subtest

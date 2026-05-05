@@ -11,10 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// WaitFinished waits for the Bubble Tea program to finish.
+// WaitFinished waits for the [tea.Program] to finish.
 //
-// See also [Harness.FinalOutput], [Harness.FinalView], [Harness.FinalModel], and
-// [Harness.WaitSettleMessages].
+// See also [Harness.FinalModel] and [Harness.WaitSettleMessages].
 func (h *Harness) WaitFinished(opts ...Option) {
 	h.tb.Helper()
 
@@ -50,15 +49,15 @@ func (h *Harness) WaitFinished(opts ...Option) {
 	}
 }
 
-// WaitSettleView waits until the rendered view string has not changed for the
-// configured settle timeout. It polls this harness's [Harness.View] and compares
-// each result to the previous sample.
+// WaitSettle waits until the rendered view string from [Harness.View] has not
+// changed for the configured settle timeout. It polls this harness's
+// [Harness.View] and compares each result to the previous sample.
 //
-// See also [Harness.WaitSettleMessages], [WaitSettleView], [WithSettleTimeout],
+// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettleTimeout],
 // [WithCheckInterval], and [WithTimeout].
-func (h *Harness) WaitSettleView(opts ...Option) *Harness {
+func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	h.tb.Helper()
-	WaitSettleView(h.tb, h.View, h.mergedOpts(opts...)...)
+	WaitSettle(h.tb, h.View, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -376,7 +375,7 @@ func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness 
 // WaitSettleMessages waits until no messages have been observed for the
 // configured settle timeout.
 //
-// See also [WaitSettleMessages], [Harness.WaitSettleView], [WaitSettleView],
+// See also [WaitSettleMessages], [Harness.WaitSettle], [WaitSettle],
 // [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
 func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 	h.tb.Helper()

@@ -48,8 +48,8 @@ func TestMessagesOfType(t *testing.T) {
 
 func TestWaitMessageWhere(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &mutableViewModel{})
-	h.Send(appendMsg("first")).Send(appendMsg("second"))
+	h := NewComponentHarness(t, &mutableViewModel{}, WithWindowSize(80, 1))
+	h.SendProgram(appendMsg("first")).SendProgram(appendMsg("second"))
 
 	got := WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		m, ok := msg.(appendMsg)
@@ -169,7 +169,7 @@ func TestWaitViewFunc(t *testing.T) {
 
 func TestWaitString_WaitBytes_package(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &mutableViewModel{text: "hi"})
+	h := NewComponentHarness(t, &mutableViewModel{text: "hi"}, WithWindowSize(80, 1))
 	WaitString(t, h.View, "text=hi", WithTimeout(2*time.Second))
 	out := WaitBytes(t, h.View, []byte("text=hi"), WithTimeout(2*time.Second))
 	if !bytes.Contains(out, []byte("text=hi")) {
@@ -187,30 +187,30 @@ func TestWaitString_withStripANSI(t *testing.T) {
 
 func TestWaitStrings(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &mutableViewModel{text: "ab"})
+	h := NewComponentHarness(t, &mutableViewModel{text: "ab"}, WithWindowSize(80, 1))
 	WaitStrings(t, h.View, []string{"text=", "ab"}, WithTimeout(2*time.Second))
 }
 
 func TestWaitNotString_WaitNotBytes(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &swapViewModel{})
-	h.Send(appendMsg("flip")).
+	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
+	h.SendProgram(appendMsg("flip")).
 		WaitNotString("BAD", WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond)).
 		WaitNotBytes([]byte("BAD"), WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
 }
 
 func TestWaitNotStrings(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &swapViewModel{})
-	h.Send(appendMsg("flip")).
+	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
+	h.SendProgram(appendMsg("flip")).
 		WaitNotStrings([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
 }
 
 func TestWaitMatch_WaitNotMatch_package(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &swapViewModel{})
+	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
 	h.WaitMatch(`BAD`, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond)).
-		Send(appendMsg("flip")).
+		SendProgram(appendMsg("flip")).
 		WaitNotMatch(`BAD`, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
 }
 
@@ -234,9 +234,9 @@ func TestWaitMatch_invalidRegexp(t *testing.T) {
 
 func TestWaitSettleView_package(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &viewSettleStableModel{})
+	h := NewComponentHarness(t, &viewSettleStableModel{}, WithWindowSize(80, 1))
 	WaitString(t, h.View, "stable")
-	WaitSettleView(t, h.View,
+	WaitSettle(t, h.View,
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(2*time.Second),
 		WithCheckInterval(5*time.Millisecond),
@@ -353,8 +353,8 @@ func TestPackageRequireString_andAssertHelpers_ok(t *testing.T) {
 
 func TestAssertHasMessage_found_andMissing(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &mutableViewModel{})
-	h.Send(appendMsg("z"))
+	h := NewComponentHarness(t, &mutableViewModel{}, WithWindowSize(80, 1))
+	h.SendProgram(appendMsg("z"))
 	if got := WaitMessage[appendMsg](t, h); got != "z" {
 		t.Fatalf("message = %q, want z", got)
 	}
@@ -374,8 +374,8 @@ func TestAssertHasMessage_found_andMissing(t *testing.T) {
 
 func TestWaitMessage_generic(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &mutableViewModel{})
-	h.Send(appendMsg("solo"))
+	h := NewComponentHarness(t, &mutableViewModel{}, WithWindowSize(80, 1))
+	h.SendProgram(appendMsg("solo"))
 	if got := WaitMessage[appendMsg](t, h); got != "solo" {
 		t.Fatalf("message = %q", got)
 	}
@@ -383,7 +383,7 @@ func TestWaitMessage_generic(t *testing.T) {
 
 func TestWaitNewMessageWhere(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &delayedPingModel{})
+	h := NewComponentHarness(t, &delayedPingModel{}, WithWindowSize(80, 1))
 	got := WaitLiveMessageWhere(t, h, func(msg uv.Event) bool {
 		m, ok := msg.(appendMsg)
 		return ok && m == "ping"
@@ -396,7 +396,7 @@ func TestWaitNewMessageWhere(t *testing.T) {
 
 func TestWaitNewMessage_generic(t *testing.T) {
 	t.Parallel()
-	h := NewComponentHarness(t, &delayedPingModel{})
+	h := NewComponentHarness(t, &delayedPingModel{}, WithWindowSize(80, 1))
 	if got := WaitLiveMessage[appendMsg](t, h); got != "ping" {
 		t.Fatalf("message = %q", got)
 	}
