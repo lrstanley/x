@@ -2,6 +2,7 @@ module github.com/lrstanley/x/charm/steep
 
 go 1.26.0
 
+// TODO: https://github.com/charmbracelet/bubbletea/pull/1691
 replace charm.land/bubbletea/v2 => github.com/lrstanley/bubbletea/v2 v2.0.0-20260504235939-04ceac426d4c
 
 require (
