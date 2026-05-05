@@ -101,6 +101,15 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	// TODO: have to add some extra protections for now due to upstream deadlock
 	// scenarios, due to [vt.Emulator] using an [io.Pipe].
 	tb.Cleanup(func() {
+		// On graceful Quit(), Bubble Tea's shutdown waits for the input read
+		// loop to finish ([Program.shutdown] → waitForReadLoop). Reads come
+		// from emulator.Read, fed by pumpVTToTea copying vt.Read. vt.Read blocks
+		// until vt's input pipe closes. That pipe is wired from closeInput().
+		// If closeInput ran only inside emulator.Close() after Run() returned,
+		// we'd deadlock: shutdown waits read loop → read waits pump → pump waits
+		// vt.Read → vt input still open → Run never completes.
+		h.emulator.closeInput()
+
 		quitDone := make(chan struct{})
 		go func() {
 			h.program.Quit()
@@ -135,7 +144,7 @@ func (h *Harness) waitStarted(cfg options) {
 		h.resultMu.Lock()
 		h.result = &result
 		h.resultMu.Unlock()
-		h.emulator.closeInput()
+		_ = h.emulator.Close()
 		h.tb.Fatalf("bubble tea program finished before receiving a startup message")
 	case <-timer.C:
 		h.program.Kill()

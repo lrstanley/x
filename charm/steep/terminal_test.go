@@ -70,6 +70,7 @@ func waitMessagesContainWindowSize(tb testing.TB, h *Harness, wantW, wantH int) 
 }
 
 func TestHarness_terminalInitialWindowSizeMsg(t *testing.T) {
+	t.Parallel()
 	wantW, wantH := 11, 7
 	h := newTerminalHarness(t, wantW, wantH)
 
@@ -80,6 +81,7 @@ func TestHarness_terminalInitialWindowSizeMsg(t *testing.T) {
 }
 
 func TestHarness_terminalDimensionsResizeInBandMsgs(t *testing.T) {
+	t.Parallel()
 	const wantW, wantH = 11, 7
 	h := newTerminalHarness(t, wantW, wantH)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
@@ -108,6 +110,7 @@ func TestHarness_terminalDimensionsResizeInBandMsgs(t *testing.T) {
 }
 
 func TestHarness_terminalColors(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 5, 3)
 
 	fg := color.NRGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}
@@ -150,6 +153,7 @@ func TestHarness_terminalColors(t *testing.T) {
 }
 
 func TestHarness_terminalCursorPosition(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 8, 4)
 	pt := h.TerminalCursorPosition()
 	if pt.X != 0 || pt.Y != 0 {
@@ -158,6 +162,7 @@ func TestHarness_terminalCursorPosition(t *testing.T) {
 }
 
 func TestHarness_terminalScrollbackCopyAndCount(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 5, 4)
 	h.emulator.mu.Lock()
 	_, _ = h.emulator.vt.WriteString("start\n")
@@ -199,6 +204,7 @@ func TestHarness_terminalScrollbackCopyAndCount(t *testing.T) {
 }
 
 func TestHarness_terminalSetScrollbackSize(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 4, 3)
 	h.SetTerminalScrollbackSize(3)
 	h.emulator.mu.Lock()
@@ -212,6 +218,7 @@ func TestHarness_terminalSetScrollbackSize(t *testing.T) {
 }
 
 func TestHarness_terminalAltScreen(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 6, 3)
 	if h.IsAltScreen() {
 		t.Fatal("expected main screen initially")
@@ -231,6 +238,7 @@ func TestHarness_terminalAltScreen(t *testing.T) {
 }
 
 func TestHarness_terminalFocusBlurMsgs(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 4, 2)
 	h.emulator.mu.Lock()
 	_, _ = h.emulator.vt.WriteString(ansi.SetModeFocusEvent)
@@ -244,6 +252,7 @@ func TestHarness_terminalFocusBlurMsgs(t *testing.T) {
 }
 
 func TestHarness_terminalPasteMsg(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 4, 2)
 	h.emulator.mu.Lock()
 	_, _ = h.emulator.vt.WriteString(ansi.SetModeBracketedPaste)
@@ -263,6 +272,7 @@ func TestHarness_terminalPasteMsg(t *testing.T) {
 }
 
 func TestHarness_terminalChainedAPI(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 6, 2)
 	got := h.TerminalFocus().TerminalBlur().TerminalResize(5, 4)
 	if got != h {
@@ -272,6 +282,7 @@ func TestHarness_terminalChainedAPI(t *testing.T) {
 }
 
 func TestHarness_terminalAsViewableUsesRenderPath(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 8, 4)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		m, ok := msg.(tea.WindowSizeMsg)
@@ -284,6 +295,7 @@ func TestHarness_terminalAsViewableUsesRenderPath(t *testing.T) {
 }
 
 func TestHarness_TerminalType_returnsHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	if ptr := h.TerminalType(""); ptr != h {
 		t.Fatalf("TerminalType should return the same harness, got %p want %p", ptr, h)
@@ -291,11 +303,13 @@ func TestHarness_TerminalType_returnsHarnessForChaining(t *testing.T) {
 }
 
 func TestHarness_TerminalType_deliversPrintableRunesThroughEmulator(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	h.TerminalType("ab ").WaitString("text=ab ").RequireString("text=ab ")
 }
 
 func TestHarness_TerminalKey_returnsHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	if ptr := h.TerminalKey("z"); ptr != h {
 		t.Fatalf("TerminalKey should return the same harness, got %p want %p", ptr, h)
@@ -303,11 +317,13 @@ func TestHarness_TerminalKey_returnsHarnessForChaining(t *testing.T) {
 }
 
 func TestHarness_TerminalKey_accumulatesPrintableText(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	h.TerminalKey("a").TerminalKey("b").TerminalKey("space").WaitString("text=ab ").RequireString("text=ab ")
 }
 
 func TestHarness_TerminalKey_mapsNamedKeysThroughEmulator(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		key      string
@@ -325,6 +341,7 @@ func TestHarness_TerminalKey_mapsNamedKeysThroughEmulator(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			h := NewHarness(t, rootTestModel{})
 			h.TerminalKey(tt.key)
 			got := WaitMessageWhere(t, h, func(msg uv.Event) bool {
@@ -386,6 +403,7 @@ func collectMouseTail(tb testing.TB, h *Harness, nBefore int) []mouseStep {
 }
 
 func TestHarness_TerminalMouse_deliversClick(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 14, 5)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)
@@ -405,6 +423,7 @@ func TestHarness_TerminalMouse_deliversClick(t *testing.T) {
 }
 
 func TestHarness_TerminalMouseClick_deliversPressAndRelease(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 12, 4)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)
@@ -432,6 +451,7 @@ func TestHarness_TerminalMouseClick_deliversPressAndRelease(t *testing.T) {
 }
 
 func TestHarness_TerminalLeftMiddleRightClick_buttons(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		fn   func(*Harness, int, int) *Harness
@@ -443,6 +463,7 @@ func TestHarness_TerminalLeftMiddleRightClick_buttons(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			h := newTerminalHarness(t, 10, 5)
 			WaitMessageWhere(t, h, func(msg uv.Event) bool {
 				_, ok := msg.(tea.WindowSizeMsg)
@@ -463,6 +484,7 @@ func TestHarness_TerminalLeftMiddleRightClick_buttons(t *testing.T) {
 }
 
 func TestHarness_TerminalMouseDrag_sequence(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 16, 6)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)
@@ -493,6 +515,7 @@ func TestHarness_TerminalMouseDrag_sequence(t *testing.T) {
 }
 
 func TestHarness_TerminalLeftDrag_equivalentToMouseDragLeft(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 12, 4)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)
@@ -521,6 +544,7 @@ func TestHarness_TerminalLeftDrag_equivalentToMouseDragLeft(t *testing.T) {
 }
 
 func TestHarness_TerminalMouseDrag_sameCellIsClickAndRelease(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 8, 4)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)
@@ -542,6 +566,7 @@ func TestHarness_TerminalMouseDrag_sameCellIsClickAndRelease(t *testing.T) {
 }
 
 func TestHarness_TerminalMouse_ignoredWithoutMouseModes(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 8, 4)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)
@@ -560,6 +585,7 @@ func TestHarness_TerminalMouse_ignoredWithoutMouseModes(t *testing.T) {
 }
 
 func TestHarness_TerminalMouse_helpersReturnHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := newTerminalHarness(t, 10, 4)
 	WaitMessageWhere(t, h, func(msg uv.Event) bool {
 		_, ok := msg.(tea.WindowSizeMsg)

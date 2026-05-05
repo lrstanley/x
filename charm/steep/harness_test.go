@@ -47,6 +47,7 @@ func (m rootTestModel) View() tea.View {
 }
 
 func TestHarness(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(12, 3))
 
 	h.WaitString("size=12x3").
@@ -80,6 +81,7 @@ func TestHarness(t *testing.T) {
 }
 
 func TestHarnessMutateRootModel(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{text: "start"})
 
 	Mutate(h, func(m rootTestModel) rootTestModel {
@@ -97,6 +99,7 @@ func TestHarnessMutateRootModel(t *testing.T) {
 }
 
 func TestHarness_Send_returnsHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	if ptr := h.Send(setTextMsg("x")); ptr != h {
 		t.Fatalf("Send should return the same harness, got %p want %p", ptr, h)
@@ -104,6 +107,7 @@ func TestHarness_Send_returnsHarnessForChaining(t *testing.T) {
 }
 
 func TestHarness_Type_returnsHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	if ptr := h.Type(""); ptr != h {
 		t.Fatalf("Type should return the same harness, got %p want %p", ptr, h)
@@ -111,6 +115,7 @@ func TestHarness_Type_returnsHarnessForChaining(t *testing.T) {
 }
 
 func TestHarness_Quit_returnsHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	if ptr := h.Quit(); ptr != h {
 		t.Fatalf("Quit should return the same harness, got %p want %p", ptr, h)
@@ -119,6 +124,7 @@ func TestHarness_Quit_returnsHarnessForChaining(t *testing.T) {
 }
 
 func TestHarness_Key_returnsHarnessForChaining(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	if ptr := h.Key("z"); ptr != h {
 		t.Fatalf("Key should return the same harness, got %p want %p", ptr, h)
@@ -126,11 +132,13 @@ func TestHarness_Key_returnsHarnessForChaining(t *testing.T) {
 }
 
 func TestHarness_Key_accumulatesPrintableText(t *testing.T) {
+	t.Parallel()
 	h := NewHarness(t, rootTestModel{})
 	h.Key("a").Key("b").Key(" ").WaitString("text=ab ").RequireString("text=ab ")
 }
 
 func TestHarness_Key_mapsNamedKeys(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		key      string
@@ -161,6 +169,7 @@ func TestHarness_Key_mapsNamedKeys(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			h := NewHarness(t, rootTestModel{})
 			h.Key(tt.key)
 			got := WaitMessageWhere(t, h, func(msg uv.Event) bool {
@@ -188,6 +197,7 @@ func TestHarness_Key_mapsNamedKeys(t *testing.T) {
 }
 
 func TestHarness_Key_fallbackMultiCharacterLiteralText(t *testing.T) {
+	t.Parallel()
 	const arbitrary = "custom-key-token"
 	h := NewHarness(t, rootTestModel{})
 	h.Key(arbitrary)

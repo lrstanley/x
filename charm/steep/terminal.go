@@ -5,6 +5,8 @@
 package steep
 
 import (
+	"bufio"
+	"errors"
 	"image/color"
 	"io"
 	"slices"
@@ -13,6 +15,8 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 )
+
+const emuIOBufferSize = 4096
 
 var (
 	_ io.Reader = (*emulator)(nil)      // [tea.WithInput]
@@ -23,34 +27,116 @@ var (
 type emulator struct {
 	mu             sync.RWMutex
 	vt             *vt.Emulator
-	inputCloseOnce sync.Once
-	focused        bool
+	inputCloseOnce sync.Once // closes the vt input pipe at most once (unblocks Bubble Tea shutdown)
+	focused        bool      // last known focus state for TerminalFocus / TerminalBlur
+
+	shutdownOnce sync.Once      // runs Close teardown once
+	wg           sync.WaitGroup // pumpTeaToVT and pumpVTToTea
+	outMu        sync.Mutex     // serializes Write and Flush on teaOut
+	teaIn        *bufio.Reader  // [tea.Program] reads emulator->program bytes here
+	teaOut       *bufio.Writer  // [tea.Program] render output; flushed to vt via toVTW
+	toVTW        *io.PipeWriter // writer end read by pumpTeaToVT into vt.Write
+	teaPipeR     *io.PipeReader // reader end closed on shutdown to unblock pumpVTToTea if the pipe fills
 }
 
 func newEmulator(width, height int) *emulator {
+	toVTR, toVTW := io.Pipe()
+	fromVTR, fromVTW := io.Pipe()
+
 	emu := &emulator{
-		vt:      vt.NewEmulator(width, height),
-		focused: true,
+		vt:       vt.NewEmulator(width, height),
+		focused:  true,
+		teaIn:    bufio.NewReaderSize(fromVTR, emuIOBufferSize),
+		teaOut:   bufio.NewWriterSize(toVTW, emuIOBufferSize),
+		toVTW:    toVTW,
+		teaPipeR: fromVTR,
 	}
 
-	go func() {
-		emu.mu.Lock()
-		emu.vt.Resize(width, height)
-		emu.vt.Focus()
-		emu.mu.Unlock()
-	}()
+	emu.wg.Add(2)
+	go emu.pumpTeaToVT(toVTR)
+	go emu.pumpVTToTea(fromVTW)
+
+	emu.mu.Lock()
+	emu.vt.Resize(width, height)
+	emu.vt.Focus()
+	emu.mu.Unlock()
 
 	return emu
 }
 
+// pumpTeaToVT copies [teaOutput.Read] to the vt [io.WriteCloser]. Workaround due to
+// the blocking nature of [teaOutput.Read] and [vt.Write] calls.
+func (e *emulator) pumpTeaToVT(teaOutput *io.PipeReader) {
+	defer e.wg.Done()
+	buf := make([]byte, emuIOBufferSize)
+	for {
+		n, err := teaOutput.Read(buf)
+		if n > 0 {
+			e.mu.Lock()
+			_, werr := e.vt.Write(buf[:n])
+			e.mu.Unlock()
+			if werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+				_ = err
+			}
+			return
+		}
+	}
+}
+
+// pumpVTToTea copies [vt.Read] to the dst [io.WriteCloser]. Workaround due to
+// the blocking nature of [vt.Read] and [vt.Write] calls.
+func (e *emulator) pumpVTToTea(dst io.WriteCloser) {
+	defer e.wg.Done()
+	defer dst.Close()
+
+	buf := make([]byte, emuIOBufferSize)
+	_, err := io.CopyBuffer(dst, e.vt, buf)
+	if err != nil && !errors.Is(err, io.ErrClosedPipe) {
+		_ = err
+	}
+}
+
+// Close stops the I/O pumps, closes the vt input pipe, and waits for pump
+// goroutines to exit. It is safe to call more than once.
+func (e *emulator) Close() error {
+	e.shutdownOnce.Do(func() {
+		e.outMu.Lock()
+		_ = e.teaOut.Flush()
+		e.outMu.Unlock()
+		_ = e.toVTW.Close()
+
+		e.closeInput()
+
+		// If the program is not reading terminal input, the vt->tea pipe can fill
+		// and block pumpVTToTea on Write; closing the reader end unblocks shutdown.
+		if e.teaPipeR != nil {
+			_ = e.teaPipeR.Close()
+		}
+
+		e.wg.Wait()
+	})
+	return nil
+}
+
 func (e *emulator) Read(p []byte) (n int, err error) {
-	return e.vt.Read(p)
+	return e.teaIn.Read(p)
 }
 
 func (e *emulator) Write(p []byte) (n int, err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.vt.Write(p)
+	e.outMu.Lock()
+	defer e.outMu.Unlock()
+
+	n, err = e.teaOut.Write(p)
+	if err != nil {
+		return n, err
+	}
+	err = e.teaOut.Flush()
+	return n, err
 }
 
 func (e *emulator) View() string {
@@ -59,6 +145,8 @@ func (e *emulator) View() string {
 	return e.vt.Render()
 }
 
+// closeInput closes the vt input pipe. Workaround to ensure appropriate draining
+// of [vt.Read] calls by [tea.Program].
 func (e *emulator) closeInput() {
 	e.inputCloseOnce.Do(func() {
 		switch input := e.vt.InputPipe().(type) {

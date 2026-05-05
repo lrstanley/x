@@ -22,7 +22,7 @@ func (h *Harness) WaitFinished(opts ...Option) {
 	h.resultMu.RLock()
 	if result := h.result; result != nil {
 		h.resultMu.RUnlock()
-		h.emulator.closeInput()
+		_ = h.emulator.Close()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
 			h.tb.Fatalf("bubble tea program failed: %v", result.err)
 		}
@@ -38,7 +38,7 @@ func (h *Harness) WaitFinished(opts ...Option) {
 		h.resultMu.Lock()
 		h.result = &result
 		h.resultMu.Unlock()
-		h.emulator.closeInput()
+		_ = h.emulator.Close()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
 			h.tb.Fatalf("bubble tea program failed: %v", result.err)
 		}

@@ -47,6 +47,7 @@ func TestMessagesOfType(t *testing.T) {
 }
 
 func TestWaitMessageWhere(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{})
 	h.Send(appendMsg("first")).Send(appendMsg("second"))
 
@@ -167,6 +168,7 @@ func TestWaitViewFunc(t *testing.T) {
 }
 
 func TestWaitString_WaitBytes_package(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "hi"})
 	WaitString(t, h.View, "text=hi", WithTimeout(2*time.Second))
 	out := WaitBytes(t, h.View, []byte("text=hi"), WithTimeout(2*time.Second))
@@ -184,11 +186,13 @@ func TestWaitString_withStripANSI(t *testing.T) {
 }
 
 func TestWaitStrings(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "ab"})
 	WaitStrings(t, h.View, []string{"text=", "ab"}, WithTimeout(2*time.Second))
 }
 
 func TestWaitNotString_WaitNotBytes(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{})
 	h.Send(appendMsg("flip")).
 		WaitNotString("BAD", WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond)).
@@ -196,12 +200,14 @@ func TestWaitNotString_WaitNotBytes(t *testing.T) {
 }
 
 func TestWaitNotStrings(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{})
 	h.Send(appendMsg("flip")).
 		WaitNotStrings([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
 }
 
 func TestWaitMatch_WaitNotMatch_package(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{})
 	h.WaitMatch(`BAD`, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond)).
 		Send(appendMsg("flip")).
@@ -209,6 +215,7 @@ func TestWaitMatch_WaitNotMatch_package(t *testing.T) {
 }
 
 func TestWaitMatch_invalidRegexp(t *testing.T) {
+	t.Parallel()
 	tb := &captureFatalTB{TB: t}
 	defer func() {
 		r := recover()
@@ -226,6 +233,7 @@ func TestWaitMatch_invalidRegexp(t *testing.T) {
 }
 
 func TestWaitSettleView_package(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &viewSettleStableModel{})
 	WaitString(t, h.View, "stable")
 	WaitSettleView(t, h.View,
@@ -344,6 +352,7 @@ func TestPackageRequireString_andAssertHelpers_ok(t *testing.T) {
 }
 
 func TestAssertHasMessage_found_andMissing(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{})
 	h.Send(appendMsg("z"))
 	if got := WaitMessage[appendMsg](t, h); got != "z" {
@@ -364,6 +373,7 @@ func TestAssertHasMessage_found_andMissing(t *testing.T) {
 }
 
 func TestWaitMessage_generic(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{})
 	h.Send(appendMsg("solo"))
 	if got := WaitMessage[appendMsg](t, h); got != "solo" {
@@ -372,6 +382,7 @@ func TestWaitMessage_generic(t *testing.T) {
 }
 
 func TestWaitNewMessageWhere(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &delayedPingModel{})
 	got := WaitLiveMessageWhere(t, h, func(msg uv.Event) bool {
 		m, ok := msg.(appendMsg)
@@ -384,6 +395,7 @@ func TestWaitNewMessageWhere(t *testing.T) {
 }
 
 func TestWaitNewMessage_generic(t *testing.T) {
+	t.Parallel()
 	h := NewComponentHarness(t, &delayedPingModel{})
 	if got := WaitLiveMessage[appendMsg](t, h); got != "ping" {
 		t.Fatalf("message = %q", got)
