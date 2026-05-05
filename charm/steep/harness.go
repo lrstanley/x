@@ -152,11 +152,8 @@ func (h *Harness) waitStarted(cfg options) {
 // This effectively emulates a component as a full [tea.Program].
 func NewComponentHarness[M any](tb testing.TB, model M, opts ...Option) *Harness {
 	tb.Helper()
-
 	m := &componentWrapper[M]{tb: tb, model: model}
-
 	m.validate()
-
 	return NewHarness(tb, m, opts...)
 }
 

@@ -21,9 +21,7 @@ import (
 	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
-type Viewable interface {
-	View() string
-}
+type Viewable func() string
 
 // WaitViewFunc waits until condition returns true for the latest view output.
 //
@@ -31,7 +29,7 @@ type Viewable interface {
 // [WaitMatch], and [WaitStrings].
 func WaitViewFunc[T ~string | ~[]byte](
 	tb testing.TB,
-	model Viewable,
+	view Viewable,
 	condition func(view T) bool,
 	opts ...Option,
 ) T {
@@ -44,7 +42,7 @@ func WaitViewFunc[T ~string | ~[]byte](
 	defer timer.Stop()
 
 	for {
-		raw := model.View()
+		raw := view()
 		if cfg.stripANSI {
 			raw = xansi.StripANSI(raw)
 		}
@@ -176,7 +174,7 @@ func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option)
 //
 // See also [Harness.WaitSettleView], [Harness.WaitSettleMessages],
 // [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
-func WaitSettleView(tb testing.TB, model Viewable, opts ...Option) {
+func WaitSettleView(tb testing.TB, view Viewable, opts ...Option) {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
@@ -185,14 +183,14 @@ func WaitSettleView(tb testing.TB, model Viewable, opts ...Option) {
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
-	prev := model.View()
+	prev := view()
 	if cfg.stripANSI {
 		prev = xansi.StripANSI(prev)
 	}
 	lastChange := time.Now()
 
 	for {
-		v := model.View()
+		v := view()
 		if cfg.stripANSI {
 			v = xansi.StripANSI(v)
 		}
@@ -232,11 +230,11 @@ func WaitSettleView(tb testing.TB, model Viewable, opts ...Option) {
 //
 // See also [Harness.AssertString], [AssertStrings], [AssertNotString], and
 // [WaitString].
-func AssertString(tb testing.TB, model Viewable, content string, opts ...Option) bool {
+func AssertString(tb testing.TB, view Viewable, content string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -250,10 +248,10 @@ func AssertString(tb testing.TB, model Viewable, content string, opts ...Option)
 // RequireString fails the test immediately unless content appears in output.
 //
 // See also [Harness.RequireString], [AssertString], and [RequireStrings].
-func RequireString(tb testing.TB, model Viewable, content string, opts ...Option) {
+func RequireString(tb testing.TB, view Viewable, content string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertString(tb, model, content, opts...) {
+	if !AssertString(tb, view, content, opts...) {
 		tb.FailNow()
 	}
 }
@@ -264,11 +262,11 @@ func RequireString(tb testing.TB, model Viewable, content string, opts ...Option
 //
 // See also [Harness.AssertStrings], [AssertString], [RequireStrings], and
 // [WaitStrings].
-func AssertStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) bool {
+func AssertStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -286,10 +284,10 @@ func AssertStrings(tb testing.TB, model Viewable, contents []string, opts ...Opt
 // contents appears in output.
 //
 // See also [Harness.RequireStrings], [AssertStrings], and [RequireString].
-func RequireStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) {
+func RequireStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertStrings(tb, model, contents, opts...) {
+	if !AssertStrings(tb, view, contents, opts...) {
 		tb.FailNow()
 	}
 }
@@ -299,11 +297,11 @@ func RequireStrings(tb testing.TB, model Viewable, contents []string, opts ...Op
 //
 // See also [Harness.AssertNotString], [AssertString], [AssertNotStrings], and
 // [WaitNotString].
-func AssertNotString(tb testing.TB, model Viewable, content string, opts ...Option) bool {
+func AssertNotString(tb testing.TB, view Viewable, content string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -318,10 +316,10 @@ func AssertNotString(tb testing.TB, model Viewable, content string, opts ...Opti
 //
 // See also [Harness.RequireNotString], [AssertNotString], [RequireString],
 // [AssertNotStrings], and [RequireNotStrings].
-func RequireNotString(tb testing.TB, model Viewable, content string, opts ...Option) {
+func RequireNotString(tb testing.TB, view Viewable, content string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertNotString(tb, model, content, opts...) {
+	if !AssertNotString(tb, view, content, opts...) {
 		tb.FailNow()
 	}
 }
@@ -332,11 +330,11 @@ func RequireNotString(tb testing.TB, model Viewable, content string, opts ...Opt
 //
 // See also [Harness.AssertNotStrings], [AssertStrings], [AssertNotString],
 // [WaitStrings], and [WaitNotStrings].
-func AssertNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) bool {
+func AssertNotStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -355,10 +353,10 @@ func AssertNotStrings(tb testing.TB, model Viewable, contents []string, opts ...
 //
 // See also [Harness.RequireNotStrings], [AssertNotStrings], [RequireStrings],
 // and [RequireNotString].
-func RequireNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) {
+func RequireNotStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertNotStrings(tb, model, contents, opts...) {
+	if !AssertNotStrings(tb, view, contents, opts...) {
 		tb.FailNow()
 	}
 }
@@ -369,14 +367,14 @@ func RequireNotStrings(tb testing.TB, model Viewable, contents []string, opts ..
 // It returns whether the output matched and allows the test to continue.
 //
 // See also [Harness.AssertMatch], [WaitMatch], [AssertNotMatch], and [RequireMatch].
-func AssertMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) bool {
+func AssertMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -391,10 +389,10 @@ func AssertMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) 
 // expression pattern.
 //
 // See also [Harness.RequireMatch], [AssertMatch], [RequireNotMatch], and [WaitMatch].
-func RequireMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) {
+func RequireMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertMatch(tb, model, pattern, opts...) {
+	if !AssertMatch(tb, view, pattern, opts...) {
 		tb.FailNow()
 	}
 }
@@ -406,14 +404,14 @@ func RequireMatch(tb testing.TB, model Viewable, pattern string, opts ...Option)
 //
 // See also [Harness.AssertNotMatch], [AssertMatch], [WaitNotMatch], and
 // [RequireNotMatch].
-func AssertNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) bool {
+func AssertNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -428,10 +426,10 @@ func AssertNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Optio
 // expression pattern.
 //
 // See also [Harness.RequireNotMatch], [AssertNotMatch], and [RequireMatch].
-func RequireNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) {
+func RequireNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) {
 	tb.Helper()
 
-	if !AssertNotMatch(tb, model, pattern, opts...) {
+	if !AssertNotMatch(tb, view, pattern, opts...) {
 		tb.FailNow()
 	}
 }
@@ -443,11 +441,11 @@ func RequireNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Opti
 //
 // See also [Harness.AssertHeight], [AssertDimensions], [AssertWidth], [Dimensions],
 // and [RequireHeight].
-func AssertHeight(tb testing.TB, model Viewable, n int, opts ...Option) bool {
+func AssertHeight(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -462,10 +460,10 @@ func AssertHeight(tb testing.TB, model Viewable, n int, opts ...Option) bool {
 // RequireHeight fails the test immediately unless output has n rows.
 //
 // See also [Harness.RequireHeight], [AssertHeight], and [RequireDimensions].
-func RequireHeight(tb testing.TB, model Viewable, n int, opts ...Option) {
+func RequireHeight(tb testing.TB, view Viewable, n int, opts ...Option) {
 	tb.Helper()
 
-	if !AssertHeight(tb, model, n, opts...) {
+	if !AssertHeight(tb, view, n, opts...) {
 		tb.FailNow()
 	}
 }
@@ -475,11 +473,11 @@ func RequireHeight(tb testing.TB, model Viewable, n int, opts ...Option) {
 //
 // See also [Harness.AssertWidth], [AssertDimensions], [Dimensions], [AssertHeight],
 // and [RequireWidth].
-func AssertWidth(tb testing.TB, model Viewable, n int, opts ...Option) bool {
+func AssertWidth(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -494,10 +492,10 @@ func AssertWidth(tb testing.TB, model Viewable, n int, opts ...Option) bool {
 // RequireWidth fails the test immediately unless output has n columns.
 //
 // See also [Harness.RequireWidth], [AssertWidth], and [RequireDimensions].
-func RequireWidth(tb testing.TB, model Viewable, n int, opts ...Option) {
+func RequireWidth(tb testing.TB, view Viewable, n int, opts ...Option) {
 	tb.Helper()
 
-	if !AssertWidth(tb, model, n, opts...) {
+	if !AssertWidth(tb, view, n, opts...) {
 		tb.FailNow()
 	}
 }
@@ -506,11 +504,11 @@ func RequireWidth(tb testing.TB, model Viewable, n int, opts ...Option) {
 //
 // See also [Harness.AssertDimensions], [AssertWidth], [AssertHeight], [Dimensions],
 // [RequireDimensions], and [WithStripANSI].
-func AssertDimensions(tb testing.TB, model Viewable, width, height int, opts ...Option) bool {
+func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	out := model.View()
+	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -526,10 +524,10 @@ func AssertDimensions(tb testing.TB, model Viewable, width, height int, opts ...
 //
 // See also [Harness.RequireDimensions], [AssertDimensions], [RequireHeight],
 // [RequireWidth], and [Harness.AssertViewSnapshot].
-func RequireDimensions(tb testing.TB, model Viewable, width, height int, opts ...Option) {
+func RequireDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) {
 	tb.Helper()
 
-	if !AssertDimensions(tb, model, width, height, opts...) {
+	if !AssertDimensions(tb, view, width, height, opts...) {
 		tb.FailNow()
 	}
 }

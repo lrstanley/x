@@ -11,6 +11,10 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
+type simpleViewer interface {
+	View() string
+}
+
 type simpleUpdater interface {
 	Update(uv.Event) tea.Cmd
 }
@@ -31,7 +35,7 @@ type componentWrapper[M any] struct {
 func (cw *componentWrapper[M]) validate() {
 	cw.tb.Helper()
 
-	if _, ok := any(cw.model).(Viewable); !ok {
+	if _, ok := any(cw.model).(simpleViewer); !ok {
 		cw.tb.Fatalf("model must implement View() string")
 	}
 	_, supportsCommandUpdate := any(cw.model).(simpleUpdater)
@@ -65,7 +69,7 @@ func (cw *componentWrapper[M]) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 
 func (cw *componentWrapper[M]) View() tea.View {
 	cw.tb.Helper()
-	viewer, ok := any(cw.model).(Viewable)
+	viewer, ok := any(cw.model).(simpleViewer)
 	if !ok {
 		panic("model must implement View() string")
 	}

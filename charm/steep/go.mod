@@ -2,6 +2,8 @@ module github.com/lrstanley/x/charm/steep
 
 go 1.26.0
 
+replace charm.land/bubbletea/v2 => github.com/lrstanley/bubbletea/v2 v2.0.0-20260504235939-04ceac426d4c
+
 require (
 	charm.land/bubbletea/v2 v2.0.6
 	github.com/aymanbagabas/go-udiff v0.4.1

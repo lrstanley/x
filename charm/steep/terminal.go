@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	_ io.Reader = (*emulator)(nil) // [tea.WithInput]
-	_ io.Writer = (*emulator)(nil) // [tea.WithOutput]
-	_ Viewable  = (*emulator)(nil) // [Viewable]
+	_ io.Reader = (*emulator)(nil)      // [tea.WithInput]
+	_ io.Writer = (*emulator)(nil)      // [tea.WithOutput]
+	_ Viewable  = (*emulator)(nil).View // [Viewable]
 )
 
 type emulator struct {
@@ -281,7 +281,7 @@ func (h *Harness) TerminalType(s string) *Harness {
 	h.tb.Helper()
 	for _, r := range s {
 		h.emulator.mu.Lock()
-		h.emulator.vt.SendKey(vt.KeyPressEvent{Code: r, Text: string(r)})
+		h.emulator.vt.SendKey(uv.KeyPressEvent{Code: r, Text: string(r)})
 		h.emulator.mu.Unlock()
 	}
 	return h
@@ -298,4 +298,82 @@ func (h *Harness) TerminalKey(key string) *Harness {
 	h.emulator.vt.SendKey(mapKeyToEvent(key))
 	h.emulator.mu.Unlock()
 	return h
+}
+
+// TerminalMouse forwards a mouse event through the terminal emulator. The running
+// program must have enabled a mouse tracking mode and (typically) SGR mouse
+// encoding; otherwise events are discarded by the emulator, matching real terminal
+// behavior.
+func (h *Harness) TerminalMouse(m uv.MouseEvent) *Harness {
+	h.emulator.mu.Lock()
+	h.emulator.vt.SendMouse(m)
+	h.emulator.mu.Unlock()
+	return h
+}
+
+// TerminalMouseClick simulates a full press and release at (x, y).
+func (h *Harness) TerminalMouseClick(button uv.MouseButton, x, y int) *Harness {
+	h.tb.Helper()
+	h.TerminalMouse(uv.MouseClickEvent{X: x, Y: y, Button: button})
+	h.TerminalMouse(uv.MouseReleaseEvent{X: x, Y: y, Button: button})
+	return h
+}
+
+// TerminalLeftClick is [TerminalMouseClick] with the left mouse button.
+func (h *Harness) TerminalLeftClick(x, y int) *Harness {
+	h.tb.Helper()
+	return h.TerminalMouseClick(uv.MouseLeft, x, y)
+}
+
+// TerminalMiddleClick is [TerminalMouseClick] with the middle mouse button.
+func (h *Harness) TerminalMiddleClick(x, y int) *Harness {
+	h.tb.Helper()
+	return h.TerminalMouseClick(uv.MouseMiddle, x, y)
+}
+
+// TerminalRightClick is [TerminalMouseClick] with the right mouse button.
+func (h *Harness) TerminalRightClick(x, y int) *Harness {
+	h.tb.Helper()
+	return h.TerminalMouseClick(uv.MouseRight, x, y)
+}
+
+// TerminalMouseDrag simulates a drag from (x1, y1) to (x2, y2).
+func (h *Harness) TerminalMouseDrag(button uv.MouseButton, x1, y1, x2, y2 int) *Harness {
+	h.tb.Helper()
+
+	h.TerminalMouse(uv.MouseClickEvent{X: x1, Y: y1, Button: button})
+
+	dx, dy := 0, 0
+	switch {
+	case x2 > x1:
+		dx = 1
+	case x2 < x1:
+		dx = -1
+	}
+	switch {
+	case y2 > y1:
+		dy = 1
+	case y2 < y1:
+		dy = -1
+	}
+
+	x, y := x1, y1
+	for x != x2 || y != y2 {
+		if x != x2 {
+			x += dx
+		}
+		if y != y2 {
+			y += dy
+		}
+		h.TerminalMouse(uv.MouseMotionEvent{X: x, Y: y, Button: button})
+	}
+
+	h.TerminalMouse(uv.MouseReleaseEvent{X: x2, Y: y2, Button: button})
+	return h
+}
+
+// TerminalLeftDrag is [TerminalMouseDrag] with the left mouse button.
+func (h *Harness) TerminalLeftDrag(x1, y1, x2, y2 int) *Harness {
+	h.tb.Helper()
+	return h.TerminalMouseDrag(uv.MouseLeft, x1, y1, x2, y2)
 }

@@ -19,14 +19,10 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-type ansiLiteralView string
-
-func (v ansiLiteralView) View() string { return string(v) }
-
 func TestAssertStringWithStripANSI(t *testing.T) {
 	t.Parallel()
 	const out = "plain \x1b[31mred\x1b[0m"
-	if !AssertString(t, ansiLiteralView(out), "plain red", WithStripANSI()) {
+	if !AssertString(t, func() string { return out }, "plain red", WithStripANSI()) {
 		t.Fatal("expected strip-then-contains to match")
 	}
 }
@@ -110,10 +106,6 @@ func (emptyMsgCollector) LiveMessages(_ context.Context) iter.Seq[uv.Event] {
 	return emptyMsgCollector{}.MessageHistory()
 }
 
-type fixedView string
-
-func (v fixedView) View() string { return string(v) }
-
 type swapViewModel struct {
 	clean bool
 }
@@ -166,7 +158,7 @@ func TestDimensions_withStripANSI(t *testing.T) {
 
 func TestWaitViewFunc(t *testing.T) {
 	t.Parallel()
-	got := WaitViewFunc(t, fixedView("hello"), func(s string) bool {
+	got := WaitViewFunc(t, func() string { return "hello" }, func(s string) bool {
 		return strings.HasPrefix(s, "hel")
 	}, WithTimeout(100*time.Millisecond))
 	if got != "hello" {
@@ -176,8 +168,8 @@ func TestWaitViewFunc(t *testing.T) {
 
 func TestWaitString_WaitBytes_package(t *testing.T) {
 	h := NewComponentHarness(t, &mutableViewModel{text: "hi"})
-	WaitString(t, h, "text=hi", WithTimeout(2*time.Second))
-	out := WaitBytes(t, h, []byte("text=hi"), WithTimeout(2*time.Second))
+	WaitString(t, h.View, "text=hi", WithTimeout(2*time.Second))
+	out := WaitBytes(t, h.View, []byte("text=hi"), WithTimeout(2*time.Second))
 	if !bytes.Contains(out, []byte("text=hi")) {
 		t.Fatalf("bytes view = %q", out)
 	}
@@ -185,7 +177,7 @@ func TestWaitString_WaitBytes_package(t *testing.T) {
 
 func TestWaitString_withStripANSI(t *testing.T) {
 	t.Parallel()
-	out := WaitString(t, ansiLiteralView("\x1b[31mred\x1b[0m"), "red", WithStripANSI(), WithTimeout(50*time.Millisecond))
+	out := WaitString(t, func() string { return "\x1b[31mred\x1b[0m" }, "red", WithStripANSI(), WithTimeout(50*time.Millisecond))
 	if strings.TrimSpace(out) != "red" {
 		t.Fatalf("output = %q", out)
 	}
@@ -193,7 +185,7 @@ func TestWaitString_withStripANSI(t *testing.T) {
 
 func TestWaitStrings(t *testing.T) {
 	h := NewComponentHarness(t, &mutableViewModel{text: "ab"})
-	WaitStrings(t, h, []string{"text=", "ab"}, WithTimeout(2*time.Second))
+	WaitStrings(t, h.View, []string{"text=", "ab"}, WithTimeout(2*time.Second))
 }
 
 func TestWaitNotString_WaitNotBytes(t *testing.T) {
@@ -230,13 +222,13 @@ func TestWaitMatch_invalidRegexp(t *testing.T) {
 			t.Fatalf("fatalf = %q", tb.msg)
 		}
 	}()
-	WaitMatch(tb, fixedView("x"), "[")
+	WaitMatch(tb, func() string { return "x" }, "[")
 }
 
 func TestWaitSettleView_package(t *testing.T) {
 	h := NewComponentHarness(t, &viewSettleStableModel{})
-	WaitString(t, h, "stable")
-	WaitSettleView(t, h,
+	WaitString(t, h.View, "stable")
+	WaitSettleView(t, h.View,
 		WithSettleTimeout(25*time.Millisecond),
 		WithTimeout(2*time.Second),
 		WithCheckInterval(5*time.Millisecond),
@@ -249,7 +241,7 @@ func TestWaitSettleView_package(t *testing.T) {
 func TestAssertString_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNo := AssertString(st, fixedView("abc"), "nope"); AssertNo {
+	if AssertNo := AssertString(st, func() string { return "abc" }, "nope"); AssertNo {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -260,7 +252,7 @@ func TestAssertString_fail(t *testing.T) {
 func TestAssertStrings_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertStrings(st, fixedView("only a"), []string{"a", "missing"}) {
+	if AssertStrings(st, func() string { return "only a" }, []string{"a", "missing"}) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -271,7 +263,7 @@ func TestAssertStrings_fail(t *testing.T) {
 func TestAssertNotString_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNotString(st, fixedView("has needle"), "needle") {
+	if AssertNotString(st, func() string { return "has needle" }, "needle") {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -282,7 +274,7 @@ func TestAssertNotString_fail(t *testing.T) {
 func TestAssertNotStrings_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNotStrings(st, fixedView("x bad y"), []string{"zzz", "bad"}) {
+	if AssertNotStrings(st, func() string { return "x bad y" }, []string{"zzz", "bad"}) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -293,7 +285,7 @@ func TestAssertNotStrings_fail(t *testing.T) {
 func TestAssertMatch_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertMatch(st, fixedView("abc"), `^\d+$`) {
+	if AssertMatch(st, func() string { return "abc" }, `^\d+$`) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -304,7 +296,7 @@ func TestAssertMatch_fail(t *testing.T) {
 func TestAssertNotMatch_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNotMatch(st, fixedView("abc123"), `\d`) {
+	if AssertNotMatch(st, func() string { return "abc123" }, `\d`) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -314,7 +306,7 @@ func TestAssertNotMatch_fail(t *testing.T) {
 
 func TestAssertHeightWidthDimensions(t *testing.T) {
 	t.Parallel()
-	v := fixedView("ab\nxy")
+	v := func() string { return "ab\nxy" }
 	if !AssertWidth(t, v, 2) || !AssertHeight(t, v, 2) || !AssertDimensions(t, v, 2, 2) {
 		t.Fatal("layout assertions should pass")
 	}
@@ -326,7 +318,7 @@ func TestAssertHeightWidthDimensions(t *testing.T) {
 func TestAssertHeight_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertHeight(st, fixedView("one\ntwo"), 99) {
+	if AssertHeight(st, func() string { return "one\ntwo" }, 99) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -336,7 +328,7 @@ func TestAssertHeight_fail(t *testing.T) {
 
 func TestPackageRequireString_andAssertHelpers_ok(t *testing.T) {
 	t.Parallel()
-	v := fixedView("alpha beta")
+	v := func() string { return "alpha beta" }
 	RequireString(t, v, "beta")
 	RequireStrings(t, v, []string{"alpha", "beta"})
 	RequireNotString(t, v, "gamma")

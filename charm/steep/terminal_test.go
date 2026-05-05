@@ -278,7 +278,7 @@ func TestHarness_terminalAsViewableUsesRenderPath(t *testing.T) {
 		return ok && m.Width == 8 && m.Height == 4
 	})
 	// Empty substring matches immediately; exercises [terminal.View] via [Viewable].
-	WaitString(t, h.emulator, "")
+	WaitString(t, h.emulator.View, "")
 	h.Quit()
 	h.WaitFinished(WithTimeout(time.Second))
 }
@@ -348,5 +348,232 @@ func TestHarness_TerminalKey_mapsNamedKeysThroughEmulator(t *testing.T) {
 				t.Fatalf("got message type %T, want tea.KeyPressMsg", got)
 			}
 		})
+	}
+}
+
+func enableEmulatorMouseReporting(tb testing.TB, h *Harness) {
+	tb.Helper()
+	h.emulator.mu.Lock()
+	_, _ = h.emulator.vt.WriteString(ansi.SetModeMouseButtonEvent)
+	_, _ = h.emulator.vt.WriteString(ansi.SetModeMouseExtSgr)
+	h.emulator.mu.Unlock()
+}
+
+// mouseStep is a normalized mouse line from [tea] for ordered assertions.
+type mouseStep struct {
+	kind string // "click", "motion", or "release"
+	tea.Mouse
+}
+
+func collectMouseTail(tb testing.TB, h *Harness, nBefore int) []mouseStep {
+	tb.Helper()
+	all := slices.Collect(h.MessageHistory())
+	if nBefore > len(all) {
+		tb.Fatalf("nBefore=%d longer than history len=%d", nBefore, len(all))
+	}
+	var out []mouseStep
+	for _, msg := range all[nBefore:] {
+		switch m := msg.(type) {
+		case tea.MouseClickMsg:
+			out = append(out, mouseStep{"click", m.Mouse()})
+		case tea.MouseMotionMsg:
+			out = append(out, mouseStep{"motion", m.Mouse()})
+		case tea.MouseReleaseMsg:
+			out = append(out, mouseStep{"release", m.Mouse()})
+		}
+	}
+	return out
+}
+
+func TestHarness_TerminalMouse_deliversClick(t *testing.T) {
+	h := newTerminalHarness(t, 14, 5)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+
+	enableEmulatorMouseReporting(t, h)
+	n := len(slices.Collect(h.MessageHistory()))
+
+	h.TerminalMouse(uv.MouseClickEvent{X: 4, Y: 2, Button: uv.MouseLeft})
+	WaitSettleMessages(t, h)
+
+	got := collectMouseTail(t, h, n)
+	if len(got) != 1 || got[0].kind != "click" || got[0].X != 4 || got[0].Y != 2 || got[0].Button != tea.MouseLeft {
+		t.Fatalf("unexpected mouse tail: %#v", got)
+	}
+}
+
+func TestHarness_TerminalMouseClick_deliversPressAndRelease(t *testing.T) {
+	h := newTerminalHarness(t, 12, 4)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+	enableEmulatorMouseReporting(t, h)
+	n := len(slices.Collect(h.MessageHistory()))
+
+	h.TerminalMouseClick(uv.MouseLeft, 3, 2)
+	WaitSettleMessages(t, h)
+
+	got := collectMouseTail(t, h, n)
+	want := []mouseStep{
+		{"click", tea.Mouse{X: 3, Y: 2, Button: tea.MouseLeft}},
+		{"release", tea.Mouse{X: 3, Y: 2, Button: tea.MouseLeft}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d mouse msgs, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].kind != want[i].kind || got[i].X != want[i].X || got[i].Y != want[i].Y || got[i].Button != want[i].Button {
+			t.Fatalf("step %d: got %#v, want kind=%s Mouse=%+v", i, got[i], want[i].kind, want[i].Mouse)
+		}
+	}
+}
+
+func TestHarness_TerminalLeftMiddleRightClick_buttons(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   func(*Harness, int, int) *Harness
+		want uv.MouseButton
+	}{
+		{name: "left", fn: (*Harness).TerminalLeftClick, want: uv.MouseLeft},
+		{name: "middle", fn: (*Harness).TerminalMiddleClick, want: uv.MouseMiddle},
+		{name: "right", fn: (*Harness).TerminalRightClick, want: uv.MouseRight},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTerminalHarness(t, 10, 5)
+			WaitMessageWhere(t, h, func(msg uv.Event) bool {
+				_, ok := msg.(tea.WindowSizeMsg)
+				return ok
+			})
+			enableEmulatorMouseReporting(t, h)
+			n := len(slices.Collect(h.MessageHistory()))
+
+			tt.fn(h, 2, 1)
+			WaitSettleMessages(t, h)
+
+			got := collectMouseTail(t, h, n)
+			if len(got) != 2 || got[0].Button != tt.want || got[1].Button != tt.want {
+				t.Fatalf("got %#v, want click+release with button %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHarness_TerminalMouseDrag_sequence(t *testing.T) {
+	h := newTerminalHarness(t, 16, 6)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+	enableEmulatorMouseReporting(t, h)
+	n := len(slices.Collect(h.MessageHistory()))
+
+	// (1,1) -> (3,1): press, motion at (2,1), motion at (3,1), release.
+	h.TerminalMouseDrag(uv.MouseLeft, 1, 1, 3, 1)
+	WaitSettleMessages(t, h)
+
+	got := collectMouseTail(t, h, n)
+	want := []mouseStep{
+		{"click", tea.Mouse{X: 1, Y: 1, Button: tea.MouseLeft}},
+		{"motion", tea.Mouse{X: 2, Y: 1, Button: tea.MouseLeft}},
+		{"motion", tea.Mouse{X: 3, Y: 1, Button: tea.MouseLeft}},
+		{"release", tea.Mouse{X: 3, Y: 1, Button: tea.MouseLeft}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d steps, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].kind != want[i].kind || got[i].X != want[i].X || got[i].Y != want[i].Y || got[i].Button != want[i].Button {
+			t.Fatalf("step %d: got %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestHarness_TerminalLeftDrag_equivalentToMouseDragLeft(t *testing.T) {
+	h := newTerminalHarness(t, 12, 4)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+	enableEmulatorMouseReporting(t, h)
+
+	n0 := len(slices.Collect(h.MessageHistory()))
+	h.TerminalMouseDrag(uv.MouseLeft, 0, 0, 1, 0)
+	WaitSettleMessages(t, h)
+	a := collectMouseTail(t, h, n0)
+
+	n1 := len(slices.Collect(h.MessageHistory()))
+	h.TerminalLeftDrag(0, 0, 1, 0)
+	WaitSettleMessages(t, h)
+	b := collectMouseTail(t, h, n1)
+
+	if len(a) != len(b) {
+		t.Fatalf("TerminalMouseDrag len=%d vs TerminalLeftDrag len=%d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("step %d: mouse drag %#v != left drag %#v", i, a[i], b[i])
+		}
+	}
+}
+
+func TestHarness_TerminalMouseDrag_sameCellIsClickAndRelease(t *testing.T) {
+	h := newTerminalHarness(t, 8, 4)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+	enableEmulatorMouseReporting(t, h)
+	n := len(slices.Collect(h.MessageHistory()))
+
+	h.TerminalMouseDrag(uv.MouseRight, 2, 2, 2, 2)
+	WaitSettleMessages(t, h)
+
+	got := collectMouseTail(t, h, n)
+	if len(got) != 2 || got[0].kind != "click" || got[1].kind != "release" {
+		t.Fatalf("want click+release only, got %#v", got)
+	}
+	if got[0].Button != tea.MouseRight || got[1].Button != tea.MouseRight {
+		t.Fatalf("buttons: got (%v, %v), want right", got[0].Button, got[1].Button)
+	}
+}
+
+func TestHarness_TerminalMouse_ignoredWithoutMouseModes(t *testing.T) {
+	h := newTerminalHarness(t, 8, 4)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+	n := len(slices.Collect(h.MessageHistory()))
+	h.TerminalLeftClick(2, 2)
+	WaitSettleMessages(t, h)
+	for _, msg := range slices.Collect(h.MessageHistory())[n:] {
+		switch msg.(type) {
+		case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
+			t.Fatalf("unexpected mouse message without DEC mouse modes: %T", msg)
+		default:
+		}
+	}
+}
+
+func TestHarness_TerminalMouse_helpersReturnHarnessForChaining(t *testing.T) {
+	h := newTerminalHarness(t, 10, 4)
+	WaitMessageWhere(t, h, func(msg uv.Event) bool {
+		_, ok := msg.(tea.WindowSizeMsg)
+		return ok
+	})
+	enableEmulatorMouseReporting(t, h)
+	if p := h.
+		TerminalMouse(uv.MouseClickEvent{X: 0, Y: 0, Button: uv.MouseLeft}).
+		TerminalMouseClick(uv.MouseMiddle, 1, 1).
+		TerminalLeftClick(2, 2).
+		TerminalMiddleClick(3, 3).
+		TerminalRightClick(0, 1).
+		TerminalMouseDrag(uv.MouseRight, 1, 0, 2, 0).
+		TerminalLeftDrag(0, 2, 1, 2); p != h {
+		t.Fatalf("chain returned %p, want same harness %p", p, h)
 	}
 }
