@@ -73,7 +73,7 @@ type softTB struct {
 	nErrors int
 }
 
-func (s *softTB) Errorf(format string, args ...any) {
+func (s *softTB) Errorf(_ string, _ ...any) {
 	s.nErrors++
 }
 
@@ -96,7 +96,7 @@ func (c *captureFatalTB) Fatalf(format string, args ...any) {
 type emptyMsgCollector struct{}
 
 func (emptyMsgCollector) MessageHistory() iter.Seq[uv.Event] {
-	return func(yield func(uv.Event) bool) {}
+	return func(_ func(uv.Event) bool) {}
 }
 
 func (emptyMsgCollector) Messages(_ context.Context) iter.Seq[uv.Event] {
@@ -249,7 +249,7 @@ func TestWaitSettleView_package(t *testing.T) {
 func TestAssertString_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNo := AssertString(st, func() string { return "abc" }, "nope"); AssertNo {
+	if assertNo := AssertString(st, func() string { return "abc" }, "nope"); assertNo {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -424,7 +424,7 @@ func TestFilterMessagesFunc(t *testing.T) {
 	if len(got) != 1 || got[0] != "b" {
 		t.Fatalf("got %#v, want [b]", got)
 	}
-	empty := slices.Collect(FilterMessagesFunc(t, slices.Values(msgs), func(m appendMsg) bool {
+	empty := slices.Collect(FilterMessagesFunc(t, slices.Values(msgs), func(_ appendMsg) bool {
 		return false
 	}))
 	if len(empty) != 0 {

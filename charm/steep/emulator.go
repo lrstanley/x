@@ -7,12 +7,15 @@ package steep
 import (
 	"bufio"
 	"errors"
+	"image"
 	"image/color"
 	"io"
 	"slices"
 	"sync"
+	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
 
@@ -24,10 +27,9 @@ var (
 )
 
 type emulator struct {
-	mu             sync.RWMutex
+	mu             sync.RWMutex // serializes vt I/O with pumpTeaToVT and Harness vt helpers
 	vt             *vt.Emulator
 	inputCloseOnce sync.Once // closes the vt input pipe at most once (unblocks [tea.Program] shutdown)
-	focused        bool      // last known focus state for TerminalFocus / TerminalBlur
 
 	shutdownOnce sync.Once      // runs Close teardown once
 	wg           sync.WaitGroup // pumpTeaToVT and pumpVTToTea
@@ -36,6 +38,21 @@ type emulator struct {
 	teaOut       *bufio.Writer  // [tea.Program] render output; flushed to vt via toVTW
 	toVTW        *io.PipeWriter // writer end read by pumpTeaToVT into vt.Write
 	teaPipeR     *io.PipeReader // reader end closed on shutdown to unblock pumpVTToTea if the pipe fills
+
+	// Purely state tracking fields.
+	trackMu     sync.RWMutex // Tracked mirror fields; separate from mu so vt callbacks cannot deadlock callers holding mu around vt writes
+	focused     bool         // Last known focus state for TerminalFocus/TerminalBlur.
+	title       string
+	altScreen   bool
+	modes       ansi.Modes
+	cursorPos   image.Point
+	cursorVis   bool
+	cursorColor color.Color
+	cursorStyle vt.CursorStyle
+	cursorBlink bool
+	bgColor     color.Color
+	fgColor     color.Color
+	lastBellAt  time.Time // Zero until first [vt.Callbacks.Bell].
 }
 
 func newEmulator(width, height int) *emulator {
@@ -49,7 +66,91 @@ func newEmulator(width, height int) *emulator {
 		teaOut:   bufio.NewWriterSize(toVTW, emuIOBufferSize),
 		toVTW:    toVTW,
 		teaPipeR: fromVTR,
+
+		// Mirror defaults from: https://github.com/charmbracelet/x/blob/main/vt/mode.go
+		modes: ansi.Modes{
+			ansi.ModeCursorKeys:          ansi.ModeReset,
+			ansi.ModeOrigin:              ansi.ModeReset,
+			ansi.ModeAutoWrap:            ansi.ModeSet,
+			ansi.ModeMouseX10:            ansi.ModeReset,
+			ansi.ModeLineFeedNewLine:     ansi.ModeReset,
+			ansi.ModeTextCursorEnable:    ansi.ModeSet,
+			ansi.ModeNumericKeypad:       ansi.ModeReset,
+			ansi.ModeLeftRightMargin:     ansi.ModeReset,
+			ansi.ModeMouseNormal:         ansi.ModeReset,
+			ansi.ModeMouseHighlight:      ansi.ModeReset,
+			ansi.ModeMouseButtonEvent:    ansi.ModeReset,
+			ansi.ModeMouseAnyEvent:       ansi.ModeReset,
+			ansi.ModeFocusEvent:          ansi.ModeReset,
+			ansi.ModeMouseExtSgr:         ansi.ModeReset,
+			ansi.ModeAltScreen:           ansi.ModeReset,
+			ansi.ModeSaveCursor:          ansi.ModeReset,
+			ansi.ModeAltScreenSaveCursor: ansi.ModeReset,
+			ansi.ModeBracketedPaste:      ansi.ModeReset,
+		},
+		cursorStyle: vt.CursorBlock,
+		cursorBlink: true, // Matches vt default cursor [vt.Cursor] zero value (Steady == false).
+		cursorVis:   true, // Matches vt default [vt.Cursor.Hidden] == false before any visibility callback.
 	}
+
+	emu.vt.SetCallbacks(vt.Callbacks{
+		Bell: func() {
+			emu.trackMu.Lock()
+			emu.lastBellAt = time.Now()
+			emu.trackMu.Unlock()
+		},
+		Title: func(title string) {
+			emu.trackMu.Lock()
+			emu.title = title
+			emu.trackMu.Unlock()
+		},
+		AltScreen: func(altScreen bool) {
+			emu.trackMu.Lock()
+			emu.altScreen = altScreen
+			emu.trackMu.Unlock()
+		},
+		EnableMode: func(mode ansi.Mode) {
+			emu.trackMu.Lock()
+			emu.modes.Set(mode)
+			emu.trackMu.Unlock()
+		},
+		DisableMode: func(mode ansi.Mode) {
+			emu.trackMu.Lock()
+			emu.modes.Reset(mode)
+			emu.trackMu.Unlock()
+		},
+		CursorPosition: func(_, next uv.Position) {
+			emu.trackMu.Lock()
+			emu.cursorPos = next
+			emu.trackMu.Unlock()
+		},
+		CursorVisibility: func(visible bool) {
+			emu.trackMu.Lock()
+			emu.cursorVis = visible
+			emu.trackMu.Unlock()
+		},
+		CursorStyle: func(style vt.CursorStyle, steady bool) {
+			emu.trackMu.Lock()
+			emu.cursorStyle = style
+			emu.cursorBlink = !steady
+			emu.trackMu.Unlock()
+		},
+		CursorColor: func(color color.Color) {
+			emu.trackMu.Lock()
+			emu.cursorColor = color
+			emu.trackMu.Unlock()
+		},
+		BackgroundColor: func(color color.Color) {
+			emu.trackMu.Lock()
+			emu.bgColor = color
+			emu.trackMu.Unlock()
+		},
+		ForegroundColor: func(color color.Color) {
+			emu.trackMu.Lock()
+			emu.fgColor = color
+			emu.trackMu.Unlock()
+		},
+	})
 
 	emu.wg.Add(2)
 	go emu.pumpTeaToVT(toVTR)
@@ -168,8 +269,10 @@ func (h *Harness) View() string {
 func (h *Harness) Focus() *Harness {
 	h.emulator.mu.Lock()
 	h.emulator.vt.Focus()
-	h.emulator.focused = true
 	h.emulator.mu.Unlock()
+	h.emulator.trackMu.Lock()
+	h.emulator.focused = true
+	h.emulator.trackMu.Unlock()
 	return h
 }
 
@@ -178,9 +281,33 @@ func (h *Harness) Focus() *Harness {
 func (h *Harness) Blur() *Harness {
 	h.emulator.mu.Lock()
 	h.emulator.vt.Blur()
-	h.emulator.focused = false
 	h.emulator.mu.Unlock()
+	h.emulator.trackMu.Lock()
+	h.emulator.focused = false
+	h.emulator.trackMu.Unlock()
 	return h
+}
+
+// IsFocused reports the last known terminal focus state.
+func (h *Harness) IsFocused() bool {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.focused
+}
+
+// Title returns the last known window title.
+func (h *Harness) Title() string {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.title
+}
+
+// LastBellAt returns the wall clock time of the most recent bell ([ansi.BEL])
+// processed by the VT emulator. It is the zero [time.Time] until the first bell.
+func (h *Harness) LastBellAt() time.Time {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.lastBellAt
 }
 
 // Bounds returns the terminals current screen bounds.
@@ -192,9 +319,17 @@ func (h *Harness) Bounds() uv.Rectangle {
 
 // IsAltScreen returns true if the terminal is in alt screen mode.
 func (h *Harness) IsAltScreen() bool {
-	h.emulator.mu.RLock()
-	defer h.emulator.mu.RUnlock()
-	return h.emulator.vt.IsAltScreen()
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.altScreen
+}
+
+// ModeSetting returns the tracked ANSI mode setting. An absent mode yields
+// [ansi.ModeNotRecognized].
+func (h *Harness) ModeSetting(mode ansi.Mode) ansi.ModeSetting {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.modes.Get(mode)
 }
 
 // Width returns the terminals current width in cells (matches [Harness.View]
@@ -240,23 +375,23 @@ func (h *Harness) Paste(text string) *Harness {
 
 // FgColor returns the terminal emulator's foreground color.
 func (h *Harness) FgColor() color.Color {
-	h.emulator.mu.RLock()
-	defer h.emulator.mu.RUnlock()
-	return h.emulator.vt.ForegroundColor()
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.fgColor
 }
 
 // BgColor returns the terminal emulator's background color.
 func (h *Harness) BgColor() color.Color {
-	h.emulator.mu.RLock()
-	defer h.emulator.mu.RUnlock()
-	return h.emulator.vt.BackgroundColor()
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.bgColor
 }
 
 // CursorColor returns the terminal emulator's cursor color.
 func (h *Harness) CursorColor() color.Color {
-	h.emulator.mu.RLock()
-	defer h.emulator.mu.RUnlock()
-	return h.emulator.vt.CursorColor()
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.cursorColor
 }
 
 // SetFgColor sets the terminal emulator foreground color.
@@ -309,9 +444,32 @@ func (h *Harness) SetDefaultCursorColor(c color.Color) *Harness {
 
 // CursorPosition returns the terminal emulator cursor position.
 func (h *Harness) CursorPosition() uv.Position {
-	h.emulator.mu.RLock()
-	defer h.emulator.mu.RUnlock()
-	return h.emulator.vt.CursorPosition()
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.cursorPos
+}
+
+// CursorVisible reports whether the cursor is visible per the last
+// [vt.Callbacks.CursorVisibility] update (driven by DECTCEM and related screen
+// switches).
+func (h *Harness) CursorVisible() bool {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.cursorVis
+}
+
+// CursorBlink reports whether blinking is enabled for the tracked cursor style.
+func (h *Harness) CursorBlink() bool {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.cursorBlink
+}
+
+// CursorStyle returns the tracked VT cursor shape.
+func (h *Harness) CursorStyle() vt.CursorStyle {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+	return h.emulator.cursorStyle
 }
 
 // Scrollback returns a copy of the terminals scrollback lines (oldest first).

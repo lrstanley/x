@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 )
 
 // terminalProbe is a minimal model with a stable empty view.
@@ -249,6 +250,142 @@ func TestHarness_terminalFocusBlurMsgs(t *testing.T) {
 
 	h.Blur()
 	WaitMessage[tea.BlurMsg](t, h)
+}
+
+func TestHarness_terminalTrackedHarnessFocus(t *testing.T) {
+	t.Parallel()
+	h := newTerminalHarness(t, 4, 2)
+	if !h.IsFocused() {
+		t.Fatal("expected initially focused harness state")
+	}
+	h.Blur()
+	if h.IsFocused() {
+		t.Fatal("expected Blur() to record unfocused state")
+	}
+	h.Focus()
+	if !h.IsFocused() {
+		t.Fatal("expected Focus() to record focused state")
+	}
+}
+
+func TestHarness_terminalTrackedCursorDefaults(t *testing.T) {
+	t.Parallel()
+	h := newTerminalHarness(t, 4, 2)
+	if !h.CursorVisible() || !h.CursorBlink() || h.CursorStyle() != vt.CursorBlock {
+		t.Fatalf("defaults: visible=%v blink=%v style=%v", h.CursorVisible(), h.CursorBlink(), h.CursorStyle())
+	}
+	pt := h.CursorPosition()
+	if pt.X != 0 || pt.Y != 0 {
+		t.Fatalf("initial cursor %#v, want (0,0)", pt)
+	}
+}
+
+func TestHarness_terminalTrackedTitle(t *testing.T) {
+	t.Parallel()
+	const want = "steep-tracked-title"
+	h := newTerminalHarness(t, 4, 2)
+	h.emulator.mu.Lock()
+	_, _ = h.emulator.vt.WriteString(ansi.SetWindowTitle(want))
+	h.emulator.mu.Unlock()
+	if got := h.Title(); got != want {
+		t.Fatalf("Title() = %q, want %q", got, want)
+	}
+}
+
+func TestHarness_terminalTrackedBell(t *testing.T) {
+	t.Parallel()
+	h := newTerminalHarness(t, 4, 2)
+	if !h.LastBellAt().IsZero() {
+		t.Fatalf("LastBellAt() = %v, want zero time before first bell", h.LastBellAt())
+	}
+
+	h.emulator.mu.Lock()
+	_, _ = h.emulator.vt.WriteString(string(rune(ansi.BEL)))
+	h.emulator.mu.Unlock()
+
+	first := h.LastBellAt()
+	if first.IsZero() {
+		t.Fatal("expected LastBellAt non-zero after BEL")
+	}
+
+	h.emulator.mu.Lock()
+	_, _ = h.emulator.vt.WriteString(string(rune(ansi.BEL)))
+	h.emulator.mu.Unlock()
+
+	second := h.LastBellAt()
+	if second.Before(first) {
+		t.Fatalf("LastBellAt regressed: %v before %v", second, first)
+	}
+}
+
+func TestHarness_terminalTrackedModeDEC(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		seq     string
+		mode    ansi.Mode
+		want    ansi.ModeSetting
+		cleanup string
+	}{
+		{
+			name:    "mouse button reporting on then off",
+			seq:     ansi.SetModeMouseButtonEvent,
+			mode:    ansi.ModeMouseButtonEvent,
+			want:    ansi.ModeSet,
+			cleanup: ansi.ResetModeMouseButtonEvent,
+		},
+		{
+			name:    "focus event on then off",
+			seq:     ansi.SetModeFocusEvent,
+			mode:    ansi.ModeFocusEvent,
+			want:    ansi.ModeSet,
+			cleanup: ansi.ResetModeFocusEvent,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			local := newTerminalHarness(t, 4, 2)
+			local.emulator.mu.Lock()
+			_, _ = local.emulator.vt.WriteString(tt.seq)
+			local.emulator.mu.Unlock()
+			if got := local.ModeSetting(tt.mode); got != tt.want {
+				t.Fatalf("after enable: ModeSetting(%v)=%v want %v", tt.mode, got, tt.want)
+			}
+			local.emulator.mu.Lock()
+			_, _ = local.emulator.vt.WriteString(tt.cleanup)
+			local.emulator.mu.Unlock()
+			if got := local.ModeSetting(tt.mode); got != ansi.ModeReset {
+				t.Fatalf("after reset: ModeSetting(%v)=%v want Reset", tt.mode, got)
+			}
+		})
+	}
+}
+
+func TestHarness_terminalTrackedModeUnsetKey(t *testing.T) {
+	t.Parallel()
+	h := newTerminalHarness(t, 3, 2)
+	unset := ansi.DECMode(0xbeef)
+	if h.ModeSetting(unset) != ansi.ModeNotRecognized {
+		t.Fatalf("unset mode setting = %v, want ModeNotRecognized", h.ModeSetting(unset))
+	}
+}
+
+func TestHarness_terminalTrackedCursorHideShow(t *testing.T) {
+	t.Parallel()
+	h := newTerminalHarness(t, 6, 2)
+	h.emulator.mu.Lock()
+	_, _ = h.emulator.vt.WriteString(ansi.HideCursor)
+	h.emulator.mu.Unlock()
+	if h.CursorVisible() {
+		t.Fatal("expected hidden cursor after HideCursor sequence")
+	}
+	h.emulator.mu.Lock()
+	_, _ = h.emulator.vt.WriteString(ansi.ShowCursor)
+	h.emulator.mu.Unlock()
+	if !h.CursorVisible() {
+		t.Fatal("expected visible cursor after ShowCursor sequence")
+	}
 }
 
 func TestHarness_terminalPasteMsg(t *testing.T) {
