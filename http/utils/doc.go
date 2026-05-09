@@ -4,8 +4,8 @@
 
 // Package utils is the module root for HTTP client utilities built on
 // [net/http.RoundTripper]. Subpackages are httpccache (http client cache),
-// httpcconc (http client concurrency), httpclog (http client log), and
-// httpcretry (http client retry).
+// httpcconc (http client concurrency), httpcquery (struct to query encoding),
+// httpclog (http client log), and httpcretry (http client retry).
 //
 // Each subpackage is imported on its own; this package exists only for module
 // documentation.
