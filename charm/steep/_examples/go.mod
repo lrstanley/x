@@ -20,7 +20,7 @@ require (
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
-	github.com/charmbracelet/x/vt v0.0.0-20260427100455-1ea3e7f8134f // indirect
+	github.com/charmbracelet/x/vt v0.0.0-20260511003329-c066bcf2349a // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect

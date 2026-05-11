@@ -2,7 +2,7 @@ charm.land/bubbletea/v2 v2.0.6 h1:UHN/91OyuhaOFGSrBXQ/hMZD8IO1Uc4BvHlgHXL2WJo=
 charm.land/lipgloss/v2 v2.0.3 h1:yM2zJ4Cf5Y51b7RHIwioil4ApI/aypFXXVHSwlM6RzU=
 github.com/aymanbagabas/go-udiff v0.4.1 h1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ12Gv5o=
 github.com/charmbracelet/colorprofile v0.4.3 h1:QPa1IWkYI+AOB+fE+mg/5/4HRMZcaXex9t5KX76i20Q=
-github.com/charmbracelet/ultraviolet v0.0.0-20260422141423-a0f1f21775f7 h1:PeRlqWGEoO0apcS62iEgxQhVnFCTOYyQvi2sUTdf6IE=
+github.com/charmbracelet/ultraviolet v0.0.0-20260428153724-66037269d7be h1:j7w8VP/D4lu5+/4GamMmFy8nrtadcl82/fjvDgSHwLo=
 github.com/charmbracelet/x/ansi v0.11.7 h1:kzv1kJvjg2S3r9KHo8hDdHFQLEqn4RBCb39dAYC84jI=
 github.com/charmbracelet/x/exp/charmtone v0.0.0-20251118172736-77d017256798 h1:W8tihcp0kKr1VEnUlXXUapzMLTCn50uqH0UgoW9fzVc=
 github.com/charmbracelet/x/exp/charmtone v0.0.0-20251118172736-77d017256798/go.mod h1:URW1lCfdUqp9aey3HTV+jRvaGLuaj2d0jVk2NTRpklY=
@@ -33,4 +33,4 @@ github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e/go.mod h1:RbqR21r5mrJu
 golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b h1:DXr+pvt3nC887026GRP39Ej11UATqWDmWuS99x26cD0=
 golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b/go.mod h1:4QTo5u+SEIbbKW1RacMZq1YEfOBqeXa19JeshGi+zc4=
 golang.org/x/sync v0.20.0 h1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=
-golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=
+golang.org/x/sys v0.44.0 h1:ildZl3J4uzeKP07r2F++Op7E9B29JRUy+a27EibtBTQ=

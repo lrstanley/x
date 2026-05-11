@@ -37,5 +37,5 @@ require (
 	github.com/viterin/partial v1.1.0 // indirect
 	github.com/viterin/vek v0.4.2 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 )
