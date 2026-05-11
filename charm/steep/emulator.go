@@ -12,11 +12,13 @@ import (
 	"io"
 	"slices"
 	"sync"
+	"testing"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/lrstanley/x/charm/steep/snapshot"
 )
 
 const emuIOBufferSize = 4096
@@ -69,11 +71,14 @@ func newEmulator(width, height int) *emulator {
 
 		// Mirror defaults from: https://github.com/charmbracelet/x/blob/main/vt/mode.go
 		modes: ansi.Modes{
-			ansi.ModeCursorKeys:          ansi.ModeReset,
-			ansi.ModeOrigin:              ansi.ModeReset,
-			ansi.ModeAutoWrap:            ansi.ModeSet,
-			ansi.ModeMouseX10:            ansi.ModeReset,
-			ansi.ModeLineFeedNewLine:     ansi.ModeReset,
+			ansi.ModeCursorKeys: ansi.ModeReset,
+			ansi.ModeOrigin:     ansi.ModeReset,
+			ansi.ModeAutoWrap:   ansi.ModeSet,
+			ansi.ModeMouseX10:   ansi.ModeReset,
+			// LNM off is VT-correct, but TTY-backed apps usually see LF as CRLF due to
+			// termios ONLCR; Lip Gloss/Bubble Tea emit '\n' only. Enable LNM so LF also
+			// resets column and Render matches real-terminal layout.
+			ansi.ModeLineFeedNewLine:     ansi.ModeSet,
 			ansi.ModeTextCursorEnable:    ansi.ModeSet,
 			ansi.ModeNumericKeypad:       ansi.ModeReset,
 			ansi.ModeLeftRightMargin:     ansi.ModeReset,
@@ -158,10 +163,42 @@ func newEmulator(width, height int) *emulator {
 
 	emu.mu.Lock()
 	emu.vt.Resize(width, height)
+	_, _ = emu.vt.WriteString(ansi.SetModeLineFeedNewLine)
 	emu.vt.Focus()
 	emu.mu.Unlock()
 
 	return emu
+}
+
+// snapshot produces a snapshot of the current terminal state.
+func (e *emulator) snapshot(tb testing.TB, opts ...snapshot.Option) *snapshot.ScreenSnapshot {
+	tb.Helper()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	e.trackMu.RLock()
+	defer e.trackMu.RUnlock()
+
+	snap := &snapshot.ScreenSnapshot{
+		Title:     e.title,
+		Rows:      e.vt.Height(),
+		Cols:      e.vt.Width(),
+		AltScreen: e.altScreen,
+		Focused:   e.focused,
+		Cursor: snapshot.Cursor{
+			Position: snapshot.Position{
+				X: e.cursorPos.X,
+				Y: e.cursorPos.Y,
+			},
+			Visible: e.cursorVis,
+			Blink:   e.cursorBlink,
+			Style:   e.cursorStyle,
+			Color:   snapshot.Color{Color: e.cursorColor},
+		},
+		BgColor: snapshot.Color{Color: e.bgColor},
+		FgColor: snapshot.Color{Color: e.fgColor},
+	}
+	snap.WithScreenBuffer(tb, snapshot.AsScreenBuffer(tb, e.vt.Render(), opts...))
+	return snap
 }
 
 // pumpTeaToVT copies [teaOutput.Read] to the vt [io.WriteCloser]. Workaround due to

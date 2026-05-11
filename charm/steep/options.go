@@ -6,7 +6,9 @@ package steep
 
 import (
 	"fmt"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,8 +27,8 @@ const (
 	DefaultTimeout = 2 * time.Second
 	// DefaultCheckInterval is the default polling interval used by [Harness] waits.
 	DefaultCheckInterval = 10 * time.Millisecond
-	// DefaultSettleTimeout is the default settle timeout used by [Harness] settle waits.
-	// This must be less than 80% of the timeout set by [WithTimeout].
+	// DefaultSettleTimeout is the default settle timeout used by [Harness] settle
+	// waits. This must be less than 80% of the timeout set by [WithTimeout].
 	DefaultSettleTimeout = 100 * time.Millisecond
 )
 
@@ -60,6 +62,9 @@ type options struct {
 
 	// reason is an optional, propagated reason for an error or failure.
 	reason string
+
+	// envVars are extra environment variables to set for the [tea.Program].
+	envVars []string
 }
 
 func defaultOptions() options {
@@ -69,6 +74,17 @@ func defaultOptions() options {
 		timeout:       DefaultTimeout,
 		checkInterval: DefaultCheckInterval,
 		settleTimeout: DefaultSettleTimeout,
+		envVars: []string{
+			// Force TTY mode, since we're not connecting to a real TTY/PTY.
+			"TTY_FORCE=1",
+			"TERM=xterm-256color",
+			// TODO: remove this default env var once Bubble Tea either flushes
+			// startup DECRQM mode probes before input shutdown, or x/vt makes query
+			// responses non-blocking. Without this, WT_SESSION/kitty-like envs make
+			// Bubble Tea emit synchronized-output/unicode-core queries that x/vt can
+			// answer by blocking on its input pipe during fast test cleanup.
+			"TERM_PROGRAM=Apple_Terminal",
+		},
 	}
 }
 
@@ -127,8 +143,9 @@ func withReason(format string, args ...any) Option {
 	}
 }
 
-// WithWindowSize configures the starting terminal size. See also
-// [DefaultTermWidth] and [DefaultTermHeight].
+// WithWindowSize configures the starting terminal size.
+//
+// See also [DefaultTermWidth] and [DefaultTermHeight].
 func WithWindowSize(width, height int) Option {
 	return func(cfg *options) {
 		cfg.width = width
@@ -147,23 +164,29 @@ func WithProgramOptions(opts ...tea.ProgramOption) Option {
 }
 
 // WithTimeout configures how long waits may run.
+//
+// See also [DefaultTimeout].
 func WithTimeout(timeout time.Duration) Option {
 	return func(cfg *options) {
 		cfg.timeout = timeout
 	}
 }
 
-// WithCheckInterval configures how often waits are checked.
-func WithCheckInterval(interval time.Duration) Option {
+// WithCheck configures how often waits are checked.
+//
+// See also [DefaultCheckInterval].
+func WithCheck(interval time.Duration) Option {
 	return func(cfg *options) {
 		cfg.checkInterval = interval
 	}
 }
 
-// WithSettleTimeout configures how long to wait for the [tea.Program] to satisfy
+// WithSettle configures how long to wait for the [tea.Program] to satisfy
 // settle waits. See [Harness.WaitSettleMessages], [Harness.WaitSettle] and
 // [WaitSettle] for more details.
-func WithSettleTimeout(timeout time.Duration) Option {
+//
+// See also [DefaultSettleTimeout].
+func WithSettle(timeout time.Duration) Option {
 	return func(cfg *options) {
 		cfg.settleTimeout = timeout
 	}
@@ -174,6 +197,8 @@ func WithSettleTimeout(timeout time.Duration) Option {
 // example a zero value of your periodic tick type). The dynamic type of each
 // observed message is compared with [reflect.TypeOf] on those samples; nil
 // samples are skipped.
+//
+// See also [DefaultSettleIgnoreMsgs].
 func WithSettleIgnoreMsgs(types ...any) Option {
 	return func(cfg *options) {
 		for _, s := range types {
@@ -185,13 +210,38 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 	}
 }
 
-// WithStripANSI strips ANSI escape and control sequences from view text before
-// string/regex [WaitViewFunc] and [AssertString] (and related) comparisons,
-// and from [Dimensions] for layout assertions. When set on a [NewHarness] or
-// [NewComponentHarness], it is also applied to [Harness.AssertViewSnapshot]
-// and [Harness.RequireViewSnapshot] on that harness.
-func WithStripANSI() Option {
+// WithANSI determines whether ANSI sequences should be kept. When false, ANSI
+// sequences are stripped, which will often make it easier to visually and
+// programmatically compare snapshots, output, etc. This would apply to strings/regex
+// comparisons in [AssertString], [AssertMatch], [WaitString], [WaitStrings], etc.
+func WithANSI(enable bool) Option {
 	return func(cfg *options) {
-		cfg.stripANSI = true
+		cfg.stripANSI = !enable
+	}
+}
+
+// WithEnvVars sets extra environment variables for the [tea.Program], in the form
+// of "key=value". Defaults:
+//
+//   - TERM=xterm-256color
+//   - TERM_PROGRAM=Apple_Terminal
+func WithEnvVars(vars ...string) Option {
+	return func(cfg *options) {
+		current := map[string]string{}
+		for _, entry := range os.Environ() {
+			key, value, _ := strings.Cut(entry, "=")
+			current[key] = value
+		}
+		for _, v := range vars {
+			key, value, ok := strings.Cut(v, "=")
+			if !ok {
+				panic(fmt.Errorf("invalid environment variable: %s", v))
+			}
+			current[key] = value
+		}
+		cfg.envVars = make([]string, 0, len(current))
+		for key, value := range current {
+			cfg.envVars = append(cfg.envVars, key+"="+value)
+		}
 	}
 }

@@ -231,9 +231,9 @@ func TestComponentHarnessWaitSettled(t *testing.T) {
 	h.SendProgram(settleMsg{}).WaitString("updates=3")
 
 	WaitSettleMessages(t, h,
-		WithSettleTimeout(25*time.Millisecond),
+		WithSettle(25*time.Millisecond),
 		WithTimeout(500*time.Millisecond),
-		WithCheckInterval(5*time.Millisecond),
+		WithCheck(5*time.Millisecond),
 	)
 	out := h.View()
 	if !strings.Contains(out, "updates=3") {
@@ -287,9 +287,9 @@ func TestComponentHarnessWaitSettledIgnoreMsgs(t *testing.T) {
 
 	WaitSettleMessages(t, h,
 		WithSettleIgnoreMsgs(settleNoiseTick{}),
-		WithSettleTimeout(25*time.Millisecond),
+		WithSettle(25*time.Millisecond),
 		WithTimeout(500*time.Millisecond),
-		WithCheckInterval(5*time.Millisecond),
+		WithCheck(5*time.Millisecond),
 	)
 	if !strings.Contains(h.View(), "updates=2") {
 		t.Fatalf("output = %q, want updates=2", h.View())
@@ -334,9 +334,9 @@ func TestComponentHarnessWaitSettledView(t *testing.T) {
 	h.WaitString("stable")
 
 	h.WaitSettle(
-		WithSettleTimeout(25*time.Millisecond),
+		WithSettle(25*time.Millisecond),
 		WithTimeout(2*time.Second),
-		WithCheckInterval(5*time.Millisecond),
+		WithCheck(5*time.Millisecond),
 	)
 	if !strings.Contains(h.View(), "stable") {
 		t.Fatalf("view = %q, want stable", h.View())
@@ -375,23 +375,24 @@ func TestComponentHarnessSendFilterReceivesOriginalMessage(t *testing.T) {
 }
 
 func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
-	t.Chdir(t.TempDir())
-	t.Setenv("UPDATE_SNAPSHOTS", "true")
+	t.Parallel()
+
+	snapDir := filepath.Join(t.TempDir(), "testdata")
 
 	h := NewComponentHarness(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"}, WithWindowSize(80, 1))
 	h.WaitString("red")
-	h.RequireViewSnapshot(snapshot.WithStripANSI())
+	h.RequireSnapshot(snapshot.WithANSI(false), snapshot.WithDir(snapDir), snapshot.WithUpdate(true))
 
-	got := readSteepSnapshot(t, "TestComponentHarnessRequirePlainSnapshot.snap")
+	got := readSteepSnapshot(t, filepath.Join(snapDir, "TestComponentHarnessRequirePlainSnapshot.snap"))
 	if got != "text=red" {
 		t.Fatalf("snapshot = %q, want text=red", got)
 	}
 }
 
-func readSteepSnapshot(t *testing.T, name string) string {
+func readSteepSnapshot(t *testing.T, path string) string {
 	t.Helper()
 
-	bts, err := os.ReadFile(filepath.Join("testdata", name))
+	bts, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read snapshot: %v", err)
 	}

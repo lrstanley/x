@@ -180,7 +180,7 @@ func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option)
 // View() and compares the string to the previous sample.
 //
 // See also [Harness.WaitSettle], [Harness.WaitSettleMessages],
-// [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
+// [WithSettle], [WithCheck], and [WithTimeout].
 func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 	tb.Helper()
 
@@ -510,7 +510,7 @@ func RequireWidth(tb testing.TB, view Viewable, n int, opts ...Option) {
 // AssertDimensions reports an error unless output has specified dimensions.
 //
 // See also [Harness.AssertDimensions], [AssertWidth], [AssertHeight], [Dimensions],
-// [RequireDimensions], and [WithStripANSI].
+// [RequireDimensions], and [WithANSI].
 func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) bool {
 	tb.Helper()
 
@@ -530,7 +530,7 @@ func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...O
 // RequireDimensions fails the test immediately unless output has specified dimensions.
 //
 // See also [Harness.RequireDimensions], [AssertDimensions], [RequireHeight],
-// [RequireWidth], and [Harness.AssertViewSnapshot].
+// [RequireWidth], and [Harness.AssertSnapshot].
 func RequireDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) {
 	tb.Helper()
 
@@ -682,8 +682,8 @@ func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok
 // WaitSettleMessages waits until no messages have been observed for the
 // configured settle timeout.
 //
-// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettleTimeout],
-// [WithCheckInterval], and [WithTimeout].
+// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettle],
+// [WithCheck], and [WithTimeout].
 func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()
 

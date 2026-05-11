@@ -53,8 +53,8 @@ func (h *Harness) WaitFinished(opts ...Option) {
 // changed for the configured settle timeout. It polls this harness's
 // [Harness.View] and compares each result to the previous sample.
 //
-// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettleTimeout],
-// [WithCheckInterval], and [WithTimeout].
+// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettle],
+// [WithCheck], and [WithTimeout].
 func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	h.tb.Helper()
 	WaitSettle(h.tb, h.View, h.mergedOpts(opts...)...)
@@ -352,7 +352,7 @@ func (h *Harness) RequireWidth(width int, opts ...Option) *Harness {
 // rows. It allows the test to continue.
 //
 // See also [AssertDimensions], [Harness.RequireDimensions], [Harness.AssertWidth],
-// [Harness.AssertHeight], [Harness.RequireViewSnapshot], and [Dimensions].
+// [Harness.AssertHeight], [Harness.RequireSnapshot], and [Dimensions].
 func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
 	AssertDimensions(h.tb, h.View, width, height, h.mergedOpts(opts...)...)
@@ -363,7 +363,7 @@ func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 // columns and height rows.
 //
 // See also [RequireDimensions], [Harness.AssertDimensions], [Harness.RequireHeight],
-// [Harness.RequireWidth], and [Harness.RequireViewSnapshot].
+// [Harness.RequireWidth], and [Harness.RequireSnapshot].
 func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
 	if !AssertDimensions(h.tb, h.View, width, height, h.mergedOpts(opts...)...) {
@@ -376,7 +376,7 @@ func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness 
 // configured settle timeout.
 //
 // See also [WaitSettleMessages], [Harness.WaitSettle], [WaitSettle],
-// [WithSettleTimeout], [WithCheckInterval], and [WithTimeout].
+// [WithSettle], [WithCheck], and [WithTimeout].
 func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 	h.tb.Helper()
 	WaitSettleMessages(h.tb, h, h.mergedOpts(opts...)...)

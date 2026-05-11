@@ -22,7 +22,7 @@ import (
 func TestAssertStringWithStripANSI(t *testing.T) {
 	t.Parallel()
 	const out = "plain \x1b[31mred\x1b[0m"
-	if !AssertString(t, func() string { return out }, "plain red", WithStripANSI()) {
+	if !AssertString(t, func() string { return out }, "plain red", WithANSI(false)) {
 		t.Fatal("expected strip-then-contains to match")
 	}
 }
@@ -159,7 +159,7 @@ func TestWaitString_WaitBytes_package(t *testing.T) {
 
 func TestWaitString_withStripANSI(t *testing.T) {
 	t.Parallel()
-	out := WaitString(t, func() string { return "\x1b[31mred\x1b[0m" }, "red", WithStripANSI(), WithTimeout(50*time.Millisecond))
+	out := WaitString(t, func() string { return "\x1b[31mred\x1b[0m" }, "red", WithANSI(false), WithTimeout(50*time.Millisecond))
 	if strings.TrimSpace(out) != "red" {
 		t.Fatalf("output = %q", out)
 	}
@@ -175,23 +175,23 @@ func TestWaitNotString_WaitNotBytes(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
 	h.SendProgram(appendMsg("flip")).
-		WaitNotString("BAD", WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond)).
-		WaitNotBytes([]byte("BAD"), WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
+		WaitNotString("BAD", WithTimeout(2*time.Second), WithCheck(5*time.Millisecond)).
+		WaitNotBytes([]byte("BAD"), WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
 }
 
 func TestWaitNotStrings(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
 	h.SendProgram(appendMsg("flip")).
-		WaitNotStrings([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
+		WaitNotStrings([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
 }
 
 func TestWaitMatch_WaitNotMatch_package(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
-	h.WaitMatch(`BAD`, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond)).
+	h.WaitMatch(`BAD`, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond)).
 		SendProgram(appendMsg("flip")).
-		WaitNotMatch(`BAD`, WithTimeout(2*time.Second), WithCheckInterval(5*time.Millisecond))
+		WaitNotMatch(`BAD`, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
 }
 
 func TestWaitMatch_invalidRegexp(t *testing.T) {
@@ -217,9 +217,9 @@ func TestWaitSettleView_package(t *testing.T) {
 	h := NewComponentHarness(t, &viewSettleStableModel{}, WithWindowSize(80, 1))
 	WaitString(t, h.View, "stable")
 	WaitSettle(t, h.View,
-		WithSettleTimeout(25*time.Millisecond),
+		WithSettle(25*time.Millisecond),
 		WithTimeout(2*time.Second),
-		WithCheckInterval(5*time.Millisecond),
+		WithCheck(5*time.Millisecond),
 	)
 	if !strings.Contains(h.View(), "stable") {
 		t.Fatalf("view = %q, want stable", h.View())

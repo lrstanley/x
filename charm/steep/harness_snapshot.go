@@ -8,24 +8,28 @@ import (
 	"github.com/lrstanley/x/charm/steep/snapshot"
 )
 
-// AssertViewSnapshot compares the latest captured view against a snapshot file
-// without waiting for the [tea.Program] to finish. It allows the test to continue.
+func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
+	if !collectOptions(h.mergedOpts()...).stripANSI {
+		return opts
+	}
+	return append([]snapshot.Option{snapshot.WithANSI(false)}, opts...)
+}
+
+// AssertSnapshot compares the current terminal screen buffer against a snapshot
+// file. It allows the test to continue.
 //
-// See also [Harness.RequireViewSnapshot], [Harness.AssertViewSnapshotNoANSI],
-// and [Harness.RequireViewSnapshotNoANSI].
-func (h *Harness) AssertViewSnapshot(opts ...snapshot.Option) *Harness {
+// See also [Harness.RequireSnapshot].
+func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...)
 	return h
 }
 
-// RequireViewSnapshot compares the latest captured view against a snapshot file
-// without waiting for the [tea.Program] to finish, failing the test immediately if
-// the snapshot does not match.
+// RequireSnapshot compares the current terminal screen buffer against a snapshot
+// file. It fails the test immediately if the snapshot does not match.
 //
-// See also [Harness.AssertViewSnapshot], [Harness.AssertViewSnapshotNoANSI],
-// and [Harness.RequireViewSnapshotNoANSI].
-func (h *Harness) RequireViewSnapshot(opts ...snapshot.Option) *Harness {
+// See also [Harness.AssertSnapshot].
+func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	if !snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...) {
 		h.tb.FailNow()
@@ -33,46 +37,23 @@ func (h *Harness) RequireViewSnapshot(opts ...snapshot.Option) *Harness {
 	return h
 }
 
-func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
-	if !collectOptions(h.mergedOpts()...).stripANSI {
-		return opts
-	}
-	return append([]snapshot.Option{snapshot.WithStripANSI()}, opts...)
+// AssertJSON compares the current terminal screen buffer in JSON format against a
+// previously captured snapshot. It allows the test to continue.
+//
+// See also [Harness.AssertSnapshot].
+func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
+	h.tb.Helper()
+	snapshot.AssertScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
+	return h
 }
 
-// AssertViewSnapshotNoANSI compares the latest captured view against a snapshot
-// file after stripping ANSI sequences and without waiting for the [tea.Program] to
-// finish. It allows the test to continue.
+// RequireJSON compares the current terminal screen buffer in JSON format against a
+// previously captured snapshot. It fails the test immediately if the snapshot does
+// not match.
 //
-// Note that you can also use [WithStripANSI] on the harness constructor to
-// automatically strip ANSI sequences for all comparison-related methods. Example:
-//
-//	steep.NewHarness(t, model, steep.WithStripANSI())
-//	h.WaitString("hello")
-//	h.AssertViewSnapshot() // No need to call h.AssertViewSnapshotNoANSI.
-//
-// See also [Harness.AssertViewSnapshot], [Harness.RequireViewSnapshot],
-// and [Harness.RequireViewSnapshotNoANSI].
-func (h *Harness) AssertViewSnapshotNoANSI(opts ...snapshot.Option) *Harness {
+// See also [Harness.AssertJSON].
+func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	return h.AssertViewSnapshot(append(opts, snapshot.WithStripANSI())...)
-}
-
-// RequireViewSnapshotNoANSI compares the latest captured view against a
-// snapshot file after stripping ANSI sequences and without waiting for the
-// [tea.Program] to finish, failing the test immediately if the snapshot does not
-// match.
-//
-// Note that you can also use [WithStripANSI] on the harness constructor to
-// automatically strip ANSI sequences for all comparison-related methods. Example:
-//
-//	steep.NewHarness(t, model, steep.WithStripANSI())
-//	h.WaitString("hello")
-//	h.RequireViewSnapshot() // No need to call h.RequireViewSnapshotNoANSI.
-//
-// See also [Harness.AssertViewSnapshot], [Harness.RequireViewSnapshot],
-// and [Harness.AssertViewSnapshotNoANSI].
-func (h *Harness) RequireViewSnapshotNoANSI(opts ...snapshot.Option) *Harness {
-	h.tb.Helper()
-	return h.RequireViewSnapshot(append(opts, snapshot.WithStripANSI())...)
+	snapshot.RequireScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
+	return h
 }

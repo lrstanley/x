@@ -7,8 +7,6 @@ package steep
 import (
 	"context"
 	"iter"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,28 +18,6 @@ import (
 type runResult struct {
 	model tea.Model
 	err   error
-}
-
-// TODO: remove this default environment once Bubble Tea either flushes
-// startup DECRQM mode probes before input shutdown, or x/vt makes query
-// responses non-blocking. Without this, WT_SESSION/kitty-like envs make
-// Bubble Tea emit synchronized-output/unicode-core queries that x/vt can
-// answer by blocking on its input pipe during fast test cleanup.
-func harnessEnvironment() []string {
-	env := make([]string, 0, len(os.Environ())+2)
-	for _, entry := range os.Environ() {
-		key, _, ok := strings.Cut(entry, "=")
-		if !ok {
-			continue
-		}
-		switch key {
-		case "TERM", "TERM_PROGRAM", "WT_SESSION":
-			continue
-		default:
-			env = append(env, entry)
-		}
-	}
-	return append(env, "TERM=xterm-256color", "TERM_PROGRAM=Apple_Terminal")
 }
 
 var _ MessageCollector = (*Harness)(nil) // Enforce implementation of [MessageCollector].
@@ -79,7 +55,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		h.observer,
 		append(
 			cfg.programOpts,
-			tea.WithEnvironment(harnessEnvironment()),
+			tea.WithEnvironment(cfg.envVars),
 			tea.WithContext(tb.Context()),
 			tea.WithInput(h.emulator),
 			tea.WithOutput(h.emulator),

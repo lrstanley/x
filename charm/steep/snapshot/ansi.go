@@ -13,6 +13,30 @@ import (
 	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
+// writeBytes handles the i/o and writing of a []byte to a file.
+//
+// It will fail the test if there are i/o errors.
+func writeBytes(tb testing.TB, got []byte, path string, _ ...Option) {
+	tb.Helper()
+	if err := os.WriteFile(path, got, 0o600); err != nil {
+		tb.Fatalf("failed to write snapshot: %v", err)
+	}
+}
+
+// WriteBytes writes the given bytes to the given path, processing it in the same
+// way as [AssertEqual] and [RequireEqual]. If path is empty, it will be generated
+// using the test name and associated options.
+//
+// It will fail the test if there are i/o errors.
+func WriteBytes(tb testing.TB, got []byte, path string, opts ...Option) {
+	tb.Helper()
+	if path == "" {
+		cfg := collectOptions(tb, opts...)
+		path = snapshotPath(tb, cfg.suffix, ".snap", cfg)
+	}
+	writeBytes(tb, got, path, opts...)
+}
+
 // RequireEqual compares "got" against this test's generated snapshot file.
 func RequireEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) {
 	tb.Helper()
@@ -31,13 +55,10 @@ func AssertEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) bool
 	cfg := collectOptions(tb, opts...)
 
 	path := snapshotPath(tb, cfg.suffix, ".snap", cfg)
-	actual := normalize(got, cfg)
+	actual := []byte(normalize(got, cfg))
 
 	if cfg.update {
-		if err := os.WriteFile(path, actual, 0o600); err != nil {
-			tb.Errorf("failed to write snapshot %q: %v", path, err)
-			return false
-		}
+		writeBytes(tb, actual, path, opts...)
 		return true
 	}
 

@@ -35,11 +35,9 @@ func snapshotPath(tb testing.TB, suffix, ext string, cfg options) string {
 	}
 	segments[len(segments)-1] = base + ext
 
-	fn := filepath.Join(append([]string{"testdata"}, segments...)...)
-	tb.Logf("snapshot path: %s", fn)
+	fn := filepath.Join(append([]string{cfg.dir}, segments...)...)
 
 	if cfg.update {
-		tb.Logf("creating snapshot directory (if it doesn't exist): %s", filepath.Dir(fn))
 		err := os.MkdirAll(filepath.Dir(fn), 0o750)
 		if err != nil {
 			tb.Fatalf("failed to create snapshot directory: %v", err)
