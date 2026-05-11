@@ -137,26 +137,6 @@ func (m *delayedPingModel) Init() tea.Cmd {
 
 func (m *delayedPingModel) Update(uv.Event) tea.Cmd { return nil }
 
-func TestDimensions(t *testing.T) {
-	t.Parallel()
-	w, h := Dimensions("")
-	if w != 0 || h != 0 {
-		t.Fatalf("empty = %dx%d, want 0x0", w, h)
-	}
-	w, h = Dimensions("a\nbb\nccc")
-	if w != 3 || h != 3 {
-		t.Fatalf("got %dx%d, want 3x3", w, h)
-	}
-}
-
-func TestDimensions_withStripANSI(t *testing.T) {
-	t.Parallel()
-	w, h := Dimensions("plain \x1b[31mred\x1b[0m", WithStripANSI())
-	if w != 9 || h != 1 {
-		t.Fatalf("got %dx%d, want 9x1 for stripped %q", w, h, "plain red")
-	}
-}
-
 func TestWaitViewFunc(t *testing.T) {
 	t.Parallel()
 	got := WaitViewFunc(t, func() string { return "hello" }, func(s string) bool {

@@ -119,3 +119,28 @@ func TestEscapeESC(t *testing.T) {
 		t.Fatalf("[]byte: got %q, want %q", string(got), `pre\x1b[0mpost`)
 	}
 }
+
+func TestDimensions(t *testing.T) {
+	t.Parallel()
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		w, h := Dimensions("")
+		if w != 0 || h != 0 {
+			t.Fatalf("empty = %dx%d, want 0x0", w, h)
+		}
+	})
+	t.Run("multiline", func(t *testing.T) {
+		t.Parallel()
+		w, h := Dimensions("a\nbb\nccc")
+		if w != 3 || h != 3 {
+			t.Fatalf("got %dx%d, want 3x3", w, h)
+		}
+	})
+	t.Run("after_strip_ansi", func(t *testing.T) {
+		t.Parallel()
+		w, h := Dimensions(StripANSI("plain \x1b[31mred\x1b[0m"))
+		if w != 9 || h != 1 {
+			t.Fatalf("got %dx%d, want 9x1 for stripped plain red", w, h)
+		}
+	})
+}

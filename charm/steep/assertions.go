@@ -17,7 +17,6 @@ import (
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
 
@@ -457,7 +456,7 @@ func AssertHeight(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
-	_, goth := Dimensions(out)
+	_, goth := xansi.Dimensions(out)
 	if goth != n {
 		cfg.Errorf(tb, "expected output height %d, got %d", n, goth)
 		return false
@@ -489,7 +488,7 @@ func AssertWidth(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
-	gotw, _ := Dimensions(out)
+	gotw, _ := xansi.Dimensions(out)
 	if gotw != n {
 		cfg.Errorf(tb, "expected output width %d, got %d", n, gotw)
 		return false
@@ -520,7 +519,7 @@ func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...O
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
-	gotw, goth := Dimensions(out)
+	gotw, goth := xansi.Dimensions(out)
 	if gotw != width || goth != height {
 		cfg.Errorf(tb, "expected output dimensions %dx%d, got %dx%d", width, height, gotw, goth)
 		return false
@@ -549,18 +548,7 @@ func Dimensions(out string, opts ...Option) (w, h int) {
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
-
-	if out == "" {
-		return 0, 0
-	}
-
-	var width int
-	var height int
-	for line := range strings.SplitSeq(out, "\n") {
-		width = max(width, ansi.StringWidth(line))
-		height++
-	}
-	return width, height
+	return xansi.Dimensions(out)
 }
 
 // MessageCollector exposes messages observed by a test harness. [Harness] implements

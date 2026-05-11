@@ -140,3 +140,31 @@ func EscapeESC[T string | []byte](input T) T {
 		panic("unsupported type")
 	}
 }
+
+// Dimensions returns the width and height of the output.
+func Dimensions[T string | []byte](out T) (w, h int) {
+	var width, height int
+	switch v := any(out).(type) {
+	case string:
+		if v == "" {
+			return 0, 0
+		}
+		for line := range strings.SplitSeq(v, "\n") {
+			width = max(width, ansi.StringWidth(line))
+			height++
+		}
+	case []byte:
+		if len(v) == 0 {
+			return 0, 0
+		}
+		var line string
+		for bline := range bytes.SplitSeq(v, []byte("\n")) {
+			line = string(bline)
+			width = max(width, ansi.StringWidth(line))
+			height++
+		}
+	default:
+		panic("unsupported type")
+	}
+	return width, height
+}

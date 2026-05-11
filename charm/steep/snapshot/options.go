@@ -5,13 +5,18 @@
 package snapshot
 
 import (
+	"bytes"
+	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/lrstanley/x/charm/steep/internal/xansi"
 )
+
+const envUpdateSnapshots = "UPDATE_SNAPSHOTS"
 
 type options struct {
 	suffix               string
@@ -30,6 +35,10 @@ func collectOptions(tb testing.TB, opts ...Option) options {
 	cfg.update, _ = strconv.ParseBool(os.Getenv("UPDATE_SNAPS")) // To match that of github.com/gkampitakis/go-snaps.
 	if !cfg.update {
 		cfg.update, _ = strconv.ParseBool(os.Getenv(envUpdateSnapshots))
+	}
+
+	if cfg.update {
+		tb.Log("updating of snapshots is enabled through env vars")
 	}
 
 	for _, opt := range opts {
@@ -104,4 +113,23 @@ func WithESC() Option {
 	return func(cfg *options) {
 		cfg.disableEscapeESC = false
 	}
+}
+
+// normalize converts supported values to a stable byte representation.
+func normalize[T ~[]byte | ~string](got T, cfg options) []byte {
+	value := reflect.ValueOf(got)
+	var bts []byte
+	if value.Kind() == reflect.String {
+		bts = []byte(value.String())
+	} else if value.Kind() == reflect.Slice {
+		bts = bytes.Clone(value.Bytes())
+	} else {
+		bts = fmt.Append(nil, got)
+	}
+
+	for _, transform := range cfg.transforms {
+		bts = transform(bts)
+	}
+
+	return bts
 }
