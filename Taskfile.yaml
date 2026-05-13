@@ -2,6 +2,7 @@
 version: "3"
 vars:
   PACKAGES:
+    - x/vt
     - charm/formatter
     - charm/layout
     - charm/steep
