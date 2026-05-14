@@ -18,26 +18,15 @@ func (h *Harness) WaitFinished(opts ...Option) {
 	h.tb.Helper()
 
 	cfg := collectOptions(h.mergedOpts(opts...)...)
-	h.resultMu.RLock()
-	if result := h.result; result != nil {
-		h.resultMu.RUnlock()
-		_ = h.emulator.Close()
-		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
-			h.tb.Fatalf("bubble tea program failed: %v", result.err)
-		}
-		return
-	}
-	h.resultMu.RUnlock()
 
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
 	select {
-	case result := <-h.done:
-		h.resultMu.Lock()
-		h.result = &result
-		h.resultMu.Unlock()
-		_ = h.emulator.Close()
+	case <-h.done:
+		h.resultMu.RLock()
+		result := h.result
+		h.resultMu.RUnlock()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
 			h.tb.Fatalf("bubble tea program failed: %v", result.err)
 		}

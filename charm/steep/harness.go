@@ -32,7 +32,7 @@ type Harness struct {
 
 	resultMu sync.RWMutex
 	result   *runResult
-	done     chan runResult
+	done     chan struct{}
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -47,7 +47,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		tb:       tb,
 		emulator: newEmulator(cfg.width, cfg.height),
 		observer: newObserver(tb, model),
-		done:     make(chan runResult, 1),
+		done:     make(chan struct{}),
 		opts:     append([]Option(nil), opts...),
 	}
 
@@ -66,65 +66,39 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 
 	go func() {
 		finalModel, err := h.program.Run()
-		h.done <- runResult{
+		h.resultMu.Lock()
+		h.result = &runResult{
 			model: finalModel,
 			err:   err,
 		}
+		h.resultMu.Unlock()
+		close(h.done)
 	}()
 
 	h.waitStarted(cfg)
 
-	// TODO: have to add some extra protections for now due to upstream deadlock
-	// scenarios, due to [vt.Emulator] using an [io.Pipe].
 	tb.Cleanup(func() {
-		// On graceful Quit(), Bubble Tea's shutdown waits for the input read
-		// loop to finish ([Program.shutdown] → waitForReadLoop). Reads come
-		// from emulator.Read, fed by pumpVTToTea copying vt.Read. vt.Read blocks
-		// until vt's input pipe closes. That pipe is wired from closeInput().
-		// If closeInput ran only inside emulator.Close() after Run() returned,
-		// we'd deadlock: shutdown waits read loop → read waits pump → pump waits
-		// vt.Read → vt input still open → Run never completes.
-		h.emulator.closeInput()
-
-		quitDone := make(chan struct{})
-		go func() {
-			h.program.Quit()
-			close(quitDone)
-		}()
-
-		timer := time.NewTimer(cfg.timeout)
-		defer timer.Stop()
-
-		select {
-		case <-quitDone:
-		case <-timer.C:
-			h.program.Kill()
-		}
-		h.WaitFinished()
+		h.Close()
 	})
 
 	return h
 }
 
-// TODO: have to add some extra protections for now due to upstream deadlock
-// scenarios, due to [vt.Emulator] using an [io.Pipe].
-func (h *Harness) Close() error {
-	// On graceful Quit(), Bubble Tea's shutdown waits for the input read
-	// loop to finish ([Program.shutdown] → waitForReadLoop). Reads come
-	// from emulator.Read, fed by pumpVTToTea copying vt.Read. vt.Read blocks
-	// until vt's input pipe closes. That pipe is wired from closeInput().
-	// If closeInput ran only inside emulator.Close() after Run() returned,
-	// we'd deadlock: shutdown waits read loop → read waits pump → pump waits
-	// vt.Read → vt input still open → Run never completes.
-	h.emulator.closeInput()
-
+func (h *Harness) Close() {
 	cfg := collectOptions(h.mergedOpts()...)
+
+	go h.emulator.Close()
 
 	quitDone := make(chan struct{})
 	go func() {
 		if h.program != nil {
 			h.program.Quit()
+		} else {
+			// Should generally be sufficient for most programs to quit.
+			h.KeyCtrlC()
+			h.KeyCtrlC()
 		}
+		h.WaitFinished()
 		close(quitDone)
 	}()
 
@@ -138,14 +112,9 @@ func (h *Harness) Close() error {
 			h.program.Kill()
 		}
 	}
-	if h.program != nil {
-		h.WaitFinished()
-	}
-	return nil
+	h.WaitFinished()
 }
 
-// TODO: workaround due to https://github.com/charmbracelet/bubbletea/issues/1689
-// and a few other misc upstream bugs.
 func (h *Harness) waitStarted(cfg options) {
 	h.tb.Helper()
 
@@ -158,20 +127,7 @@ func (h *Harness) waitStarted(cfg options) {
 
 	select {
 	case <-h.observer.firstEvent:
-	case result := <-h.done:
-		h.resultMu.Lock()
-		h.result = &result
-		h.resultMu.Unlock()
-		_ = h.emulator.Close()
-		h.tb.Fatalf("bubble tea program finished before receiving a startup message")
 	case <-timer.C:
-		h.program.Kill()
-		h.WaitFinished()
-		h.tb.Fatalf("timeout waiting for bubble tea program to receive a startup message after %s", cfg.timeout)
-	case <-h.tb.Context().Done():
-		h.program.Kill()
-		h.WaitFinished()
-		h.tb.Fatalf("wait for bubble tea program startup canceled: %v", h.tb.Context().Err())
 	}
 }
 

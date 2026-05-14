@@ -714,10 +714,18 @@ func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 			return
 		}
 
+		delay := cfg.checkInterval - time.Since(*last.Load())
+		if delay < 0 {
+			// checkInterval is typically much smaller than settleTimeout; when the last
+			// message is not recent, (checkInterval - sinceLast) goes negative. Using
+			// that with time.After spins the loop and can starve the program under -race.
+			delay = cfg.checkInterval
+		}
+
 		select {
 		case <-ctx.Done():
 			tb.Fatalf("wait for messages to settle canceled: %v\n\n%s", ctx.Err(), observedMessages)
-		case <-time.After(min(cfg.checkInterval, cfg.checkInterval-time.Since(*last.Load())) + 5*time.Millisecond):
+		case <-time.After(delay + 5*time.Millisecond):
 		}
 	}
 }

@@ -5,8 +5,6 @@
 package steep
 
 import (
-	"bufio"
-	"errors"
 	"image"
 	"image/color"
 	"io"
@@ -18,10 +16,9 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/lrstanley/x/charm/steep/internal/vtpipe"
 	"github.com/lrstanley/x/charm/steep/snapshot"
 )
-
-const emuIOBufferSize = 4096
 
 var (
 	_ io.Reader = (*emulator)(nil) // [tea.WithInput]
@@ -29,17 +26,11 @@ var (
 )
 
 type emulator struct {
-	mu             sync.RWMutex // serializes vt I/O with pumpTeaToVT and Harness vt helpers
+	mu             sync.RWMutex // serializes vt I/O with pumpSink and Harness vt helpers
 	vt             *vt.Emulator
-	inputCloseOnce sync.Once // closes the vt input pipe at most once (unblocks [tea.Program] shutdown)
-
-	shutdownOnce sync.Once      // runs Close teardown once
-	wg           sync.WaitGroup // pumpTeaToVT and pumpVTToTea
-	outMu        sync.Mutex     // serializes Write and Flush on teaOut
-	teaIn        *bufio.Reader  // [tea.Program] reads emulator->program bytes here
-	teaOut       *bufio.Writer  // [tea.Program] render output; flushed to vt via toVTW
-	toVTW        *io.PipeWriter // writer end read by pumpTeaToVT into vt.Write
-	teaPipeR     *io.PipeReader // reader end closed on shutdown to unblock pumpVTToTea if the pipe fills
+	pipe           *vtpipe.Pipe // program stdin/stdout bridge to vt (see [vtpipe.Pipe])
+	inputCloseOnce sync.Once    // closes the vt input pipe at most once (unblocks [tea.Program] shutdown)
+	shutdownOnce   sync.Once    // runs Close teardown once
 
 	// Purely state tracking fields.
 	trackMu     sync.RWMutex // Tracked mirror fields; separate from mu so vt callbacks cannot deadlock callers holding mu around vt writes
@@ -57,17 +48,19 @@ type emulator struct {
 	lastBellAt  time.Time // Zero until first [vt.Callbacks.Bell].
 }
 
-func newEmulator(width, height int) *emulator {
-	toVTR, toVTW := io.Pipe()
-	fromVTR, fromVTW := io.Pipe()
+// vtSink serializes writes from the program output pump with other harness vt I/O.
+type vtSink struct{ e *emulator }
 
+func (w vtSink) Write(p []byte) (int, error) {
+	w.e.mu.Lock()
+	defer w.e.mu.Unlock()
+	return w.e.vt.Write(p)
+}
+
+func newEmulator(width, height int) *emulator {
 	emu := &emulator{
-		vt:       vt.NewEmulator(width, height),
-		focused:  true,
-		teaIn:    bufio.NewReaderSize(fromVTR, emuIOBufferSize),
-		teaOut:   bufio.NewWriterSize(toVTW, emuIOBufferSize),
-		toVTW:    toVTW,
-		teaPipeR: fromVTR,
+		vt:      vt.NewEmulator(width, height),
+		focused: true,
 
 		// Mirror defaults from: https://github.com/charmbracelet/x/blob/main/vt/mode.go
 		modes: ansi.Modes{
@@ -157,9 +150,11 @@ func newEmulator(width, height int) *emulator {
 		},
 	})
 
-	emu.wg.Add(2)
-	go emu.pumpTeaToVT(toVTR)
-	go emu.pumpVTToTea(fromVTW)
+	emu.pipe = vtpipe.New(
+		vtSink{e: emu},
+		emu.vt,
+		vtpipe.WithAfterOutgoingClosed(func() { emu.closeInput() }),
+	)
 
 	emu.mu.Lock()
 	emu.vt.Resize(width, height)
@@ -201,84 +196,21 @@ func (e *emulator) snapshot(tb testing.TB, opts ...snapshot.Option) *snapshot.Sc
 	return snap
 }
 
-// pumpTeaToVT copies [teaOutput.Read] to the vt [io.WriteCloser]. Workaround due to
-// the blocking nature of [teaOutput.Read] and [vt.Write] calls.
-func (e *emulator) pumpTeaToVT(teaOutput *io.PipeReader) {
-	defer e.wg.Done()
-	buf := make([]byte, emuIOBufferSize)
-	for {
-		n, err := teaOutput.Read(buf)
-		if n > 0 {
-			e.mu.Lock()
-			_, werr := e.vt.Write(buf[:n])
-			e.mu.Unlock()
-			if werr != nil {
-				return
-			}
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
-				_ = err
-			}
-			return
-		}
-	}
-}
-
-// pumpVTToTea copies [vt.Read] to the dst [io.WriteCloser]. Workaround due to
-// the blocking nature of [vt.Read] and [vt.Write] calls.
-func (e *emulator) pumpVTToTea(dst io.WriteCloser) {
-	defer e.wg.Done()
-	defer dst.Close()
-
-	buf := make([]byte, emuIOBufferSize)
-	_, err := io.CopyBuffer(dst, e.vt, buf)
-	if err != nil && !errors.Is(err, io.ErrClosedPipe) {
-		_ = err
-	}
-}
-
-// Close stops the I/O pumps, closes the vt input pipe, and waits for pump
-// goroutines to exit. It is safe to call more than once.
-func (e *emulator) Close() error {
+func (e *emulator) Close() {
 	e.shutdownOnce.Do(func() {
-		e.outMu.Lock()
-		_ = e.teaOut.Flush()
-		e.outMu.Unlock()
-		_ = e.toVTW.Close()
-
-		e.closeInput()
-
-		// If the [tea.Program] is not reading terminal input, the vt->tea pipe
-		// can fill and block pumpVTToTea on Write; closing the reader end
-		// unblocks [tea.Program] shutdown.
-		if e.teaPipeR != nil {
-			_ = e.teaPipeR.Close()
-		}
-
-		e.wg.Wait()
+		_ = e.pipe.Close()
 	})
-	return nil
 }
 
 func (e *emulator) Read(p []byte) (n int, err error) {
-	return e.teaIn.Read(p)
+	return e.pipe.Read(p)
 }
 
 func (e *emulator) Write(p []byte) (n int, err error) {
-	e.outMu.Lock()
-	defer e.outMu.Unlock()
-
-	n, err = e.teaOut.Write(p)
-	if err != nil {
-		return n, err
-	}
-	err = e.teaOut.Flush()
-	return n, err
+	return e.pipe.Write(p)
 }
 
-// closeInput closes the vt input pipe. Workaround to ensure appropriate draining
-// of [vt.Read] calls by [tea.Program].
+// closeInput closes the vt input pipe so [tea.Program] read loops can drain during shutdown.
 func (e *emulator) closeInput() {
 	e.inputCloseOnce.Do(func() {
 		switch input := e.vt.InputPipe().(type) {

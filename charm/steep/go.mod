@@ -2,13 +2,10 @@ module github.com/lrstanley/x/charm/steep
 
 go 1.26.0
 
-// TODO: https://github.com/charmbracelet/bubbletea/pull/1691
-replace charm.land/bubbletea/v2 => github.com/lrstanley/bubbletea/v2 v2.0.0-20260504235939-04ceac426d4c
-
 require (
-	charm.land/bubbletea/v2 v2.0.6
+	charm.land/bubbletea/v2 v2.0.7-0.20260512011140-c60f0c530422
 	github.com/aymanbagabas/go-udiff v0.4.1
-	github.com/charmbracelet/ultraviolet v0.0.0-20260428153724-66037269d7be
+	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/vt v0.0.0-20260511003329-c066bcf2349a
 	github.com/rivo/uniseg v0.4.7
