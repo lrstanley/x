@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-# Hand-maintained: goffi requires CGO_ENABLED=0 (see x/vt doc.go). Do not replace
+# Hand-maintained: goffi requires CGO_ENABLED=0 (see vt/doc.go). Do not replace
 # this file with task workflows:all output without preserving CGO_ENABLED=0.
-name: pkg-x-vt
+name: pkg-vt
 
 on:
   pull_request:
@@ -9,16 +9,16 @@ on:
     paths:
       - "Taskfile.yaml"
       - "go.work*"
-      - "x/vt/**"
-      - ".github/workflows/pkg-x-vt.yml"
+      - "vt/**"
+      - ".github/workflows/pkg-vt.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
     branches: [master]
     paths:
       - "Taskfile.yaml"
       - "go.work*"
-      - "x/vt/**"
-      - ".github/workflows/pkg-x-vt.yml"
+      - "vt/**"
+      - ".github/workflows/pkg-vt.yml"
   workflow_dispatch: {}
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: x/vt
+        working-directory: vt
         env:
           CGO_ENABLED: "0"
     steps:
@@ -42,7 +42,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: x/vt
+        working-directory: vt
         env:
           CGO_ENABLED: "0"
     steps:
@@ -53,4 +53,4 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          working-directory: x/vt
+          working-directory: vt

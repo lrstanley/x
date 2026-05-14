@@ -1,4 +1,4 @@
-module github.com/lrstanley/x/x/vt
+module github.com/lrstanley/x/vt
 
 go 1.25.0
 
