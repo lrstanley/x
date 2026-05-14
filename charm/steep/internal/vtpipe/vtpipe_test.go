@@ -112,7 +112,7 @@ func newBlockingSrc() *blockingSrc {
 	return &blockingSrc{ch: make(chan struct{})}
 }
 
-func (b *blockingSrc) Read(p []byte) (int, error) {
+func (b *blockingSrc) Read(_ []byte) (int, error) {
 	<-b.ch
 	return 0, io.EOF
 }
