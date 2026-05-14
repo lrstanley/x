@@ -7,9 +7,6 @@ package vt
 import (
 	"image/color"
 	"unicode/utf8"
-
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 )
 
 func styleColorToColor(sc ghosttyStyleColor) color.Color {
@@ -29,51 +26,51 @@ func styleColorToColor(sc ghosttyStyleColor) color.Color {
 	}
 }
 
-func underlineFromGhostty(u int32) ansi.Underline {
+func underlineFromGhostty(u int32) Underline {
 	switch u {
 	case 0:
-		return ansi.UnderlineNone
+		return UnderlineNone
 	case 1:
-		return ansi.UnderlineSingle
+		return UnderlineSingle
 	case 2:
-		return ansi.UnderlineDouble
+		return UnderlineDouble
 	case 3:
-		return ansi.UnderlineCurly
+		return UnderlineCurly
 	case 4:
-		return ansi.UnderlineDotted
+		return UnderlineDotted
 	case 5:
-		return ansi.UnderlineDashed
+		return UnderlineDashed
 	default:
-		return ansi.UnderlineNone
+		return UnderlineNone
 	}
 }
 
-func styleFromGhostty(gs *ghosttyStyle) uv.Style {
-	var s uv.Style
+func styleFromGhostty(gs *ghosttyStyle) Style {
+	var s Style
 	s.Fg = styleColorToColor(gs.Fg)
 	s.Bg = styleColorToColor(gs.Bg)
 	s.UnderlineColor = styleColorToColor(gs.UnderlineColor)
 	s.Underline = underlineFromGhostty(gs.Underline)
 	if gs.Bold {
-		s.Attrs |= uv.AttrBold
+		s.Attrs |= AttrBold
 	}
 	if gs.Italic {
-		s.Attrs |= uv.AttrItalic
+		s.Attrs |= AttrItalic
 	}
 	if gs.Faint {
-		s.Attrs |= uv.AttrFaint
+		s.Attrs |= AttrFaint
 	}
 	if gs.Blink {
-		s.Attrs |= uv.AttrBlink
+		s.Attrs |= AttrBlink
 	}
 	if gs.Inverse {
-		s.Attrs |= uv.AttrReverse
+		s.Attrs |= AttrReverse
 	}
 	if gs.Invisible {
-		s.Attrs |= uv.AttrConceal
+		s.Attrs |= AttrConceal
 	}
 	if gs.Strikethrough {
-		s.Attrs |= uv.AttrStrikethrough
+		s.Attrs |= AttrStrikethrough
 	}
 	_ = gs.Overline
 	return s

@@ -4,8 +4,9 @@
 
 // Package vt provides a virtual terminal backed by libghostty-vt (Ghostty's
 // VT engine) using [github.com/go-webgpu/goffi] instead of cgo. The API is
-// shaped to mirror the ergonomics of [github.com/charmbracelet/x/vt] for the
-// subset that is implemented today.
+// shaped to mirror common methods from [github.com/charmbracelet/x/vt] for the
+// subset that is implemented today, using this package's own cell/style types
+// (it does not import charmbracelet/ultraviolet or charmbracelet/x/ansi).
 //
 // # Native library
 //

@@ -6,12 +6,10 @@ package vt
 
 import (
 	"errors"
+	"image"
 	"image/color"
 	"sync"
 	"unsafe"
-
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // Options configures a new [Terminal].
@@ -26,9 +24,9 @@ type Options struct {
 	// and resize side effects inside libghostty-vt. When zero, 10×20 is used.
 	CellWidthPx, CellHeightPx uint32
 
-	// WidthMethod selects how string widths are derived when building cells.
-	// The zero value selects [ansi.WcWidth].
-	WidthMethod ansi.Method
+	// WidthMeasurer selects how string widths are derived when building cells.
+	// When nil, [DefaultWidthMeasurer] is used.
+	WidthMeasurer WidthMeasurer
 }
 
 // Terminal is a libghostty-vt-backed virtual terminal with an API shaped
@@ -37,7 +35,7 @@ type Terminal struct {
 	mu    sync.Mutex
 	g     *ghostLib
 	h     uintptr
-	wm    ansi.Method
+	wm    WidthMeasurer
 	cellW uint32
 	cellH uint32
 }
@@ -62,7 +60,10 @@ func Open(o Options) (*Terminal, error) {
 	if ch == 0 {
 		ch = 20
 	}
-	wm := o.WidthMethod
+	wm := o.WidthMeasurer
+	if wm == nil {
+		wm = DefaultWidthMeasurer{}
+	}
 	opts := ghosttyTerminalOptions{
 		Cols:          uint16(o.Width),  //nolint:gosec // validated above
 		Rows:          uint16(o.Height), //nolint:gosec
@@ -151,42 +152,42 @@ func (t *Terminal) Height() int {
 	return int(v)
 }
 
-// Bounds returns the rectangle covering the active grid, aligned with
-// [github.com/charmbracelet/ultraviolet.Screen.Bounds].
-func (t *Terminal) Bounds() uv.Rectangle {
+// Bounds returns the rectangle covering the active grid (origin at (0,0); Max
+// is exclusive), using the same convention as [image.Rectangle].
+func (t *Terminal) Bounds() image.Rectangle {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.h == 0 {
-		return uv.Rectangle{}
+		return image.Rectangle{}
 	}
 	var cols, rows uint16
 	if err := t.g.terminalGet(t.h, ghosttyTerminalDataCols, unsafe.Pointer(&cols)); err != nil {
-		return uv.Rectangle{}
+		return image.Rectangle{}
 	}
 	if err := t.g.terminalGet(t.h, ghosttyTerminalDataRows, unsafe.Pointer(&rows)); err != nil {
-		return uv.Rectangle{}
+		return image.Rectangle{}
 	}
-	return uv.Rectangle{Max: uv.Position{X: int(cols), Y: int(rows)}}
+	return image.Rectangle{Max: image.Pt(int(cols), int(rows))}
 }
 
-// WidthMethod reports the width strategy used when constructing cell contents.
-func (t *Terminal) WidthMethod() uv.WidthMethod {
+// WidthMethod returns the width strategy used when constructing cell contents.
+func (t *Terminal) WidthMethod() WidthMeasurer {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.wm
 }
 
 // CursorPosition returns the cursor location in the active area (zero-based).
-func (t *Terminal) CursorPosition() uv.Position {
+func (t *Terminal) CursorPosition() image.Point {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.h == 0 {
-		return uv.Position{}
+		return image.Point{}
 	}
 	var x, y uint16
 	_ = t.g.terminalGet(t.h, ghosttyTerminalDataCursorX, unsafe.Pointer(&x))
 	_ = t.g.terminalGet(t.h, ghosttyTerminalDataCursorY, unsafe.Pointer(&y))
-	return uv.Position{X: int(x), Y: int(y)}
+	return image.Pt(int(x), int(y))
 }
 
 // IsAltScreen reports whether the alternate screen buffer is active.
@@ -261,7 +262,7 @@ func (t *Terminal) CursorColor() color.Color {
 
 // CellAt returns the resolved cell at (x, y) in active coordinates, or nil if
 // out of bounds.
-func (t *Terminal) CellAt(x, y int) *uv.Cell {
+func (t *Terminal) CellAt(x, y int) *Cell {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.h == 0 {
@@ -302,13 +303,13 @@ func (t *Terminal) CellAt(x, y int) *uv.Cell {
 			nCP, err = t.g.gridRefGraphemes(&ref, buf)
 			continue
 		}
-		return &uv.Cell{Content: " ", Width: 1}
+		return &Cell{Content: " ", Width: 1}
 	}
 	text := graphemesToString(buf[:nCP])
 	gw := t.wm.StringWidth(text)
 	w := cellWidthFromGhostty(wide, gw)
 	if text == "" && w == 0 {
-		return &uv.Cell{}
+		return &Cell{}
 	}
 	if text == "" && w > 0 {
 		text = " "
@@ -335,12 +336,12 @@ func (t *Terminal) CellAt(x, y int) *uv.Cell {
 		}
 		break
 	}
-	var link uv.Link
+	var link Link
 	if err == nil && nURI > 0 {
 		link.URL = string(linkBuf[:nURI])
 	}
 
-	return &uv.Cell{
+	return &Cell{
 		Content: text,
 		Width:   w,
 		Style:   style,
