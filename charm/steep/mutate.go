@@ -52,7 +52,6 @@ func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
 	done := make(chan error, 1)
 	h.SendProgram(mutateMsg[M]{fn: fn, done: done})
 
-	ctx := h.tb.Context()
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
@@ -63,8 +62,8 @@ func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
 		}
 	case <-timer.C:
 		h.tb.Fatalf("timeout waiting for mutation after %s", cfg.timeout)
-	case <-ctx.Done():
-		h.tb.Fatalf("test context canceled waiting for mutation: %v", ctx.Err())
+	case <-cfg.ctx.Done():
+		h.tb.Fatalf("test context canceled waiting for mutation: %v", cfg.ctx.Err())
 	}
 
 	return h

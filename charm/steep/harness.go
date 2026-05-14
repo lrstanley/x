@@ -7,6 +7,8 @@ package steep
 import (
 	"context"
 	"iter"
+	"os"
+	"os/signal"
 	"sync"
 	"testing"
 	"time"
@@ -43,6 +45,13 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 
 	cfg := collectOptions(opts...)
 
+	if cfg.ctx == nil || !cfg.wasContextSet {
+		ctx, cancel := signal.NotifyContext(tb.Context(), os.Interrupt)
+		tb.Cleanup(cancel)
+		opts = append(opts, WithContext(ctx))
+		cfg = collectOptions(opts...)
+	}
+
 	h := &Harness{
 		tb:       tb,
 		emulator: newEmulator(cfg.width, cfg.height),
@@ -56,7 +65,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		append(
 			cfg.programOpts,
 			tea.WithEnvironment(cfg.envVars),
-			tea.WithContext(tb.Context()),
+			tea.WithContext(cfg.ctx),
 			tea.WithInput(h.emulator),
 			tea.WithOutput(h.emulator),
 			tea.WithoutSignals(),
@@ -98,7 +107,7 @@ func (h *Harness) Close() {
 			h.KeyCtrlC()
 			h.KeyCtrlC()
 		}
-		h.WaitFinished()
+		<-h.done
 		close(quitDone)
 	}()
 
@@ -107,12 +116,18 @@ func (h *Harness) Close() {
 
 	select {
 	case <-quitDone:
+	case <-cfg.ctx.Done():
+		if h.program != nil {
+			h.program.Kill()
+		}
 	case <-timer.C:
 		if h.program != nil {
 			h.program.Kill()
 		}
 	}
-	h.WaitFinished()
+	// TB context is already canceled during Cleanups (see testing.T.Context); join with
+	// a detached parent so WaitFinished observes h.done/timer only.
+	h.WaitFinished(WithContext(context.Background()))
 }
 
 func (h *Harness) waitStarted(cfg options) {
@@ -128,6 +143,7 @@ func (h *Harness) waitStarted(cfg options) {
 	select {
 	case <-h.observer.firstEvent:
 	case <-timer.C:
+	case <-cfg.ctx.Done():
 	}
 }
 

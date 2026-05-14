@@ -35,6 +35,8 @@ func (h *Harness) WaitFinished(opts ...Option) {
 		}
 	case <-timer.C:
 		h.tb.Fatalf("timeout waiting for bubble tea program to finish after %s", cfg.timeout)
+	case <-cfg.ctx.Done():
+		h.tb.Fatalf("test context canceled waiting for bubble tea program to finish: %v", cfg.ctx.Err())
 	}
 }
 

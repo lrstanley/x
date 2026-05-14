@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"reflect"
@@ -65,6 +66,10 @@ type options struct {
 
 	// envVars are extra environment variables to set for the [tea.Program].
 	envVars []string
+
+	// ctx is the parent context for blocking [WaitString]-style helpers.
+	ctx           context.Context
+	wasContextSet bool
 }
 
 func defaultOptions() options {
@@ -85,6 +90,7 @@ func defaultOptions() options {
 			// answer by blocking on its input pipe during fast test cleanup.
 			"TERM_PROGRAM=Apple_Terminal",
 		},
+		ctx: context.Background(),
 	}
 }
 
@@ -95,22 +101,27 @@ func collectOptions(opts ...Option) options {
 			opt(&cfg)
 		}
 	}
-	if cfg.checkInterval <= 0 {
-		cfg.checkInterval = DefaultCheckInterval
-	}
-	if cfg.timeout <= 0 {
-		cfg.timeout = DefaultTimeout
-	}
-	if cfg.settleTimeout <= 0 {
-		cfg.settleTimeout = DefaultSettleTimeout
-	}
-	if maxSettleTimeout := cfg.timeout * 8 / 10; cfg.settleTimeout > maxSettleTimeout {
-		cfg.settleTimeout = maxSettleTimeout
-	}
-	return cfg
+	return cfg.validate()
 }
 
-func (o *options) Errorf(tb testing.TB, format string, args ...any) {
+func (o options) validate() options {
+	if o.checkInterval <= 0 {
+		o.checkInterval = DefaultCheckInterval
+	}
+	if o.timeout <= 0 {
+		o.timeout = DefaultTimeout
+	}
+	if o.settleTimeout <= 0 {
+		o.settleTimeout = DefaultSettleTimeout
+	}
+	if maxSettleTimeout := o.timeout * 8 / 10; o.settleTimeout > maxSettleTimeout {
+		o.settleTimeout = maxSettleTimeout
+	}
+
+	return o
+}
+
+func (o options) Errorf(tb testing.TB, format string, args ...any) {
 	tb.Helper()
 	if o.reason != "" {
 		format = o.reason + ": " + format
@@ -118,7 +129,7 @@ func (o *options) Errorf(tb testing.TB, format string, args ...any) {
 	tb.Errorf(format, args...)
 }
 
-func (o *options) Fatalf(tb testing.TB, format string, args ...any) {
+func (o options) Fatalf(tb testing.TB, format string, args ...any) {
 	tb.Helper()
 	if o.reason != "" {
 		format = o.reason + ": " + format
@@ -153,10 +164,25 @@ func WithWindowSize(width, height int) Option {
 	}
 }
 
+// WithContext sets the parent context for blocking waits ([WaitString],
+// [WaitMessageWhere], [Harness] wait helpers, etc.) and for the running
+// [tea.Program]. Defaults to a notify context through [signal.NotifyContext]
+// when invoked through [Harness], else [context.Background].
+func WithContext(ctx context.Context) Option {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return func(cfg *options) {
+		cfg.ctx = ctx
+		cfg.wasContextSet = true
+	}
+}
+
 // WithProgramOptions appends [tea.ProgramOption] values for [NewHarness] and
-// [NewComponentHarness]. The harness always sets environment, context, input and
-// output (via the internal vt emulator), [tea.WithoutSignals], and [tea.WithWindowSize];
-// those cannot be replaced by options passed here. It has no effect elsewhere.
+// [NewComponentHarness]. The harness always sets environment, context (see
+// [WithContext]), input and output (via the internal vt emulator),
+// [tea.WithoutSignals], and [tea.WithWindowSize]; those cannot be replaced by
+// options passed here. It has no effect elsewhere.
 func WithProgramOptions(opts ...tea.ProgramOption) Option {
 	return func(cfg *options) {
 		cfg.programOpts = append(cfg.programOpts, opts...)

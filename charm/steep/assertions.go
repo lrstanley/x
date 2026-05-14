@@ -36,7 +36,6 @@ func WaitViewFunc[T ~string | ~[]byte](
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
-	ctx := tb.Context()
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
@@ -57,9 +56,9 @@ func WaitViewFunc[T ~string | ~[]byte](
 		timer.Reset(min(cfg.checkInterval, remainingTimeout))
 		select {
 		case <-timer.C:
-		case <-ctx.Done():
+		case <-cfg.ctx.Done():
 			timer.Stop()
-			cfg.Fatalf(tb, "wait for condition canceled: %v", ctx.Err())
+			cfg.Fatalf(tb, "wait for condition canceled: %v", cfg.ctx.Err())
 		}
 	}
 }
@@ -186,7 +185,6 @@ func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 
 	cfg := collectOptions(opts...)
 	deadline := time.Now().Add(cfg.timeout)
-	ctx := tb.Context()
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
@@ -225,9 +223,9 @@ func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 		timer.Reset(min(cfg.checkInterval, cfg.settleTimeout-quietFor, remainingTimeout))
 		select {
 		case <-timer.C:
-		case <-ctx.Done():
+		case <-cfg.ctx.Done():
 			timer.Stop()
-			tb.Fatalf("wait for view to settle canceled: %v", ctx.Err())
+			tb.Fatalf("wait for view to settle canceled: %v", cfg.ctx.Err())
 		}
 	}
 }
@@ -629,7 +627,7 @@ func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event)
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	ctx, cancel := context.WithTimeout(tb.Context(), cfg.timeout)
+	ctx, cancel := context.WithTimeout(cfg.ctx, cfg.timeout)
 	defer cancel()
 
 	observedMessages := newTypeObserver[uv.Event]()
@@ -658,7 +656,7 @@ func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	ctx, cancel := context.WithTimeout(tb.Context(), cfg.timeout)
+	ctx, cancel := context.WithTimeout(cfg.ctx, cfg.timeout)
 	defer cancel()
 
 	observedMessages := newTypeObserver[uv.Event]()
@@ -688,7 +686,8 @@ func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()
 
 	cfg := collectOptions(opts...)
-	ctx, cancel := context.WithTimeout(tb.Context(), cfg.timeout)
+
+	ctx, cancel := context.WithTimeout(cfg.ctx, cfg.timeout)
 	defer cancel()
 
 	observedMessages := newTypeObserver[uv.Event]()
