@@ -7,7 +7,7 @@ require (
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3
 	github.com/charmbracelet/x/ansi v0.11.7
-	github.com/charmbracelet/x/vt v0.0.0-20260511003329-c066bcf2349a
+	github.com/charmbracelet/x/vt v0.0.0-20260511125431-fe5d686e0c99
 	github.com/rivo/uniseg v0.4.7
 )
 
