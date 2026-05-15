@@ -7,15 +7,15 @@ replace github.com/lrstanley/x/charm/steep => ../
 
 require (
 	charm.land/bubbles/v2 v2.1.0
-	charm.land/bubbletea/v2 v2.0.6
+	charm.land/bubbletea/v2 v2.0.7-0.20260512011140-c60f0c530422
 	charm.land/lipgloss/v2 v2.0.3
-	github.com/lrstanley/x/charm/steep v0.0.0-20260510074740-f99adc613ee2
+	github.com/lrstanley/x/charm/steep v0.0.0-20260514072400-85ffc850d28d
 )
 
 require (
 	github.com/aymanbagabas/go-udiff v0.4.1 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260428153724-66037269d7be // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
