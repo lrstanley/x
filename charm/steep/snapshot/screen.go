@@ -152,8 +152,8 @@ type ScreenSnapshot struct {
 	AltScreen bool      `json:"alt_screen,omitempty" yaml:"alt_screen,omitempty"`
 	Focused   bool      `json:"focused,omitempty"    yaml:"focused,omitempty"`
 	Cursor    Cursor    `json:"cursor,omitempty"     yaml:"cursor"`
-	BgColor   Color     `json:"bg_color,omitzero"    yaml:"bg_color,omitzero"`
 	FgColor   Color     `json:"fg_color,omitzero"    yaml:"fg_color,omitzero"`
+	BgColor   Color     `json:"bg_color,omitzero"    yaml:"bg_color,omitzero"`
 	Cells     [][]*Cell `json:"cells"                yaml:"cells"`
 }
 

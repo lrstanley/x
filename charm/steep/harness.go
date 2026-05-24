@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/charm/still"
 )
 
 type runResult struct {
@@ -35,6 +36,8 @@ type Harness struct {
 	resultMu sync.RWMutex
 	result   *runResult
 	done     chan struct{}
+
+	imageRenderer *still.Renderer
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -52,12 +55,18 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		cfg = collectOptions(opts...)
 	}
 
+	imageRenderer, err := still.New()
+	if err != nil {
+		tb.Fatal(err)
+	}
+
 	h := &Harness{
-		tb:       tb,
-		emulator: newEmulator(cfg.width, cfg.height),
-		observer: newObserver(tb, model),
-		done:     make(chan struct{}),
-		opts:     append([]Option(nil), opts...),
+		tb:            tb,
+		emulator:      newEmulator(cfg.width, cfg.height),
+		observer:      newObserver(tb, model),
+		done:          make(chan struct{}),
+		opts:          append([]Option(nil), opts...),
+		imageRenderer: imageRenderer,
 	}
 
 	h.program = tea.NewProgram(
@@ -74,11 +83,11 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	)
 
 	go func() {
-		finalModel, err := h.program.Run()
+		finalModel, ferr := h.program.Run()
 		h.resultMu.Lock()
 		h.result = &runResult{
 			model: finalModel,
-			err:   err,
+			err:   ferr,
 		}
 		h.resultMu.Unlock()
 		close(h.done)
@@ -95,6 +104,10 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 
 func (h *Harness) Close() {
 	cfg := collectOptions(h.mergedOpts()...)
+
+	if err := h.imageRenderer.Close(); err != nil {
+		h.tb.Errorf("failed to close image renderer: %v", err)
+	}
 
 	go h.emulator.Close()
 

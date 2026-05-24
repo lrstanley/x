@@ -5,7 +5,13 @@
 package steep
 
 import (
+	"image"
+	"image/draw"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/vt"
 	"github.com/lrstanley/x/charm/steep/snapshot"
+	"github.com/lrstanley/x/charm/still"
 )
 
 func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
@@ -56,4 +62,82 @@ func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	snapshot.RequireScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
 	return h
+}
+
+// ImageInto renders the current terminal screen buffer into dst. dst must be at
+// least as large as [Harness.ImageBounds] reports for the same options. Pixels
+// written to dst are caller-owned and safe to retain after the call returns.
+//
+// See also [Harness.Image].
+func (h *Harness) ImageInto(dst draw.Image, opts ...still.Option) {
+	h.tb.Helper()
+
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+
+	h.applyScreenshotLocked(opts...)
+	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.emulator.vt)
+}
+
+// Image renders the current terminal screen buffer as an image. Screenshot
+// options are applied to the harness-owned renderer and persist across calls.
+//
+// The returned [image.Image] is owned by the harness renderer and invalidated
+// by the next [Harness.Image] call or [Harness.Close]. Do not mutate it and do
+// not retain it across [Harness.Image] calls; encode or copy immediately, or use
+// [Harness.ImageInto] when pixels must outlive the draw.
+//
+// See also [Harness.ImageInto].
+func (h *Harness) Image(opts ...still.Option) image.Image {
+	h.tb.Helper()
+
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+
+	h.applyScreenshotLocked(opts...)
+	return h.imageRenderer.Draw(h.emulator.vt)
+}
+
+// applyScreenshotLocked applies screenshot options and live emulator state to
+// the harness renderer. The caller must hold [emulator.mu] for reading.
+func (h *Harness) applyScreenshotLocked(opts ...still.Option) {
+	h.tb.Helper()
+
+	state := h.screenshotStateLocked()
+	if err := h.imageRenderer.Apply(append(opts, still.WithEmulatorState(state))...); err != nil {
+		h.tb.Fatal(err)
+	}
+}
+
+func (h *Harness) screenshotStateLocked() still.EmulatorState {
+	h.emulator.trackMu.RLock()
+	defer h.emulator.trackMu.RUnlock()
+
+	return still.EmulatorState{
+		Title:           h.emulator.title,
+		Focused:         h.emulator.focused,
+		AltScreen:       h.emulator.altScreen,
+		CursorVisible:   h.emulator.cursorVis,
+		CursorX:         h.emulator.cursorPos.X,
+		CursorY:         h.emulator.cursorPos.Y,
+		CursorColor:     h.emulator.cursorColor,
+		CursorStyle:     cursorShapeFromVT(h.emulator.cursorStyle),
+		CursorBlink:     h.emulator.cursorBlink,
+		FgColor:         h.emulator.fgColor,
+		BgColor:         h.emulator.bgColor,
+		ScrollbackCount: h.emulator.vt.ScrollbackLen(),
+	}
+}
+
+func cursorShapeFromVT(style vt.CursorStyle) uv.CursorShape {
+	switch style {
+	case vt.CursorBlock:
+		return uv.CursorBlock
+	case vt.CursorUnderline:
+		return uv.CursorUnderline
+	case vt.CursorBar:
+		return uv.CursorBar
+	default:
+		return uv.CursorBlock
+	}
 }

@@ -5,6 +5,7 @@ vars:
     - charm/formatter
     - charm/layout
     - charm/steep
+    - charm/still
     - http/utils
     - logging/handlers
     - pid
