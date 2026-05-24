@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/charm/still/internal/config"
 )
 
 func TestRendererCloseSemantics(t *testing.T) {
@@ -38,7 +39,7 @@ func TestRendererCloseSemantics(t *testing.T) {
 	})
 }
 
-func TestDrawIntoAreaValidation(t *testing.T) {
+func TestDrawInto(t *testing.T) {
 	t.Parallel()
 
 	margin := color.NRGBA{R: 0xff, A: 0xff}
@@ -46,42 +47,45 @@ func TestDrawIntoAreaValidation(t *testing.T) {
 	d := MustNew(WithMargin(1, margin))
 	size := d.Size(scr)
 
-	assertPanic(t, "too small area", func() {
+	t.Run("rejects area smaller than render size", func(t *testing.T) {
+		t.Parallel()
+
+		assertPanic(t, "too small area", func() {
+			dst := image.NewNRGBA(image.Rect(0, 0, size.X, size.Y))
+			d.DrawInto(dst, image.Rect(0, 0, size.X-1, size.Y), scr)
+		})
+	})
+
+	t.Run("draws into larger area without filling unused pixels", func(t *testing.T) {
+		t.Parallel()
+
+		dst := image.NewNRGBA(image.Rect(0, 0, size.X+8, size.Y+8))
+		area := image.Rect(2, 3, 2+size.X+4, 3+size.Y+4)
+		d.DrawInto(dst, area, scr)
+
+		if got := dst.NRGBAAt(2, 3); got != margin {
+			t.Fatalf("margin pixel = %#v, want %#v", got, margin)
+		}
+		if got := dst.NRGBAAt(area.Max.X-1, area.Max.Y-1); got != (color.NRGBA{}) {
+			t.Fatalf("unused larger area pixel = %#v, want transparent zero", got)
+		}
+	})
+
+	t.Run("empty area uses screen bounds", func(t *testing.T) {
+		t.Parallel()
+
+		assertPanic(t, "too small destination", func() {
+			dst := image.NewNRGBA(image.Rect(0, 0, size.X-1, size.Y))
+			d.DrawInto(dst, image.Rectangle{}, scr)
+		})
+
 		dst := image.NewNRGBA(image.Rect(0, 0, size.X, size.Y))
-		d.DrawInto(dst, image.Rect(0, 0, size.X-1, size.Y), scr)
-	})
-
-	dst := image.NewNRGBA(image.Rect(0, 0, size.X+8, size.Y+8))
-	area := image.Rect(2, 3, 2+size.X+4, 3+size.Y+4)
-	d.DrawInto(dst, area, scr)
-
-	if got := dst.NRGBAAt(2, 3); got != margin {
-		t.Fatalf("margin pixel = %#v, want %#v", got, margin)
-	}
-	if got := dst.NRGBAAt(area.Max.X-1, area.Max.Y-1); got != (color.NRGBA{}) {
-		t.Fatalf("unused larger area pixel = %#v, want transparent zero", got)
-	}
-}
-
-func TestDrawIntoEmptyAreaUsesScreenBounds(t *testing.T) {
-	t.Parallel()
-
-	margin := color.NRGBA{R: 0xff, A: 0xff}
-	scr := newTestScreen(2, 1)
-	d := MustNew(WithMargin(1, margin))
-	size := d.Size(scr)
-
-	assertPanic(t, "too small destination", func() {
-		dst := image.NewNRGBA(image.Rect(0, 0, size.X-1, size.Y))
 		d.DrawInto(dst, image.Rectangle{}, scr)
+
+		if got := dst.NRGBAAt(0, 0); got != margin {
+			t.Fatalf("margin pixel = %#v, want %#v", got, margin)
+		}
 	})
-
-	dst := image.NewNRGBA(image.Rect(0, 0, size.X, size.Y))
-	d.DrawInto(dst, image.Rectangle{}, scr)
-
-	if got := dst.NRGBAAt(0, 0); got != margin {
-		t.Fatalf("margin pixel = %#v, want %#v", got, margin)
-	}
 }
 
 func TestDrawReusesFrame(t *testing.T) {
@@ -113,74 +117,62 @@ func TestDrawReusesFrame(t *testing.T) {
 	}
 }
 
-func TestEmulatorStateReplacementDoesNotRebuildMetrics(t *testing.T) {
+func TestApplySkipsRebuildForStateAndPaletteOnlyChanges(t *testing.T) {
 	t.Parallel()
 
-	first := EmulatorState{Title: "first", CursorVisible: true, CursorX: 1}
-	second := EmulatorState{Title: "second", CursorVisible: false, CursorX: 2}
-	d := MustNew(WithEmulatorState(first), WithEmulatorState(second))
+	t.Run("emulator state", func(t *testing.T) {
+		t.Parallel()
 
-	if got := d.EmulatorState(); got.Title != second.Title || got.CursorX != second.CursorX || got.CursorVisible != second.CursorVisible {
-		t.Fatalf("EmulatorState() = %#v, want replacement %#v", got, second)
-	}
-	if !d.HasEmulatorState() {
-		t.Fatal("HasEmulatorState() = false, want true")
-	}
+		first := EmulatorState{Title: "first", CursorVisible: true, CursorX: 1}
+		second := EmulatorState{Title: "second", CursorVisible: false, CursorX: 2}
+		d := MustNew(WithEmulatorState(first), WithEmulatorState(second))
 
-	metricsVersion := d.metricsVersion
-	fontVersion := d.fontVersion
-	if err := d.Apply(WithEmulatorState(first)); err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
+		if got := d.EmulatorState(); got.Title != second.Title || got.CursorX != second.CursorX || got.CursorVisible != second.CursorVisible {
+			t.Fatalf("EmulatorState() = %#v, want replacement %#v", got, second)
+		}
+		if !d.HasEmulatorState() {
+			t.Fatal("HasEmulatorState() = false, want true")
+		}
 
-	if d.metricsVersion != metricsVersion {
-		t.Fatalf("metricsVersion changed on state-only Apply: %d -> %d", metricsVersion, d.metricsVersion)
-	}
-	if d.fontVersion != fontVersion {
-		t.Fatalf("fontVersion changed on state-only Apply: %d -> %d", fontVersion, d.fontVersion)
-	}
-	if d.dirty != dirtyNone {
-		t.Fatalf("dirty = %08b, want dirtyNone", d.dirty)
-	}
-}
+		metricsVersion := d.metricsVersion
+		fontVersion := d.fontVersion
+		if err := d.Apply(WithEmulatorState(first)); err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
 
-func TestPaletteOnlyApplyDoesNotRebuildFontsOrMetrics(t *testing.T) {
-	t.Parallel()
+		if d.metricsVersion != metricsVersion {
+			t.Fatalf("metricsVersion changed on state-only Apply: %d -> %d", metricsVersion, d.metricsVersion)
+		}
+		if d.fontVersion != fontVersion {
+			t.Fatalf("fontVersion changed on state-only Apply: %d -> %d", fontVersion, d.fontVersion)
+		}
+		if d.dirty != config.DirtyNone {
+			t.Fatalf("dirty = %08b, want DirtyNone", d.dirty)
+		}
+	})
 
-	blue := color.NRGBA{B: 0xff, A: 0xff}
-	d := MustNew()
+	t.Run("palette", func(t *testing.T) {
+		t.Parallel()
 
-	metricsVersion := d.metricsVersion
-	fontVersion := d.fontVersion
-	if err := d.Apply(WithPalette(Palette{DefaultBackground: blue})); err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
+		blue := color.NRGBA{B: 0xff, A: 0xff}
+		d := MustNew()
 
-	if d.metricsVersion != metricsVersion {
-		t.Fatalf("metricsVersion changed on palette-only Apply: %d -> %d", metricsVersion, d.metricsVersion)
-	}
-	if d.fontVersion != fontVersion {
-		t.Fatalf("fontVersion changed on palette-only Apply: %d -> %d", fontVersion, d.fontVersion)
-	}
-	if d.dirty != dirtyNone {
-		t.Fatalf("dirty = %08b, want dirtyNone", d.dirty)
-	}
-}
+		metricsVersion := d.metricsVersion
+		fontVersion := d.fontVersion
+		if err := d.Apply(WithPalette(Palette{DefaultBackground: blue})); err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
 
-func TestIndependentRenderersConcurrentDraw(t *testing.T) {
-	t.Parallel()
-
-	const workers = 32
-	d := MustNew()
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for range workers {
-		go func() {
-			defer wg.Done()
-			_ = d.Draw(newTestScreen(2, 1))
-		}()
-	}
-	wg.Wait()
+		if d.metricsVersion != metricsVersion {
+			t.Fatalf("metricsVersion changed on palette-only Apply: %d -> %d", metricsVersion, d.metricsVersion)
+		}
+		if d.fontVersion != fontVersion {
+			t.Fatalf("fontVersion changed on palette-only Apply: %d -> %d", fontVersion, d.fontVersion)
+		}
+		if d.dirty != config.DirtyNone {
+			t.Fatalf("dirty = %08b, want DirtyNone", d.dirty)
+		}
+	})
 }
 
 func TestRendererConcurrentMethodsSerialize(t *testing.T) {
@@ -240,38 +232,7 @@ func TestRendererContextPaletteIsImmutable(t *testing.T) {
 	)
 
 	_ = d.Draw(scr)
-	if got := d.opts.palette.Indexed[1]; got != blue {
+	if got := d.opts.Palette.Indexed[1]; got != blue {
 		t.Fatalf("renderer palette = %#v, want original %#v", got, blue)
 	}
-}
-
-func assertPanic(t *testing.T, name string, fn func()) {
-	t.Helper()
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("%s did not panic", name)
-		}
-	}()
-	fn()
-}
-
-type testScreen struct {
-	*uv.Buffer
-}
-
-func newTestScreen(width, height int) testScreen {
-	return testScreen{Buffer: uv.NewBuffer(width, height)}
-}
-
-func (s testScreen) WidthMethod() uv.WidthMethod {
-	return testWidthMethod{}
-}
-
-type testWidthMethod struct{}
-
-func (testWidthMethod) StringWidth(str string) int {
-	if str == "" {
-		return 0
-	}
-	return 1
 }

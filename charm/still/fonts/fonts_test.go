@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/image/font/opentype"
@@ -33,36 +34,97 @@ func TestDirs_absolute(t *testing.T) {
 	}
 }
 
-func TestLoad_embeddedCaseInsensitive(t *testing.T) {
-	tf, err := Load(strings.ToUpper(embeddedFixture) + ".TTF")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tf == nil {
-		t.Fatal("nil font")
-	}
-}
+func TestLoad(t *testing.T) {
+	t.Run("embedded case insensitive", func(t *testing.T) {
+		tf, err := Load(strings.ToUpper(embeddedFixture) + ".TTF")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tf == nil {
+			t.Fatal("nil font")
+		}
+	})
 
-func TestLoad_returnsCachedParsedFont(t *testing.T) {
-	resetFontCachesForTest()
-	t.Cleanup(resetFontCachesForTest)
+	t.Run("returns cached parsed font", func(t *testing.T) {
+		resetFontCachesForTest()
+		t.Cleanup(resetFontCachesForTest)
 
-	a, err := Load(embeddedFixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := Load(strings.ToLower(embeddedFixture))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a != b {
-		t.Fatal("expected Load to return cached parsed font")
-	}
+		a, err := Load(embeddedFixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := Load(strings.ToLower(embeddedFixture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != b {
+			t.Fatal("expected Load to return cached parsed font")
+		}
 
-	c := MustLoad(strings.ToUpper(embeddedFixture) + ".TTF")
-	if a != c {
-		t.Fatal("expected MustLoad to return cached parsed font")
-	}
+		c := MustLoad(strings.ToUpper(embeddedFixture) + ".TTF")
+		if a != c {
+			t.Fatal("expected MustLoad to return cached parsed font")
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		_, err := Load("not-a-real-font-name-xyz")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("concurrent same embedded font", func(t *testing.T) {
+		t.Parallel()
+
+		const workers = 48
+		const iters = 32
+
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for range workers {
+			go func() {
+				defer wg.Done()
+				for range iters {
+					if _, err := Load(embeddedFixture); err != nil {
+						t.Error(err)
+						return
+					}
+				}
+			}()
+		}
+		wg.Wait()
+	})
+
+	t.Run("concurrent distinct embedded fonts", func(t *testing.T) {
+		t.Parallel()
+
+		stubs := readEmbeddedFonts()
+		if len(stubs) < 2 {
+			t.Skip("need at least 2 embedded fonts")
+		}
+		names := []string{stubs[0].stem, stubs[1].stem}
+		if len(stubs) > 2 {
+			names = append(names, stubs[2].stem)
+		}
+
+		var wg sync.WaitGroup
+		for _, n := range names {
+			for range 16 {
+				wg.Add(1)
+				go func(name string) {
+					defer wg.Done()
+					for range 24 {
+						if _, err := Load(name); err != nil {
+							t.Error(err)
+							return
+						}
+					}
+				}(n)
+			}
+		}
+		wg.Wait()
+	})
 }
 
 func TestNewFace_differentOptionsDifferentFaces(t *testing.T) {
@@ -90,13 +152,6 @@ func TestNewFace_differentOptionsDifferentFaces(t *testing.T) {
 	})
 	if a == b {
 		t.Fatal("expected different options to produce distinct faces")
-	}
-}
-
-func TestLoad_notFound(t *testing.T) {
-	_, err := Load("not-a-real-font-name-xyz")
-	if err == nil {
-		t.Fatal("expected error")
 	}
 }
 

@@ -9,106 +9,108 @@ import (
 	"io"
 	"testing"
 
-	"github.com/lrstanley/x/charm/still/internal/fonttest"
+	"github.com/lrstanley/x/charm/still/internal/testutil"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
-func TestSyntheticBoldFaceWiderInkSameAdvance(t *testing.T) {
-	base := newSyntheticTestFace(t)
-	bold := SyntheticBoldFace(base, 24)
+func TestSyntheticFace(t *testing.T) {
+	t.Run("bold wider ink same advance", func(t *testing.T) {
+		base := newSyntheticTestFace(t)
+		bold := SyntheticFace(base, true, false, 24)
 
-	if got, want := fonttest.MustGlyphAdvance(t, bold, 'H'), fonttest.MustGlyphAdvance(t, base, 'H'); got != want {
-		t.Fatalf("bold advance = %v, want regular advance %v", got, want)
-	}
-
-	regularMask := fonttest.GlyphMaskForFace(t, base, 'H')
-	boldMask := fonttest.GlyphMaskForFace(t, bold, 'H')
-	if boldMask.Ink.Dx() <= regularMask.Ink.Dx() {
-		t.Fatalf("bold ink width = %d, want wider than regular %d", boldMask.Ink.Dx(), regularMask.Ink.Dx())
-	}
-	if boldMask.Signature == regularMask.Signature {
-		t.Fatal("bold ink matched regular ink")
-	}
-}
-
-func TestSyntheticItalicFaceShearsInkSameAdvance(t *testing.T) {
-	base := newSyntheticTestFace(t)
-	italic := SyntheticItalicFace(base)
-
-	if got, want := fonttest.MustGlyphAdvance(t, italic, 'H'), fonttest.MustGlyphAdvance(t, base, 'H'); got != want {
-		t.Fatalf("italic advance = %v, want regular advance %v", got, want)
-	}
-
-	regularMask := fonttest.GlyphMaskForFace(t, base, 'H')
-	italicMask := fonttest.GlyphMaskForFace(t, italic, 'H')
-	if italicMask.Ink.Max.X <= regularMask.Ink.Max.X {
-		t.Fatalf("italic ink max x = %d, want greater than regular %d", italicMask.Ink.Max.X, regularMask.Ink.Max.X)
-	}
-	if italicMask.Signature == regularMask.Signature {
-		t.Fatal("italic ink matched regular ink")
-	}
-}
-
-func TestSyntheticBoldItalicFaceCombinesEffects(t *testing.T) {
-	base := newSyntheticTestFace(t)
-	bold := SyntheticBoldFace(base, 24)
-	italic := SyntheticItalicFace(base)
-	boldItalic := SyntheticBoldItalicFace(base, 24)
-
-	if got, want := fonttest.MustGlyphAdvance(t, boldItalic, 'H'), fonttest.MustGlyphAdvance(t, base, 'H'); got != want {
-		t.Fatalf("bold italic advance = %v, want regular advance %v", got, want)
-	}
-
-	boldMask := fonttest.GlyphMaskForFace(t, bold, 'H')
-	italicMask := fonttest.GlyphMaskForFace(t, italic, 'H')
-	boldItalicMask := fonttest.GlyphMaskForFace(t, boldItalic, 'H')
-	if boldItalicMask.Ink.Dx() <= italicMask.Ink.Dx() {
-		t.Fatalf("bold italic ink width = %d, want wider than italic %d", boldItalicMask.Ink.Dx(), italicMask.Ink.Dx())
-	}
-	if boldItalicMask.Ink.Max.X <= boldMask.Ink.Max.X {
-		t.Fatalf("bold italic ink max x = %d, want shifted beyond bold %d", boldItalicMask.Ink.Max.X, boldMask.Ink.Max.X)
-	}
-	for name, sig := range map[string]string{
-		"bold":   boldMask.Signature,
-		"italic": italicMask.Signature,
-	} {
-		if boldItalicMask.Signature == sig {
-			t.Fatalf("bold italic ink matched %s ink", name)
+		if got, want := testutil.MustGlyphAdvance(t, bold, 'H'), testutil.MustGlyphAdvance(t, base, 'H'); got != want {
+			t.Fatalf("bold advance = %v, want regular advance %v", got, want)
 		}
-	}
-}
 
-func TestSyntheticFacesDoNotOwnBaseFace(t *testing.T) {
-	base := &closeCountingFace{}
-	faces := map[string]font.Face{
-		"bold":        SyntheticBoldFace(base, 11),
-		"italic":      SyntheticItalicFace(base),
-		"bold italic": SyntheticBoldItalicFace(base, 11),
-	}
+		regularMask := testutil.GlyphMaskForFace(t, base, 'H')
+		boldMask := testutil.GlyphMaskForFace(t, bold, 'H')
+		if boldMask.Ink.Dx() <= regularMask.Ink.Dx() {
+			t.Fatalf("bold ink width = %d, want wider than regular %d", boldMask.Ink.Dx(), regularMask.Ink.Dx())
+		}
+		if boldMask.Signature == regularMask.Signature {
+			t.Fatal("bold ink matched regular ink")
+		}
+	})
 
-	for name, face := range faces {
-		closer, ok := face.(io.Closer)
-		if !ok {
-			t.Fatalf("%s synthetic face does not implement Close", name)
+	t.Run("italic shears ink same advance", func(t *testing.T) {
+		base := newSyntheticTestFace(t)
+		italic := SyntheticFace(base, false, true, 24)
+
+		if got, want := testutil.MustGlyphAdvance(t, italic, 'H'), testutil.MustGlyphAdvance(t, base, 'H'); got != want {
+			t.Fatalf("italic advance = %v, want regular advance %v", got, want)
 		}
-		if _, advanceOK := face.GlyphAdvance('x'); !advanceOK {
-			t.Fatalf("%s synthetic face did not delegate GlyphAdvance", name)
+
+		regularMask := testutil.GlyphMaskForFace(t, base, 'H')
+		italicMask := testutil.GlyphMaskForFace(t, italic, 'H')
+		if italicMask.Ink.Max.X <= regularMask.Ink.Max.X {
+			t.Fatalf("italic ink max x = %d, want greater than regular %d", italicMask.Ink.Max.X, regularMask.Ink.Max.X)
 		}
-		if err := closer.Close(); err != nil {
-			t.Fatalf("%s synthetic face Close() error = %v", name, err)
+		if italicMask.Signature == regularMask.Signature {
+			t.Fatal("italic ink matched regular ink")
 		}
-	}
-	if base.closes != 0 {
-		t.Fatalf("base face closes = %d, want 0", base.closes)
-	}
-	if err := base.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if base.closes != 1 {
-		t.Fatalf("base face closes = %d, want 1", base.closes)
-	}
+	})
+
+	t.Run("bold italic combines effects", func(t *testing.T) {
+		base := newSyntheticTestFace(t)
+		bold := SyntheticFace(base, true, false, 24)
+		italic := SyntheticFace(base, false, true, 24)
+		boldItalic := SyntheticFace(base, true, true, 24)
+
+		if got, want := testutil.MustGlyphAdvance(t, boldItalic, 'H'), testutil.MustGlyphAdvance(t, base, 'H'); got != want {
+			t.Fatalf("bold italic advance = %v, want regular advance %v", got, want)
+		}
+
+		boldMask := testutil.GlyphMaskForFace(t, bold, 'H')
+		italicMask := testutil.GlyphMaskForFace(t, italic, 'H')
+		boldItalicMask := testutil.GlyphMaskForFace(t, boldItalic, 'H')
+		if boldItalicMask.Ink.Dx() <= italicMask.Ink.Dx() {
+			t.Fatalf("bold italic ink width = %d, want wider than italic %d", boldItalicMask.Ink.Dx(), italicMask.Ink.Dx())
+		}
+		if boldItalicMask.Ink.Max.X <= boldMask.Ink.Max.X {
+			t.Fatalf("bold italic ink max x = %d, want shifted beyond bold %d", boldItalicMask.Ink.Max.X, boldMask.Ink.Max.X)
+		}
+		for name, sig := range map[string]string{
+			"bold":   boldMask.Signature,
+			"italic": italicMask.Signature,
+		} {
+			if boldItalicMask.Signature == sig {
+				t.Fatalf("bold italic ink matched %s ink", name)
+			}
+		}
+	})
+
+	t.Run("does not own base face", func(t *testing.T) {
+		base := &closeCountingFace{}
+		faces := map[string]font.Face{
+			"bold":        SyntheticFace(base, true, false, 11),
+			"italic":      SyntheticFace(base, false, true, 11),
+			"bold italic": SyntheticFace(base, true, true, 11),
+		}
+
+		for name, face := range faces {
+			closer, ok := face.(io.Closer)
+			if !ok {
+				t.Fatalf("%s synthetic face does not implement Close", name)
+			}
+			if _, advanceOK := face.GlyphAdvance('x'); !advanceOK {
+				t.Fatalf("%s synthetic face did not delegate GlyphAdvance", name)
+			}
+			if err := closer.Close(); err != nil {
+				t.Fatalf("%s synthetic face Close() error = %v", name, err)
+			}
+		}
+		if base.closes != 0 {
+			t.Fatalf("base face closes = %d, want 0", base.closes)
+		}
+		if err := base.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if base.closes != 1 {
+			t.Fatalf("base face closes = %d, want 1", base.closes)
+		}
+	})
 }
 
 func newSyntheticTestFace(t *testing.T) font.Face {

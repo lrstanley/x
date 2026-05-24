@@ -2,6 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
+// Package fonts loads TrueType fonts from embedded assets and system
+// directories, builds [FontFamily] values with style variants, and provides
+// synthetic bold and italic faces when a family omits them.
 package fonts
 
 import (

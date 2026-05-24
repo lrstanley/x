@@ -14,6 +14,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/lrstanley/x/charm/still/units"
 )
 
 // MustPNG is a temporary helper to create a PNG file from an [image.Image].
@@ -35,7 +37,7 @@ func MustPNG(img image.Image, path string) {
 // returns the result; [Renderer.Draw] reuses an internal buffer, so fn must not
 // retain the returned [image.Image] beyond the call.
 func MustGIF(fps int, path string, fn func() image.Image) (closer func()) { //nolint:gocognit // Temporary helper.
-	fps = clamp(fps, 1, 120)
+	fps = units.Clamp(fps, 1, 120)
 
 	pal := terminalGIFPalette()
 	out := &gif.GIF{

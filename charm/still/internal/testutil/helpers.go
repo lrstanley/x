@@ -2,7 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package fonttest
+// Package testutil provides helpers for asserting glyph raster output and
+// synthetic font face behavior in still tests.
+package testutil
 
 import (
 	"image"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lrstanley/x/charm/still/internal/alpha"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -37,49 +40,26 @@ func GlyphMaskForFace(t *testing.T, face font.Face, r rune) GlyphMask {
 	if !ok {
 		t.Fatalf("missing glyph for %q", r)
 	}
-	alpha := image.NewAlpha(dr)
-	draw.DrawMask(alpha, dr, image.Opaque, image.Point{}, mask, maskp, draw.Src)
-	ink, ok := AlphaInkBounds(alpha)
+	alphaImg := image.NewAlpha(dr)
+	draw.DrawMask(alphaImg, dr, image.Opaque, image.Point{}, mask, maskp, draw.Src)
+	ink, ok := alpha.InkBounds(alphaImg)
 	if !ok {
 		t.Fatalf("empty glyph ink for %q", r)
 	}
-	return GlyphMask{Ink: ink, Signature: AlphaSignature(alpha, ink)}
+	return GlyphMask{Ink: ink, Signature: AlphaSignature(alphaImg, ink)}
 }
 
 // AlphaInkBounds returns the tight bounding box of non-zero alpha pixels.
-func AlphaInkBounds(alpha *image.Alpha) (image.Rectangle, bool) {
-	bounds := image.Rectangle{
-		Min: image.Pt(alpha.Bounds().Max.X, alpha.Bounds().Max.Y),
-		Max: image.Pt(alpha.Bounds().Min.X, alpha.Bounds().Min.Y),
-	}
-	for y := alpha.Bounds().Min.Y; y < alpha.Bounds().Max.Y; y++ {
-		for x := alpha.Bounds().Min.X; x < alpha.Bounds().Max.X; x++ {
-			if alpha.AlphaAt(x, y).A == 0 {
-				continue
-			}
-			if x < bounds.Min.X {
-				bounds.Min.X = x
-			}
-			if y < bounds.Min.Y {
-				bounds.Min.Y = y
-			}
-			if x+1 > bounds.Max.X {
-				bounds.Max.X = x + 1
-			}
-			if y+1 > bounds.Max.Y {
-				bounds.Max.Y = y + 1
-			}
-		}
-	}
-	return bounds, bounds.Min.X < bounds.Max.X && bounds.Min.Y < bounds.Max.Y
+func AlphaInkBounds(a *image.Alpha) (image.Rectangle, bool) {
+	return alpha.InkBounds(a)
 }
 
 // AlphaSignature renders ink within bounds as a run-length-friendly ASCII grid.
-func AlphaSignature(alpha *image.Alpha, bounds image.Rectangle) string {
+func AlphaSignature(alphaImg *image.Alpha, bounds image.Rectangle) string {
 	var out strings.Builder
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if alpha.AlphaAt(x, y).A > 0 {
+			if alphaImg.AlphaAt(x, y).A > 0 {
 				out.WriteByte('#')
 			} else {
 				out.WriteByte('.')

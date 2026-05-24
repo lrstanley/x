@@ -11,58 +11,6 @@ import (
 	"golang.org/x/image/font/opentype"
 )
 
-func TestLoad_concurrentSameEmbeddedFont(t *testing.T) {
-	t.Parallel()
-
-	const workers = 48
-	const iters = 32
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for range workers {
-		go func() {
-			defer wg.Done()
-			for range iters {
-				if _, err := Load(embeddedFixture); err != nil {
-					t.Error(err)
-					return
-				}
-			}
-		}()
-	}
-	wg.Wait()
-}
-
-func TestLoad_concurrentDistinctEmbeddedFonts(t *testing.T) {
-	t.Parallel()
-
-	stubs := readEmbeddedFonts()
-	if len(stubs) < 2 {
-		t.Skip("need at least 2 embedded fonts")
-	}
-	names := []string{stubs[0].stem, stubs[1].stem}
-	if len(stubs) > 2 {
-		names = append(names, stubs[2].stem)
-	}
-
-	var wg sync.WaitGroup
-	for _, n := range names {
-		for range 16 {
-			wg.Add(1)
-			go func(name string) {
-				defer wg.Done()
-				for range 24 {
-					if _, err := Load(name); err != nil {
-						t.Error(err)
-						return
-					}
-				}
-			}(n)
-		}
-	}
-	wg.Wait()
-}
-
 func BenchmarkLoad(b *testing.B) {
 	norm := normalizeFontName(embeddedFixture)
 	src, err := locateMiss(norm)
@@ -72,29 +20,29 @@ func BenchmarkLoad(b *testing.B) {
 
 	b.Run("sequential_warm_Load", func(b *testing.B) {
 		resetFontCachesForTest()
-		if _, err := Load(embeddedFixture); err != nil {
-			b.Fatal(err)
+		if _, loadErr := Load(embeddedFixture); loadErr != nil {
+			b.Fatal(loadErr)
 		}
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			if _, err := Load(embeddedFixture); err != nil {
-				b.Fatal(err)
+			if _, loadErr := Load(embeddedFixture); loadErr != nil {
+				b.Fatal(loadErr)
 			}
 		}
 	})
 
 	b.Run("parallel_warm_Load", func(b *testing.B) {
 		resetFontCachesForTest()
-		if _, err := Load(embeddedFixture); err != nil {
-			b.Fatal(err)
+		if _, loadErr := Load(embeddedFixture); loadErr != nil {
+			b.Fatal(loadErr)
 		}
 		b.ReportAllocs()
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				if _, err := Load(embeddedFixture); err != nil {
-					b.Fatal(err)
+				if _, loadErr := Load(embeddedFixture); loadErr != nil {
+					b.Fatal(loadErr)
 				}
 			}
 		})
@@ -104,8 +52,8 @@ func BenchmarkLoad(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			if _, err := parseFont(src); err != nil {
-				b.Fatal(err)
+			if _, parseErr := parseFont(src); parseErr != nil {
+				b.Fatal(parseErr)
 			}
 		}
 	})
@@ -155,7 +103,10 @@ func BenchmarkParsedFontMapContention(b *testing.B) {
 				if !ok {
 					b.Fatal("missing font")
 				}
-				_ = v.(*opentype.Font)
+				font, ok := v.(*opentype.Font)
+				if !ok || font == nil {
+					b.Fatal("missing font")
+				}
 			}
 		})
 	})

@@ -10,7 +10,8 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/charm/still/fonts"
-	"github.com/lrstanley/x/charm/still/internal/fonttest"
+	imetrics "github.com/lrstanley/x/charm/still/internal/metrics"
+	"github.com/lrstanley/x/charm/still/internal/testutil"
 )
 
 func TestDefaultMetricsUseBundledFonts(t *testing.T) {
@@ -37,7 +38,7 @@ func TestDefaultMetricsUseBundledFonts(t *testing.T) {
 	if m.UnderlineThickness < 1 || m.StrikethroughThickness < 1 || m.BoxThickness < 1 {
 		t.Fatalf("thicknesses = underline:%d strike:%d box:%d, want >= 1", m.UnderlineThickness, m.StrikethroughThickness, m.BoxThickness)
 	}
-	if d.fonts.gridMetrics.cellWidth <= 0 {
+	if d.fonts.GridMetrics().CellWidth <= 0 {
 		t.Fatalf("grid metrics were not measured from primary regular face")
 	}
 }
@@ -65,35 +66,39 @@ func TestCellHeightAdjustmentShiftsVerticalMetrics(t *testing.T) {
 	}
 }
 
-func TestIconHeightScalesMetricsWithoutChangingGrid(t *testing.T) {
+func TestIconHeight(t *testing.T) {
 	t.Parallel()
 
-	base := MustNew().Metrics()
-	scaled := MustNew(WithIconHeight(0.5)).Metrics()
-	single := MustNew(WithIconHeight(0.5), WithIconHeightSingle(0.25)).Metrics()
+	t.Run("scales metrics without changing grid", func(t *testing.T) {
+		t.Parallel()
 
-	if scaled.CellWidth != base.CellWidth || scaled.CellHeight != base.CellHeight {
-		t.Fatalf("WithIconHeight changed cell size: %dx%d -> %dx%d", base.CellWidth, base.CellHeight, scaled.CellWidth, scaled.CellHeight)
-	}
-	if got, want := scaled.IconHeight.Int(), scaleMetric(base.IconHeight, 0.5).Int(); got != want {
-		t.Fatalf("IconHeight = %d, want %d", got, want)
-	}
-	if got, want := scaled.IconHeightSingle.Int(), scaleMetric(base.IconHeightSingle, 0.5).Int(); got != want {
-		t.Fatalf("IconHeightSingle = %d, want %d", got, want)
-	}
-	if got, want := single.IconHeightSingle.Int(), scaleMetric(base.IconHeightSingle, 0.25).Int(); got != want {
-		t.Fatalf("IconHeightSingle override = %d, want %d", got, want)
-	}
-}
+		base := MustNew().Metrics()
+		scaled := MustNew(WithIconHeight(0.5)).Metrics()
+		single := MustNew(WithIconHeight(0.5), WithIconHeightSingle(0.25)).Metrics()
 
-func TestIconHeightRejectsNegativeScale(t *testing.T) {
-	t.Parallel()
-
-	assertPanic(t, "WithIconHeight negative scale", func() {
-		_ = MustNew(WithIconHeight(-0.5))
+		if scaled.CellWidth != base.CellWidth || scaled.CellHeight != base.CellHeight {
+			t.Fatalf("WithIconHeight changed cell size: %dx%d -> %dx%d", base.CellWidth, base.CellHeight, scaled.CellWidth, scaled.CellHeight)
+		}
+		if got, want := scaled.IconHeight.Int(), imetrics.ScaleMetric(base.IconHeight, 0.5).Int(); got != want {
+			t.Fatalf("IconHeight = %d, want %d", got, want)
+		}
+		if got, want := scaled.IconHeightSingle.Int(), imetrics.ScaleMetric(base.IconHeightSingle, 0.5).Int(); got != want {
+			t.Fatalf("IconHeightSingle = %d, want %d", got, want)
+		}
+		if got, want := single.IconHeightSingle.Int(), imetrics.ScaleMetric(base.IconHeightSingle, 0.25).Int(); got != want {
+			t.Fatalf("IconHeightSingle override = %d, want %d", got, want)
+		}
 	})
-	assertPanic(t, "WithIconHeightSingle negative scale", func() {
-		_ = MustNew(WithIconHeightSingle(-0.5))
+
+	t.Run("rejects negative scale", func(t *testing.T) {
+		t.Parallel()
+
+		assertPanic(t, "WithIconHeight negative scale", func() {
+			_ = MustNew(WithIconHeight(-0.5))
+		})
+		assertPanic(t, "WithIconHeightSingle negative scale", func() {
+			_ = MustNew(WithIconHeightSingle(-0.5))
+		})
 	})
 }
 
@@ -105,13 +110,13 @@ func TestCodepointMapDefaultsNilEmptyAndOverride(t *testing.T) {
 	symbolFamily := mustDefaultSymbolFamily(t)
 
 	disabled := MustNew(WithCodepointMap(nil))
-	if got := disabled.fonts.faceForCell(powerline); got != disabled.fonts.regular {
-		t.Fatalf("nil codepoint map face = %p, want regular %p", got, disabled.fonts.regular)
+	if got := disabled.fonts.FaceForCell(powerline); got != disabled.fonts.Regular() {
+		t.Fatalf("nil codepoint map face = %p, want regular %p", got, disabled.fonts.Regular())
 	}
 
 	defaulted := MustNew(WithCodepointMap(map[string]fonts.FontFamily{}))
-	defaultedRegular := defaulted.fonts.faceForCell(powerline)
-	if defaultedRegular == defaulted.fonts.regular {
+	defaultedRegular := defaulted.fonts.FaceForCell(powerline)
+	if defaultedRegular == defaulted.fonts.Regular() {
 		t.Fatalf("empty codepoint map resolved to primary regular face, want default symbol face")
 	}
 	for name, style := range map[string]uv.Style{
@@ -119,38 +124,38 @@ func TestCodepointMapDefaultsNilEmptyAndOverride(t *testing.T) {
 		"italic":      {Attrs: uv.AttrItalic},
 		"bold italic": {Attrs: uv.AttrBold | uv.AttrItalic},
 	} {
-		got := defaulted.fonts.faceForCell(&uv.Cell{Content: "\ue0b0", Style: style})
+		got := defaulted.fonts.FaceForCell(&uv.Cell{Content: "\ue0b0", Style: style})
 		if got == defaultedRegular {
 			t.Fatalf("default symbol %s face = regular symbol face %p, want synthetic", name, defaultedRegular)
 		}
-		fonttest.AssertSyntheticFaceDiff(t, defaultedRegular, got, '\ue0b0')
+		testutil.AssertSyntheticFaceDiff(t, defaultedRegular, got, '\ue0b0')
 	}
 
 	overridden := MustNew(WithCodepointMap(map[string]fonts.FontFamily{
 		"U+E000-U+E0FF": defaultFamily,
 	}))
-	if got := overridden.fonts.faceForCell(powerline); got != overridden.fonts.regular {
-		t.Fatalf("user override face = %p, want regular %p", got, overridden.fonts.regular)
+	if got := overridden.fonts.FaceForCell(powerline); got != overridden.fonts.Regular() {
+		t.Fatalf("user override face = %p, want regular %p", got, overridden.fonts.Regular())
 	}
-	if got := overridden.fonts.faceForCell(&uv.Cell{Content: "\ue0b0", Style: uv.Style{Attrs: uv.AttrBold}}); got != overridden.fonts.bold {
-		t.Fatalf("user override bold face = %p, want primary bold %p", got, overridden.fonts.bold)
+	if got := overridden.fonts.FaceForCell(&uv.Cell{Content: "\ue0b0", Style: uv.Style{Attrs: uv.AttrBold}}); got != overridden.fonts.Bold() {
+		t.Fatalf("user override bold face = %p, want primary bold %p", got, overridden.fonts.Bold())
 	}
 
 	regularOnly := MustNew(WithCodepointMap(map[string]fonts.FontFamily{
 		"U+E000-U+E0FF": {Regular: symbolFamily.Regular},
 	}))
-	regularOnlyFace := regularOnly.fonts.faceForCell(powerline)
-	regularOnlyItalic := regularOnly.fonts.faceForCell(&uv.Cell{Content: "\ue0b0", Style: uv.Style{Attrs: uv.AttrItalic}})
+	regularOnlyFace := regularOnly.fonts.FaceForCell(powerline)
+	regularOnlyItalic := regularOnly.fonts.FaceForCell(&uv.Cell{Content: "\ue0b0", Style: uv.Style{Attrs: uv.AttrItalic}})
 	if regularOnlyItalic == regularOnlyFace {
 		t.Fatalf("regular-only codepoint italic face = regular face %p, want synthetic", regularOnlyFace)
 	}
-	fonttest.AssertSyntheticFaceDiff(t, regularOnlyFace, regularOnlyItalic, '\ue0b0')
+	testutil.AssertSyntheticFaceDiff(t, regularOnlyFace, regularOnlyItalic, '\ue0b0')
 
 	syntheticDisabled := MustNew(WithCodepointMap(map[string]fonts.FontFamily{
 		"U+E000-U+E0FF": {Regular: symbolFamily.Regular, DisableSynthetic: true},
 	}))
-	disabledFace := syntheticDisabled.fonts.faceForCell(powerline)
-	if got := syntheticDisabled.fonts.faceForCell(&uv.Cell{Content: "\ue0b0", Style: uv.Style{Attrs: uv.AttrItalic}}); got != disabledFace {
+	disabledFace := syntheticDisabled.fonts.FaceForCell(powerline)
+	if got := syntheticDisabled.fonts.FaceForCell(&uv.Cell{Content: "\ue0b0", Style: uv.Style{Attrs: uv.AttrItalic}}); got != disabledFace {
 		t.Fatalf("synthetic-disabled codepoint italic face = %p, want regular face %p", got, disabledFace)
 	}
 }
@@ -160,14 +165,14 @@ func TestDefaultCodepointMapKeepsBoxDrawingOnRegularFace(t *testing.T) {
 
 	d := MustNew()
 	for _, glyph := range []string{"┌", "─", "┐", "│", "└", "┘", "█"} {
-		if got := d.fonts.faceForCell(&uv.Cell{Content: glyph}); got != d.fonts.regular {
-			t.Fatalf("glyph %q face = %p, want regular %p", glyph, got, d.fonts.regular)
+		if got := d.fonts.FaceForCell(&uv.Cell{Content: glyph}); got != d.fonts.Regular() {
+			t.Fatalf("glyph %q face = %p, want regular %p", glyph, got, d.fonts.Regular())
 		}
 		for _, r := range glyph {
-			if _, _, ok := d.fonts.regular.GlyphBounds(r); !ok {
+			if _, _, ok := d.fonts.Regular().GlyphBounds(r); !ok {
 				t.Fatalf("regular face has no bounds for glyph %q", glyph)
 			}
-			if _, ok := d.fonts.regular.GlyphAdvance(r); !ok {
+			if _, ok := d.fonts.Regular().GlyphAdvance(r); !ok {
 				t.Fatalf("regular face has no advance for glyph %q", glyph)
 			}
 		}
@@ -207,38 +212,38 @@ func TestStyleFaceSelectionDefaultsFallbackAndError(t *testing.T) {
 	t.Parallel()
 
 	defaults := MustNew()
-	if got := defaults.fonts.faceForCell(&uv.Cell{Style: uv.Style{Attrs: uv.AttrBold}}); got == defaults.fonts.regular {
+	if got := defaults.fonts.FaceForCell(&uv.Cell{Style: uv.Style{Attrs: uv.AttrBold}}); got == defaults.fonts.Regular() {
 		t.Fatalf("default bold face resolved to regular")
 	}
-	if got := defaults.fonts.faceForCell(&uv.Cell{Style: uv.Style{Attrs: uv.AttrItalic}}); got == defaults.fonts.regular {
+	if got := defaults.fonts.FaceForCell(&uv.Cell{Style: uv.Style{Attrs: uv.AttrItalic}}); got == defaults.fonts.Regular() {
 		t.Fatalf("default italic face resolved to regular")
 	}
-	if got := defaults.fonts.faceForCell(&uv.Cell{Style: uv.Style{Attrs: uv.AttrBold | uv.AttrItalic}}); got == defaults.fonts.regular {
+	if got := defaults.fonts.FaceForCell(&uv.Cell{Style: uv.Style{Attrs: uv.AttrBold | uv.AttrItalic}}); got == defaults.fonts.Regular() {
 		t.Fatalf("default bold italic face resolved to regular")
 	}
 
 	defaultFamily := mustDefaultFamily(t)
 	customRegularOnly := MustNew(WithFontFamily(fonts.FontFamily{Regular: defaultFamily.Regular}))
-	if customRegularOnly.fonts.bold == customRegularOnly.fonts.regular {
+	if customRegularOnly.fonts.Bold() == customRegularOnly.fonts.Regular() {
 		t.Fatal("custom regular without bold variant did not synthesize bold")
 	}
-	fonttest.AssertSyntheticFaceDiff(t, customRegularOnly.fonts.regular, customRegularOnly.fonts.bold, 'H')
-	if customRegularOnly.fonts.italic == customRegularOnly.fonts.regular {
+	testutil.AssertSyntheticFaceDiff(t, customRegularOnly.fonts.Regular(), customRegularOnly.fonts.Bold(), 'H')
+	if customRegularOnly.fonts.Italic() == customRegularOnly.fonts.Regular() {
 		t.Fatal("custom regular without italic variant did not synthesize italic")
 	}
-	fonttest.AssertSyntheticFaceDiff(t, customRegularOnly.fonts.regular, customRegularOnly.fonts.italic, 'H')
-	if customRegularOnly.fonts.boldItalic == customRegularOnly.fonts.regular {
+	testutil.AssertSyntheticFaceDiff(t, customRegularOnly.fonts.Regular(), customRegularOnly.fonts.Italic(), 'H')
+	if customRegularOnly.fonts.BoldItalic() == customRegularOnly.fonts.Regular() {
 		t.Fatal("custom regular without bold italic variant did not synthesize bold italic")
 	}
-	fonttest.AssertSyntheticFaceDiff(t, customRegularOnly.fonts.regular, customRegularOnly.fonts.boldItalic, 'H')
+	testutil.AssertSyntheticFaceDiff(t, customRegularOnly.fonts.Regular(), customRegularOnly.fonts.BoldItalic(), 'H')
 
 	syntheticDisabled := MustNew(WithFontFamily(fonts.FontFamily{
 		Regular:          defaultFamily.Regular,
 		DisableSynthetic: true,
 	}))
-	if syntheticDisabled.fonts.bold != syntheticDisabled.fonts.regular ||
-		syntheticDisabled.fonts.italic != syntheticDisabled.fonts.regular ||
-		syntheticDisabled.fonts.boldItalic != syntheticDisabled.fonts.regular {
+	if syntheticDisabled.fonts.Bold() != syntheticDisabled.fonts.Regular() ||
+		syntheticDisabled.fonts.Italic() != syntheticDisabled.fonts.Regular() ||
+		syntheticDisabled.fonts.BoldItalic() != syntheticDisabled.fonts.Regular() {
 		t.Fatal("DisableSynthetic did not preserve regular fallback for missing variants")
 	}
 

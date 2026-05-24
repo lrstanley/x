@@ -67,7 +67,7 @@ func TestMustGIFDedupesIdle(t *testing.T) {
 	}
 }
 
-func TestMustGIFDistinctAfterQuantize(t *testing.T) {
+func TestPalettizePreservesDistinctColors(t *testing.T) {
 	t.Parallel()
 
 	a := solidFrame(1, 8, 8)
