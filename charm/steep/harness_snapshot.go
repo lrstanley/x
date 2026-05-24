@@ -75,11 +75,11 @@ func (h *Harness) ImageInto(dst draw.Image, opts ...still.Option) {
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
 
-	h.applyScreenshotLocked(opts...)
+	h.applyRendererLocked(opts...)
 	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.emulator.vt)
 }
 
-// Image renders the current terminal screen buffer as an image. Screenshot
+// Image renders the current terminal screen buffer as an image. Renderer
 // options are applied to the harness-owned renderer and persist across calls.
 //
 // The returned [image.Image] is owned by the harness renderer and invalidated
@@ -94,22 +94,22 @@ func (h *Harness) Image(opts ...still.Option) image.Image {
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
 
-	h.applyScreenshotLocked(opts...)
+	h.applyRendererLocked(opts...)
 	return h.imageRenderer.Draw(h.emulator.vt)
 }
 
-// applyScreenshotLocked applies screenshot options and live emulator state to
+// applyRendererLocked applies still options and live emulator state to
 // the harness renderer. The caller must hold [emulator.mu] for reading.
-func (h *Harness) applyScreenshotLocked(opts ...still.Option) {
+func (h *Harness) applyRendererLocked(opts ...still.Option) {
 	h.tb.Helper()
 
-	state := h.screenshotStateLocked()
+	state := h.rendererStateLocked()
 	if err := h.imageRenderer.Apply(append(opts, still.WithEmulatorState(state))...); err != nil {
 		h.tb.Fatal(err)
 	}
 }
 
-func (h *Harness) screenshotStateLocked() still.EmulatorState {
+func (h *Harness) rendererStateLocked() still.EmulatorState {
 	h.emulator.trackMu.RLock()
 	defer h.emulator.trackMu.RUnlock()
 
