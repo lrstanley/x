@@ -5,7 +5,7 @@ go 1.25.4
 replace github.com/lrstanley/x/charm/layout => ../
 
 require (
-	charm.land/bubbletea/v2 v2.0.6
+	charm.land/bubbletea/v2 v2.0.7-0.20260512011140-c60f0c530422
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/charmbracelet/x/exp/charmtone v0.0.0-20251118172736-77d017256798
 	github.com/lrstanley/bubbletint/v2 v2.0.0-alpha.10
@@ -15,7 +15,7 @@ require (
 
 require (
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260428153724-66037269d7be // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/exp/color v0.0.0-20250915100343-2c2e5896ae6e // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect

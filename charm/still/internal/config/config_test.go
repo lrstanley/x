@@ -71,8 +71,12 @@ func TestClonePalette(t *testing.T) {
 	if orig.R != 1 {
 		t.Fatalf("original color mutated: R=%d", orig.R)
 	}
-	if got := cloned.Indexed[1].(color.NRGBA).R; got != 2 {
-		t.Fatalf("cloned color R = %d, want 2", got)
+	c, ok := cloned.Indexed[1].(color.NRGBA)
+	if !ok {
+		t.Fatal("cloned indexed color is not NRGBA")
+	}
+	if c.R != 2 {
+		t.Fatalf("cloned color R = %d, want 2", c.R)
 	}
 }
 

@@ -11,13 +11,30 @@ import (
 	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	icol "github.com/lrstanley/x/charm/still/internal/color"
+	"github.com/lrstanley/x/charm/still/internal/alpha"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"golang.org/x/image/font"
+	"golang.org/x/image/math/fixed"
 )
 
+const glyphMaskCacheLimit = 128
+
+type glyphMaskKey struct {
+	face  font.Face
+	dotX  fixed.Int26_6
+	dotY  fixed.Int26_6
+	glyph string
+}
+
+type cachedGlyphMask struct {
+	offset image.Point
+	alpha  *image.Alpha
+}
+
+type glyphMaskCache map[glyphMaskKey]cachedGlyphMask
+
 // DrawGlyphLayout rasterizes layout onto img.
-func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout Layout) {
+func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
 	if mask, ok := layoutBoxGlyphMask(ctx, layout); ok {
 		drawBoxGlyphMask(img, layout.Fg, mask)
 		return
@@ -39,55 +56,97 @@ func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout Layout) {
 }
 
 // DrawGlyph rasterizes the cell's grapheme into area.
-func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *uv.Cell, fg color.Color) {
-	layout, ok := LayoutGlyph(ctx, area, cell, fg)
-	if !ok {
+func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *uv.Cell, fg color.NRGBA) {
+	var layout Layout
+	if !LayoutGlyph(ctx, area, cell, fg, &layout) {
 		return
 	}
-	DrawGlyphLayout(ctx, img, layout)
+	DrawGlyphLayout(ctx, img, &layout)
 }
 
 // AccumulateGlyphLayout adds layout ink to coverage accumulation.
-func AccumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout Layout) {
+func AccumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout) {
+	accumulateGlyphLayout(ctx, cov, layout, nil)
+}
+
+func accumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout, cache *glyphMaskCache) {
 	if mask, ok := layoutBoxGlyphMask(ctx, layout); ok {
-		fg := icol.NRGBA(layout.Fg)
+		fg := layout.Fg
 		dr := mask.dr
+		pix := mask.alpha.Pix
+		stride := mask.alpha.Stride
+		width := dr.Dx()
 		for y := dr.Min.Y; y < dr.Max.Y; y++ {
+			ay := y - dr.Min.Y
+			row := pix[ay*stride : ay*stride+width]
 			for x := dr.Min.X; x < dr.Max.X; x++ {
-				ax := x - dr.Min.X
-				ay := y - dr.Min.Y
-				if ga := mask.alpha.AlphaAt(ax, ay).A; ga != 0 {
+				if ga := row[x-dr.Min.X]; ga != 0 {
 					cov.Accumulate(x, y, ga, fg)
 				}
 			}
 		}
 		return
 	}
-	r, n := utf8.DecodeRuneInString(layout.Glyph)
-	if n == 0 || r == utf8.RuneError {
-		return
-	}
-	dr, mask, maskp, _, ok := layout.Face.Glyph(layout.Dot, r)
-	if !ok || dr.Empty() || mask == nil {
+	mask, ok := glyphLayoutMask(layout, cache)
+	if !ok {
 		return
 	}
 
-	fg := icol.NRGBA(layout.Fg)
+	fg := layout.Fg
+	dr := mask.alpha.Bounds().Add(layout.Area.Min.Add(mask.offset))
+	pix := mask.alpha.Pix
+	stride := mask.alpha.Stride
+	width := dr.Dx()
 	for y := dr.Min.Y; y < dr.Max.Y; y++ {
+		ay := y - dr.Min.Y
+		row := pix[ay*stride : ay*stride+width]
 		for x := dr.Min.X; x < dr.Max.X; x++ {
-			if ga := glyphMaskAlpha(mask, maskp, dr, x, y); ga != 0 {
+			if ga := row[x-dr.Min.X]; ga != 0 {
 				cov.Accumulate(x, y, ga, fg)
 			}
 		}
 	}
 }
 
-func glyphMaskAlpha(mask image.Image, maskp image.Point, dr image.Rectangle, x, y int) uint8 {
-	mx := maskp.X + (x - dr.Min.X)
-	my := maskp.Y + (y - dr.Min.Y)
-	if !image.Pt(mx, my).In(mask.Bounds()) {
-		return 0
+func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bool) {
+	if cache == nil {
+		return buildGlyphLayoutMask(layout)
 	}
-	_, _, _, a := mask.At(mx, my).RGBA()
-	return uint8(a >> 8) //nolint:gosec // RGBA alpha is 16-bit; high byte is 0-255
+	key := glyphMaskKey{
+		face:  layout.Face,
+		dotX:  layout.Dot.X - fixed.I(layout.Area.Min.X),
+		dotY:  layout.Dot.Y - fixed.I(layout.Area.Min.Y),
+		glyph: layout.Glyph,
+	}
+	if *cache != nil {
+		if mask, ok := (*cache)[key]; ok {
+			return mask, true
+		}
+	} else {
+		*cache = make(glyphMaskCache)
+	}
+	mask, ok := buildGlyphLayoutMask(layout)
+	if !ok {
+		return cachedGlyphMask{}, false
+	}
+	if len(*cache) >= glyphMaskCacheLimit {
+		clear(*cache)
+	}
+	(*cache)[key] = mask
+	return mask, true
+}
+
+func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
+	r, n := utf8.DecodeRuneInString(layout.Glyph)
+	if n == 0 || r == utf8.RuneError {
+		return cachedGlyphMask{}, false
+	}
+	dr, mask, maskp, _, ok := layout.Face.Glyph(layout.Dot, r)
+	if !ok || dr.Empty() || mask == nil {
+		return cachedGlyphMask{}, false
+	}
+	return cachedGlyphMask{
+		offset: dr.Min.Sub(layout.Area.Min),
+		alpha:  alpha.RasterGlyph(dr, mask, maskp),
+	}, true
 }

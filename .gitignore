@@ -18,4 +18,5 @@ bin
 **/*.cache
 **/.env
 go.work*
+.cursor/plans/
 **/TODO.md

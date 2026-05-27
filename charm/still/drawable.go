@@ -43,23 +43,50 @@ func DrawCellFg(ctx Context, img draw.Image, area image.Rectangle, cell *uv.Cell
 	if !idraw.TextVisible(ctx.Snapshot(), cell) {
 		return
 	}
-	fg, _ := ctx.CellColors(cell)
-	layout, hasLayout := raster.LayoutGlyph(ctx, area, cell, fg)
+	hasGlyph := cellHasForegroundGlyph(cell)
+	hasDecorations := cellHasForegroundDecorations(cell)
+	if !hasGlyph && !hasDecorations {
+		return
+	}
+	fg, _ := ctx.CellColorsNRGBA(cell)
+	var layout raster.Layout
+	hasLayout := false
+	if hasGlyph {
+		hasLayout = raster.LayoutGlyph(ctx, area, cell, fg, &layout)
+	}
 	if pass := ctx.glyphPass; pass != nil {
 		if hasLayout {
 			if layout.Kind == raster.KindGrid {
-				raster.AccumulateGlyphLayout(ctx, pass.Coverage(), layout)
+				pass.AccumulateGlyphLayout(ctx, &layout)
 			} else {
 				pass.AppendGlyph(layout)
 			}
 		}
-		pass.AppendDecoration(area, cell, fg)
+		if hasDecorations {
+			pass.AppendDecoration(area, cell, fg)
+		}
 		return
 	}
 	if hasLayout {
-		raster.DrawGlyphLayout(ctx, img, layout)
+		raster.DrawGlyphLayout(ctx, img, &layout)
 	}
-	idraw.Decorations(ctx, img, area, cell, fg)
+	if hasDecorations {
+		idraw.Decorations(ctx, img, area, cell, fg)
+	}
+}
+
+func cellHasForegroundGlyph(cell *uv.Cell) bool {
+	if cell == nil {
+		return false
+	}
+	return cell.Content != "" && cell.Content != " "
+}
+
+func cellHasForegroundDecorations(cell *uv.Cell) bool {
+	if cell == nil {
+		return false
+	}
+	return cell.Style.Underline != uv.UnderlineNone || cell.Style.Attrs&uv.AttrStrikethrough != 0
 }
 
 // DrawCursor is the default implementation of [CursorDrawer] used by [Renderer].
@@ -79,8 +106,8 @@ func DrawCursor(ctx Context, img draw.Image, area image.Rectangle) {
 	}
 
 	idraw.Fill(img, area, ctx.CursorColor())
-	if cursorCell := ctx.CursorCell(); cursorCell != nil && idraw.TextVisible(ctx.Snapshot(), cursorCell) {
-		raster.DrawGlyph(ctx, img, ctx.CursorBounds(), cursorCell, ctx.CursorTextColor())
+	if cursorCell := ctx.CursorCell(); cursorCell != nil && idraw.TextVisible(ctx.Snapshot(), cursorCell) && cellHasForegroundGlyph(cursorCell) {
+		raster.DrawGlyph(ctx, img, ctx.CursorBounds(), cursorCell, icol.NRGBA(ctx.CursorTextColor()))
 	}
 }
 

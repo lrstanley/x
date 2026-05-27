@@ -2,9 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package fonts loads TrueType fonts from embedded assets and system
-// directories, builds [FontFamily] values with style variants, and provides
-// synthetic bold and italic faces when a family omits them.
+// Package fonts loads OpenType fonts (TTF and OTF) from embedded assets and
+// system directories, builds [FontFamily] values with style variants, and
+// provides synthetic bold and italic faces when a family omits them.
 package fonts
 
 import (
@@ -26,14 +26,29 @@ import (
 //go:embed data/*
 var embeddedFonts embed.FS
 
-// gzipTTFStem returns the font base name for a data/*.ttf.gz filename.
-func gzipTTFStem(name string) (string, bool) {
+// fontFileStem returns the base name for a supported font filename. Supported
+// suffixes are .ttf, .otf, .ttf.gz, and .otf.gz (case-insensitive). When ok is
+// true, gzip indicates a gzip-compressed embedded asset.
+func fontFileStem(name string) (stem string, gzip bool, ok bool) {
 	ln := strings.ToLower(name)
-	if !strings.HasSuffix(ln, ".ttf.gz") {
-		return "", false
+	for _, suf := range []string{".ttf.gz", ".otf.gz", ".ttf", ".otf"} {
+		if !strings.HasSuffix(ln, suf) {
+			continue
+		}
+		stem = name[:len(name)-len(suf)]
+		if stem == "" {
+			return "", false, false
+		}
+		return stem, strings.HasSuffix(suf, ".gz"), true
 	}
-	stem := name[:len(name)-len(".ttf.gz")]
-	if stem == "" {
+	return "", false, false
+}
+
+// gzipFontStem returns the font base name for a data/*.ttf.gz or data/*.otf.gz
+// filename.
+func gzipFontStem(name string) (string, bool) {
+	stem, gzip, ok := fontFileStem(name)
+	if !ok || !gzip {
 		return "", false
 	}
 	return stem, true
@@ -54,7 +69,7 @@ var readEmbeddedFonts = sync.OnceValue(func() []embedFont {
 		if e.IsDir() {
 			continue
 		}
-		stem, ok := gzipTTFStem(e.Name())
+		stem, ok := gzipFontStem(e.Name())
 		if !ok {
 			continue
 		}
@@ -64,15 +79,27 @@ var readEmbeddedFonts = sync.OnceValue(func() []embedFont {
 	return out
 })
 
-// ttfStem returns the base name for a filesystem .ttf file.
-func ttfStem(filename string) (string, bool) {
-	if strings.ToLower(filepath.Ext(filename)) != ".ttf" {
+// fontStem returns the base name for a filesystem .ttf or .otf file.
+func fontStem(filename string) (string, bool) {
+	stem, gzip, ok := fontFileStem(filename)
+	if !ok || gzip {
 		return "", false
 	}
-	return strings.TrimSuffix(filename, filepath.Ext(filename)), true
+	return stem, true
 }
 
-// Dirs returns absolute directories that may contain system TrueType fonts,
+// systemFontDirsOverride replaces [fontDirectories] when non-nil. It is only
+// for tests in this package.
+var systemFontDirsOverride []string
+
+func systemFontSearchDirs() []string {
+	if systemFontDirsOverride != nil {
+		return systemFontDirsOverride
+	}
+	return fontDirectories()
+}
+
+// Dirs returns absolute directories that may contain system OpenType fonts,
 // in the same order as the platform font search (earlier entries are tried
 // before later ones, e.g. user locations before system paths on Unix).
 // Absolute paths are deduplicated; the first occurrence wins.
@@ -94,8 +121,8 @@ func Dirs() []string {
 	return out
 }
 
-// List returns available TrueType font base names (no extension, including
-// gzipped embedded assets) from embedded data and system directories. Names are
+// List returns available font base names (no extension, including gzipped
+// embedded assets) from embedded data and system directories. Names are
 // unique when compared case-insensitively. Embedded stems appear first in data
 // directory iteration order, then system fonts in discovery order (the same as
 // directory precedence in [Dirs] and [Load]).
@@ -147,7 +174,7 @@ type FontFamilyNames struct {
 	DisableSynthetic bool
 }
 
-// LoadFamily resolves a structured family of parsed TrueType fonts. Regular is
+// LoadFamily resolves a structured family of parsed OpenType fonts. Regular is
 // required; omitted variants remain nil.
 func LoadFamily(names FontFamilyNames) (FontFamily, error) {
 	regularName := strings.TrimSpace(names.Regular)
@@ -215,13 +242,13 @@ func loadOptionalFamilyFont(name, role string) (*opentype.Font, error) {
 }
 
 func forEachSystemFont(fn func(path, stem string) bool) {
-	for _, dir := range fontDirectories() {
+	for _, dir := range systemFontSearchDirs() {
 		d := expandUser(dir)
 		_ = filepath.WalkDir(d, func(path string, de fs.DirEntry, err error) error {
 			if err != nil || de.IsDir() {
 				return nil //nolint:nilerr // Ignore errors and continue searching.
 			}
-			base, ok := ttfStem(de.Name())
+			base, ok := fontStem(de.Name())
 			if !ok {
 				return nil
 			}
@@ -248,9 +275,9 @@ func systemFontStems() []string {
 	return stems
 }
 
-// MustLoad resolves a TrueType font by base name (optional .ttf / .ttf.gz suffixes
-// are ignored; matching is case-insensitive). Embedded gzip-compressed assets
-// are preferred, then system font directories.
+// MustLoad resolves an OpenType font by base name (optional .ttf, .otf,
+// .ttf.gz, or .otf.gz suffixes are ignored; matching is case-insensitive).
+// Embedded gzip-compressed assets are preferred, then system font directories.
 //
 // Panics if the font cannot be loaded.
 func MustLoad(name string) *opentype.Font {
@@ -261,9 +288,9 @@ func MustLoad(name string) *opentype.Font {
 	return f
 }
 
-// Load resolves a TrueType font by base name (optional .ttf / .ttf.gz suffixes
-// are ignored; matching is case-insensitive). Embedded gzip-compressed assets
-// are preferred, then system font directories.
+// Load resolves an OpenType font by base name (optional .ttf, .otf, .ttf.gz,
+// or .otf.gz suffixes are ignored; matching is case-insensitive). Embedded
+// gzip-compressed assets are preferred, then system font directories.
 func Load(name string) (*opentype.Font, error) {
 	norm := normalizeFontName(name)
 	if norm == "" {
@@ -335,11 +362,11 @@ func normalizeFontName(name string) string {
 		return ""
 	}
 	lower := strings.ToLower(s)
-	switch {
-	case strings.HasSuffix(lower, ".ttf.gz"):
-		s = s[:len(s)-len(".ttf.gz")]
-	case strings.HasSuffix(lower, ".ttf"):
-		s = s[:len(s)-len(".ttf")]
+	for _, suf := range []string{".ttf.gz", ".otf.gz", ".ttf", ".otf"} {
+		if strings.HasSuffix(lower, suf) {
+			s = s[:len(s)-len(suf)]
+			break
+		}
 	}
 	return strings.ToLower(strings.TrimSpace(s))
 }
@@ -371,10 +398,20 @@ func locate(norm string) (string, error) {
 }
 
 func locateMiss(norm string) (string, error) {
+	var embedOTF string
 	for _, ef := range readEmbeddedFonts() {
-		if strings.EqualFold(ef.stem, norm) {
+		if !strings.EqualFold(ef.stem, norm) {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(ef.rel), ".ttf.gz") {
 			return "embed:" + ef.rel, nil
 		}
+		if embedOTF == "" {
+			embedOTF = ef.rel
+		}
+	}
+	if embedOTF != "" {
+		return "embed:" + embedOTF, nil
 	}
 	path, err := findSystemFont(norm)
 	if err != nil {
@@ -388,18 +425,20 @@ func locateMiss(norm string) (string, error) {
 }
 
 func findSystemFont(norm string) (string, error) {
-	var found string
-	forEachSystemFont(func(path, stem string) bool {
-		if strings.EqualFold(stem, norm) {
-			found = path
-			return false
+	for _, ext := range []string{".ttf", ".otf"} {
+		var found string
+		forEachSystemFont(func(path, stem string) bool {
+			if strings.EqualFold(stem, norm) && strings.EqualFold(filepath.Ext(path), ext) {
+				found = path
+				return false
+			}
+			return true
+		})
+		if found != "" {
+			return found, nil
 		}
-		return true
-	})
-	if found != "" {
-		return found, nil
 	}
-	return "", errors.New("truetype font not found")
+	return "", errors.New("font not found")
 }
 
 func parseFont(src string) (*opentype.Font, error) {

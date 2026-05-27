@@ -75,7 +75,10 @@ func calcMetrics(opts config.Options, face FaceMetrics) types.Metrics {
 	faceY := cellBaseline - faceBaseline
 	topToBaseline := float64(cellHeight) - cellBaseline
 
-	underlineThickness := max(1, int(math.Ceil(face.UnderlineThickness.Float64())))
+	// Round fractional estimates (0.15× ex height) to the nearest pixel. Ceil
+	// overshoots on common programming fonts (e.g. JetBrains Mono at 12pt → ~1.2px
+	// becoming 2px); Ghostty lands at 1px for the same face.
+	underlineThickness := max(1, int(math.Round(face.UnderlineThickness.Float64())))
 	strikethroughThickness := max(1, int(math.Ceil(face.StrikethroughThickness.Float64())))
 	underlinePosition := int(math.Round(topToBaseline + float64(underlineThickness)))
 	strikethroughPosition := int(math.Round(topToBaseline - (face.ExHeight.Float64()+float64(strikethroughThickness))*0.5))

@@ -8,11 +8,13 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"strings"
 	"testing"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/charm/still/fonts"
 )
 
 func TestPowerlineIconRendering(t *testing.T) {
@@ -350,6 +352,223 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
 		junc := img.NRGBAAt(juncX, cy+1).R
 		if delta := int(junc) - int(mid); delta > 8 || delta < -8 {
 			t.Fatalf("horizontal fringe delta at junction = %d (mid=%d junc=%d), want within ±8", delta, mid, junc)
+		}
+	})
+}
+
+func TestRendererRoundedCornerBoxDrawingAvoidsOutsideArtifacts(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
+
+	scr := newTestScreen(2, 2)
+	scr.SetCell(0, 0, &uv.Cell{Content: "╭", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &uv.Cell{Content: "─", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 1, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+
+	img := drawNRGBA(t, d, scr)
+	ctx := d.contextLocked(image.Point{}, scr)
+	corner := ctx.CellBounds(0, 0)
+	bar := ctx.CellBounds(0, 1)
+	cx := corner.Min.X + ctx.Metrics().CellWidth.Int()/2
+	juncY := bar.Min.Y
+
+	if core := img.NRGBAAt(cx, juncY).R; core < 100 {
+		t.Fatalf("rounded corner vertical junction core R=%d, want >= 100", core)
+	}
+
+	barMidY := bar.Min.Y + bar.Dy()/2
+	juncW := boxStrokeWidthAtRow(img, corner, juncY, 100)
+	barW := boxStrokeWidthAtRow(img, bar, barMidY, 100)
+	if juncW == 0 {
+		t.Fatalf("no vertical stroke at junction y=%d", juncY)
+	}
+	if barW == 0 {
+		t.Fatalf("no vertical stroke in bar cell at y=%d", barMidY)
+	}
+	if juncW > barW+2 {
+		t.Fatalf("junction stroke width = %d, bar width = %d; want junction not bloated", juncW, barW)
+	}
+
+	// Outside the intended L-shape: left of the corner stroke column.
+	outsideX := corner.Min.X + 1
+	outsideY := corner.Min.Y + 2
+	if img.NRGBAAt(outsideX, outsideY).R > 32 {
+		t.Fatalf("spurious ink outside corner at (%d,%d) R=%d, want <= 32",
+			outsideX, outsideY, img.NRGBAAt(outsideX, outsideY).R)
+	}
+
+	// No spurious vertical stroke above the corner cell.
+	for y := corner.Min.Y - 8; y < corner.Min.Y; y++ {
+		if img.NRGBAAt(cx, y).R > 32 {
+			t.Fatalf("spurious ink above corner at (%d,%d) R=%d, want <= 32", cx, y, img.NRGBAAt(cx, y).R)
+		}
+	}
+}
+
+func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
+
+	type cornerCase struct {
+		name      string
+		glyph     string
+		cornerPos image.Point
+		barPos    image.Point
+	}
+	cases := []cornerCase{
+		{"top-left", "╭", image.Pt(0, 0), image.Pt(0, 1)},
+		{"top-right", "╮", image.Pt(1, 0), image.Pt(1, 1)},
+		{"bottom-left", "╰", image.Pt(0, 1), image.Pt(0, 0)},
+		{"bottom-right", "╯", image.Pt(1, 1), image.Pt(1, 0)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			scr := newTestScreen(2, 2)
+			scr.SetCell(tc.cornerPos.X, tc.cornerPos.Y, &uv.Cell{Content: tc.glyph, Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(tc.barPos.X, tc.barPos.Y, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+
+			img := drawNRGBA(t, d, scr)
+			ctx := d.contextLocked(image.Point{}, scr)
+			cornerCell := ctx.CellBounds(tc.cornerPos.X, tc.cornerPos.Y)
+			barCell := ctx.CellBounds(tc.barPos.X, tc.barPos.Y)
+
+			juncY := barCell.Min.Y
+			if tc.cornerPos.Y > tc.barPos.Y {
+				juncY = cornerCell.Min.Y
+			}
+
+			strokeX := cornerCell.Min.X + ctx.Metrics().CellWidth.Int()/2
+			for x := cornerCell.Min.X; x < cornerCell.Max.X; x++ {
+				if img.NRGBAAt(x, juncY-1).R > 50 || img.NRGBAAt(x, juncY).R > 50 {
+					strokeX = x
+					break
+				}
+			}
+
+			if core := img.NRGBAAt(strokeX, juncY).R; core < 100 {
+				t.Fatalf("vertical junction at (%d,%d) R=%d, want >= 100", strokeX, juncY, core)
+			}
+			if strings.HasPrefix(tc.name, "top-") {
+				if bridge := img.NRGBAAt(strokeX, juncY-1).R; bridge < 100 {
+					t.Fatalf("top corner bridge at (%d,%d) R=%d, want >= 100", strokeX, juncY-1, bridge)
+				}
+			}
+
+			barMidY := barCell.Min.Y + barCell.Dy()/2
+			juncW := boxStrokeWidthAtRow(img, cornerCell, juncY, 100)
+			barW := boxStrokeWidthAtRow(img, barCell, barMidY, 100)
+			if juncW > barW+2 {
+				t.Fatalf("junction stroke width = %d, bar width = %d; want junction not bloated", juncW, barW)
+			}
+		})
+	}
+}
+
+func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
+	t.Parallel()
+
+	family, err := fonts.LoadFamily(fonts.FontFamilyNames{
+		Regular: "FiraMonoNerdFontMono-Regular",
+	})
+	if err != nil {
+		t.Skip(err)
+	}
+
+	fg := color.NRGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	margin := color.NRGBA{R: 0x81, G: 0x2c, B: 0xd1, A: 0xff}
+	d := MustNew(
+		WithFontFamily(family),
+		WithFontSizePt(Pt(40)),
+		WithCellWidth(-0.1),
+		WithBorderRadius(10),
+		WithMargin(40, margin),
+		WithPadding(10),
+	)
+
+	scr := newTestScreen(2, 2)
+	scr.SetCell(0, 0, &uv.Cell{Content: "╭", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &uv.Cell{Content: "─", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 1, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+
+	img := drawNRGBA(t, d, scr)
+	ctx := d.contextLocked(image.Point{}, scr)
+	corner := ctx.CellBounds(0, 0)
+	bar := ctx.CellBounds(0, 1)
+	cx := corner.Min.X + ctx.Metrics().CellWidth.Int()/2
+	juncY := bar.Min.Y
+
+	if core := img.NRGBAAt(cx, juncY).R; core < 100 {
+		t.Fatalf("fira corner vertical junction core R=%d, want >= 100", core)
+	}
+
+	barMidY := bar.Min.Y + bar.Dy()/2
+	juncW := boxStrokeWidthAtRow(img, corner, juncY, 100)
+	barW := boxStrokeWidthAtRow(img, bar, barMidY, 100)
+	if juncW > barW+2 {
+		t.Fatalf("fira junction stroke width = %d, bar width = %d; want junction not bloated", juncW, barW)
+	}
+
+	for y := corner.Min.Y - 12; y < corner.Min.Y; y++ {
+		for x := corner.Min.X - 12; x < corner.Min.X; x++ {
+			c := img.NRGBAAt(x, y)
+			if c == margin {
+				continue
+			}
+			if c.R > 32 && c.R < 200 && c.G == c.R && c.B == c.R {
+				t.Fatalf("box artifact in margin at (%d,%d) = %#v (corner cell min=%v)", x, y, c, corner.Min)
+			}
+		}
+	}
+}
+
+func TestRendererContiguousBoxDrawingLinesAvoidSeamsLargeCell(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
+
+	t.Run("vertical", func(t *testing.T) {
+		t.Parallel()
+
+		rows := 4
+		scr := newTestScreen(1, rows)
+		for y := range rows {
+			scr.SetCell(0, y, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+		}
+		img := drawNRGBA(t, d, scr)
+		ctx := d.contextLocked(image.Point{}, scr)
+		cx := ctx.CellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
+		juncY := ctx.CellBounds(0, 1).Min.Y
+		if core := img.NRGBAAt(cx, juncY).R; core < 100 {
+			t.Fatalf("large vertical line gap at junction core R=%d, want >= 100", core)
+		}
+	})
+
+	t.Run("horizontal", func(t *testing.T) {
+		t.Parallel()
+
+		cols := 4
+		scr := newTestScreen(cols, 1)
+		for x := range cols {
+			scr.SetCell(x, 0, &uv.Cell{Content: "─", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
+		}
+		img := drawNRGBA(t, d, scr)
+		ctx := d.contextLocked(image.Point{}, scr)
+		cy := ctx.CellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
+		juncX := ctx.CellBounds(1, 0).Min.X
+		if core := img.NRGBAAt(juncX, cy).R; core < 100 {
+			t.Fatalf("large horizontal line gap at junction core R=%d, want >= 100", core)
 		}
 	})
 }

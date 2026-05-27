@@ -31,7 +31,8 @@ func (m mockFrameContext) Metrics() types.Metrics    { return m.m }
 func (m mockFrameContext) GridBounds() image.Rectangle {
 	return m.grid
 }
-func (m mockFrameContext) CellColors(cell *uv.Cell) (color.Color, color.Color) {
+
+func (m mockFrameContext) CellColors(_ *uv.Cell) (fg, bg color.Color) {
 	return color.White, color.Black
 }
 
@@ -112,7 +113,7 @@ func TestGlyphRasterBounds(t *testing.T) {
 	if !ok || dr.Empty() {
 		t.Fatalf("GlyphRasterBounds() = %v, ok=%v", dr, ok)
 	}
-	if _, ok := idraw.GlyphRasterBounds(face, dot, ""); ok {
+	if _, emptyOK := idraw.GlyphRasterBounds(face, dot, ""); emptyOK {
 		t.Fatal("empty glyph should not produce bounds")
 	}
 }

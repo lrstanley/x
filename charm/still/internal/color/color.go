@@ -21,25 +21,31 @@ var (
 	defaultBackground = color.NRGBA{A: 0xff}
 )
 
-// ResolveCellColors returns foreground and background colors for cell drawing.
-func ResolveCellColors(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.Color) {
+// resolveCellColors is the canonical fg/bg resolver (reverse, faint, conceal).
+func resolveCellColors(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.NRGBA) {
 	var style *uv.Style
 	if cell != nil {
 		style = &cell.Style
 	}
 
-	fg = ResolveForeground(cfg, style)
-	bg = ResolveBackground(cfg, style)
+	fg = ResolveForegroundNRGBA(cfg, style)
+	bg = ResolveBackgroundNRGBA(cfg, style)
 	if style != nil && style.Attrs&uv.AttrReverse != 0 {
 		fg, bg = bg, fg
 	}
 	if style != nil && style.Attrs&uv.AttrFaint != 0 {
-		fg = Blend(fg, bg, cfg.FaintFactor)
+		fg = NRGBA(Blend(fg, bg, cfg.FaintFactor))
 	}
 	if style != nil && style.Attrs&uv.AttrConceal != 0 {
 		fg = bg
 	}
 	return fg, bg
+}
+
+// ResolveCellColors returns foreground and background colors for cell drawing.
+func ResolveCellColors(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.Color) {
+	f, b := resolveCellColors(cfg, cell)
+	return f, b
 }
 
 // ResolveCellBackground returns the color to use when filling the cell background.
@@ -49,6 +55,39 @@ func ResolveCellBackground(cfg config.Snapshot, cell *uv.Cell) color.Color {
 		return bg
 	}
 	return ApplyAlpha(bg, cfg.BackgroundOpacity)
+}
+
+// ResolveForegroundNRGBA returns the color for text and decorations without interface boxing.
+func ResolveForegroundNRGBA(cfg config.Snapshot, style *uv.Style) color.NRGBA {
+	if style != nil && style.Fg != nil {
+		return NRGBA(ResolvePaletteColor(cfg, style.Fg))
+	}
+	if cfg.HasState && cfg.State.FgColor != nil {
+		return NRGBA(cfg.State.FgColor)
+	}
+	if cfg.Palette.DefaultForeground != nil {
+		return NRGBA(cfg.Palette.DefaultForeground)
+	}
+	return defaultForeground
+}
+
+// ResolveBackgroundNRGBA returns the cell background color before reverse-video swap.
+func ResolveBackgroundNRGBA(cfg config.Snapshot, style *uv.Style) color.NRGBA {
+	if style != nil && style.Bg != nil {
+		return NRGBA(ResolvePaletteColor(cfg, style.Bg))
+	}
+	if cfg.HasState && cfg.State.BgColor != nil {
+		return NRGBA(cfg.State.BgColor)
+	}
+	if cfg.Palette.DefaultBackground != nil {
+		return NRGBA(cfg.Palette.DefaultBackground)
+	}
+	return defaultBackground
+}
+
+// ResolveCellColorsNRGBA returns foreground and background as concrete NRGBA values.
+func ResolveCellColorsNRGBA(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.NRGBA) {
+	return resolveCellColors(cfg, cell)
 }
 
 // ResolveForeground returns the color for text and decorations.

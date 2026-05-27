@@ -35,6 +35,8 @@ func TestDirs_absolute(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
+	t.Parallel()
+
 	t.Run("embedded case insensitive", func(t *testing.T) {
 		tf, err := Load(strings.ToUpper(embeddedFixture) + ".TTF")
 		if err != nil {
@@ -218,6 +220,9 @@ func TestNormalizeFontName(t *testing.T) {
 		"Bar.ttf":                        "bar",
 		"Bar.TTF":                        "bar",
 		"Baz.ttf.gz":                     "baz",
+		"Qux.otf":                        "qux",
+		"Qux.OTF":                        "qux",
+		"Wiz.otf.gz":                     "wiz",
 		embeddedFixture:                  strings.ToLower(embeddedFixture),
 		strings.ToUpper(embeddedFixture): strings.ToLower(embeddedFixture),
 	}
@@ -228,13 +233,33 @@ func TestNormalizeFontName(t *testing.T) {
 	}
 }
 
-func TestGzipTTFStem(t *testing.T) {
-	stem, ok := gzipTTFStem("JetBrainsMono-Regular.ttf.gz")
+func TestGzipFontStem(t *testing.T) {
+	stem, ok := gzipFontStem("JetBrainsMono-Regular.ttf.gz")
 	if !ok || stem != "JetBrainsMono-Regular" {
 		t.Fatalf("got %q %v", stem, ok)
 	}
-	_, ok = gzipTTFStem("readme.txt")
+	stem, ok = gzipFontStem("Example.otf.gz")
+	if !ok || stem != "Example" {
+		t.Fatalf("got %q %v", stem, ok)
+	}
+	_, ok = gzipFontStem("readme.txt")
 	if ok {
 		t.Fatal("expected false")
 	}
 }
+
+func TestFontStem(t *testing.T) {
+	stem, ok := fontStem("JetBrainsMono-Regular.ttf")
+	if !ok || stem != "JetBrainsMono-Regular" {
+		t.Fatalf("got %q %v", stem, ok)
+	}
+	stem, ok = fontStem("Example.otf")
+	if !ok || stem != "Example" {
+		t.Fatalf("got %q %v", stem, ok)
+	}
+	_, ok = fontStem("JetBrainsMono-Regular.ttf.gz")
+	if ok {
+		t.Fatal("expected false for gzip filename")
+	}
+}
+

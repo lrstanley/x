@@ -26,7 +26,8 @@ func (m decorationFrameContext) Metrics() types.Metrics    { return m.m }
 func (m decorationFrameContext) GridBounds() image.Rectangle {
 	return m.grid
 }
-func (m decorationFrameContext) CellColors(cell *uv.Cell) (color.Color, color.Color) {
+
+func (m decorationFrameContext) CellColors(_ *uv.Cell) (fg, bg color.Color) {
 	return color.White, color.Black
 }
 
@@ -47,7 +48,7 @@ func TestDecorationsUnderline(t *testing.T) {
 	idraw.Decorations(ctx, img, area, cell, color.NRGBA{R: 255, A: 255})
 
 	found := false
-	for x := 0; x < 10; x++ {
+	for x := range 10 {
 		if img.NRGBAAt(x, 18).R == 255 {
 			found = true
 			break

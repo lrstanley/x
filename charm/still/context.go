@@ -146,9 +146,15 @@ func (c Context) Glyph(cell *uv.Cell) string {
 	return cell.Content
 }
 
+// CellColorsNRGBA returns resolved foreground and background as concrete NRGBA values.
+func (c Context) CellColorsNRGBA(cell *uv.Cell) (fg, bg color.NRGBA) {
+	return icol.ResolveCellColorsNRGBA(c.cfg, cell)
+}
+
 // CellColors returns resolved foreground and background colors for cell.
 func (c Context) CellColors(cell *uv.Cell) (fg, bg color.Color) {
-	return icol.ResolveCellColors(c.cfg, cell)
+	f, b := c.CellColorsNRGBA(cell)
+	return f, b
 }
 
 // CellBackgroundColor returns the cell background with opacity applied.

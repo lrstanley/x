@@ -41,7 +41,7 @@ func TestPassAppendAndReset(t *testing.T) {
 
 	var pass raster.Pass
 	pass.Reset(image.Rect(0, 0, 2, 2))
-	pass.AppendDecoration(image.Rect(0, 0, 1, 1), nil, color.White)
+	pass.AppendDecoration(image.Rect(0, 0, 1, 1), nil, color.NRGBA{A: 0xff})
 
 	pass.Coverage().Accumulate(0, 0, 255, color.NRGBA{R: 1, A: 255})
 	dst := image.NewNRGBA(image.Rect(0, 0, 2, 2))

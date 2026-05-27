@@ -88,6 +88,24 @@ func inkBounds(img *image.NRGBA, area image.Rectangle, bg color.NRGBA) (image.Re
 	return bounds, bounds.Min.X < bounds.Max.X && bounds.Min.Y < bounds.Max.Y
 }
 
+// boxStrokeWidthAtRow counts contiguous foreground columns at y within area
+// that meet minR, starting from the leftmost qualifying pixel.
+func boxStrokeWidthAtRow(img *image.NRGBA, area image.Rectangle, y int, minR uint8) int {
+	left, right := -1, -1
+	for x := area.Min.X; x < area.Max.X; x++ {
+		if img.NRGBAAt(x, y).R >= minR {
+			if left < 0 {
+				left = x
+			}
+			right = x
+		}
+	}
+	if left < 0 {
+		return 0
+	}
+	return right - left + 1
+}
+
 func cellInkSignature(img *image.NRGBA, area image.Rectangle) string {
 	var out strings.Builder
 	for y := area.Min.Y; y < area.Max.Y; y++ {
