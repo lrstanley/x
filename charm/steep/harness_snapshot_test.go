@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -85,10 +84,15 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 func TestHarnessImageConcurrentWithTerminalMutation(t *testing.T) {
 	t.Parallel()
 
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(24, 3),
-		WithImageRenderer(still.WithNow(func() time.Time { return time.Unix(0, 0) })),
-	)
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(24, 3))
 	h.WaitString("size=24x3")
+	// Steady cursor: blink phase is time-dependent and this test cannot use synctest
+	// (VT I/O runs outside the bubble).
+	h.emulator.mu.Lock()
+	if _, err := h.emulator.vt.WriteString(ansi.SetCursorStyle(2)); err != nil {
+		t.Fatalf("set steady cursor: %v", err)
+	}
+	h.emulator.mu.Unlock()
 
 	var wg sync.WaitGroup
 	for range 10 {

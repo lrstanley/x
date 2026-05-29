@@ -10,6 +10,7 @@ import (
 	"image/draw"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -51,7 +52,6 @@ func TestPowerlineIconRendering(t *testing.T) {
 
 		d := MustNew(
 			WithCellHeight(-0.25),
-			WithNow(func() time.Time { return time.Unix(1, 0) }),
 			palette,
 		)
 		img := drawNRGBA(t, d, scr)
@@ -748,71 +748,66 @@ func TestRendererBackgroundOpacity(t *testing.T) {
 }
 
 func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
-	t.Parallel()
-
 	t.Run("text decoration", func(t *testing.T) {
-		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			red := color.NRGBA{R: 0xff, A: 0xff}
+			scr := newTestScreen(1, 1)
+			scr.SetCell(0, 0, &uv.Cell{
+				Content: " ",
+				Width:   1,
+				Style:   uv.Style{Fg: red, Underline: uv.UnderlineSingle, Attrs: uv.AttrBlink},
+			})
 
-		red := color.NRGBA{R: 0xff, A: 0xff}
-		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &uv.Cell{
-			Content: " ",
-			Width:   1,
-			Style:   uv.Style{Fg: red, Underline: uv.UnderlineSingle, Attrs: uv.AttrBlink},
+			d := MustNew()
+			visibleImg := drawNRGBA(t, d, scr)
+			ctx := d.contextLocked(image.Point{}, scr)
+			p := image.Pt(ctx.CellBounds(0, 0).Min.X, ctx.CellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
+
+			if got := visibleImg.NRGBAAt(p.X, p.Y); got != red {
+				t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
+			}
+
+			time.Sleep(500 * time.Millisecond)
+			synctest.Wait()
+
+			hiddenImg := drawNRGBA(t, d, scr)
+			if got := hiddenImg.NRGBAAt(p.X, p.Y); got != (color.NRGBA{A: 0xff}) {
+				t.Fatalf("hidden blink pixel = %#v, want background", got)
+			}
 		})
-
-		visible := MustNew(WithNow(func() time.Time { return time.Unix(0, 0) }))
-		hidden := MustNew(WithNow(func() time.Time { return time.Unix(0, int64(500*time.Millisecond)) }))
-
-		visibleImg := drawNRGBA(t, visible, scr)
-		hiddenImg := drawNRGBA(t, hidden, scr)
-		ctx := visible.contextLocked(image.Point{}, scr)
-		p := image.Pt(ctx.CellBounds(0, 0).Min.X, ctx.CellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
-
-		if got := visibleImg.NRGBAAt(p.X, p.Y); got != red {
-			t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
-		}
-		if got := hiddenImg.NRGBAAt(p.X, p.Y); got != (color.NRGBA{A: 0xff}) {
-			t.Fatalf("hidden blink pixel = %#v, want background", got)
-		}
 	})
 
 	t.Run("cursor bar", func(t *testing.T) {
-		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			cursor := color.NRGBA{R: 0xff, A: 0xff}
+			scr := newTestScreen(1, 1)
+			visibleState := EmulatorState{
+				Focused:       true,
+				CursorVisible: true,
+				CursorColor:   cursor,
+				CursorStyle:   uv.CursorBar,
+				CursorBlink:   true,
+			}
+			d := MustNew(WithCursorBlinkSpeed(time.Second))
+			d.UpdateEmulatorState(&visibleState)
+			img := drawNRGBA(t, d, scr)
+			ctx := d.contextLocked(image.Point{}, scr)
+			area := ctx.CellBounds(0, 0)
+			if got := img.NRGBAAt(area.Min.X, area.Min.Y); got != cursor {
+				t.Fatalf("cursor bar left pixel = %#v, want %#v", got, cursor)
+			}
+			if got := img.NRGBAAt(area.Min.X+ctx.Metrics().CursorThickness.Int(), area.Min.Y); got == cursor {
+				t.Fatalf("cursor bar extended past configured thickness")
+			}
 
-		cursor := color.NRGBA{R: 0xff, A: 0xff}
-		scr := newTestScreen(1, 1)
-		visibleState := EmulatorState{
-			Focused:       true,
-			CursorVisible: true,
-			CursorColor:   cursor,
-			CursorStyle:   uv.CursorBar,
-			CursorBlink:   true,
-		}
-		visible := MustNew(
-			WithCursorBlinkSpeed(time.Second),
-			WithNow(func() time.Time { return time.Unix(0, 0) }),
-		)
-		visible.UpdateEmulatorState(&visibleState)
-		img := drawNRGBA(t, visible, scr)
-		ctx := visible.contextLocked(image.Point{}, scr)
-		area := ctx.CellBounds(0, 0)
-		if got := img.NRGBAAt(area.Min.X, area.Min.Y); got != cursor {
-			t.Fatalf("cursor bar left pixel = %#v, want %#v", got, cursor)
-		}
-		if got := img.NRGBAAt(area.Min.X+ctx.Metrics().CursorThickness.Int(), area.Min.Y); got == cursor {
-			t.Fatalf("cursor bar extended past configured thickness")
-		}
+			time.Sleep(time.Second)
+			synctest.Wait()
 
-		hidden := MustNew(
-			WithCursorBlinkSpeed(time.Second),
-			WithNow(func() time.Time { return time.Unix(1, 0) }),
-		)
-		hidden.UpdateEmulatorState(&visibleState)
-		img = drawNRGBA(t, hidden, scr)
-		if got := img.NRGBAAt(area.Min.X, area.Min.Y); got == cursor {
-			t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
-		}
+			img = drawNRGBA(t, d, scr)
+			if got := img.NRGBAAt(area.Min.X, area.Min.Y); got == cursor {
+				t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
+			}
+		})
 	})
 }
 

@@ -123,7 +123,7 @@ func TestNewJoinsOptionErrors(t *testing.T) {
 	d, err := New(
 		WithFontSizePt(0),
 		WithBackgroundOpacity(2),
-		WithNow(nil),
+		WithCursorBlinkSpeed(0),
 	)
 	if err == nil {
 		t.Fatal("New() error = nil, want joined validation errors")

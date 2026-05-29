@@ -5,7 +5,6 @@
 package still
 
 import (
-	"errors"
 	"fmt"
 	"image/color"
 	"maps"
@@ -287,17 +286,6 @@ func WithCursorBlinkSpeed(speed time.Duration) Option {
 			return fmt.Errorf("still: cursor blink speed must be > 0, got %v", speed)
 		}
 		d.opts.CursorBlinkSpeed = speed
-		return nil
-	}
-}
-
-// WithNow sets the clock used for blink phase calculation.
-func WithNow(now func() time.Time) Option {
-	return func(d *Renderer) error {
-		if now == nil {
-			return errors.New("still: now function must not be nil")
-		}
-		d.opts.Now = now
 		return nil
 	}
 }
