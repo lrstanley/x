@@ -1,4 +1,4 @@
 github.com/chewxy/math32 v1.11.1 h1:b7PGHlp8KjylDoU8RrcEsRuGZhJuz8haxnKfuMMRqy8=
 github.com/chewxy/math32 v1.11.1/go.mod h1:dOB2rcuFrCn6UHrze36WSLVPKtzPMRAQvBvUwkSsLqs=
-github.com/lrstanley/x/sync v0.0.0-20260510074740-f99adc613ee2 h1:lnG4ttub0+a16oD+3gPV36XwZ/aNm14R60I1FvMTOjU=
-github.com/lrstanley/x/sync v0.0.0-20260510074740-f99adc613ee2/go.mod h1:q71F0fHcGckHKcLWPLgD/monxNSFE+2bRJcMAiq7fGM=
+github.com/lrstanley/x/sync v0.0.0-20260529065950-23013a958022 h1:wI/2E/WzAb3BOJHe8xxIIcrBo7sKe8SvC13fjLBXuic=
+github.com/lrstanley/x/sync v0.0.0-20260529065950-23013a958022/go.mod h1:q71F0fHcGckHKcLWPLgD/monxNSFE+2bRJcMAiq7fGM=
