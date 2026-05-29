@@ -262,4 +262,3 @@ func TestFontStem(t *testing.T) {
 		t.Fatal("expected false for gzip filename")
 	}
 }
-

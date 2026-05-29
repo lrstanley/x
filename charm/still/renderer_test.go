@@ -5,6 +5,7 @@
 package still
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"image/draw"
@@ -12,7 +13,6 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/lrstanley/x/charm/still/internal/config"
 )
 
 func TestRendererCloseSemantics(t *testing.T) {
@@ -34,8 +34,8 @@ func TestRendererCloseSemantics(t *testing.T) {
 	assertPanic(t, "DrawInto after close", func() {
 		d.DrawInto(image.NewNRGBA(image.Rect(0, 0, 32, 32)), image.Rect(0, 0, 32, 32), scr)
 	})
-	assertPanic(t, "Apply after close", func() {
-		_ = d.Apply(WithScrollbar(true))
+	assertPanic(t, "UpdateEmulatorState after close", func() {
+		d.UpdateEmulatorState(&EmulatorState{Focused: true})
 	})
 }
 
@@ -117,62 +117,57 @@ func TestDrawReusesFrame(t *testing.T) {
 	}
 }
 
-func TestApplySkipsRebuildForStateAndPaletteOnlyChanges(t *testing.T) {
+func TestNewJoinsOptionErrors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("emulator state", func(t *testing.T) {
-		t.Parallel()
+	d, err := New(
+		WithFontSizePt(0),
+		WithBackgroundOpacity(2),
+		WithNow(nil),
+	)
+	if err == nil {
+		t.Fatal("New() error = nil, want joined validation errors")
+	}
+	if d != nil {
+		t.Fatal("New() renderer = non-nil, want nil on option failure")
+	}
+	if !errors.Is(err, err) {
+		t.Fatalf("New() error = %v", err)
+	}
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) || len(joined.Unwrap()) < 3 {
+		t.Fatalf("New() error = %v, want errors.Join with multiple failures", err)
+	}
+}
 
-		first := EmulatorState{Title: "first", CursorVisible: true, CursorX: 1}
-		second := EmulatorState{Title: "second", CursorVisible: false, CursorX: 2}
-		d := MustNew(WithEmulatorState(first), WithEmulatorState(second))
+func TestUpdateEmulatorStateCopiesValue(t *testing.T) {
+	t.Parallel()
 
-		if got := d.EmulatorState(); got.Title != second.Title || got.CursorX != second.CursorX || got.CursorVisible != second.CursorVisible {
-			t.Fatalf("EmulatorState() = %#v, want replacement %#v", got, second)
-		}
-		if !d.HasEmulatorState() {
-			t.Fatal("HasEmulatorState() = false, want true")
-		}
+	first := EmulatorState{Title: "first", CursorVisible: true, CursorX: 1}
+	second := EmulatorState{Title: "second", CursorVisible: false, CursorX: 2}
+	d := MustNew()
+	d.UpdateEmulatorState(&first)
 
-		metricsVersion := d.metricsVersion
-		fontVersion := d.fontVersion
-		if err := d.Apply(WithEmulatorState(first)); err != nil {
-			t.Fatalf("Apply() error = %v", err)
-		}
+	got := d.GetEmulatorState()
+	if got == nil || got.Title != first.Title || got.CursorX != first.CursorX || got.CursorVisible != first.CursorVisible {
+		t.Fatalf("GetEmulatorState() = %#v, want %#v", got, first)
+	}
 
-		if d.metricsVersion != metricsVersion {
-			t.Fatalf("metricsVersion changed on state-only Apply: %d -> %d", metricsVersion, d.metricsVersion)
-		}
-		if d.fontVersion != fontVersion {
-			t.Fatalf("fontVersion changed on state-only Apply: %d -> %d", fontVersion, d.fontVersion)
-		}
-		if d.dirty != config.DirtyNone {
-			t.Fatalf("dirty = %08b, want DirtyNone", d.dirty)
-		}
-	})
+	first.Title = "mutated"
+	if got := d.GetEmulatorState(); got.Title != "first" {
+		t.Fatalf("stored state mutated with caller value: %#v", got)
+	}
 
-	t.Run("palette", func(t *testing.T) {
-		t.Parallel()
+	d.UpdateEmulatorState(&second)
+	got = d.GetEmulatorState()
+	if got.Title != second.Title || got.CursorX != second.CursorX || got.CursorVisible != second.CursorVisible {
+		t.Fatalf("GetEmulatorState() = %#v, want %#v", got, second)
+	}
 
-		blue := color.NRGBA{B: 0xff, A: 0xff}
-		d := MustNew()
-
-		metricsVersion := d.metricsVersion
-		fontVersion := d.fontVersion
-		if err := d.Apply(WithPalette(Palette{DefaultBackground: blue})); err != nil {
-			t.Fatalf("Apply() error = %v", err)
-		}
-
-		if d.metricsVersion != metricsVersion {
-			t.Fatalf("metricsVersion changed on palette-only Apply: %d -> %d", metricsVersion, d.metricsVersion)
-		}
-		if d.fontVersion != fontVersion {
-			t.Fatalf("fontVersion changed on palette-only Apply: %d -> %d", fontVersion, d.fontVersion)
-		}
-		if d.dirty != config.DirtyNone {
-			t.Fatalf("dirty = %08b, want DirtyNone", d.dirty)
-		}
-	})
+	d.UpdateEmulatorState(nil)
+	if got := d.GetEmulatorState(); got != nil {
+		t.Fatalf("GetEmulatorState() = %#v, want nil after clear", got)
+	}
 }
 
 func TestRendererConcurrentMethodsSerialize(t *testing.T) {
@@ -191,18 +186,16 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 		}()
 		go func(i int) {
 			defer wg.Done()
-			if err := d.Apply(WithEmulatorState(EmulatorState{
+			d.UpdateEmulatorState(&EmulatorState{
 				CursorVisible:   i%2 == 0,
 				CursorX:         i % 4,
 				CursorY:         i % 2,
 				ScrollbackCount: i,
-			})); err != nil {
-				t.Errorf("Apply() error = %v", err)
-			}
+			})
 		}(i)
 		go func() {
 			defer wg.Done()
-			_ = d.EmulatorState()
+			_ = d.GetEmulatorState()
 		}()
 		go func() {
 			defer wg.Done()

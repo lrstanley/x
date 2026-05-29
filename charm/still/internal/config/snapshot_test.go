@@ -22,7 +22,7 @@ func TestNewSnapshot(t *testing.T) {
 		BoxThickness:      units.Px(2),
 		BackgroundOpacity: 0.5,
 	}
-	snap := config.NewSnapshot(opts, types.Metrics{}, nil)
+	snap := config.NewSnapshot(opts, types.Metrics{}, nil, nil)
 
 	if !snap.Now.Equal(fixed) {
 		t.Fatalf("Now = %v, want %v", snap.Now, fixed)

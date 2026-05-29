@@ -790,10 +790,10 @@ func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
 			CursorBlink:   true,
 		}
 		visible := MustNew(
-			WithEmulatorState(visibleState),
 			WithCursorBlinkSpeed(time.Second),
 			WithNow(func() time.Time { return time.Unix(0, 0) }),
 		)
+		visible.UpdateEmulatorState(&visibleState)
 		img := drawNRGBA(t, visible, scr)
 		ctx := visible.contextLocked(image.Point{}, scr)
 		area := ctx.CellBounds(0, 0)
@@ -805,10 +805,10 @@ func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
 		}
 
 		hidden := MustNew(
-			WithEmulatorState(visibleState),
 			WithCursorBlinkSpeed(time.Second),
 			WithNow(func() time.Time { return time.Unix(1, 0) }),
 		)
+		hidden.UpdateEmulatorState(&visibleState)
 		img = drawNRGBA(t, hidden, scr)
 		if got := img.NRGBAAt(area.Min.X, area.Min.Y); got == cursor {
 			t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
@@ -820,10 +820,8 @@ func TestRendererScrollbarThumbPinnedToBottom(t *testing.T) {
 	t.Parallel()
 
 	scr := newTestScreen(1, 4)
-	d := MustNew(
-		WithScrollbar(true),
-		WithEmulatorState(EmulatorState{Focused: true, ScrollbackCount: 30}),
-	)
+	d := MustNew(WithScrollbar(true))
+	d.UpdateEmulatorState(&EmulatorState{Focused: true, ScrollbackCount: 30})
 	img := drawNRGBA(t, d, scr)
 	ctx := d.contextLocked(image.Point{}, scr)
 	sb := ctx.ScrollbarBounds()
@@ -848,8 +846,8 @@ func TestRendererFocusDimmingExcludesMargin(t *testing.T) {
 		WithMargin(1, margin),
 		WithFocusDimming(0.5),
 		WithPalette(Palette{DefaultBackground: bg}),
-		WithEmulatorState(EmulatorState{Focused: false}),
 	)
+	d.UpdateEmulatorState(&EmulatorState{Focused: false})
 	img := drawNRGBA(t, d, scr)
 	ctx := d.contextLocked(image.Point{}, scr)
 

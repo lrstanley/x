@@ -66,14 +66,13 @@ func (c Context) Palette() Palette {
 	return config.ClonePalette(c.cfg.Palette)
 }
 
-// EmulatorState returns the emulator state for this draw.
-func (c Context) EmulatorState() EmulatorState {
-	return c.cfg.State
-}
-
-// HasEmulatorState reports whether emulator state was applied for this draw.
-func (c Context) HasEmulatorState() bool {
-	return c.cfg.HasState
+// GetEmulatorState returns the emulator state for this draw, or nil if unset.
+func (c Context) GetEmulatorState() *EmulatorState {
+	if !c.cfg.HasState {
+		return nil
+	}
+	state := c.cfg.State
+	return &state
 }
 
 // ScreenBounds returns the source screen bounds.

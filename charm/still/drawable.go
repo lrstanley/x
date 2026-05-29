@@ -91,7 +91,10 @@ func cellHasForegroundDecorations(cell *uv.Cell) bool {
 
 // DrawCursor is the default implementation of [CursorDrawer] used by [Renderer].
 func DrawCursor(ctx Context, img draw.Image, area image.Rectangle) {
-	state := ctx.EmulatorState()
+	state := ctx.GetEmulatorState()
+	if state == nil {
+		return
+	}
 	metrics := ctx.Metrics()
 
 	switch state.CursorStyle {
@@ -114,7 +117,11 @@ func DrawCursor(ctx Context, img draw.Image, area image.Rectangle) {
 // DrawScrollbar is the default implementation of [ScrollbarDrawer] used by [Renderer].
 func DrawScrollbar(ctx Context, img draw.Image, area image.Rectangle) {
 	screenRows := ctx.ScreenBounds().Dy()
-	totalRows := ctx.EmulatorState().ScrollbackCount + screenRows
+	state := ctx.GetEmulatorState()
+	if state == nil {
+		return
+	}
+	totalRows := state.ScrollbackCount + screenRows
 	if screenRows <= 0 || totalRows <= screenRows {
 		return
 	}

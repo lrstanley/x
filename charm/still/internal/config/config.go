@@ -7,6 +7,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"image/color"
 	"maps"
 	"time"
@@ -51,9 +53,6 @@ type Options struct {
 
 	Palette types.Palette
 
-	State    types.EmulatorState
-	HasState bool
-
 	Scrollbar              bool
 	BorderRadius           units.Px
 	Margin                 units.Px
@@ -66,16 +65,6 @@ type Options struct {
 	CursorBlinkSpeed       time.Duration
 	Now                    func() time.Time
 }
-
-// Dirty labels rebuild buckets for font loading and metric derivation.
-type Dirty uint8
-
-const DirtyNone Dirty = 0
-
-const (
-	DirtyMetrics Dirty = 1 << iota
-	DirtyFonts
-)
 
 // DefaultOptions returns baseline renderer options without drawer hooks.
 func DefaultOptions() Options {
@@ -93,20 +82,28 @@ func DefaultOptions() Options {
 	}
 }
 
-// PositivePx validates a non-negative pixel count.
-func PositivePx(px int, name string) units.Px {
+// ParsePositivePx validates a non-negative pixel count.
+func ParsePositivePx(px int, name string) (units.Px, error) {
 	if px < 0 {
-		panic(name + " must be >= 0")
+		return 0, fmt.Errorf("still: %s must be >= 0", name)
 	}
-	return units.Px(px)
+	return units.Px(px), nil
 }
 
-// RequiredPx validates a positive pixel count.
-func RequiredPx(px int, name string) units.Px {
+// ParseRequiredPx validates a positive pixel count.
+func ParseRequiredPx(px int, name string) (units.Px, error) {
 	if px <= 0 {
-		panic(name + " must be > 0")
+		return 0, fmt.Errorf("still: %s must be > 0", name)
 	}
-	return units.Px(px)
+	return units.Px(px), nil
+}
+
+// ParseIconHeightScale validates icon height scale.
+func ParseIconHeightScale(scale float64) (float64, error) {
+	if scale < 0 {
+		return 0, errors.New("still: icon height scale must be >= 0")
+	}
+	return scale, nil
 }
 
 // ClonePalette returns a defensive copy of palette indexed colors.
@@ -119,14 +116,6 @@ func ClonePalette(p types.Palette) types.Palette {
 	maps.Copy(indexed, p.Indexed)
 	p.Indexed = indexed
 	return p
-}
-
-// NormalizeIconHeightScale validates icon height scale.
-func NormalizeIconHeightScale(scale float64) float64 {
-	if scale < 0 {
-		panic("icon height scale must be >= 0")
-	}
-	return scale
 }
 
 // BoxThicknessOverride reports whether explicit box thickness was configured.

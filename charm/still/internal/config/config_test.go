@@ -6,6 +6,7 @@ package config_test
 
 import (
 	"image/color"
+	"strings"
 	"testing"
 
 	"github.com/lrstanley/x/charm/still/internal/config"
@@ -33,29 +34,37 @@ func TestDefaultOptions(t *testing.T) {
 	}
 }
 
-func TestPositivePx(t *testing.T) {
+func TestParsePositivePx(t *testing.T) {
 	t.Parallel()
 
-	if got := config.PositivePx(5, "test").Int(); got != 5 {
-		t.Fatalf("PositivePx(5) = %d, want 5", got)
+	got, err := config.ParsePositivePx(5, "test")
+	if err != nil {
+		t.Fatalf("ParsePositivePx() error = %v", err)
 	}
-	assertPanic(t, "negative", func() {
-		_ = config.PositivePx(-1, "test")
-	})
+	if got.Int() != 5 {
+		t.Fatalf("ParsePositivePx(5) = %d, want 5", got.Int())
+	}
+	if _, err := config.ParsePositivePx(-1, "test"); err == nil {
+		t.Fatal("ParsePositivePx(-1) error = nil, want error")
+	}
 }
 
-func TestRequiredPx(t *testing.T) {
+func TestParseRequiredPx(t *testing.T) {
 	t.Parallel()
 
-	if got := config.RequiredPx(3, "test").Int(); got != 3 {
-		t.Fatalf("RequiredPx(3) = %d, want 3", got)
+	got, err := config.ParseRequiredPx(3, "test")
+	if err != nil {
+		t.Fatalf("ParseRequiredPx() error = %v", err)
 	}
-	assertPanic(t, "zero", func() {
-		_ = config.RequiredPx(0, "test")
-	})
-	assertPanic(t, "negative", func() {
-		_ = config.RequiredPx(-1, "test")
-	})
+	if got.Int() != 3 {
+		t.Fatalf("ParseRequiredPx(3) = %d, want 3", got.Int())
+	}
+	if _, err := config.ParseRequiredPx(0, "test"); err == nil {
+		t.Fatal("ParseRequiredPx(0) error = nil, want error")
+	}
+	if _, err := config.ParseRequiredPx(-1, "test"); err == nil {
+		t.Fatal("ParseRequiredPx(-1) error = nil, want error")
+	}
 }
 
 func TestClonePalette(t *testing.T) {
@@ -80,15 +89,19 @@ func TestClonePalette(t *testing.T) {
 	}
 }
 
-func TestNormalizeIconHeightScale(t *testing.T) {
+func TestParseIconHeightScale(t *testing.T) {
 	t.Parallel()
 
-	if got := config.NormalizeIconHeightScale(1.5); got != 1.5 {
-		t.Fatalf("NormalizeIconHeightScale(1.5) = %v, want 1.5", got)
+	got, err := config.ParseIconHeightScale(1.5)
+	if err != nil {
+		t.Fatalf("ParseIconHeightScale() error = %v", err)
 	}
-	assertPanic(t, "negative scale", func() {
-		_ = config.NormalizeIconHeightScale(-0.1)
-	})
+	if got != 1.5 {
+		t.Fatalf("ParseIconHeightScale(1.5) = %v, want 1.5", got)
+	}
+	if _, err := config.ParseIconHeightScale(-0.1); err == nil {
+		t.Fatal("ParseIconHeightScale(-0.1) error = nil, want error")
+	}
 }
 
 func TestBoxThicknessOverride(t *testing.T) {
@@ -102,12 +115,14 @@ func TestBoxThicknessOverride(t *testing.T) {
 	}
 }
 
-func assertPanic(t *testing.T, name string, fn func()) {
-	t.Helper()
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("%s did not panic", name)
-		}
-	}()
-	fn()
+func TestParsePositivePxErrorPrefix(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.ParsePositivePx(-1, "margin")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.HasPrefix(err.Error(), "still:") {
+		t.Fatalf("error = %q, want still: prefix", err)
+	}
 }

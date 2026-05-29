@@ -175,12 +175,12 @@ func (d *Renderer) contextLocked(origin image.Point, scr uv.Screen) Context {
 		scrollbarBounds = image.Rect(gridBounds.Max.X, gridBounds.Min.Y, gridBounds.Max.X+scrollbarWidth, gridBounds.Max.Y)
 	}
 	var cursorCell *uv.Cell
-	if d.opts.HasState {
-		cursorCell = scr.CellAt(screen.Min.X+d.opts.State.CursorX, screen.Min.Y+d.opts.State.CursorY)
+	if d.emulatorState != nil {
+		cursorCell = scr.CellAt(screen.Min.X+d.emulatorState.CursorX, screen.Min.Y+d.emulatorState.CursorY)
 	}
 
 	return Context{
-		cfg:             config.NewSnapshot(d.opts, d.metrics, d.fonts),
+		cfg:             config.NewSnapshot(d.opts, d.metrics, d.fonts, d.emulatorState),
 		screenBounds:    screen,
 		imageBounds:     imageBounds,
 		windowBounds:    windowBounds,

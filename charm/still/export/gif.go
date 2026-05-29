@@ -428,7 +428,7 @@ func compositeBackgroundNRGBA(src *image.NRGBA, bg color.Color) *image.NRGBA {
 	width := b.Dx()
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		si := (y-src.Rect.Min.Y)*src.Stride + (b.Min.X-src.Rect.Min.X)*4
-		di := (y-dst.Rect.Min.Y)*dst.Stride + (b.Min.X - dst.Rect.Min.X)*4
+		di := (y-dst.Rect.Min.Y)*dst.Stride + (b.Min.X-dst.Rect.Min.X)*4
 		srcRow := src.Pix[si : si+width*4]
 		dstRow := dst.Pix[di : di+width*4]
 		for x := range width {

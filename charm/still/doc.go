@@ -13,6 +13,7 @@
 //		still.WithFontSizePt(still.Pt(14)),
 //		still.WithPadding(8),
 //	)
+//	d.UpdateEmulatorState(&still.EmulatorState{Focused: true})
 //	img := d.Draw(screen)
 //
 // The image returned from [Renderer.Draw] is owned by the renderer; encode or copy

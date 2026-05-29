@@ -252,25 +252,6 @@ func TestStyleFaceSelectionDefaultsFallbackAndError(t *testing.T) {
 	}
 }
 
-func TestFontSizeRebuildsFontsAndMetrics(t *testing.T) {
-	t.Parallel()
-
-	d := MustNew()
-	fontVersion := d.fontVersion
-	metricsVersion := d.metricsVersion
-
-	if err := d.Apply(WithFontSizePt(12)); err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
-
-	if d.fontVersion == fontVersion {
-		t.Fatalf("fontVersion unchanged after font size Apply: %d", fontVersion)
-	}
-	if d.metricsVersion == metricsVersion {
-		t.Fatalf("metricsVersion unchanged after font size Apply: %d", metricsVersion)
-	}
-}
-
 func expectedCellHeightShift(m Metrics, diff int) (top, bottom int) {
 	half := float64(diff) / 2
 	positionWithRespectToCenter := m.FaceY.Float64() - (float64(m.CellHeight.Int())-m.FaceHeight.Float64())/2

@@ -21,7 +21,7 @@ type FontFaces interface {
 }
 
 // Snapshot is the immutable per-draw configuration built from [Options],
-// derived metrics, and loaded fonts.
+// derived metrics, loaded fonts, and live emulator state.
 type Snapshot struct {
 	Metrics types.Metrics
 	Fonts   FontFaces
@@ -45,14 +45,13 @@ type Snapshot struct {
 	BoxThicknessOverride   bool
 }
 
-// NewSnapshot builds a draw snapshot from renderer options and derived state.
-func NewSnapshot(opts Options, metrics types.Metrics, fonts FontFaces) Snapshot {
-	return Snapshot{
+// NewSnapshot builds a draw snapshot from renderer options, derived state, and
+// optional live emulator state.
+func NewSnapshot(opts Options, metrics types.Metrics, fonts FontFaces, emu *types.EmulatorState) Snapshot {
+	snap := Snapshot{
 		Metrics:                metrics,
 		Fonts:                  fonts,
 		Palette:                ClonePalette(opts.Palette),
-		State:                  opts.State,
-		HasState:               opts.HasState,
 		Margin:                 opts.Margin,
 		MarginFill:             opts.MarginFill,
 		Padding:                opts.Padding,
@@ -66,4 +65,9 @@ func NewSnapshot(opts Options, metrics types.Metrics, fonts FontFaces) Snapshot 
 		Now:                    opts.Now(),
 		BoxThicknessOverride:   opts.BoxThicknessOverride(),
 	}
+	if emu != nil {
+		snap.State = *emu
+		snap.HasState = true
+	}
+	return snap
 }

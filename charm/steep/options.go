@@ -14,6 +14,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/lrstanley/x/charm/still"
 )
 
 const (
@@ -70,6 +71,9 @@ type options struct {
 	// ctx is the parent context for blocking [WaitString]-style helpers.
 	ctx           context.Context
 	wasContextSet bool
+
+	// imageRendererOpts configures the harness-owned [still.Renderer].
+	imageRendererOpts []still.Option
 }
 
 func defaultOptions() options {
@@ -243,6 +247,15 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 func WithANSI(enable bool) Option {
 	return func(cfg *options) {
 		cfg.stripANSI = !enable
+	}
+}
+
+// WithImageRenderer configures the harness-owned [still.Renderer] used by
+// [Harness.Image] and [Harness.ImageInto]. Options apply only at harness
+// construction; per-draw emulator state is synchronized automatically.
+func WithImageRenderer(opts ...still.Option) Option {
+	return func(cfg *options) {
+		cfg.imageRendererOpts = append(cfg.imageRendererOpts, opts...)
 	}
 }
 

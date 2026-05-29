@@ -55,7 +55,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		cfg = collectOptions(opts...)
 	}
 
-	imageRenderer, err := still.New()
+	imageRenderer, err := still.New(cfg.imageRendererOpts...)
 	if err != nil {
 		tb.Fatal(err)
 	}

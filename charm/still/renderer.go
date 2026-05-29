@@ -5,6 +5,7 @@
 package still
 
 import (
+	"errors"
 	"image"
 	"sync"
 
@@ -46,10 +47,7 @@ type Renderer struct {
 	fonts   *fontset.Set
 	metrics Metrics
 
-	dirty config.Dirty
-
-	fontVersion    uint64
-	metricsVersion uint64
+	emulatorState *EmulatorState
 
 	frame *image.NRGBA
 
@@ -61,10 +59,20 @@ func New(opts ...Option) (*Renderer, error) {
 	d := &Renderer{
 		opts:  config.DefaultOptions(),
 		hooks: defaultRendererHooks(),
-		dirty: config.DirtyFonts | config.DirtyMetrics,
 	}
-	d.applyLocked(opts...)
-	if err := d.rebuildLocked(); err != nil {
+	var errs []error
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(d); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	if err := d.buildRenderer(); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -79,20 +87,31 @@ func MustNew(opts ...Option) *Renderer {
 	return d
 }
 
-// EmulatorState returns the current emulator state.
-func (d *Renderer) EmulatorState() EmulatorState {
+// GetEmulatorState returns a copy of the current emulator state, or nil if unset.
+func (d *Renderer) GetEmulatorState() *EmulatorState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.opts.State
+	if d.emulatorState == nil {
+		return nil
+	}
+	state := *d.emulatorState
+	return &state
 }
 
-// HasEmulatorState reports whether an emulator state has been applied.
-func (d *Renderer) HasEmulatorState() bool {
+// UpdateEmulatorState replaces live emulator state used during [Renderer.Draw].
+// Passing nil clears the state.
+func (d *Renderer) UpdateEmulatorState(state *EmulatorState) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.opts.HasState
+	d.ensureOpen()
+	if state == nil {
+		d.emulatorState = nil
+		return
+	}
+	st := *state
+	d.emulatorState = &st
 }
 
 // Metrics returns the current derived renderer metrics.
@@ -101,16 +120,6 @@ func (d *Renderer) Metrics() Metrics {
 	defer d.mu.Unlock()
 
 	return d.metrics
-}
-
-// Apply applies the given options to the Renderer, under protection of a mutex.
-func (d *Renderer) Apply(opts ...Option) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.ensureOpen()
-	d.applyLocked(opts...)
-	return d.rebuildLocked()
 }
 
 // Draw rasterizes scr into the renderer's reusable frame buffer and returns it.
@@ -145,40 +154,27 @@ func (d *Renderer) ensureFrameLocked(bounds image.Rectangle) *image.NRGBA {
 	return d.frame
 }
 
-func (d *Renderer) applyLocked(opts ...Option) {
-	for _, opt := range opts {
-		if opt != nil {
-			opt(d)
-		}
-	}
-}
-
 func (d *Renderer) ensureOpen() {
 	if d.closed {
 		panic("renderer is closed")
 	}
 }
 
-func (d *Renderer) rebuildLocked() error {
-	if d.dirty&config.DirtyFonts != 0 {
-		fonts, err := fontset.Build(d.opts)
-		if err != nil {
-			return err
-		}
-		old := d.fonts
-		d.fonts = fonts
+func (d *Renderer) buildRenderer() error {
+	fonts, err := fontset.Build(d.opts)
+	if err != nil {
+		return err
+	}
+	old := d.fonts
+	d.fonts = fonts
+	if old != nil {
 		if closeErr := old.Close(); closeErr != nil {
 			return closeErr
 		}
-		d.fontVersion++
 	}
-	if d.dirty&(config.DirtyFonts|config.DirtyMetrics) != 0 {
-		if d.fonts == nil {
-			panic("fonts are not loaded")
-		}
-		d.metrics = imetrics.Derive(d.opts, d.fonts.GridMetrics())
-		d.metricsVersion++
+	if d.fonts == nil {
+		panic("fonts are not loaded")
 	}
-	d.dirty = config.DirtyNone
+	d.metrics = imetrics.Derive(d.opts, d.fonts.GridMetrics())
 	return nil
 }

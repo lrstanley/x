@@ -40,7 +40,18 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	t.Parallel()
 
 	cursorColor := color.NRGBA{R: 0xff, A: 0xff}
-	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3))
+	var capturedState *still.EmulatorState
+	var capturedBounds image.Rectangle
+	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3),
+		WithImageRenderer(
+			still.WithPadding(2),
+			still.WithBackgroundDrawer(func(ctx still.Context, dst draw.Image, area image.Rectangle) {
+				capturedState = ctx.GetEmulatorState()
+				capturedBounds = ctx.ScreenBounds()
+				still.DrawBackground(ctx, dst, area)
+			}),
+		),
+	)
 	h.WaitString("text=image")
 	h.Blur()
 	h.SetCursorColor(cursorColor)
@@ -49,24 +60,14 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 		t.Fatalf("set cursor style: %v", err)
 	}
 	h.emulator.mu.Unlock()
-
-	var capturedState still.EmulatorState
-	var capturedBounds image.Rectangle
-	img := h.Image(
-		still.WithPadding(2),
-		still.WithBackgroundDrawer(func(ctx still.Context, dst draw.Image, area image.Rectangle) {
-			capturedState = ctx.EmulatorState()
-			capturedBounds = ctx.ScreenBounds()
-			still.DrawBackground(ctx, dst, area)
-		}),
-	)
+	img := h.Image()
 	if img.Bounds().Empty() {
 		t.Fatal("Image() returned empty bounds")
 	}
 	if capturedBounds.Dx() != h.Width() || capturedBounds.Dy() != h.Height() {
 		t.Fatalf("screen bounds = %v, want harness dimensions %dx%d", capturedBounds, h.Width(), h.Height())
 	}
-	if capturedState.Focused {
+	if capturedState == nil || capturedState.Focused {
 		t.Fatal("captured state focused = true, want false")
 	}
 	if capturedState.CursorStyle != uv.CursorBar {
@@ -84,19 +85,18 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 func TestHarnessImageConcurrentWithTerminalMutation(t *testing.T) {
 	t.Parallel()
 
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(24, 3))
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(24, 3),
+		WithImageRenderer(still.WithNow(func() time.Time { return time.Unix(0, 0) })),
+	)
 	h.WaitString("size=24x3")
 
 	var wg sync.WaitGroup
-	for i := range 10 {
+	for range 10 {
 		wg.Add(2)
-		go func(i int) {
+		go func() {
 			defer wg.Done()
-			_ = h.Image(
-				still.WithPadding(i%3),
-				still.WithNow(func() time.Time { return time.Unix(int64(i), 0) }),
-			)
-		}(i)
+			_ = h.Image()
+		}()
 		go func() {
 			defer wg.Done()
 			h.Type("x")

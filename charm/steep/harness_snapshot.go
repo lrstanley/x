@@ -69,18 +69,18 @@ func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 // written to dst are caller-owned and safe to retain after the call returns.
 //
 // See also [Harness.Image].
-func (h *Harness) ImageInto(dst draw.Image, opts ...still.Option) {
+func (h *Harness) ImageInto(dst draw.Image) {
 	h.tb.Helper()
 
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
 
-	h.applyRendererLocked(opts...)
+	h.syncRendererStateLocked()
 	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.emulator.vt)
 }
 
-// Image renders the current terminal screen buffer as an image. Renderer
-// options are applied to the harness-owned renderer and persist across calls.
+// Image renders the current terminal screen buffer as an image. Configure the
+// harness renderer with [WithImageRenderer] when creating the harness.
 //
 // The returned [image.Image] is owned by the harness renderer and invalidated
 // by the next [Harness.Image] call or [Harness.Close]. Do not mutate it and do
@@ -88,25 +88,23 @@ func (h *Harness) ImageInto(dst draw.Image, opts ...still.Option) {
 // [Harness.ImageInto] when pixels must outlive the draw.
 //
 // See also [Harness.ImageInto].
-func (h *Harness) Image(opts ...still.Option) image.Image {
+func (h *Harness) Image() image.Image {
 	h.tb.Helper()
 
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
 
-	h.applyRendererLocked(opts...)
+	h.syncRendererStateLocked()
 	return h.imageRenderer.Draw(h.emulator.vt)
 }
 
-// applyRendererLocked applies still options and live emulator state to
-// the harness renderer. The caller must hold [emulator.mu] for reading.
-func (h *Harness) applyRendererLocked(opts ...still.Option) {
+// syncRendererStateLocked copies live emulator state into the harness renderer.
+// The caller must hold [emulator.mu] for reading.
+func (h *Harness) syncRendererStateLocked() {
 	h.tb.Helper()
 
 	state := h.rendererStateLocked()
-	if err := h.imageRenderer.Apply(append(opts, still.WithEmulatorState(state))...); err != nil {
-		h.tb.Fatal(err)
-	}
+	h.imageRenderer.UpdateEmulatorState(&state)
 }
 
 func (h *Harness) rendererStateLocked() still.EmulatorState {

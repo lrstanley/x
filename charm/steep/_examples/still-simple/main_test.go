@@ -25,9 +25,6 @@ func firaFontFamily(t *testing.T) fonts.FontFamily {
 }
 
 func TestGenerate(t *testing.T) {
-	h := steep.NewHarness(t, newRankingModel())
-
-	// All WIP. Will eventually have hooks into steep.
 	opts := []still.Option{
 		still.WithFontSizePt(still.Pt(20)),
 		still.WithBorderRadius(10),
@@ -35,15 +32,13 @@ func TestGenerate(t *testing.T) {
 		still.WithPadding(10),
 	}
 
-	generateStill(h, "testdata/test.png", "testdata/test.gif", opts...)
+	h := steep.NewHarness(t, newRankingModel(), steep.WithImageRenderer(opts...))
+	generateStill(h, "testdata/test.png", "testdata/test.gif")
 }
 
 func TestGenerateFira(t *testing.T) {
 	fira := firaFontFamily(t)
 
-	h := steep.NewHarness(t, newRankingModel(), steep.WithWindowSize(120, 30))
-
-	// All WIP. Will eventually have hooks into steep.
 	opts := []still.Option{
 		still.WithFontFamily(fira),
 		still.WithCodepointMap(map[string]fonts.FontFamily{
@@ -53,16 +48,17 @@ func TestGenerateFira(t *testing.T) {
 		still.WithCellWidth(-0.1),
 	}
 
-	generateStill(h, "testdata/test-fira.png", "testdata/test-fira.gif", opts...)
+	h := steep.NewHarness(t, newRankingModel(), steep.WithWindowSize(120, 30), steep.WithImageRenderer(opts...))
+	generateStill(h, "testdata/test-fira.png", "testdata/test-fira.gif")
 }
 
-func generateStill(h *steep.Harness, pngPath, gifPath string, opts ...still.Option) {
+func generateStill(h *steep.Harness, pngPath, gifPath string) {
 	h.WaitString("Tokyo", steep.WithANSI(false))
 
-	export.MustPNG(h.Image(opts...), pngPath)
+	export.MustPNG(h.Image(), pngPath)
 
 	gifCloser := export.MustGIF(gifPath, export.WithFrameRate(50, false, func() image.Image {
-		return h.Image(opts...)
+		return h.Image()
 	}))
 	defer gifCloser()
 
