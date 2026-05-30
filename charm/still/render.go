@@ -7,10 +7,8 @@ package still
 import (
 	"image"
 	"image/draw"
-	"iter"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/lrstanley/x/charm/still/internal/config"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"github.com/lrstanley/x/charm/still/internal/effects"
 )
@@ -31,7 +29,7 @@ func (d *Renderer) Size(scr uv.Screen) image.Point {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.contextLocked(image.Point{}, scr).Size()
+	return d.buildFrame(image.Point{}, scr).size()
 }
 
 // Bounds returns the pixel bounds required to draw scr at the origin.
@@ -57,11 +55,8 @@ func (d *Renderer) drawIntoLocked(dst draw.Image, area image.Rectangle, scr uv.S
 		origin = dst.Bounds().Min
 	}
 
-	d.drawIntoContextLocked(d.contextLocked(origin, scr), dst, area, scr)
-}
-
-func (d *Renderer) drawIntoContextLocked(ctx Context, dst draw.Image, area image.Rectangle, scr uv.Screen) {
-	required := ctx.ImageBounds()
+	f := d.buildFrame(origin, scr)
+	required := f.imageBounds
 	if area.Empty() {
 		area = required
 		dstBounds := dst.Bounds()
@@ -72,120 +67,70 @@ func (d *Renderer) drawIntoContextLocked(ctx Context, dst draw.Image, area image
 		panic("target area is too small")
 	}
 
-	d.renderLocked(ctx, dst, scr)
+	d.render(dst, scr, f)
 }
 
-func (d *Renderer) renderLocked(ctx Context, dst draw.Image, scr uv.Screen) {
-	if d.hooks.backgroundDrawer != nil {
-		d.hooks.backgroundDrawer(ctx, dst, ctx.ImageBounds())
+func (d *Renderer) render(dst draw.Image, scr uv.Screen, f *renderFrame) {
+	d.drawBackground(dst, f)
+
+	screen := f.screenBounds
+	gridMaxX := f.gridBounds.Max.X
+	cellW := f.cellW
+	cellH := f.cellH
+	gridMin := f.gridBounds.Min
+
+	frame, usePass := dst.(*image.NRGBA)
+	if usePass {
+		d.fgPass.Reset(f.gridBounds)
 	}
 
-	for area, cell := range iterCells(ctx, scr) {
-		d.hooks.cellBgDrawer(ctx, dst, area, cell)
-	}
-	d.drawCellForegrounds(ctx, dst, scr)
-
-	if ctx.cfg.HasState && ctx.cfg.State.CursorVisible && idraw.CursorVisible(ctx.cfg) {
-		if cursor := ctx.CursorBounds(); !cursor.Empty() {
-			d.hooks.cursorDrawer(ctx, dst, cursor)
-		}
-	}
-
-	if ctx.cfg.Scrollbar && ctx.cfg.HasState && !ctx.cfg.State.AltScreen &&
-		ctx.cfg.State.ScrollbackCount > ctx.ScreenBounds().Dy() &&
-		!ctx.ScrollbarBounds().Empty() {
-		d.hooks.scrollbarDrawer(ctx, dst, ctx.ScrollbarBounds())
-	}
-
-	if ctx.cfg.HasState && !ctx.cfg.State.Focused {
-		effects.ApplyFocusDimming(ctx, dst)
-	}
-
-	effects.ApplyRoundedMask(ctx, dst)
-}
-
-func (d *Renderer) drawCellForegrounds(ctx Context, dst draw.Image, scr uv.Screen) {
-	frame, ok := dst.(*image.NRGBA)
-	if !ok {
-		for area, cell := range iterCells(ctx, scr) {
-			d.hooks.cellFgDrawer(ctx, dst, area, cell)
-		}
-		return
-	}
-
-	d.fgPass.Reset(ctx.GridBounds())
-	ctx = ctx.withGlyphPass(&d.fgPass)
-	for area, cell := range iterCells(ctx, scr) {
-		d.hooks.cellFgDrawer(ctx, dst, area, cell)
-	}
-	d.fgPass.Composite(frame)
-	d.fgPass.DrawPending(ctx, dst)
-}
-
-func iterCells(ctx Context, scr uv.Screen) iter.Seq2[image.Rectangle, *uv.Cell] {
-	screen := ctx.ScreenBounds()
-	gridBounds := ctx.GridBounds()
-	cellWidth := ctx.Metrics().CellWidth.Int()
-	return func(yield func(image.Rectangle, *uv.Cell) bool) {
-		var cell *uv.Cell
-		var area image.Rectangle
-		for y := screen.Min.Y; y < screen.Max.Y; y++ {
-			for x := screen.Min.X; x < screen.Max.X; x++ {
-				cell = scr.CellAt(x, y)
-				if cell == nil {
-					cell = &uv.EmptyCell
-				}
-				if cell.Width == 0 {
-					continue
-				}
-				area = ctx.CellBounds(x, y)
-				if cell.Width > 1 {
-					area.Max.X = min(gridBounds.Max.X, area.Min.X+cell.Width*cellWidth)
-				}
-				if !yield(area, cell) {
-					return
-				}
+	var cell *uv.Cell
+	var area image.Rectangle
+	for y := screen.Min.Y; y < screen.Max.Y; y++ {
+		row := y - screen.Min.Y
+		cellMinY := gridMin.Y + row*cellH
+		cellMaxY := cellMinY + cellH
+		for x := screen.Min.X; x < screen.Max.X; x++ {
+			cell = scr.CellAt(x, y)
+			if cell == nil {
+				cell = &uv.EmptyCell
 			}
+			if cell.Width == 0 {
+				continue
+			}
+			col := x - screen.Min.X
+			cellMinX := gridMin.X + col*cellW
+			cellMaxX := cellMinX + cellW
+			if cell.Width > 1 {
+				cellMaxX = min(gridMaxX, cellMinX+cell.Width*cellW)
+			}
+			area = image.Rect(cellMinX, cellMinY, cellMaxX, cellMaxY)
+
+			d.drawCellBg(dst, area, cell, f)
+			d.drawCellFg(dst, area, cell, f, usePass)
 		}
 	}
-}
 
-func (d *Renderer) contextLocked(origin image.Point, scr uv.Screen) Context {
-	if scr == nil {
-		panic("nil screen")
-	}
-
-	screen := scr.Bounds()
-	cell := d.metrics.CellSize()
-	margin := d.opts.Margin.Int()
-	padding := d.opts.Padding.Int()
-	scrollbarWidth := 0
-	if d.opts.Scrollbar {
-		scrollbarWidth = scrollbarWidthPx
+	if usePass {
+		d.fgPass.Composite(frame)
+		d.fgPass.DrawPending(f, dst)
 	}
 
-	gridSize := image.Pt(screen.Dx()*cell.X, screen.Dy()*cell.Y)
-	windowSize := image.Pt(gridSize.X+scrollbarWidth+2*padding, gridSize.Y+2*padding)
-	size := image.Pt(windowSize.X+2*margin, windowSize.Y+2*margin)
-	imageBounds := image.Rectangle{Min: origin, Max: origin.Add(size)}
-	windowBounds := imageBounds.Inset(margin)
-	gridBounds := image.Rectangle{Min: windowBounds.Min.Add(image.Pt(padding, padding)), Max: windowBounds.Min.Add(image.Pt(padding, padding)).Add(gridSize)}
-	scrollbarBounds := image.Rectangle{}
-	if scrollbarWidth > 0 {
-		scrollbarBounds = image.Rect(gridBounds.Max.X, gridBounds.Min.Y, gridBounds.Max.X+scrollbarWidth, gridBounds.Max.Y)
-	}
-	var cursorCell *uv.Cell
-	if d.emulatorState != nil {
-		cursorCell = scr.CellAt(screen.Min.X+d.emulatorState.CursorX, screen.Min.Y+d.emulatorState.CursorY)
+	if f.hasEmu && f.emu.CursorVisible && idraw.CursorVisible(f, f.emu, f.hasEmu) {
+		if cursor := f.cursorBounds(); !cursor.Empty() {
+			d.drawCursor(dst, cursor, f)
+		}
 	}
 
-	return Context{
-		cfg:             config.NewSnapshot(d.opts, d.metrics, d.fonts, d.emulatorState),
-		screenBounds:    screen,
-		imageBounds:     imageBounds,
-		windowBounds:    windowBounds,
-		gridBounds:      gridBounds,
-		scrollbarBounds: scrollbarBounds,
-		cursorCell:      cursorCell,
+	if d.opts.Scrollbar && f.hasEmu && !f.emu.AltScreen &&
+		f.emu.ScrollbackCount > screen.Dy() &&
+		!f.scrollbarBounds.Empty() {
+		d.drawScrollbar(dst, f.scrollbarBounds, f)
 	}
+
+	if f.hasEmu && !f.emu.Focused {
+		effects.ApplyFocusDimming(f, dst)
+	}
+
+	effects.ApplyRoundedMask(f, dst)
 }

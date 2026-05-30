@@ -5,19 +5,7 @@
 package still
 
 import (
-	"time"
-
 	"github.com/lrstanley/x/charm/still/units"
-)
-
-const (
-	DefaultPPI              = units.DefaultPPI
-	DefaultDPI              = units.DPI(96)
-	DefaultFontSize         = units.Pt(11)
-	DefaultCursorBlinkSpeed = 600 * time.Millisecond
-	DefaultBgOpacity        = 1.0
-	DefaultFaintFactor      = 0.5
-	DefaultFocusDimming     = 0.16
 )
 
 type (

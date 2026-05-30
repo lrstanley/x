@@ -74,11 +74,10 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 				pix[off+2] = fg.B
 				pix[off+3] = 255
 			} else {
-				af := float64(a) / 255
-				inv := 1 - af
-				pix[off] = uint8(float64(fg.R)*af + float64(pix[off])*inv)
-				pix[off+1] = uint8(float64(fg.G)*af + float64(pix[off+1])*inv)
-				pix[off+2] = uint8(float64(fg.B)*af + float64(pix[off+2])*inv)
+				inv := 255 - int(a)
+				pix[off] = uint8((int(fg.R)*int(a) + int(pix[off])*inv) / 255)
+				pix[off+1] = uint8((int(fg.G)*int(a) + int(pix[off+1])*inv) / 255)
+				pix[off+2] = uint8((int(fg.B)*int(a) + int(pix[off+2])*inv) / 255)
 				pix[off+3] = 255
 			}
 			off += 4
@@ -99,11 +98,6 @@ type Pass struct {
 	glyphMasks  glyphMaskCache
 	glyphs      []Layout
 	decorations []FgDecoration
-}
-
-// Coverage returns the pass coverage accumulator.
-func (p *Pass) Coverage() *Coverage {
-	return &p.cov
 }
 
 // AccumulateGlyphLayout adds layout ink to this pass using its mask cache.

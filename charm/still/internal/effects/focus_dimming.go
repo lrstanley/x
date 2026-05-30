@@ -9,14 +9,14 @@ import (
 	"image/draw"
 	"math"
 
+	"github.com/lrstanley/x/charm/still/internal/config"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 )
 
 // ApplyFocusDimming darkens the terminal window when unfocused.
-func ApplyFocusDimming(ctx WindowContext, img draw.Image) {
-	cfg := ctx.Snapshot()
-	if cfg.FocusDimming <= 0 {
+func ApplyFocusDimming(ctx config.WindowSource, img draw.Image) {
+	if ctx.FocusDimming() <= 0 {
 		return
 	}
-	idraw.Overlay(img, ctx.WindowBounds(), color.NRGBA{A: uint8(math.Round(255 * cfg.FocusDimming))})
+	idraw.Overlay(img, ctx.WindowBounds(), color.NRGBA{A: uint8(math.Round(255 * ctx.FocusDimming()))})
 }

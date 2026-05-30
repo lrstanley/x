@@ -2,8 +2,8 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package config holds merged renderer [Options], defaults, and immutable
-// [Snapshot] values shared across the still render pipeline.
+// Package config holds merged renderer [Options], defaults, and render-context
+// interfaces shared across the still render pipeline.
 package config
 
 import (
@@ -66,7 +66,7 @@ type Options struct {
 	Now                    func() time.Time
 }
 
-// DefaultOptions returns baseline renderer options without drawer hooks.
+// DefaultOptions returns baseline renderer options.
 func DefaultOptions() Options {
 	return Options{
 		DPI:                   DefaultDPI,

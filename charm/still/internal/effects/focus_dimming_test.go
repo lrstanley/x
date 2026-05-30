@@ -9,28 +9,27 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/lrstanley/x/charm/still/internal/config"
 	"github.com/lrstanley/x/charm/still/internal/effects"
+	"github.com/lrstanley/x/charm/still/units"
 )
 
 type focusWindowContext struct {
-	cfg    config.Snapshot
-	window image.Rectangle
+	focusDimming float64
+	window       image.Rectangle
 }
 
-func (m focusWindowContext) Snapshot() config.Snapshot { return m.cfg }
-func (m focusWindowContext) WindowBounds() image.Rectangle {
-	return m.window
-}
-func (m focusWindowContext) MarginColor() color.Color { return color.Black }
+func (m focusWindowContext) WindowBounds() image.Rectangle { return m.window }
+func (m focusWindowContext) MarginColor() color.Color      { return color.Black }
+func (m focusWindowContext) FocusDimming() float64         { return m.focusDimming }
+func (m focusWindowContext) BorderRadius() units.Px        { return 0 }
 
 func TestApplyFocusDimming(t *testing.T) {
 	t.Parallel()
 
 	window := image.Rect(0, 0, 4, 4)
 	ctx := focusWindowContext{
-		cfg:    config.Snapshot{FocusDimming: 0.5},
-		window: window,
+		focusDimming: 0.5,
+		window:       window,
 	}
 	img := image.NewNRGBA(window)
 	for y := window.Min.Y; y < window.Max.Y; y++ {
@@ -50,8 +49,8 @@ func TestApplyFocusDimmingDisabled(t *testing.T) {
 
 	window := image.Rect(0, 0, 2, 2)
 	ctx := focusWindowContext{
-		cfg:    config.Snapshot{FocusDimming: 0},
-		window: window,
+		focusDimming: 0,
+		window:       window,
 	}
 	img := image.NewNRGBA(window)
 	img.SetNRGBA(0, 0, color.NRGBA{R: 100, A: 255})

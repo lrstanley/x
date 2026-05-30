@@ -11,14 +11,28 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	icol "github.com/lrstanley/x/charm/still/internal/color"
-	"github.com/lrstanley/x/charm/still/internal/config"
 	"github.com/lrstanley/x/charm/still/types"
 )
 
-func testSnapshot() config.Snapshot {
-	return config.Snapshot{
-		FaintFactor: 0.5,
-		Palette: types.Palette{
+type testColorSource struct {
+	faintFactor            float64
+	backgroundOpacity      float64
+	backgroundOpacityCells bool
+	palette                types.Palette
+	state                  types.EmulatorState
+	hasState               bool
+}
+
+func (t testColorSource) Palette() types.Palette                     { return t.palette }
+func (t testColorSource) EmulatorState() (types.EmulatorState, bool) { return t.state, t.hasState }
+func (t testColorSource) FaintFactor() float64                       { return t.faintFactor }
+func (t testColorSource) BackgroundOpacity() float64                 { return t.backgroundOpacity }
+func (t testColorSource) BackgroundOpacityCells() bool               { return t.backgroundOpacityCells }
+
+func testColorSourceDefault() testColorSource {
+	return testColorSource{
+		faintFactor: 0.5,
+		palette: types.Palette{
 			DefaultForeground: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
 			DefaultBackground: color.NRGBA{A: 0xff},
 			Indexed: map[int]color.Color{
@@ -82,23 +96,48 @@ func TestBlendOverBg(t *testing.T) {
 func TestResolvePaletteColor(t *testing.T) {
 	t.Parallel()
 
-	cfg := testSnapshot()
-	mapped := icol.ResolvePaletteColor(cfg, ansi.Red)
+	src := testColorSourceDefault()
+	mapped := icol.ResolvePaletteColor(src, ansi.Red)
 	if got := icol.NRGBA(mapped).R; got != 0xff {
 		t.Fatalf("indexed red R = %d, want 255", got)
 	}
 	fallback := color.NRGBA{B: 7, A: 255}
-	if got := icol.ResolvePaletteColor(cfg, fallback); got != fallback {
+	if got := icol.ResolvePaletteColor(src, fallback); got != fallback {
 		t.Fatalf("unmapped color = %+v, want %+v", got, fallback)
 	}
 }
 
-func TestResolveCellColors(t *testing.T) {
+func TestResolveCellColorsNRGBA(t *testing.T) {
 	t.Parallel()
 
-	cfg := testSnapshot()
-	fg, bg := icol.ResolveCellColors(cfg, nil)
-	if icol.NRGBA(fg).R != 0xff || icol.NRGBA(bg).A != 0xff {
+	src := testColorSourceDefault()
+	fg, bg := icol.ResolveCellColorsNRGBA(src, nil)
+	if fg != icol.NRGBA(src.palette.DefaultForeground) {
+		t.Fatalf("default fg = %+v", fg)
+	}
+	if bg != icol.NRGBA(src.palette.DefaultBackground) {
+		t.Fatalf("default bg = %+v", bg)
+	}
+}
+
+func TestResolveCursorNRGBA(t *testing.T) {
+	t.Parallel()
+
+	cursor := color.NRGBA{R: 1, A: 255}
+	src := testColorSource{
+		palette: types.Palette{Cursor: cursor},
+	}
+	if got := icol.ResolveCursorNRGBA(src, color.NRGBA{}); got != icol.NRGBA(cursor) {
+		t.Fatalf("cursor = %+v, want %+v", got, cursor)
+	}
+}
+
+func TestResolveCellColorsNRGBAAttrs(t *testing.T) {
+	t.Parallel()
+
+	src := testColorSourceDefault()
+	fg, bg := icol.ResolveCellColorsNRGBA(src, nil)
+	if fg.R != 0xff || bg.A != 0xff {
 		t.Fatalf("defaults fg=%+v bg=%+v", fg, bg)
 	}
 
@@ -107,20 +146,20 @@ func TestResolveCellColors(t *testing.T) {
 		Bg:    color.NRGBA{G: 20, A: 255},
 		Attrs: uv.AttrReverse,
 	}}
-	fg, bg = icol.ResolveCellColors(cfg, cell)
-	if icol.NRGBA(fg).G != 20 || icol.NRGBA(bg).R != 10 {
+	fg, bg = icol.ResolveCellColorsNRGBA(src, cell)
+	if fg.G != 20 || bg.R != 10 {
 		t.Fatalf("reverse swap fg=%+v bg=%+v", fg, bg)
 	}
 
 	cell.Style.Attrs = uv.AttrFaint
-	fg, bg = icol.ResolveCellColors(cfg, cell)
-	if icol.NRGBA(fg) == icol.NRGBA(cell.Style.Fg) {
+	fg, bg = icol.ResolveCellColorsNRGBA(src, cell)
+	if fg == icol.NRGBA(cell.Style.Fg) {
 		t.Fatal("faint should blend fg toward bg")
 	}
 
 	cell.Style.Attrs = uv.AttrConceal
-	fg, _ = icol.ResolveCellColors(cfg, cell)
-	if icol.NRGBA(fg) != icol.NRGBA(bg) {
+	fg, _ = icol.ResolveCellColorsNRGBA(src, cell)
+	if fg != bg {
 		t.Fatalf("conceal fg = %+v, want bg %+v", fg, bg)
 	}
 }
@@ -138,16 +177,5 @@ func TestCellHasExplicitBackground(t *testing.T) {
 		Fg: ansi.Red, Attrs: uv.AttrReverse,
 	}}) {
 		t.Fatal("reverse with fg should count as explicit background")
-	}
-}
-
-func TestResolveCursor(t *testing.T) {
-	t.Parallel()
-
-	defaultFG := color.NRGBA{R: 1, A: 255}
-	cursor := color.NRGBA{G: 2, A: 255}
-	cfg := config.Snapshot{Palette: types.Palette{Cursor: cursor}}
-	if got := icol.ResolveCursor(cfg, defaultFG); got != cursor {
-		t.Fatalf("ResolveCursor = %+v, want palette cursor", got)
 	}
 }

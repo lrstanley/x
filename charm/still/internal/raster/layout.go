@@ -12,6 +12,7 @@ import (
 	"math"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/charm/still/internal/config"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"github.com/lrstanley/x/charm/still/types"
 	"golang.org/x/image/font"
@@ -20,10 +21,11 @@ import (
 
 // GlyphContext exposes glyph layout and rasterization inputs.
 type GlyphContext interface {
-	idraw.FrameContext
+	config.CellFrameSource
 	FontFace(cell *uv.Cell) font.Face
 	UsesGridLayout(face font.Face) bool
 	Glyph(cell *uv.Cell) string
+	BoxThicknessOverride() bool
 }
 
 // Kind classifies glyph layout strategy.

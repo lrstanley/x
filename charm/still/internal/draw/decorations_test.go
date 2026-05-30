@@ -8,9 +8,9 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/lrstanley/x/charm/still/internal/config"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"github.com/lrstanley/x/charm/still/types"
 	"github.com/lrstanley/x/charm/still/units"
@@ -21,15 +21,23 @@ type decorationFrameContext struct {
 	grid image.Rectangle
 }
 
-func (m decorationFrameContext) Snapshot() config.Snapshot { return config.Snapshot{} }
-func (m decorationFrameContext) Metrics() types.Metrics    { return m.m }
-func (m decorationFrameContext) GridBounds() image.Rectangle {
-	return m.grid
+func (m decorationFrameContext) Now() time.Time { return time.Unix(0, 0) }
+func (m decorationFrameContext) CursorBlinkSpeed() time.Duration {
+	return 600 * time.Millisecond
 }
-
-func (m decorationFrameContext) CellColors(_ *uv.Cell) (fg, bg color.Color) {
-	return color.White, color.Black
+func (m decorationFrameContext) Palette() types.Palette { return types.Palette{} }
+func (m decorationFrameContext) EmulatorState() (types.EmulatorState, bool) {
+	return types.EmulatorState{}, false
 }
+func (m decorationFrameContext) FaintFactor() float64         { return 0.5 }
+func (m decorationFrameContext) BackgroundOpacity() float64   { return 1 }
+func (m decorationFrameContext) BackgroundOpacityCells() bool { return false }
+func (m decorationFrameContext) Metrics() types.Metrics       { return m.m }
+func (m decorationFrameContext) GridBounds() image.Rectangle  { return m.grid }
+func (m decorationFrameContext) CellColorsNRGBA(_ *uv.Cell) (fg, bg color.NRGBA) {
+	return color.NRGBA{R: 0xff, A: 0xff}, color.NRGBA{A: 0xff}
+}
+func (m decorationFrameContext) ResolvePaletteColor(c color.Color) color.Color { return c }
 
 func TestDecorationsUnderline(t *testing.T) {
 	t.Parallel()

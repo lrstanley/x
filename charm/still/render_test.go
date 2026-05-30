@@ -7,7 +7,6 @@ package still
 import (
 	"image"
 	"image/color"
-	"image/draw"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -33,7 +32,7 @@ func TestPowerlineIconRendering(t *testing.T) {
 		scr.SetCell(0, 0, &uv.Cell{Content: icon, Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 		d := MustNew(WithFontSizePt(20), palette)
 		img := drawNRGBA(t, d, scr)
-		cell := d.contextLocked(image.Point{}, scr).CellBounds(0, 0)
+		cell := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 		ink, ok := inkBounds(img, cell, bg)
 		if !ok {
 			t.Fatal("powerline separator produced no ink")
@@ -55,7 +54,7 @@ func TestPowerlineIconRendering(t *testing.T) {
 			palette,
 		)
 		img := drawNRGBA(t, d, scr)
-		cell0 := d.contextLocked(image.Point{}, scr).CellBounds(0, 0)
+		cell0 := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 		rows := min(3, cell0.Dy())
 		nonBg := 0
 		for y := cell0.Max.Y - rows; y < cell0.Max.Y; y++ {
@@ -92,12 +91,12 @@ func TestIconHeightRendering(t *testing.T) {
 		scaled := MustNew(append(fontOpts, WithIconHeight(0.5))...)
 		singleScaled := MustNew(append(fontOpts, WithIconHeightSingle(0.5))...)
 
-		baseCell := base.contextLocked(image.Point{}, scr).CellBounds(0, 0)
-		scaledCell := scaled.contextLocked(image.Point{}, scr).CellBounds(0, 0)
+		baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		scaledCell := scaled.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 		if baseCell != scaledCell {
 			t.Fatalf("WithIconHeight changed cell bounds: %v -> %v", baseCell, scaledCell)
 		}
-		singleScaledCell := singleScaled.contextLocked(image.Point{}, scr).CellBounds(0, 0)
+		singleScaledCell := singleScaled.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 		if baseCell != singleScaledCell {
 			t.Fatalf("WithIconHeightSingle changed cell bounds: %v -> %v", baseCell, singleScaledCell)
 		}
@@ -129,14 +128,14 @@ func TestIconHeightRendering(t *testing.T) {
 		scr.SetCell(0, 0, &uv.Cell{Content: nerdIcon, Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 
 		d := MustNew(fontOpts...)
-		ctx := d.contextLocked(image.Point{}, scr)
-		bounds, ok := inkBounds(drawNRGBA(t, d, scr), ctx.CellBounds(0, 0), bg)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		bounds, ok := inkBounds(drawNRGBA(t, d, scr), ctx.cellBounds(0, 0), bg)
 		if !ok {
 			t.Fatal("icon produced no ink")
 		}
 		textScr := newTestScreen(1, 1)
 		textScr.SetCell(0, 0, &uv.Cell{Content: "H", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
-		textBounds, ok := inkBounds(drawNRGBA(t, d, textScr), ctx.CellBounds(0, 0), bg)
+		textBounds, ok := inkBounds(drawNRGBA(t, d, textScr), ctx.cellBounds(0, 0), bg)
 		if !ok {
 			t.Fatal("text glyph produced no ink")
 		}
@@ -156,8 +155,8 @@ func TestIconHeightRendering(t *testing.T) {
 
 		base := MustNew(fontOpts...)
 		scaled := MustNew(append(fontOpts, WithIconHeight(0.5))...)
-		baseCell := base.contextLocked(image.Point{}, scr).CellBounds(0, 0)
-		scaledCell := scaled.contextLocked(image.Point{}, scr).CellBounds(0, 0)
+		baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		scaledCell := scaled.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 		if baseCell != scaledCell {
 			t.Fatalf("WithIconHeight changed cell bounds: %v -> %v", baseCell, scaledCell)
 		}
@@ -197,8 +196,8 @@ func TestSyntheticNerdIconStylesRenderDifferentlyAndFit(t *testing.T) {
 			WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}),
 		)
 		img := drawNRGBA(t, d, scr)
-		ctx := d.contextLocked(image.Point{}, scr)
-		cell := ctx.CellBounds(0, 0)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cell := ctx.cellBounds(0, 0)
 		bounds, ok := inkBounds(img, cell, bg)
 		if !ok {
 			t.Fatalf("%s icon produced no ink", name)
@@ -225,18 +224,14 @@ func TestRendererBoundsNormalizePaddingAndScrollbarGutter(t *testing.T) {
 			image.Pt(6, 7): {Content: "b", Width: 1},
 		},
 	}
-	var areas []image.Rectangle
 	d := MustNew(
 		WithPadding(2),
 		WithMargin(3, color.NRGBA{R: 0xff, A: 0xff}),
 		WithScrollbar(true),
-		WithCellFgDrawer(func(ctx Context, img draw.Image, area image.Rectangle, cell *uv.Cell) {
-			areas = append(areas, area)
-			DrawCellFg(ctx, img, area, cell)
-		}),
 	)
 
-	_ = d.Draw(scr)
+	layout := d.layoutSnapshot(t, image.Point{}, scr)
+	areas := []image.Rectangle{layout.cellBounds(5, 7), layout.cellBounds(6, 7)}
 
 	cell := d.CellSize()
 	wantSize := image.Pt(cell.X*2+1+2*2+3*2, cell.Y+2*2+3*2)
@@ -264,12 +259,12 @@ func TestRendererWideCellsCoverContinuations(t *testing.T) {
 	scr.SetCell(2, 0, &uv.Cell{Content: " ", Width: 1, Style: uv.Style{Bg: green}})
 	d := MustNew()
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 
-	if got := sample(img, ctx.CellBounds(1, 0)); got != blue {
+	if got := sample(img, ctx.cellBounds(1, 0)); got != blue {
 		t.Fatalf("continuation cell pixel = %#v, want wide-cell background %#v", got, blue)
 	}
-	if got := sample(img, ctx.CellBounds(2, 0)); got != green {
+	if got := sample(img, ctx.cellBounds(2, 0)); got != green {
 		t.Fatalf("next cell pixel = %#v, want %#v", got, green)
 	}
 }
@@ -292,10 +287,10 @@ func TestRendererBoxDrawingGlyphsHaveDistinctShapes(t *testing.T) {
 
 	d := MustNew()
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 	signatures := map[string]struct{}{}
 	for x := range glyphs {
-		signatures[cellInkSignature(img, ctx.CellBounds(x, 0))] = struct{}{}
+		signatures[cellInkSignature(img, ctx.cellBounds(x, 0))] = struct{}{}
 	}
 	if len(signatures) < 3 {
 		t.Fatalf("box drawing glyphs rendered as only %d distinct shapes, want at least 3", len(signatures))
@@ -318,10 +313,10 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
 			scr.SetCell(0, y, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
-		ctx := d.contextLocked(image.Point{}, scr)
-		cx := ctx.CellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
-		midY := ctx.CellBounds(0, 0).Min.Y + 10
-		juncY := ctx.CellBounds(0, 1).Min.Y
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cx := ctx.cellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
+		midY := ctx.cellBounds(0, 0).Min.Y + 10
+		juncY := ctx.cellBounds(0, 1).Min.Y
 		if core := img.NRGBAAt(cx, juncY).R; core < 100 {
 			t.Fatalf("vertical line gap at junction core R=%d, want >= 100", core)
 		}
@@ -341,10 +336,10 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
 			scr.SetCell(x, 0, &uv.Cell{Content: "─", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
-		ctx := d.contextLocked(image.Point{}, scr)
-		cy := ctx.CellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
-		midX := ctx.CellBounds(0, 0).Min.X + 5
-		juncX := ctx.CellBounds(1, 0).Min.X
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cy := ctx.cellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
+		midX := ctx.cellBounds(0, 0).Min.X + 5
+		juncX := ctx.cellBounds(1, 0).Min.X
 		if core := img.NRGBAAt(juncX, cy).R; core < 100 {
 			t.Fatalf("horizontal line gap at junction core R=%d, want >= 100", core)
 		}
@@ -369,9 +364,9 @@ func TestRendererRoundedCornerBoxDrawingAvoidsOutsideArtifacts(t *testing.T) {
 	scr.SetCell(0, 1, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
-	corner := ctx.CellBounds(0, 0)
-	bar := ctx.CellBounds(0, 1)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	corner := ctx.cellBounds(0, 0)
+	bar := ctx.cellBounds(0, 1)
 	cx := corner.Min.X + ctx.Metrics().CellWidth.Int()/2
 	juncY := bar.Min.Y
 
@@ -413,7 +408,6 @@ func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
 
 	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
-	d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
 
 	type cornerCase struct {
 		name      string
@@ -432,14 +426,16 @@ func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
+
 			scr := newTestScreen(2, 2)
 			scr.SetCell(tc.cornerPos.X, tc.cornerPos.Y, &uv.Cell{Content: tc.glyph, Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 			scr.SetCell(tc.barPos.X, tc.barPos.Y, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 
 			img := drawNRGBA(t, d, scr)
-			ctx := d.contextLocked(image.Point{}, scr)
-			cornerCell := ctx.CellBounds(tc.cornerPos.X, tc.cornerPos.Y)
-			barCell := ctx.CellBounds(tc.barPos.X, tc.barPos.Y)
+			ctx := d.layoutSnapshot(t, image.Point{}, scr)
+			cornerCell := ctx.cellBounds(tc.cornerPos.X, tc.cornerPos.Y)
+			barCell := ctx.cellBounds(tc.barPos.X, tc.barPos.Y)
 
 			juncY := barCell.Min.Y
 			if tc.cornerPos.Y > tc.barPos.Y {
@@ -501,9 +497,9 @@ func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
 	scr.SetCell(0, 1, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
-	corner := ctx.CellBounds(0, 0)
-	bar := ctx.CellBounds(0, 1)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	corner := ctx.cellBounds(0, 0)
+	bar := ctx.cellBounds(0, 1)
 	cx := corner.Min.X + ctx.Metrics().CellWidth.Int()/2
 	juncY := bar.Min.Y
 
@@ -547,9 +543,9 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeamsLargeCell(t *testing.T) {
 			scr.SetCell(0, y, &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
-		ctx := d.contextLocked(image.Point{}, scr)
-		cx := ctx.CellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
-		juncY := ctx.CellBounds(0, 1).Min.Y
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cx := ctx.cellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
+		juncY := ctx.cellBounds(0, 1).Min.Y
 		if core := img.NRGBAAt(cx, juncY).R; core < 100 {
 			t.Fatalf("large vertical line gap at junction core R=%d, want >= 100", core)
 		}
@@ -564,9 +560,9 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeamsLargeCell(t *testing.T) {
 			scr.SetCell(x, 0, &uv.Cell{Content: "─", Width: 1, Style: uv.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
-		ctx := d.contextLocked(image.Point{}, scr)
-		cy := ctx.CellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
-		juncX := ctx.CellBounds(1, 0).Min.X
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cy := ctx.cellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
+		juncX := ctx.cellBounds(1, 0).Min.X
 		if core := img.NRGBAAt(juncX, cy).R; core < 100 {
 			t.Fatalf("large horizontal line gap at junction core R=%d, want >= 100", core)
 		}
@@ -584,7 +580,7 @@ func TestRendererColorAttributes(t *testing.T) {
 		cell       *uv.Cell
 		wantBG     color.NRGBA
 		wantLine   color.NRGBA
-		lineSample func(Context, image.Rectangle) image.Point
+		lineSample func(*renderFrame, image.Rectangle) image.Point
 	}{
 		"reverse": {
 			cell: &uv.Cell{
@@ -599,8 +595,8 @@ func TestRendererColorAttributes(t *testing.T) {
 			},
 			wantBG:   red,
 			wantLine: blue,
-			lineSample: func(ctx Context, area image.Rectangle) image.Point {
-				return image.Pt(area.Min.X, area.Min.Y+ctx.Metrics().UnderlinePosition.Int())
+			lineSample: func(f *renderFrame, area image.Rectangle) image.Point {
+				return image.Pt(area.Min.X, area.Min.Y+f.Metrics().UnderlinePosition.Int())
 			},
 		},
 		"faint": {
@@ -616,8 +612,8 @@ func TestRendererColorAttributes(t *testing.T) {
 			},
 			wantBG:   color.NRGBA{A: 0xff},
 			wantLine: gray,
-			lineSample: func(ctx Context, area image.Rectangle) image.Point {
-				return image.Pt(area.Min.X, area.Min.Y+ctx.Metrics().UnderlinePosition.Int())
+			lineSample: func(f *renderFrame, area image.Rectangle) image.Point {
+				return image.Pt(area.Min.X, area.Min.Y+f.Metrics().UnderlinePosition.Int())
 			},
 		},
 		"conceal": {
@@ -633,8 +629,8 @@ func TestRendererColorAttributes(t *testing.T) {
 			},
 			wantBG:   blue,
 			wantLine: blue,
-			lineSample: func(ctx Context, area image.Rectangle) image.Point {
-				return image.Pt(area.Min.X, area.Min.Y+ctx.Metrics().UnderlinePosition.Int())
+			lineSample: func(f *renderFrame, area image.Rectangle) image.Point {
+				return image.Pt(area.Min.X, area.Min.Y+f.Metrics().UnderlinePosition.Int())
 			},
 		},
 	}
@@ -647,13 +643,13 @@ func TestRendererColorAttributes(t *testing.T) {
 			scr.SetCell(0, 0, tt.cell)
 			d := MustNew()
 			img := drawNRGBA(t, d, scr)
-			ctx := d.contextLocked(image.Point{}, scr)
-			area := ctx.CellBounds(0, 0)
+			layout := d.layoutSnapshot(t, image.Point{}, scr)
+			area := layout.cellBounds(0, 0)
 
 			if got := sample(img, area.Inset(2)); got != tt.wantBG {
 				t.Fatalf("background pixel = %#v, want %#v", got, tt.wantBG)
 			}
-			if got := img.NRGBAAt(tt.lineSample(ctx, area).X, tt.lineSample(ctx, area).Y); got != tt.wantLine {
+			if got := img.NRGBAAt(tt.lineSample(layout, area).X, tt.lineSample(layout, area).Y); got != tt.wantLine {
 				t.Fatalf("decoration pixel = %#v, want %#v", got, tt.wantLine)
 			}
 		})
@@ -675,9 +671,9 @@ func TestDottedUnderlineGlobalSpacing(t *testing.T) {
 
 	d := MustNew(WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}))
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 	metrics := ctx.Metrics()
-	y := ctx.CellBounds(0, 0).Min.Y + metrics.UnderlinePosition.Int()
+	y := ctx.cellBounds(0, 0).Min.Y + metrics.UnderlinePosition.Int()
 	step := max(2, metrics.UnderlineThickness.Int()*2)
 
 	var dots []int
@@ -718,9 +714,9 @@ func TestRendererPaletteIndexedColors(t *testing.T) {
 	scr.SetCell(0, 0, &uv.Cell{Content: " ", Width: 1, Style: uv.Style{Bg: ansi.IndexedColor(42)}})
 	d := MustNew(WithPalette(Palette{Indexed: map[int]color.Color{42: mapped}}))
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 
-	if got := sample(img, ctx.CellBounds(0, 0)); got != mapped {
+	if got := sample(img, ctx.cellBounds(0, 0)); got != mapped {
 		t.Fatalf("indexed background = %#v, want palette color %#v", got, mapped)
 	}
 }
@@ -734,15 +730,15 @@ func TestRendererBackgroundOpacity(t *testing.T) {
 
 	opaqueCells := MustNew(WithBackgroundOpacity(0.5))
 	img := drawNRGBA(t, opaqueCells, scr)
-	ctx := opaqueCells.contextLocked(image.Point{}, scr)
-	if got := sample(img, ctx.CellBounds(0, 0)); got != red {
+	ctx := opaqueCells.layoutSnapshot(t, image.Point{}, scr)
+	if got := sample(img, ctx.cellBounds(0, 0)); got != red {
 		t.Fatalf("explicit cell background = %#v, want opaque %#v", got, red)
 	}
 
 	transparentCells := MustNew(WithBackgroundOpacity(0.5), WithBackgroundOpacityCells(true))
 	img = drawNRGBA(t, transparentCells, scr)
-	ctx = transparentCells.contextLocked(image.Point{}, scr)
-	if got := sample(img, ctx.CellBounds(0, 0)); got != (color.NRGBA{R: 0xff, A: 0x80}) {
+	ctx = transparentCells.layoutSnapshot(t, image.Point{}, scr)
+	if got := sample(img, ctx.cellBounds(0, 0)); got != (color.NRGBA{R: 0xff, A: 0x80}) {
 		t.Fatalf("transparent cell background = %#v, want alpha-applied red", got)
 	}
 }
@@ -760,8 +756,8 @@ func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
 
 			d := MustNew()
 			visibleImg := drawNRGBA(t, d, scr)
-			ctx := d.contextLocked(image.Point{}, scr)
-			p := image.Pt(ctx.CellBounds(0, 0).Min.X, ctx.CellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
+			ctx := d.layoutSnapshot(t, image.Point{}, scr)
+			p := image.Pt(ctx.cellBounds(0, 0).Min.X, ctx.cellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
 
 			if got := visibleImg.NRGBAAt(p.X, p.Y); got != red {
 				t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
@@ -791,8 +787,8 @@ func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
 			d := MustNew(WithCursorBlinkSpeed(time.Second))
 			d.UpdateEmulatorState(&visibleState)
 			img := drawNRGBA(t, d, scr)
-			ctx := d.contextLocked(image.Point{}, scr)
-			area := ctx.CellBounds(0, 0)
+			ctx := d.layoutSnapshot(t, image.Point{}, scr)
+			area := ctx.cellBounds(0, 0)
 			if got := img.NRGBAAt(area.Min.X, area.Min.Y); got != cursor {
 				t.Fatalf("cursor bar left pixel = %#v, want %#v", got, cursor)
 			}
@@ -818,7 +814,7 @@ func TestRendererScrollbarThumbPinnedToBottom(t *testing.T) {
 	d := MustNew(WithScrollbar(true))
 	d.UpdateEmulatorState(&EmulatorState{Focused: true, ScrollbackCount: 30})
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 	sb := ctx.ScrollbarBounds()
 	top := img.NRGBAAt(sb.Min.X, sb.Min.Y)
 	bottom := img.NRGBAAt(sb.Min.X, sb.Max.Y-1)
@@ -844,7 +840,7 @@ func TestRendererFocusDimmingExcludesMargin(t *testing.T) {
 	)
 	d.UpdateEmulatorState(&EmulatorState{Focused: false})
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 
 	if got := img.NRGBAAt(0, 0); got != margin {
 		t.Fatalf("margin pixel = %#v, want undimmed %#v", got, margin)
@@ -865,7 +861,7 @@ func TestRendererRoundedMaskAffectsWindowCorners(t *testing.T) {
 		WithPalette(Palette{DefaultBackground: bg}),
 	)
 	img := drawNRGBA(t, d, scr)
-	ctx := d.contextLocked(image.Point{}, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 	window := ctx.WindowBounds()
 
 	if got := img.NRGBAAt(window.Min.X, window.Min.Y); got.A != 0 {
@@ -891,8 +887,8 @@ func TestBoxThicknessOverrideThickensHorizontalLine(t *testing.T) {
 	base := MustNew(WithFontSizePt(14))
 	thick := MustNew(WithFontSizePt(14), WithBoxThickness(4))
 
-	baseCell := base.contextLocked(image.Point{}, scr).CellBounds(0, 0)
-	thickCell := thick.contextLocked(image.Point{}, scr).CellBounds(0, 0)
+	baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+	thickCell := thick.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 	baseInk, ok := inkBounds(drawNRGBA(t, base, scr), baseCell, bg)
 	if !ok {
 		t.Fatal("default horizontal box line produced no ink")

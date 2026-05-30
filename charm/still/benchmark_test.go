@@ -65,6 +65,31 @@ func assertBenchmarkBudget(b *testing.B, budget time.Duration) {
 	}
 }
 
+func BenchmarkDraw(b *testing.B) {
+	scr := benchmarkTerminalScreen()
+	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	frame := image.NewNRGBA(d.Bounds(scr))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+}
+
+func BenchmarkDrawInto(b *testing.B) {
+	scr := benchmarkTerminalScreen()
+	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	frame := image.NewNRGBA(d.Bounds(scr))
+	area := frame.Bounds()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		d.DrawInto(frame, area, scr)
+	}
+}
+
 func BenchmarkRenderAndExportFrame(b *testing.B) {
 	scr := benchmarkTerminalScreen()
 	d := MustNew(WithFontSizePt(benchmarkFontSizePt))

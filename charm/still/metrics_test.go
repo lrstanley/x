@@ -12,6 +12,7 @@ import (
 	"github.com/lrstanley/x/charm/still/fonts"
 	imetrics "github.com/lrstanley/x/charm/still/internal/metrics"
 	"github.com/lrstanley/x/charm/still/internal/testutil"
+	"github.com/lrstanley/x/charm/still/units"
 )
 
 func TestDefaultMetricsUseBundledFonts(t *testing.T) {
@@ -20,11 +21,11 @@ func TestDefaultMetricsUseBundledFonts(t *testing.T) {
 	d := MustNew()
 	m := d.Metrics()
 
-	if m.DPI != DefaultDPI {
-		t.Fatalf("DPI = %v, want %v", m.DPI, DefaultDPI)
+	if m.DPI != units.DPI(96) {
+		t.Fatalf("DPI = %v, want %v", m.DPI, units.DPI(96))
 	}
-	if m.FontSize != DefaultFontSize {
-		t.Fatalf("FontSize = %v, want %v", m.FontSize, DefaultFontSize)
+	if m.FontSize != units.Pt(11) {
+		t.Fatalf("FontSize = %v, want %v", m.FontSize, units.Pt(11))
 	}
 	if m.CellWidth < 1 || m.CellHeight < 1 {
 		t.Fatalf("cell size = %dx%d, want positive", m.CellWidth, m.CellHeight)

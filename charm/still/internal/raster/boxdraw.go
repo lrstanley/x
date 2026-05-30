@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lrstanley/x/charm/still/internal/alpha"
-	"github.com/lrstanley/x/charm/still/internal/config"
+	"github.com/lrstanley/x/charm/still/types"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -29,7 +29,7 @@ func layoutBoxGlyphMask(ctx GlyphContext, layout *Layout) (boxGlyphMask, bool) {
 	if n == 0 || r == utf8.RuneError || !isBoxDrawingRune(r) {
 		return boxGlyphMask{}, false
 	}
-	return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, r, ctx.Snapshot())
+	return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, r, ctx.Metrics())
 }
 
 func drawBoxGlyphMask(img draw.Image, fg color.NRGBA, m boxGlyphMask) {
@@ -190,7 +190,7 @@ func boxGlyphDilateRadius(axis BoxStrokeAxis, ink image.Rectangle, thickness int
 	return BoxGlyphDilateRadius(axis, ink, thickness)
 }
 
-func buildBoxGlyphMask(face font.Face, dot fixed.Point26_6, area image.Rectangle, r rune, cfg config.Snapshot) (boxGlyphMask, bool) {
+func buildBoxGlyphMask(face font.Face, dot fixed.Point26_6, area image.Rectangle, r rune, metrics types.Metrics) (boxGlyphMask, bool) {
 	dr, mask, maskp, _, ok := face.Glyph(dot, r)
 	if !ok || dr.Empty() || mask == nil {
 		return boxGlyphMask{}, false
@@ -201,7 +201,7 @@ func buildBoxGlyphMask(face font.Face, dot fixed.Point26_6, area image.Rectangle
 		return boxGlyphMask{}, false
 	}
 
-	thickness := cfg.Metrics.BoxThickness.Int()
+	thickness := metrics.BoxThickness.Int()
 	axis := boxStrokeAxisFromInk(ink)
 
 	// Junction glyphs render the font shape only; adjacent straight strokes

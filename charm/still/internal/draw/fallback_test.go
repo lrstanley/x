@@ -8,10 +8,10 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/charm/still/fonts"
-	"github.com/lrstanley/x/charm/still/internal/config"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"github.com/lrstanley/x/charm/still/types"
 	"github.com/lrstanley/x/charm/still/units"
@@ -21,20 +21,27 @@ import (
 )
 
 type mockFrameContext struct {
-	cfg  config.Snapshot
 	m    types.Metrics
 	grid image.Rectangle
 }
 
-func (m mockFrameContext) Snapshot() config.Snapshot { return m.cfg }
-func (m mockFrameContext) Metrics() types.Metrics    { return m.m }
-func (m mockFrameContext) GridBounds() image.Rectangle {
-	return m.grid
+func (m mockFrameContext) Now() time.Time { return time.Unix(0, 0) }
+func (m mockFrameContext) CursorBlinkSpeed() time.Duration {
+	return 600 * time.Millisecond
 }
-
-func (m mockFrameContext) CellColors(_ *uv.Cell) (fg, bg color.Color) {
-	return color.White, color.Black
+func (m mockFrameContext) Palette() types.Palette { return types.Palette{} }
+func (m mockFrameContext) EmulatorState() (types.EmulatorState, bool) {
+	return types.EmulatorState{}, false
 }
+func (m mockFrameContext) FaintFactor() float64         { return 0.5 }
+func (m mockFrameContext) BackgroundOpacity() float64   { return 1 }
+func (m mockFrameContext) BackgroundOpacityCells() bool { return false }
+func (m mockFrameContext) Metrics() types.Metrics       { return m.m }
+func (m mockFrameContext) GridBounds() image.Rectangle  { return m.grid }
+func (m mockFrameContext) CellColorsNRGBA(_ *uv.Cell) (fg, bg color.NRGBA) {
+	return color.NRGBA{R: 0xff, A: 0xff}, color.NRGBA{A: 0xff}
+}
+func (m mockFrameContext) ResolvePaletteColor(c color.Color) color.Color { return c }
 
 func TestFallbackGlyphTarget(t *testing.T) {
 	t.Parallel()

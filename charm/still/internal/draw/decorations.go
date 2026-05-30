@@ -11,22 +11,22 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	icol "github.com/lrstanley/x/charm/still/internal/color"
+	"github.com/lrstanley/x/charm/still/internal/config"
 	"github.com/lrstanley/x/charm/still/units"
 )
 
 // Decorations renders underline, strikethrough, and related lines for a cell.
-func Decorations(ctx FrameContext, img draw.Image, area image.Rectangle, cell *uv.Cell, fg color.Color) {
+func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, cell *uv.Cell, fg color.Color) {
 	if cell == nil {
 		return
 	}
-	cfg := ctx.Snapshot()
 	style := cell.Style
 	decoration := fg
 	if style.UnderlineColor != nil && style.Attrs&uv.AttrConceal == 0 {
-		decoration = icol.ResolvePaletteColor(cfg, style.UnderlineColor)
+		decoration = ctx.ResolvePaletteColor(style.UnderlineColor)
 		if style.Attrs&uv.AttrFaint != 0 {
-			_, bg := ctx.CellColors(cell)
-			decoration = icol.Blend(decoration, bg, cfg.FaintFactor)
+			_, bg := ctx.CellColorsNRGBA(cell)
+			decoration = icol.Blend(decoration, bg, ctx.FaintFactor())
 		}
 	}
 
@@ -51,7 +51,7 @@ func periodicStart(start, period int) int {
 }
 
 // Underline paints the requested underline style at metrics-derived Y and thickness.
-func Underline(ctx FrameContext, img draw.Image, area image.Rectangle, style uv.Underline, c color.Color) {
+func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, style uv.Underline, c color.Color) {
 	metrics := ctx.Metrics()
 	y := units.Clamp(area.Min.Y+metrics.UnderlinePosition.Int(), area.Min.Y, area.Max.Y-1)
 	thickness := metrics.UnderlineThickness.Int()

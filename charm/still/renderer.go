@@ -14,35 +14,19 @@ import (
 	"github.com/lrstanley/x/charm/still/internal/fontset"
 	imetrics "github.com/lrstanley/x/charm/still/internal/metrics"
 	"github.com/lrstanley/x/charm/still/internal/raster"
+	"github.com/lrstanley/x/charm/still/types"
 )
 
-type rendererHooks struct {
-	cellBgDrawer     CellDrawer
-	cellFgDrawer     CellDrawer
-	cursorDrawer     CursorDrawer
-	scrollbarDrawer  ScrollbarDrawer
-	backgroundDrawer BackgroundDrawer
-}
-
-func defaultRendererHooks() rendererHooks {
-	return rendererHooks{
-		cellBgDrawer:     DrawCellBg,
-		cellFgDrawer:     DrawCellFg,
-		cursorDrawer:     DrawCursor,
-		scrollbarDrawer:  DrawScrollbar,
-		backgroundDrawer: DrawBackground,
-	}
-}
-
 // Renderer rasterizes and renders a [uv.Screen] using bundled fonts, derived cell
-// metrics, palette/state-driven appearance, and pluggable render hooks.
+// metrics, palette/state-driven appearance, and terminal chrome.
 type Renderer struct {
 	mu sync.Mutex
 
 	closed bool
 
-	opts  config.Options
-	hooks rendererHooks
+	opts                 config.Options
+	palette              types.Palette
+	boxThicknessOverride bool
 
 	fonts   *fontset.Set
 	metrics Metrics
@@ -57,8 +41,7 @@ type Renderer struct {
 // New returns a renderer configured with opts.
 func New(opts ...Option) (*Renderer, error) {
 	d := &Renderer{
-		opts:  config.DefaultOptions(),
-		hooks: defaultRendererHooks(),
+		opts: config.DefaultOptions(),
 	}
 	var errs []error
 	for _, opt := range opts {
@@ -118,7 +101,6 @@ func (d *Renderer) UpdateEmulatorState(state *EmulatorState) {
 func (d *Renderer) Metrics() Metrics {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	return d.metrics
 }
 
@@ -128,10 +110,10 @@ func (d *Renderer) Draw(scr uv.Screen) image.Image {
 	defer d.mu.Unlock()
 
 	d.ensureOpen()
-	ctx := d.contextLocked(image.Point{}, scr)
-	bounds := ctx.ImageBounds()
+	f := d.buildFrame(image.Point{}, scr)
+	bounds := f.imageBounds
 	img := d.ensureFrameLocked(bounds)
-	d.drawIntoContextLocked(ctx, img, bounds, scr)
+	d.render(img, scr, f)
 	return img
 }
 
@@ -176,5 +158,7 @@ func (d *Renderer) buildRenderer() error {
 		panic("fonts are not loaded")
 	}
 	d.metrics = imetrics.Derive(d.opts, d.fonts.GridMetrics())
+	d.palette = config.ClonePalette(d.opts.Palette)
+	d.boxThicknessOverride = d.opts.BoxThicknessOverride()
 	return nil
 }

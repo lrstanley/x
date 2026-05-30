@@ -22,19 +22,19 @@ var (
 )
 
 // resolveCellColors is the canonical fg/bg resolver (reverse, faint, conceal).
-func resolveCellColors(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.NRGBA) {
+func resolveCellColors(src config.ColorSource, cell *uv.Cell) (fg, bg color.NRGBA) {
 	var style *uv.Style
 	if cell != nil {
 		style = &cell.Style
 	}
 
-	fg = ResolveForegroundNRGBA(cfg, style)
-	bg = ResolveBackgroundNRGBA(cfg, style)
+	fg = ResolveForegroundNRGBA(src, style)
+	bg = ResolveBackgroundNRGBA(src, style)
 	if style != nil && style.Attrs&uv.AttrReverse != 0 {
 		fg, bg = bg, fg
 	}
 	if style != nil && style.Attrs&uv.AttrFaint != 0 {
-		fg = NRGBA(Blend(fg, bg, cfg.FaintFactor))
+		fg = NRGBA(Blend(fg, bg, src.FaintFactor()))
 	}
 	if style != nil && style.Attrs&uv.AttrConceal != 0 {
 		fg = bg
@@ -42,104 +42,74 @@ func resolveCellColors(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.NRGBA) 
 	return fg, bg
 }
 
-// ResolveCellColors returns foreground and background colors for cell drawing.
-func ResolveCellColors(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.Color) {
-	f, b := resolveCellColors(cfg, cell)
-	return f, b
+// ResolveCellColorsNRGBA returns foreground and background as concrete NRGBA values.
+func ResolveCellColorsNRGBA(src config.ColorSource, cell *uv.Cell) (fg, bg color.NRGBA) {
+	return resolveCellColors(src, cell)
 }
 
-// ResolveCellBackground returns the color to use when filling the cell background.
-func ResolveCellBackground(cfg config.Snapshot, cell *uv.Cell) color.Color {
-	_, bg := ResolveCellColors(cfg, cell)
-	if CellHasExplicitBackground(cell) && !cfg.BackgroundOpacityCells {
+// ResolveCellBackgroundNRGBA returns the NRGBA fill for a cell background.
+func ResolveCellBackgroundNRGBA(src config.ColorSource, cell *uv.Cell) color.NRGBA {
+	_, bg := resolveCellColors(src, cell)
+	if CellHasExplicitBackground(cell) && !src.BackgroundOpacityCells() {
 		return bg
 	}
-	return ApplyAlpha(bg, cfg.BackgroundOpacity)
+	return NRGBA(ApplyAlpha(bg, src.BackgroundOpacity()))
 }
 
 // ResolveForegroundNRGBA returns the color for text and decorations without interface boxing.
-func ResolveForegroundNRGBA(cfg config.Snapshot, style *uv.Style) color.NRGBA {
+func ResolveForegroundNRGBA(src config.ColorSource, style *uv.Style) color.NRGBA {
 	if style != nil && style.Fg != nil {
-		return NRGBA(ResolvePaletteColor(cfg, style.Fg))
+		return NRGBA(ResolvePaletteColor(src, style.Fg))
 	}
-	if cfg.HasState && cfg.State.FgColor != nil {
-		return NRGBA(cfg.State.FgColor)
+	if state, ok := src.EmulatorState(); ok && state.FgColor != nil {
+		return NRGBA(state.FgColor)
 	}
-	if cfg.Palette.DefaultForeground != nil {
-		return NRGBA(cfg.Palette.DefaultForeground)
+	palette := src.Palette()
+	if palette.DefaultForeground != nil {
+		return NRGBA(palette.DefaultForeground)
 	}
 	return defaultForeground
 }
 
 // ResolveBackgroundNRGBA returns the cell background color before reverse-video swap.
-func ResolveBackgroundNRGBA(cfg config.Snapshot, style *uv.Style) color.NRGBA {
+func ResolveBackgroundNRGBA(src config.ColorSource, style *uv.Style) color.NRGBA {
 	if style != nil && style.Bg != nil {
-		return NRGBA(ResolvePaletteColor(cfg, style.Bg))
+		return NRGBA(ResolvePaletteColor(src, style.Bg))
 	}
-	if cfg.HasState && cfg.State.BgColor != nil {
-		return NRGBA(cfg.State.BgColor)
+	if state, ok := src.EmulatorState(); ok && state.BgColor != nil {
+		return NRGBA(state.BgColor)
 	}
-	if cfg.Palette.DefaultBackground != nil {
-		return NRGBA(cfg.Palette.DefaultBackground)
+	palette := src.Palette()
+	if palette.DefaultBackground != nil {
+		return NRGBA(palette.DefaultBackground)
 	}
 	return defaultBackground
 }
 
-// ResolveCellColorsNRGBA returns foreground and background as concrete NRGBA values.
-func ResolveCellColorsNRGBA(cfg config.Snapshot, cell *uv.Cell) (fg, bg color.NRGBA) {
-	return resolveCellColors(cfg, cell)
-}
-
-// ResolveForeground returns the color for text and decorations.
-func ResolveForeground(cfg config.Snapshot, style *uv.Style) color.Color {
-	if style != nil && style.Fg != nil {
-		return ResolvePaletteColor(cfg, style.Fg)
-	}
-	if cfg.HasState && cfg.State.FgColor != nil {
-		return cfg.State.FgColor
-	}
-	if cfg.Palette.DefaultForeground != nil {
-		return cfg.Palette.DefaultForeground
-	}
-	return defaultForeground
-}
-
-// ResolveBackground returns the cell background color before reverse-video swap.
-func ResolveBackground(cfg config.Snapshot, style *uv.Style) color.Color {
-	if style != nil && style.Bg != nil {
-		return ResolvePaletteColor(cfg, style.Bg)
-	}
-	if cfg.HasState && cfg.State.BgColor != nil {
-		return cfg.State.BgColor
-	}
-	if cfg.Palette.DefaultBackground != nil {
-		return cfg.Palette.DefaultBackground
-	}
-	return defaultBackground
-}
-
-// ResolvePaletteColor maps ANSI basic or indexed colors through cfg.Palette.
-func ResolvePaletteColor(cfg config.Snapshot, c color.Color) color.Color {
+// ResolvePaletteColor maps ANSI basic or indexed colors through the palette.
+func ResolvePaletteColor(src config.ColorSource, c color.Color) color.Color {
+	palette := src.Palette()
 	switch v := c.(type) {
 	case ansi.BasicColor:
-		if mapped := cfg.Palette.Indexed[int(v)]; mapped != nil {
+		if mapped := palette.Indexed[int(v)]; mapped != nil {
 			return mapped
 		}
 	case ansi.IndexedColor:
-		if mapped := cfg.Palette.Indexed[int(v)]; mapped != nil {
+		if mapped := palette.Indexed[int(v)]; mapped != nil {
 			return mapped
 		}
 	}
 	return c
 }
 
-// ResolveCursor returns the cursor fill color.
-func ResolveCursor(cfg config.Snapshot, defaultForeground color.Color) color.Color {
-	if cfg.HasState && cfg.State.CursorColor != nil {
-		return cfg.State.CursorColor
+// ResolveCursorNRGBA returns the cursor fill color.
+func ResolveCursorNRGBA(src config.ColorSource, defaultForeground color.NRGBA) color.NRGBA {
+	if state, ok := src.EmulatorState(); ok && state.CursorColor != nil {
+		return NRGBA(state.CursorColor)
 	}
-	if cfg.Palette.Cursor != nil {
-		return cfg.Palette.Cursor
+	palette := src.Palette()
+	if palette.Cursor != nil {
+		return NRGBA(palette.Cursor)
 	}
 	return defaultForeground
 }

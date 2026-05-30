@@ -5,9 +5,7 @@
 package steep
 
 import (
-	"image"
 	"image/color"
-	"image/draw"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -39,17 +37,8 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	t.Parallel()
 
 	cursorColor := color.NRGBA{R: 0xff, A: 0xff}
-	var capturedState *still.EmulatorState
-	var capturedBounds image.Rectangle
 	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3),
-		WithImageRenderer(
-			still.WithPadding(2),
-			still.WithBackgroundDrawer(func(ctx still.Context, dst draw.Image, area image.Rectangle) {
-				capturedState = ctx.GetEmulatorState()
-				capturedBounds = ctx.ScreenBounds()
-				still.DrawBackground(ctx, dst, area)
-			}),
-		),
+		WithImageRenderer(still.WithPadding(2)),
 	)
 	h.WaitString("text=image")
 	h.Blur()
@@ -63,17 +52,19 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	if img.Bounds().Empty() {
 		t.Fatal("Image() returned empty bounds")
 	}
-	if capturedBounds.Dx() != h.Width() || capturedBounds.Dy() != h.Height() {
-		t.Fatalf("screen bounds = %v, want harness dimensions %dx%d", capturedBounds, h.Width(), h.Height())
+	screenBounds := h.emulator.vt.Bounds()
+	if screenBounds.Dx() != h.Width() || screenBounds.Dy() != h.Height() {
+		t.Fatalf("screen bounds = %v, want harness dimensions %dx%d", screenBounds, h.Width(), h.Height())
 	}
+	capturedState := h.imageRenderer.GetEmulatorState()
 	if capturedState == nil || capturedState.Focused {
-		t.Fatal("captured state focused = true, want false")
+		t.Fatal("emulator state focused = true, want false")
 	}
 	if capturedState.CursorStyle != uv.CursorBar {
-		t.Fatalf("captured cursor style = %v, want CursorBar", capturedState.CursorStyle)
+		t.Fatalf("cursor style = %v, want CursorBar", capturedState.CursorStyle)
 	}
 	if capturedState.CursorColor != cursorColor {
-		t.Fatalf("captured cursor color = %#v, want %#v", capturedState.CursorColor, cursorColor)
+		t.Fatalf("cursor color = %#v, want %#v", capturedState.CursorColor, cursorColor)
 	}
 
 	if got := h.Image().Bounds(); got != img.Bounds() {

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/charm/still/internal/config"
 	"github.com/lrstanley/x/charm/still/units"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
@@ -19,7 +20,7 @@ import (
 )
 
 // FallbackGlyphTarget returns the vertical band for nerd-icon layout.
-func FallbackGlyphTarget(ctx FrameContext, area image.Rectangle, cell *uv.Cell) image.Rectangle {
+func FallbackGlyphTarget(ctx config.CellFrameSource, area image.Rectangle, cell *uv.Cell) image.Rectangle {
 	if area.Empty() {
 		return area
 	}

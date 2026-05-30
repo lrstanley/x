@@ -8,11 +8,8 @@ import (
 	"errors"
 	"image"
 	"image/color"
-	"image/draw"
 	"sync"
 	"testing"
-
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 func TestRendererCloseSemantics(t *testing.T) {
@@ -179,7 +176,7 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 25 {
-		wg.Add(4)
+		wg.Add(5)
 		go func() {
 			defer wg.Done()
 			_ = d.Draw(scr)
@@ -199,6 +196,10 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
+			_ = d.Metrics()
+		}()
+		go func() {
+			defer wg.Done()
 			dst := image.NewNRGBA(image.Rectangle{Max: size})
 			d.DrawInto(dst, dst.Bounds(), scr)
 		}()
@@ -206,26 +207,21 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 	wg.Wait()
 }
 
-func TestRendererContextPaletteIsImmutable(t *testing.T) {
+func TestRendererPaletteFrozenAtNew(t *testing.T) {
 	t.Parallel()
 
 	blue := color.NRGBA{B: 0xff, A: 0xff}
 	red := color.NRGBA{R: 0xff, A: 0xff}
 	scr := newTestScreen(1, 1)
 
-	d := MustNew(
-		WithPalette(Palette{Indexed: map[int]color.Color{1: blue}}),
-		WithCellFgDrawer(func(ctx Context, _ draw.Image, _ image.Rectangle, _ *uv.Cell) {
-			palette := ctx.Palette()
-			palette.Indexed[1] = red
-			if got := ctx.Palette().Indexed[1]; got != blue {
-				t.Fatalf("mutated context palette = %#v, want original %#v", got, blue)
-			}
-		}),
-	)
-
+	d := MustNew(WithPalette(Palette{Indexed: map[int]color.Color{1: blue}}))
 	_ = d.Draw(scr)
-	if got := d.opts.Palette.Indexed[1]; got != blue {
+
+	if got := d.palette.Indexed[1]; got != blue {
 		t.Fatalf("renderer palette = %#v, want original %#v", got, blue)
+	}
+	d.palette.Indexed[1] = red
+	if got := d.opts.Palette.Indexed[1]; got != blue {
+		t.Fatalf("opts palette = %#v, want original %#v", got, blue)
 	}
 }

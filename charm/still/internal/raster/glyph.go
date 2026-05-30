@@ -14,15 +14,12 @@ import (
 	"github.com/lrstanley/x/charm/still/internal/alpha"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"golang.org/x/image/font"
-	"golang.org/x/image/math/fixed"
 )
 
 const glyphMaskCacheLimit = 128
 
 type glyphMaskKey struct {
 	face  font.Face
-	dotX  fixed.Int26_6
-	dotY  fixed.Int26_6
 	glyph string
 }
 
@@ -114,8 +111,6 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 	}
 	key := glyphMaskKey{
 		face:  layout.Face,
-		dotX:  layout.Dot.X - fixed.I(layout.Area.Min.X),
-		dotY:  layout.Dot.Y - fixed.I(layout.Area.Min.Y),
 		glyph: layout.Glyph,
 	}
 	if *cache != nil {

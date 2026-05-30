@@ -11,13 +11,13 @@ import (
 	"math"
 
 	icol "github.com/lrstanley/x/charm/still/internal/color"
+	"github.com/lrstanley/x/charm/still/internal/config"
 	"github.com/lrstanley/x/charm/still/units"
 )
 
 // ApplyRoundedMask clips the terminal window to a rounded rectangle.
-func ApplyRoundedMask(ctx WindowContext, img draw.Image) {
-	cfg := ctx.Snapshot()
-	radius := cfg.BorderRadius.Int()
+func ApplyRoundedMask(ctx config.WindowSource, img draw.Image) {
+	radius := ctx.BorderRadius().Int()
 	window := ctx.WindowBounds()
 	if radius <= 0 || window.Empty() {
 		return

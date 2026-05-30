@@ -2,26 +2,24 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package raster_test
+package raster
 
 import (
 	"image"
 	"image/color"
 	"testing"
-
-	"github.com/lrstanley/x/charm/still/internal/raster"
 )
 
 func TestCoverageAccumulateAndComposite(t *testing.T) {
 	t.Parallel()
 
-	var pass raster.Pass
+	var pass Pass
 	bounds := image.Rect(0, 0, 4, 4)
 	pass.Reset(bounds)
 
-	pass.Coverage().Accumulate(1, 1, 128, color.NRGBA{R: 255, A: 255})
-	pass.Coverage().Accumulate(1, 1, 64, color.NRGBA{G: 255, A: 255})
-	pass.Coverage().Accumulate(-1, 1, 255, color.NRGBA{B: 255, A: 255})
+	pass.cov.Accumulate(1, 1, 128, color.NRGBA{R: 255, A: 255})
+	pass.cov.Accumulate(1, 1, 64, color.NRGBA{G: 255, A: 255})
+	pass.cov.Accumulate(-1, 1, 255, color.NRGBA{B: 255, A: 255})
 
 	dst := image.NewNRGBA(bounds)
 	dst.SetNRGBA(1, 1, color.NRGBA{G: 255, A: 255})
@@ -39,11 +37,11 @@ func TestCoverageAccumulateAndComposite(t *testing.T) {
 func TestPassAppendAndReset(t *testing.T) {
 	t.Parallel()
 
-	var pass raster.Pass
+	var pass Pass
 	pass.Reset(image.Rect(0, 0, 2, 2))
 	pass.AppendDecoration(image.Rect(0, 0, 1, 1), nil, color.NRGBA{A: 0xff})
 
-	pass.Coverage().Accumulate(0, 0, 255, color.NRGBA{R: 1, A: 255})
+	pass.cov.Accumulate(0, 0, 255, color.NRGBA{R: 1, A: 255})
 	dst := image.NewNRGBA(image.Rect(0, 0, 2, 2))
 	pass.Composite(dst)
 	if got := dst.NRGBAAt(0, 0).R; got != 1 {
@@ -51,7 +49,7 @@ func TestPassAppendAndReset(t *testing.T) {
 	}
 
 	pass.Reset(image.Rect(0, 0, 3, 3))
-	pass.Coverage().Accumulate(2, 2, 255, color.NRGBA{G: 2, A: 255})
+	pass.cov.Accumulate(2, 2, 255, color.NRGBA{G: 2, A: 255})
 	dst = image.NewNRGBA(image.Rect(0, 0, 3, 3))
 	pass.Composite(dst)
 	if got := dst.NRGBAAt(2, 2).G; got != 2 {
@@ -62,11 +60,11 @@ func TestPassAppendAndReset(t *testing.T) {
 func TestCoverageMaxAlpha(t *testing.T) {
 	t.Parallel()
 
-	var pass raster.Pass
+	var pass Pass
 	pass.Reset(image.Rect(0, 0, 2, 2))
 
-	pass.Coverage().Accumulate(0, 0, 100, color.NRGBA{R: 1, A: 255})
-	pass.Coverage().Accumulate(0, 0, 255, color.NRGBA{R: 255, A: 255})
+	pass.cov.Accumulate(0, 0, 100, color.NRGBA{R: 1, A: 255})
+	pass.cov.Accumulate(0, 0, 255, color.NRGBA{R: 255, A: 255})
 
 	dst := image.NewNRGBA(image.Rect(0, 0, 2, 2))
 	dst.SetNRGBA(0, 0, color.NRGBA{A: 255})
