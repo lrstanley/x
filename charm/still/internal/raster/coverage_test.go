@@ -57,6 +57,15 @@ func TestPassAppendAndReset(t *testing.T) {
 	}
 }
 
+func TestPassResetReusesCoverageBuffer(t *testing.T) {
+	var pass Pass
+	bounds := image.Rect(0, 0, 500, 300)
+	pass.Reset(bounds)
+	if n := testing.AllocsPerRun(50, func() { pass.Reset(bounds) }); n != 0 {
+		t.Fatalf("allocs per reset = %v, want 0", n)
+	}
+}
+
 func TestCoverageMaxAlpha(t *testing.T) {
 	t.Parallel()
 

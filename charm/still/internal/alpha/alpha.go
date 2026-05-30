@@ -9,7 +9,27 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+
+	"github.com/lrstanley/x/charm/still/internal/pool"
 )
+
+// glyphAlphaPool recycles glyph mask images on the draw hot path.
+var glyphAlphaPool = pool.Pool[*image.Alpha]{
+	Prepare: func(a *image.Alpha) *image.Alpha {
+		if a != nil && len(a.Pix) > 0 {
+			clear(a.Pix)
+		}
+		return a
+	},
+}
+
+// ReleaseGlyphAlpha returns a rasterized glyph mask to the draw-scoped pool.
+func ReleaseGlyphAlpha(a *image.Alpha) {
+	if a == nil || len(a.Pix) == 0 {
+		return
+	}
+	glyphAlphaPool.Put(a)
+}
 
 // InkBounds returns the tight bounding box of non-zero alpha in alpha.
 func InkBounds(alpha *image.Alpha) (image.Rectangle, bool) {
@@ -74,7 +94,11 @@ func Dilate(alpha *image.Alpha, radiusX, radiusY int) *image.Alpha {
 
 // RasterGlyph copies a glyph mask into a local alpha image aligned to dr.
 func RasterGlyph(dr image.Rectangle, mask image.Image, maskp image.Point) *image.Alpha {
-	out := image.NewAlpha(image.Rect(0, 0, dr.Dx(), dr.Dy()))
+	want := image.Rect(0, 0, dr.Dx(), dr.Dy())
+	out := glyphAlphaPool.Get()
+	if out == nil || out.Bounds() != want {
+		out = image.NewAlpha(want)
+	}
 	draw.DrawMask(out, out.Bounds(), image.Opaque, image.Point{}, mask, maskp, draw.Src)
 	return out
 }

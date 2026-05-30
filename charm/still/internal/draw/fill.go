@@ -17,11 +17,10 @@ import (
 var fillUniforms sync.Map // color.NRGBA -> *image.Uniform
 
 // Fill paints area with a solid color using [draw.Src].
-func Fill(img draw.Image, area image.Rectangle, c color.Color) {
+func Fill(img draw.Image, area image.Rectangle, col color.NRGBA) {
 	if area.Empty() {
 		return
 	}
-	col := icol.NRGBA(c)
 	if dst, ok := img.(*image.NRGBA); ok {
 		b := dst.Bounds()
 		area = area.Intersect(b)

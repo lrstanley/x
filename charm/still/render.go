@@ -9,6 +9,7 @@ import (
 	"image/draw"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	icol "github.com/lrstanley/x/charm/still/internal/color"
 	idraw "github.com/lrstanley/x/charm/still/internal/draw"
 	"github.com/lrstanley/x/charm/still/internal/effects"
 )
@@ -55,7 +56,8 @@ func (d *Renderer) drawIntoLocked(dst draw.Image, area image.Rectangle, scr uv.S
 		origin = dst.Bounds().Min
 	}
 
-	f := d.buildFrame(origin, scr)
+	f := d.borrowRenderFrame(origin, scr)
+	defer releaseRenderFrame(f)
 	required := f.imageBounds
 	if area.Empty() {
 		area = required
@@ -106,7 +108,16 @@ func (d *Renderer) render(dst draw.Image, scr uv.Screen, f *renderFrame) {
 			}
 			area = image.Rect(cellMinX, cellMinY, cellMaxX, cellMaxY)
 
-			d.drawCellBg(dst, area, cell, f)
+			if icol.CellHasExplicitBackground(cell) {
+				if idraw.TextVisible(f, cell) &&
+					(cellHasForegroundGlyph(cell) || cellHasForegroundDecorations(cell)) {
+					fg, bg := f.CellColorsNRGBA(cell)
+					idraw.Fill(dst, area, f.cellBackgroundFromResolved(cell, bg))
+					d.drawCellFgColor(dst, area, cell, f, usePass, fg, true)
+					continue
+				}
+				d.drawCellBg(dst, area, cell, f)
+			}
 			d.drawCellFg(dst, area, cell, f, usePass)
 		}
 	}

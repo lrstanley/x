@@ -110,7 +110,8 @@ func (d *Renderer) Draw(scr uv.Screen) image.Image {
 	defer d.mu.Unlock()
 
 	d.ensureOpen()
-	f := d.buildFrame(image.Point{}, scr)
+	f := d.borrowRenderFrame(image.Point{}, scr)
+	defer releaseRenderFrame(f)
 	bounds := f.imageBounds
 	img := d.ensureFrameLocked(bounds)
 	d.render(img, scr, f)

@@ -53,7 +53,7 @@ func ResolveCellBackgroundNRGBA(src config.ColorSource, cell *uv.Cell) color.NRG
 	if CellHasExplicitBackground(cell) && !src.BackgroundOpacityCells() {
 		return bg
 	}
-	return NRGBA(ApplyAlpha(bg, src.BackgroundOpacity()))
+	return ApplyAlphaNRGBA(bg, src.BackgroundOpacity())
 }
 
 // ResolveForegroundNRGBA returns the color for text and decorations without interface boxing.
@@ -129,14 +129,19 @@ func CellHasExplicitBackground(cell *uv.Cell) bool {
 	return false
 }
 
+// ApplyAlphaNRGBA multiplies the alpha of c by opacity without interface boxing.
+func ApplyAlphaNRGBA(c color.NRGBA, opacity float64) color.NRGBA {
+	n := c
+	n.A = uint8(math.Round(float64(n.A) * units.Clamp(opacity, 0.0, 1.0)))
+	return n
+}
+
 // ApplyAlpha multiplies the alpha of c by opacity (clamped to [0,1]).
 func ApplyAlpha(c color.Color, opacity float64) color.Color {
 	if c == nil {
 		return nil
 	}
-	n := NRGBA(c)
-	n.A = uint8(math.Round(float64(n.A) * units.Clamp(opacity, 0.0, 1.0)))
-	return n
+	return ApplyAlphaNRGBA(NRGBA(c), opacity)
 }
 
 // Blend linearly interpolates each NRGBA channel of from toward to by factor.

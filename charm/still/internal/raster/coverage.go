@@ -5,6 +5,7 @@
 package raster
 
 import (
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/draw"
@@ -16,19 +17,57 @@ import (
 // Coverage accumulates per-pixel glyph mask coverage before compositing.
 type Coverage struct {
 	bounds image.Rectangle
-	alpha  []uint8
-	fg     []color.NRGBA
+	pixels []uint32 // alpha | R<<8 | G<<16 | B<<24
+
+	dirtyMinX int
+	dirtyMinY int
+	dirtyMaxX int
+	dirtyMaxY int
+}
+
+func packCoveragePixel(alpha uint8, fg color.NRGBA) uint32 {
+	return uint32(alpha) | uint32(fg.R)<<8 | uint32(fg.G)<<16 | uint32(fg.B)<<24
 }
 
 func (c *Coverage) reset(bounds image.Rectangle) {
 	n := bounds.Dx() * bounds.Dy()
-	if len(c.alpha) < n {
-		c.alpha = make([]uint8, n)
-		c.fg = make([]color.NRGBA, n)
+	if cap(c.pixels) < n {
+		c.pixels = make([]uint32, n)
 	} else {
-		clear(c.alpha[:n])
+		c.pixels = c.pixels[:n]
+		clear(c.pixels)
 	}
 	c.bounds = bounds
+	c.clearDirty()
+}
+
+func (c *Coverage) clearDirty() {
+	c.dirtyMinX = 1<<31 - 1
+	c.dirtyMinY = 1<<31 - 1
+	c.dirtyMaxX = -1 << 31
+	c.dirtyMaxY = -1 << 31
+}
+
+func (c *Coverage) markDirty(x, y int) {
+	if x < c.dirtyMinX {
+		c.dirtyMinX = x
+	}
+	if y < c.dirtyMinY {
+		c.dirtyMinY = y
+	}
+	if x > c.dirtyMaxX {
+		c.dirtyMaxX = x
+	}
+	if y > c.dirtyMaxY {
+		c.dirtyMaxY = y
+	}
+}
+
+func (c *Coverage) dirtyBounds() image.Rectangle {
+	if c.dirtyMaxX < c.dirtyMinX || c.dirtyMaxY < c.dirtyMinY {
+		return image.Rectangle{}
+	}
+	return image.Rect(c.dirtyMinX, c.dirtyMinY, c.dirtyMaxX+1, c.dirtyMaxY+1)
 }
 
 func (c *Coverage) index(x, y int) int {
@@ -37,19 +76,23 @@ func (c *Coverage) index(x, y int) int {
 
 // Accumulate records max-alpha glyph coverage at x,y.
 func (c *Coverage) Accumulate(x, y int, alpha uint8, fg color.NRGBA) {
-	if alpha == 0 || !image.Pt(x, y).In(c.bounds) {
+	if alpha == 0 {
+		return
+	}
+	b := c.bounds
+	if x < b.Min.X || x >= b.Max.X || y < b.Min.Y || y >= b.Max.Y {
 		return
 	}
 	i := c.index(x, y)
-	if alpha > c.alpha[i] {
-		c.alpha[i] = alpha
-		c.fg[i] = fg
+	if alpha > uint8(c.pixels[i]) {
+		c.pixels[i] = packCoveragePixel(alpha, fg)
+		c.markDirty(x, y)
 	}
 }
 
 // Composite blends accumulated glyph coverage over dst.
 func (c *Coverage) Composite(dst *image.NRGBA) {
-	b := c.bounds.Intersect(dst.Bounds())
+	b := c.dirtyBounds().Intersect(c.bounds).Intersect(dst.Bounds())
 	if b.Empty() {
 		return
 	}
@@ -58,28 +101,27 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 	stride := dst.Stride
 	pix := dst.Pix
 	for y := b.Min.Y; y < b.Max.Y; y++ {
-		rowBase := (y-c.bounds.Min.Y)*dx + (b.Min.X - c.bounds.Min.X)
+		i := (y-c.bounds.Min.Y)*dx + (b.Min.X - c.bounds.Min.X)
 		off := (y-db.Min.Y)*stride + (b.Min.X-db.Min.X)*4
-		for x := b.Min.X; x < b.Max.X; x++ {
-			i := rowBase + (x - b.Min.X)
-			a := c.alpha[i]
-			if a == 0 {
-				off += 4
-				continue
+		end := off + (b.Dx()-1)*4
+		for {
+			p := c.pixels[i]
+			a := uint8(p)
+			if a != 0 {
+				if a == 255 {
+					binary.LittleEndian.PutUint32(pix[off:off+4], (p>>8)|0xff000000)
+				} else {
+					inv := 255 - int(a)
+					pix[off] = uint8((int(uint8(p>>8))*int(a) + int(pix[off])*inv) / 255)
+					pix[off+1] = uint8((int(uint8(p>>16))*int(a) + int(pix[off+1])*inv) / 255)
+					pix[off+2] = uint8((int(uint8(p>>24))*int(a) + int(pix[off+2])*inv) / 255)
+					pix[off+3] = 255
+				}
 			}
-			fg := c.fg[i]
-			if a == 255 {
-				pix[off] = fg.R
-				pix[off+1] = fg.G
-				pix[off+2] = fg.B
-				pix[off+3] = 255
-			} else {
-				inv := 255 - int(a)
-				pix[off] = uint8((int(fg.R)*int(a) + int(pix[off])*inv) / 255)
-				pix[off+1] = uint8((int(fg.G)*int(a) + int(pix[off+1])*inv) / 255)
-				pix[off+2] = uint8((int(fg.B)*int(a) + int(pix[off+2])*inv) / 255)
-				pix[off+3] = 255
+			if off == end {
+				break
 			}
+			i++
 			off += 4
 		}
 	}

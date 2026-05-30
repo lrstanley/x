@@ -68,38 +68,40 @@ func AccumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout) {
 
 func accumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout, cache *glyphMaskCache) {
 	if mask, ok := layoutBoxGlyphMask(ctx, layout); ok {
-		fg := layout.Fg
-		dr := mask.dr
-		pix := mask.alpha.Pix
-		stride := mask.alpha.Stride
-		width := dr.Dx()
-		for y := dr.Min.Y; y < dr.Max.Y; y++ {
-			ay := y - dr.Min.Y
-			row := pix[ay*stride : ay*stride+width]
-			for x := dr.Min.X; x < dr.Max.X; x++ {
-				if ga := row[x-dr.Min.X]; ga != 0 {
-					cov.Accumulate(x, y, ga, fg)
-				}
-			}
-		}
+		accumulateGlyphMask(cov, mask.dr, mask.alpha.Pix, mask.alpha.Stride, layout.Fg)
 		return
 	}
 	mask, ok := glyphLayoutMask(layout, cache)
 	if !ok {
 		return
 	}
-
-	fg := layout.Fg
 	dr := mask.alpha.Bounds().Add(layout.Area.Min.Add(mask.offset))
-	pix := mask.alpha.Pix
-	stride := mask.alpha.Stride
-	width := dr.Dx()
+	accumulateGlyphMask(cov, dr, mask.alpha.Pix, mask.alpha.Stride, layout.Fg)
+}
+
+func accumulateGlyphMask(cov *Coverage, dr image.Rectangle, pix []uint8, stride int, fg color.NRGBA) {
+	dr = dr.Intersect(cov.bounds)
+	if dr.Empty() {
+		return
+	}
+	b := cov.bounds
+	dx := dr.Dx()
+	covDx := b.Dx()
+	minX, minY := b.Min.X, b.Min.Y
+	pixels := cov.pixels
 	for y := dr.Min.Y; y < dr.Max.Y; y++ {
 		ay := y - dr.Min.Y
-		row := pix[ay*stride : ay*stride+width]
+		row := pix[ay*stride : ay*stride+dx]
+		rowBase := (y-minY)*covDx + (dr.Min.X - minX)
 		for x := dr.Min.X; x < dr.Max.X; x++ {
-			if ga := row[x-dr.Min.X]; ga != 0 {
-				cov.Accumulate(x, y, ga, fg)
+			ga := row[x-dr.Min.X]
+			if ga == 0 {
+				continue
+			}
+			i := rowBase + (x - dr.Min.X)
+			if ga > uint8(pixels[i]) {
+				pixels[i] = packCoveragePixel(ga, fg)
+				cov.markDirty(x, y)
 			}
 		}
 	}
@@ -125,6 +127,9 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 		return cachedGlyphMask{}, false
 	}
 	if len(*cache) >= glyphMaskCacheLimit {
+		for _, m := range *cache {
+			alpha.ReleaseGlyphAlpha(m.alpha)
+		}
 		clear(*cache)
 	}
 	(*cache)[key] = mask

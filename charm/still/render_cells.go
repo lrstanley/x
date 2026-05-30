@@ -6,6 +6,7 @@ package still
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -15,19 +16,19 @@ import (
 )
 
 func (d *Renderer) drawBackground(dst draw.Image, f *renderFrame) {
-	idraw.Fill(dst, f.imageBounds, f.marginColor())
+	idraw.Fill(dst, f.imageBounds, icol.NRGBA(f.marginColor()))
 	idraw.Fill(dst, f.windowBounds, f.windowBackgroundNRGBA())
 }
 
 func (d *Renderer) drawCellBg(dst draw.Image, area image.Rectangle, cell *uv.Cell, f *renderFrame) {
-	if !icol.CellHasExplicitBackground(cell) &&
-		(cell == nil || cell.Style.Attrs&uv.AttrReverse == 0) {
-		return
-	}
 	idraw.Fill(dst, area, f.cellBackgroundNRGBA(cell))
 }
 
 func (d *Renderer) drawCellFg(dst draw.Image, area image.Rectangle, cell *uv.Cell, f *renderFrame, usePass bool) {
+	d.drawCellFgColor(dst, area, cell, f, usePass, color.NRGBA{}, false)
+}
+
+func (d *Renderer) drawCellFgColor(dst draw.Image, area image.Rectangle, cell *uv.Cell, f *renderFrame, usePass bool, fg color.NRGBA, fgOK bool) {
 	if !idraw.TextVisible(f, cell) {
 		return
 	}
@@ -36,7 +37,9 @@ func (d *Renderer) drawCellFg(dst draw.Image, area image.Rectangle, cell *uv.Cel
 	if !hasGlyph && !hasDecorations {
 		return
 	}
-	fg, _ := f.CellColorsNRGBA(cell)
+	if !fgOK {
+		fg, _ = f.CellColorsNRGBA(cell)
+	}
 	var layout raster.Layout
 	hasLayout := false
 	if hasGlyph {
@@ -99,8 +102,8 @@ func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *render
 
 	fg := f.foregroundNRGBA(nil)
 	bg := f.backgroundNRGBA(nil)
-	track := icol.Blend(bg, fg, 0.12)
-	thumb := icol.Blend(bg, fg, 0.35)
+	track := icol.NRGBA(icol.Blend(bg, fg, 0.12))
+	thumb := icol.NRGBA(icol.Blend(bg, fg, 0.35))
 	idraw.Fill(dst, area, track)
 
 	thumbHeight := max(1, area.Dy()*screenRows/totalRows)

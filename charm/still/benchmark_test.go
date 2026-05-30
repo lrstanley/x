@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	benchmarkTermCols   = 120
-	benchmarkTermRows   = 30
-	benchmarkFontSizePt = Pt(40)
-	renderExportBudget  = 10 * time.Millisecond
-	benchmarkCursorCol  = benchmarkTermCols / 2
-	benchmarkCursorRow  = benchmarkTermRows / 2
+	benchmarkTermCols    = 120
+	benchmarkTermRows    = 30
+	benchmarkFontSizePt  = Pt(40)
+	renderExportBudget   = 10 * time.Millisecond
+	benchmarkCursorCol   = benchmarkTermCols / 2
+	benchmarkCursorRow   = benchmarkTermRows / 2
+	benchmarkWarmupIters = 3 // stabilizes sync.Pool and coverage buffer capacity
 )
 
 // benchmarkTerminalScreen returns a 120×30 screen with ~52% of cells filled
@@ -65,10 +66,26 @@ func assertBenchmarkBudget(b *testing.B, budget time.Duration) {
 	}
 }
 
+func TestBenchmarkDrawAllocsPerOp(t *testing.T) {
+	scr := benchmarkTerminalScreen()
+	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	frame := image.NewNRGBA(d.Bounds(scr))
+	for range benchmarkWarmupIters {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+	n := testing.AllocsPerRun(20, func() {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	})
+	t.Logf("DrawInto allocs/op = %v", n)
+}
+
 func BenchmarkDraw(b *testing.B) {
 	scr := benchmarkTerminalScreen()
 	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
 	frame := image.NewNRGBA(d.Bounds(scr))
+	for range benchmarkWarmupIters {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -82,6 +99,9 @@ func BenchmarkDrawInto(b *testing.B) {
 	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
 	frame := image.NewNRGBA(d.Bounds(scr))
 	area := frame.Bounds()
+	for range benchmarkWarmupIters {
+		d.DrawInto(frame, area, scr)
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -102,6 +122,19 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 	}
 	blank := uv.EmptyCell.Clone()
 	frame := image.NewNRGBA(d.Bounds(scr))
+	for range benchmarkWarmupIters {
+		if cursorVisible {
+			scr.SetCell(benchmarkCursorCol, benchmarkCursorRow, &cursor)
+		} else {
+			scr.SetCell(benchmarkCursorCol, benchmarkCursorRow, blank)
+		}
+		cursorVisible = !cursorVisible
+
+		d.DrawInto(frame, frame.Bounds(), scr)
+		if err := rec.AddFrame(frame, time.Millisecond); err != nil {
+			b.Fatal(err)
+		}
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -16,17 +16,17 @@ import (
 )
 
 // Decorations renders underline, strikethrough, and related lines for a cell.
-func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, cell *uv.Cell, fg color.Color) {
+func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, cell *uv.Cell, fg color.NRGBA) {
 	if cell == nil {
 		return
 	}
 	style := cell.Style
 	decoration := fg
 	if style.UnderlineColor != nil && style.Attrs&uv.AttrConceal == 0 {
-		decoration = ctx.ResolvePaletteColor(style.UnderlineColor)
+		decoration = icol.NRGBA(ctx.ResolvePaletteColor(style.UnderlineColor))
 		if style.Attrs&uv.AttrFaint != 0 {
 			_, bg := ctx.CellColorsNRGBA(cell)
-			decoration = icol.Blend(decoration, bg, ctx.FaintFactor())
+			decoration = icol.NRGBA(icol.Blend(decoration, bg, ctx.FaintFactor()))
 		}
 	}
 
@@ -51,7 +51,7 @@ func periodicStart(start, period int) int {
 }
 
 // Underline paints the requested underline style at metrics-derived Y and thickness.
-func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, style uv.Underline, c color.Color) {
+func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, style uv.Underline, c color.NRGBA) {
 	metrics := ctx.Metrics()
 	y := units.Clamp(area.Min.Y+metrics.UnderlinePosition.Int(), area.Min.Y, area.Max.Y-1)
 	thickness := metrics.UnderlineThickness.Int()

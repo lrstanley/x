@@ -12,6 +12,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	icol "github.com/lrstanley/x/charm/still/internal/color"
 	"github.com/lrstanley/x/charm/still/internal/config"
+	"github.com/lrstanley/x/charm/still/internal/pool"
 	"github.com/lrstanley/x/charm/still/types"
 	"github.com/lrstanley/x/charm/still/units"
 	"golang.org/x/image/font"
@@ -41,12 +42,37 @@ type renderFrame struct {
 	cellH           int
 }
 
+// renderFramePool recycles per-draw frames on the Draw/DrawInto hot path.
+var renderFramePool = pool.Pool[*renderFrame]{
+	New: func() *renderFrame { return &renderFrame{} },
+	Prepare: func(f *renderFrame) *renderFrame {
+		*f = renderFrame{}
+		return f
+	},
+}
+
+func (d *Renderer) borrowRenderFrame(origin image.Point, scr uv.Screen) *renderFrame {
+	f := renderFramePool.Get()
+	d.populateRenderFrame(f, origin, scr)
+	return f
+}
+
+func releaseRenderFrame(f *renderFrame) {
+	renderFramePool.Put(f)
+}
+
 func (d *Renderer) buildFrame(origin image.Point, scr uv.Screen) *renderFrame {
+	f := &renderFrame{r: d}
+	d.populateRenderFrame(f, origin, scr)
+	return f
+}
+
+func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr uv.Screen) {
 	if scr == nil {
 		panic("nil screen")
 	}
 
-	f := &renderFrame{r: d}
+	f.r = d
 	f.now = d.opts.Now()
 	f.hasEmu = false
 	if d.emulatorState != nil {
@@ -93,7 +119,6 @@ func (d *Renderer) buildFrame(origin image.Point, scr uv.Screen) *renderFrame {
 	f.palette = d.palette
 	f.boxThicknessOverride = d.boxThicknessOverride
 	f.opts = d.opts
-	return f
 }
 
 // layoutSnapshot prepares per-draw geometry for tests. Snapshotted metrics,
@@ -202,6 +227,13 @@ func (f *renderFrame) cellBackgroundNRGBA(cell *uv.Cell) color.NRGBA {
 	return icol.ResolveCellBackgroundNRGBA(f, cell)
 }
 
+func (f *renderFrame) cellBackgroundFromResolved(cell *uv.Cell, bg color.NRGBA) color.NRGBA {
+	if icol.CellHasExplicitBackground(cell) && !f.BackgroundOpacityCells() {
+		return bg
+	}
+	return icol.ApplyAlphaNRGBA(bg, f.BackgroundOpacity())
+}
+
 func (f *renderFrame) foregroundNRGBA(style *uv.Style) color.NRGBA {
 	return icol.ResolveForegroundNRGBA(f, style)
 }
@@ -211,7 +243,7 @@ func (f *renderFrame) backgroundNRGBA(style *uv.Style) color.NRGBA {
 }
 
 func (f *renderFrame) windowBackgroundNRGBA() color.NRGBA {
-	return icol.NRGBA(icol.ApplyAlpha(f.backgroundNRGBA(nil), f.opts.BackgroundOpacity))
+	return icol.ApplyAlphaNRGBA(f.backgroundNRGBA(nil), f.opts.BackgroundOpacity)
 }
 
 func (f *renderFrame) cursorColorNRGBA() color.NRGBA {
