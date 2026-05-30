@@ -34,6 +34,6 @@ func NewFrameRecorder() *FrameRecorder {
 func (fr *FrameRecorder) AddFrame(frame image.Image, delay time.Duration) error {
 	return appendRecordingFrame(
 		&fr.rec, fr.palette, fr.useLUT,
-		OptimizeFrames, nil, false, frame, delay,
+		OptimizeFrames, nil, false, frame, delay, 0,
 	)
 }

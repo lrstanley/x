@@ -93,6 +93,8 @@ type options struct {
 	channel <-chan Frame
 	// channelSet records whether [WithChannel] was set.
 	channelSet bool
+	// maxFrames caps stored palettized frames during GIF capture; 0 is unlimited.
+	maxFrames int
 }
 
 func defaultOptions() options {
@@ -139,6 +141,9 @@ func (o options) validate(format string) error {
 		}
 		if o.channelSet {
 			return errors.New("export: WithChannel applies to GIF only")
+		}
+		if o.maxFrames > 0 {
+			return errors.New("export: WithMaxFrames applies to GIF only")
 		}
 	}
 	if format == formatGIF {
@@ -213,5 +218,16 @@ func WithChannel(ch <-chan Frame) Option {
 	return func(cfg *options) {
 		cfg.channel = ch
 		cfg.channelSet = true
+	}
+}
+
+// WithMaxFrames keeps only the last n palettized frames in memory during GIF
+// capture. When [OptimizeFrames] is enabled, duplicate consecutive frames merged
+// during dedup do not consume cap slots. Oldest frames are dropped without
+// carrying their delays forward. n == 0 disables the cap (same as omitting this
+// option). GIF only.
+func WithMaxFrames(n int) Option {
+	return func(cfg *options) {
+		cfg.maxFrames = max(0, n)
 	}
 }

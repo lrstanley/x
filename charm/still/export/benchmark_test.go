@@ -67,7 +67,7 @@ func BenchmarkGIFAddFrame(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -86,7 +86,7 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -99,7 +99,7 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
 			b.Fatal(err)
 		}
 	}

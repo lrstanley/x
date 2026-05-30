@@ -561,14 +561,14 @@ func TestGIFArenaFrameRetention(t *testing.T) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frame, time.Millisecond, 0); err != nil {
 			t.Fatal(err)
 		}
 		snapshots[i] = bytes.Clone(rec.images[i].Pix)
 	}
 
 	for range 4 {
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frameA, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frameA, time.Millisecond, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -605,6 +605,122 @@ func TestPalettizePreservesDistinctColors(t *testing.T) {
 	if bytes.Equal(pa.Pix, pb.Pix) {
 		t.Fatal("expected distinct palettized output")
 	}
+}
+
+func TestGIFMaxFramesRetention(t *testing.T) {
+	t.Parallel()
+
+	const n = 8
+	frames := make([]image.Image, n)
+	for i := range n {
+		frames[i] = solidFrame(i, 4, 4)
+	}
+	path := t.TempDir() + "/max-frames.gif"
+	if err := recordViaChannel(path, frames, 50*time.Millisecond, WithMaxFrames(3)); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := gifDecodeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) != 3 {
+		t.Fatalf("got %d frames, want 3 retained", len(g.Image))
+	}
+	for i := range 3 {
+		assertPalettizedSimilar(t, frames[n-3+i], g.Image[i])
+	}
+}
+
+func TestGIFMaxFramesDelaysNotInflated(t *testing.T) {
+	t.Parallel()
+
+	const n = 8
+	frames := make([]image.Image, n)
+	for i := range n {
+		frames[i] = solidFrame(i, 4, 4)
+	}
+	path := t.TempDir() + "/max-frames-delay.gif"
+	if err := recordViaChannel(path, frames, 100*time.Millisecond, WithMaxFrames(2)); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := gifDecodeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) != 2 {
+		t.Fatalf("got %d frames, want 2 retained", len(g.Image))
+	}
+	for i, d := range g.Delay {
+		if d != 10 {
+			t.Fatalf("delay[%d] = %d cs, want 10 cs (100ms explicit, not merged from evicted frames)", i, d)
+		}
+	}
+}
+
+func TestGIFMaxFramesUnlimited(t *testing.T) {
+	t.Parallel()
+
+	const n = 8
+	frames := make([]image.Image, n)
+	for i := range n {
+		frames[i] = solidFrame(i, 4, 4)
+	}
+	path := t.TempDir() + "/max-frames-unlimited.gif"
+	if err := recordViaChannel(path, frames, 50*time.Millisecond, WithMaxFrames(0)); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := gifDecodeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) != n {
+		t.Fatalf("got %d frames, want %d with WithMaxFrames(0)", len(g.Image), n)
+	}
+}
+
+func TestGIFMaxFramesDedupCap(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan Frame)
+	path := t.TempDir() + "/max-frames-dedup.gif"
+	closer, err := GIF(path,
+		WithChannel(ch),
+		WithMaxFrames(2),
+		WithOptimize(OptimizeFrames),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frameA := solidFrame(0, 4, 4)
+	frameB := solidFrame(1, 4, 4)
+	frameC := solidFrame(2, 4, 4)
+	for range 20 {
+		ch <- Frame{Image: frameA, Delay: 10 * time.Millisecond}
+	}
+	ch <- Frame{Image: frameB, Delay: 10 * time.Millisecond}
+	ch <- Frame{Image: frameC, Delay: 10 * time.Millisecond}
+	close(ch)
+
+	if cerr := closer(); cerr != nil {
+		t.Fatal(cerr)
+	}
+
+	g, err := gifDecodeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) > 2 {
+		t.Fatalf("got %d frames, want at most 2 after dedup+cap", len(g.Image))
+	}
+	if len(g.Image) != 2 {
+		t.Fatalf("got %d frames, want 2 (B and C after A deduped)", len(g.Image))
+	}
+	assertPalettizedSimilar(t, frameB, g.Image[0])
+	assertPalettizedSimilar(t, frameC, g.Image[1])
 }
 
 func TestGIFChannelExplicitDelay(t *testing.T) {

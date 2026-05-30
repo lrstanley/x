@@ -12,6 +12,10 @@
 // last capture attempt (including deduped ticks). Non-strict [WithFrameRate]
 // snaps accumulated delays to the nearest nominal FPS grid at finalize.
 //
+// [WithMaxFrames] limits in-memory GIF capture to the last n palettized frames
+// (after dedup when [OptimizeFrames] is enabled). Dropped frame delays are not
+// carried forward; disposal optimization runs on the retained window only.
+//
 // Export defaults to [OptimizeAll] when WithOptimize is omitted. GIF uses frame
 // dedup, disposal/sub-rect optimization, and palette compaction. PNG applies
 // [OptimizeColorQuantization] only ([OptimizeFrames] and [OptimizeDirtyRects]

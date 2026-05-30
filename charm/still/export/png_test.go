@@ -59,6 +59,7 @@ func TestPNGRejectsGIFOnlyOptions(t *testing.T) {
 		{"WithBackground", WithBackground(color.Black)},
 		{"WithFrameRate", WithFrameRate(30, false, func() image.Image { return src })},
 		{"WithChannel", WithChannel(make(<-chan Frame))},
+		{"WithMaxFrames", WithMaxFrames(10)},
 	}
 
 	for _, tc := range cases {

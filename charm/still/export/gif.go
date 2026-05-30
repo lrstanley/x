@@ -243,6 +243,17 @@ func (r *gifRecorder) captureChannelFrame(f Frame) {
 	r.palettizeAndAppend(f.Image, r.nextDelay(f.Delay))
 }
 
+// truncateRecording drops the oldest stored frames when len(rec.images) exceeds maxFrames.
+func truncateRecording(rec *gifRecording, maxFrames int) {
+	if maxFrames <= 0 {
+		return
+	}
+	if excess := len(rec.images) - maxFrames; excess > 0 {
+		rec.images = rec.images[excess:]
+		rec.delays = rec.delays[excess:]
+	}
+}
+
 // appendRecordingFrame palettizes frame into owned output storage, optionally
 // deduplicates identical consecutive frames, and appends to rec.
 func appendRecordingFrame(
@@ -254,6 +265,7 @@ func appendRecordingFrame(
 	backgroundSet bool,
 	frame image.Image,
 	delay time.Duration,
+	maxFrames int,
 ) error {
 	if frame == nil {
 		return errNilFrame
@@ -288,6 +300,7 @@ func appendRecordingFrame(
 		Palette: pm.Palette,
 	})
 	rec.delays = append(rec.delays, delay)
+	truncateRecording(rec, maxFrames)
 	return nil
 }
 
@@ -296,7 +309,7 @@ func appendRecordingFrame(
 func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration) {
 	if err := appendRecordingFrame(
 		r.rec, r.palette, r.useLUT, r.opts.optimize,
-		r.opts.background, r.opts.backgroundSet, frame, delay,
+		r.opts.background, r.opts.backgroundSet, frame, delay, r.opts.maxFrames,
 	); err != nil {
 		r.closeErr = err
 	}
