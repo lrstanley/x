@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3
 	github.com/charmbracelet/x/ansi v0.11.7
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.43.0
 )
 
 require (
@@ -21,7 +21,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 )
