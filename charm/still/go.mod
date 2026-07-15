@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3
 	github.com/charmbracelet/x/ansi v0.11.7
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.41.0
 )
 
 require (
