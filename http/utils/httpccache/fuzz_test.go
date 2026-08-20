@@ -28,7 +28,7 @@ func FuzzCanonicalCacheKey(f *testing.F) {
 		}
 
 		var ignored []string
-		for _, item := range strings.Split(ignoredCSV, ",") {
+		for item := range strings.SplitSeq(ignoredCSV, ",") {
 			item = strings.TrimSpace(item)
 			if item != "" {
 				ignored = append(ignored, item)
@@ -173,7 +173,7 @@ func FuzzParseSecondsDirective(f *testing.F) {
 			t.Fatalf("parseSecondsDirective ok mismatch: got=%v expect=%v value=%q", ok, expectOK, value)
 		}
 		if ok {
-			maxSeconds := int64(math.MaxInt64 / int64(time.Second))
+			maxSeconds := math.MaxInt64 / int64(time.Second)
 			if int64(parsed) <= maxSeconds {
 				expectedDuration := time.Duration(parsed) * time.Second
 				if d != expectedDuration {

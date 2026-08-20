@@ -6,7 +6,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"os"
@@ -70,14 +70,12 @@ func main() {
 			PublicRepos int    `json:"public_repos"`
 		}
 
-		dec := json.NewDecoder(resp.Body)
-		err = dec.Decode(&user)
+		err = json.UnmarshalRead(resp.Body, &user)
+		_ = resp.Body.Close()
 		if err != nil {
 			rlogger.ErrorContext(ctx, "decoding response", "error", err)
-			_ = resp.Body.Close()
 			os.Exit(1)
 		}
-		_ = resp.Body.Close()
 
 		rlogger.InfoContext(
 			ctx, "response",

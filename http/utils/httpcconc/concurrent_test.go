@@ -24,10 +24,10 @@ func (f funcRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestNewTransport_nilBaseUsesDefaultTransport(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	tr := NewTransport(2, nil)
 	req, err := http.NewRequest(http.MethodGet, srv.URL, http.NoBody)
@@ -51,7 +51,7 @@ func TestNewTransport_maxConcurrentClamped(t *testing.T) {
 	var inFlight atomic.Int32
 	release := make(chan struct{})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n := inFlight.Add(1)
 		for {
 			old := maxSeen.Load()
@@ -63,7 +63,7 @@ func TestNewTransport_maxConcurrentClamped(t *testing.T) {
 		inFlight.Add(-1)
 		w.WriteHeader(http.StatusOK)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	// maxConcurrent 0 must clamp to 1 concurrent request.
 	tr := NewTransport(0, http.DefaultTransport)
@@ -90,18 +90,15 @@ func TestNewTransport_maxConcurrentClamped(t *testing.T) {
 	}
 
 	deadline := time.After(5 * time.Second)
-	for {
-		if maxSeen.Load() >= 1 && inFlight.Load() >= 1 {
-			break
-		}
+	for maxSeen.Load() < 1 || inFlight.Load() < 1 {
 		select {
 		case <-deadline:
 			t.Fatalf("timed out waiting for requests; maxSeen=%d inFlight=%d", maxSeen.Load(), inFlight.Load())
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	if max := maxSeen.Load(); max != 1 {
-		t.Fatalf("max concurrent in handler = %d, want 1", max)
+	if got := maxSeen.Load(); got != 1 {
+		t.Fatalf("max concurrent in handler = %d, want 1", got)
 	}
 	close(release)
 	wg.Wait()
@@ -116,7 +113,7 @@ func TestNewTransport_limitsConcurrentRequests(t *testing.T) {
 	var inFlight atomic.Int32
 	release := make(chan struct{})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n := inFlight.Add(1)
 		for {
 			old := maxSeen.Load()
@@ -128,7 +125,7 @@ func TestNewTransport_limitsConcurrentRequests(t *testing.T) {
 		inFlight.Add(-1)
 		w.WriteHeader(http.StatusOK)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	tr := NewTransport(maxConcurrent, http.DefaultTransport)
 	client := &http.Client{Transport: tr}
@@ -161,8 +158,8 @@ func TestNewTransport_limitsConcurrentRequests(t *testing.T) {
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	if max := maxSeen.Load(); max != int32(maxConcurrent) {
-		t.Fatalf("max concurrent in handler = %d, want %d", max, maxConcurrent)
+	if got := maxSeen.Load(); got != int32(maxConcurrent) {
+		t.Fatalf("max concurrent in handler = %d, want %d", got, maxConcurrent)
 	}
 	close(release)
 	wg.Wait()
@@ -178,7 +175,7 @@ func TestRoundTrip_releasesSemaphoreOnError(t *testing.T) {
 	})
 
 	tr := NewTransport(1, base)
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", http.NoBody)
 
 	_, err := tr.RoundTrip(req)
 	if err == nil {
@@ -196,10 +193,10 @@ func TestRoundTrip_releasesSemaphoreOnError(t *testing.T) {
 func TestNewClient(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	c := NewClient(4, nil)
 	if c.Timeout != 60*time.Second {

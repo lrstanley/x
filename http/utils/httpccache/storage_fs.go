@@ -10,7 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"io/fs"
@@ -149,11 +149,6 @@ func (f *FileStorage) Set(_ context.Context, key string, entry *CacheEntry, body
 	entryToStore.Key = key
 	entryToStore.BodySize = 0
 
-	meta, err := json.Marshal(entryToStore)
-	if err != nil {
-		return err
-	}
-
 	path := f.pathForKey(key)
 	tmpPath, err := f.tempPath(path)
 	if err != nil {
@@ -165,27 +160,27 @@ func (f *FileStorage) Set(_ context.Context, key string, entry *CacheEntry, body
 		return err
 	}
 
-	if _, err := out.Write(meta); err != nil {
+	if err = json.MarshalWrite(out, entryToStore); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if _, err := out.Write([]byte{'\n'}); err != nil {
+	if _, err = out.Write([]byte{'\n'}); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if _, err := io.Copy(out, body); err != nil {
+	if _, err = io.Copy(out, body); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := out.Close(); err != nil {
+	if err = out.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
 
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err = os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
@@ -248,10 +243,6 @@ func (f *FileStorage) setMetaOnlyLocked(key string, entry *CacheEntry) error {
 	entryToStore := cloneCacheEntry(entry)
 	entryToStore.Key = key
 	entryToStore.BodySize = 0
-	meta, err := json.Marshal(entryToStore)
-	if err != nil {
-		return err
-	}
 
 	tmpPath, err := f.tempPath(path)
 	if err != nil {
@@ -262,35 +253,35 @@ func (f *FileStorage) setMetaOnlyLocked(key string, entry *CacheEntry) error {
 		return err
 	}
 
-	if _, err := out.Write(meta); err != nil {
+	if err = json.MarshalWrite(out, entryToStore); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if _, err := out.Write([]byte{'\n'}); err != nil {
+	if _, err = out.Write([]byte{'\n'}); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmpPath)
 		return err
 	}
 
 	if bodySize > 0 {
-		if _, err := in.Seek(bodyOffset, io.SeekStart); err != nil {
+		if _, err = in.Seek(bodyOffset, io.SeekStart); err != nil {
 			_ = out.Close()
 			_ = os.Remove(tmpPath)
 			return err
 		}
-		if _, err := io.CopyN(out, in, bodySize); err != nil {
+		if _, err = io.CopyN(out, in, bodySize); err != nil {
 			_ = out.Close()
 			_ = os.Remove(tmpPath)
 			return err
 		}
 	}
 
-	if err := out.Close(); err != nil {
+	if err = out.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err = os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
@@ -310,7 +301,7 @@ func (f *FileStorage) tempPath(path string) (string, error) {
 		return "", err
 	}
 	tmpPath := tmp.Name()
-	if err := tmp.Close(); err != nil {
+	if err = tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return "", err
 	}
@@ -332,13 +323,10 @@ func parseCacheFilename(name string) (hash string, version int, ok bool) {
 	}
 
 	base := strings.TrimSuffix(name, ".cache")
-	idx := strings.LastIndex(base, ".v")
-	if idx <= 0 || idx == len(base)-2 {
+	hashPart, versionPart, found := strings.CutLast(base, ".v")
+	if !found || hashPart == "" || versionPart == "" {
 		return "", 0, false
 	}
-
-	hashPart := base[:idx]
-	versionPart := base[idx+2:]
 	if len(hashPart) != sha256.Size*2 {
 		return "", 0, false
 	}

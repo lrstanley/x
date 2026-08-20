@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -177,9 +178,7 @@ func cloneCacheEntry(src *CacheEntry) *CacheEntry {
 
 	if src.VaryValues != nil {
 		dst.VaryValues = make(map[string]string, len(src.VaryValues))
-		for key, value := range src.VaryValues {
-			dst.VaryValues[key] = value
-		}
+		maps.Copy(dst.VaryValues, src.VaryValues)
 	} else {
 		dst.VaryValues = make(map[string]string)
 	}

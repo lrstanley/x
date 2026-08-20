@@ -20,8 +20,8 @@ func TestJanitor(t *testing.T) {
 	checkDone := make(chan struct{})
 	janitor.done = checkDone
 
-	calledClean := new(int64(0))
-	go janitor.run(time.Millisecond, func() { atomic.AddInt64(calledClean, 1) })
+	var calledClean atomic.Int64
+	go janitor.run(time.Millisecond, func() { calledClean.Add(1) })
 
 	time.Sleep(10 * time.Millisecond)
 	cancel()
@@ -32,7 +32,7 @@ func TestJanitor(t *testing.T) {
 		t.Fatalf("failed to call done channel")
 	}
 
-	got := atomic.LoadInt64(calledClean)
+	got := calledClean.Load()
 	if got <= 1 {
 		t.Fatalf("failed to call clean callback in janitor: %d", got)
 	}

@@ -27,8 +27,7 @@ func TestDeletedCache(t *testing.T) {
 		nc := New[string, int](ctx)
 		key := "key"
 		nc.Set(key, 1, WithExpiration(1*time.Second))
-		time.Sleep(2 * time.Second)
-		synctest.Wait()
+		synctest.Sleep(2 * time.Second)
 		_, ok := nc.cache.Get(key)
 		if !ok {
 			t.Fatal("want true")
@@ -53,8 +52,7 @@ func TestGetOrSetUpdatesExpirationManager(t *testing.T) {
 		if loaded {
 			t.Fatal("want store")
 		}
-		time.Sleep(2 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(2 * time.Millisecond)
 		c.DeleteExpired()
 		if c.Len() != 0 {
 			t.Fatalf("want empty cache after expiry, got len %d", c.Len())
@@ -84,8 +82,7 @@ func TestDeleteExpired(t *testing.T) {
 
 			for i := 0; i <= maxEntries; i++ {
 				target := base.Add(time.Duration(i)*10*time.Millisecond + time.Millisecond)
-				time.Sleep(time.Until(target))
-				synctest.Wait()
+				synctest.Sleep(time.Until(target))
 				c.DeleteExpired()
 
 				got := c.Len()
@@ -111,8 +108,7 @@ func TestDeleteExpired(t *testing.T) {
 
 			c.Delete("1")
 
-			time.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
-			synctest.Wait()
+			synctest.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
 			c.DeleteExpired()
 
 			keys := c.Keys()
@@ -138,8 +134,7 @@ func TestDeleteExpired(t *testing.T) {
 
 			maxEntries := c.Len()
 
-			time.Sleep(time.Until(base.Add(10*time.Millisecond + time.Millisecond)))
-			synctest.Wait()
+			synctest.Sleep(time.Until(base.Add(10*time.Millisecond + time.Millisecond)))
 			c.DeleteExpired()
 
 			got1 := c.Len()
@@ -148,8 +143,7 @@ func TestDeleteExpired(t *testing.T) {
 				t.Errorf("want1 %d entries but got1 %d", want1, got1)
 			}
 
-			time.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
-			synctest.Wait()
+			synctest.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
 			c.DeleteExpired()
 
 			got2 := c.Len()
@@ -172,8 +166,7 @@ func TestDeleteExpired(t *testing.T) {
 			c.Set("2", 20, WithExpiration(20*time.Millisecond))
 			c.Set("1", 30, WithExpiration(100*time.Millisecond)) // Do not expire key "1" because it is reset.
 
-			time.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
-			synctest.Wait()
+			synctest.Sleep(time.Until(base.Add(30*time.Millisecond + time.Millisecond)))
 			c.DeleteExpired()
 
 			got := c.Len()
@@ -215,8 +208,7 @@ func TestDeleteExpiredConcurrent(t *testing.T) {
 		for i := range 50 {
 			c.Set(strconv.Itoa(i), i, WithExpiration(time.Millisecond))
 		}
-		time.Sleep(2 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(2 * time.Millisecond)
 
 		var wg sync.WaitGroup
 		for range 20 {
@@ -286,8 +278,7 @@ func TestWithDefaultEntryOptions(t *testing.T) {
 			t.Fatal("want hit for a before expiry")
 		}
 
-		time.Sleep(20 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(20 * time.Millisecond)
 
 		if _, ok := c.Get("a"); ok {
 			t.Fatal("want miss for a after default expiration elapsed")

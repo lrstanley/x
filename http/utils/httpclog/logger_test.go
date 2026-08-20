@@ -104,11 +104,11 @@ func TestRoundTrip_LogsRequestAndResponse(t *testing.T) {
 	t.Parallel()
 	logger, buf := newTestLogger(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("ok"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	tr := NewTransport(&Config{
 		Logger:        logger,
@@ -180,10 +180,10 @@ func TestRoundTrip_TraceRequestIncludesDump(t *testing.T) {
 	t.Parallel()
 	logger, buf := newTestLogger(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	tr := NewTransport(&Config{
 		Logger:        logger,
@@ -211,12 +211,12 @@ func TestRoundTrip_TraceResponseIncludesDump(t *testing.T) {
 	t.Parallel()
 	logger, buf := newTestLogger(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-Test", "yes")
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = w.Write([]byte("tea"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	tr := NewTransport(&Config{
 		Logger:        logger,
@@ -244,12 +244,12 @@ func TestRoundTrip_HeaderFilter(t *testing.T) {
 	t.Parallel()
 	logger, buf := newTestLogger(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("X-Secret", "nope")
 		w.WriteHeader(http.StatusOK)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	tr := NewTransport(&Config{
 		Logger:        logger,
@@ -291,10 +291,10 @@ func TestNewClient(t *testing.T) {
 		t.Fatal("Transport is nil")
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, http.NoBody)
 	if err != nil {

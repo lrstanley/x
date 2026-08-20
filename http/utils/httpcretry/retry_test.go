@@ -134,7 +134,7 @@ func mockServer(t *testing.T, handlers []http.HandlerFunc, overflow bool) *httpt
 	var mu sync.Mutex
 	var handlerIndex int
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		count := handlerIndex
 		mu.Unlock()
@@ -156,10 +156,9 @@ func mockServer(t *testing.T, handlers []http.HandlerFunc, overflow bool) *httpt
 		handlerIndex++
 		mu.Unlock()
 	}))
+	srv.Start()
 
 	t.Cleanup(func() {
-		srv.Close()
-
 		mu.Lock()
 		count := handlerIndex
 		mu.Unlock()

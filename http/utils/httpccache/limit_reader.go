@@ -13,24 +13,24 @@ import (
 // exceed the configured maximum body size (more bytes remain on the reader).
 var ErrReadLimitExceeded = errors.New("httpccache: read limit exceeded")
 
-// NewBodyLimitReader wraps r so that at most max bytes are delivered. After max
-// bytes have been read, the next read attempts to take one more byte from r; if
-// successful, it returns (0, ErrReadLimitExceeded) instead of EOF.
-func NewBodyLimitReader(r io.Reader, max int64) io.Reader {
-	if max <= 0 {
+// NewBodyLimitReader wraps r so that at most limit bytes are delivered. After
+// limit bytes have been read, the next read attempts to take one more byte from
+// r; if successful, it returns (0, ErrReadLimitExceeded) instead of EOF.
+func NewBodyLimitReader(r io.Reader, limit int64) io.Reader {
+	if limit <= 0 {
 		return r
 	}
-	return &bodyLimitReader{r: r, max: max}
+	return &bodyLimitReader{r: r, limit: limit}
 }
 
 type bodyLimitReader struct {
-	r   io.Reader
-	n   int64
-	max int64
+	r     io.Reader
+	n     int64
+	limit int64
 }
 
 func (l *bodyLimitReader) Read(p []byte) (int, error) {
-	if l.n >= l.max {
+	if l.n >= l.limit {
 		var buf [1]byte
 		n, err := l.r.Read(buf[:])
 		if n > 0 {
@@ -38,7 +38,7 @@ func (l *bodyLimitReader) Read(p []byte) (int, error) {
 		}
 		return 0, err
 	}
-	room := l.max - l.n
+	room := l.limit - l.n
 	if int64(len(p)) > room {
 		p = p[:room]
 	}

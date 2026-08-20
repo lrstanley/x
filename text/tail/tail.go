@@ -242,8 +242,7 @@ func (w *Watcher) openFile(ctx context.Context) error {
 			return nil
 		}
 		// Check for other access-related errors.
-		var pathErr *os.PathError
-		if errors.As(err, &pathErr) {
+		if pathErr, ok := errors.AsType[*os.PathError](err); ok {
 			// Check if it's an access-related error.
 			if errors.Is(pathErr.Err, os.ErrPermission) {
 				return err

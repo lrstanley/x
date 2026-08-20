@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -27,7 +27,7 @@ func TestFileStorageVersionedHashFilenameAndPerms(t *testing.T) {
 
 	key := "GET https://example.com/very/secret/path?token=abc123"
 	entry := testCacheEntry(key, time.Now().UTC())
-	if err := st.Set(context.Background(), key, entry, strings.NewReader("ok")); err != nil {
+	if err = st.Set(context.Background(), key, entry, strings.NewReader("ok")); err != nil {
 		t.Fatalf("set failed: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestFileStorageWireFormatAndBodySectionReader(t *testing.T) {
 	entry := testCacheEntry(key, time.Now().UTC().Truncate(time.Second))
 	body := bytes.Repeat([]byte("z"), 64*1024)
 
-	if err := st.Set(context.Background(), key, entry, bytes.NewReader(body)); err != nil {
+	if err = st.Set(context.Background(), key, entry, bytes.NewReader(body)); err != nil {
 		t.Fatalf("set failed: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestFileStorageWireFormatAndBodySectionReader(t *testing.T) {
 	}
 
 	var onDisk CacheEntry
-	if err := json.Unmarshal(raw[:nl], &onDisk); err != nil {
+	if err = json.Unmarshal(raw[:nl], &onDisk); err != nil {
 		t.Fatalf("metadata json parse failed: %v", err)
 	}
 	if onDisk.URL != entry.URL {
@@ -123,13 +123,13 @@ func TestFileStorageMetaOnlySetPreservesBody(t *testing.T) {
 
 	key := "GET https://example.com/meta-only"
 	entry := testCacheEntry(key, time.Now().UTC())
-	if err := st.Set(context.Background(), key, entry, strings.NewReader("body-1")); err != nil {
+	if err = st.Set(context.Background(), key, entry, strings.NewReader("body-1")); err != nil {
 		t.Fatalf("initial set failed: %v", err)
 	}
 
 	updated := testCacheEntry(key, time.Now().UTC().Add(time.Minute))
 	updated.ResponseHeader.Set("ETag", `"v2"`)
-	if err := st.Set(context.Background(), key, updated, nil); err != nil {
+	if err = st.Set(context.Background(), key, updated, nil); err != nil {
 		t.Fatalf("meta-only set failed: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestFileStorageGetIgnoresDifferentVersionAndPrunePurges(t *testing.T) {
 	sum := sha256.Sum256([]byte(key))
 	hash := hex.EncodeToString(sum[:])
 	oldPath := filepath.Join(dir, st.cacheFilename(hash, fileStorageVersion+1))
-	if err := os.WriteFile(oldPath, append(append([]byte(nil), meta...), '\n'), 0o600); err != nil {
+	if err = os.WriteFile(oldPath, append(append([]byte(nil), meta...), '\n'), 0o600); err != nil {
 		t.Fatalf("write old-version file failed: %v", err)
 	}
 
@@ -179,10 +179,10 @@ func TestFileStorageGetIgnoresDifferentVersionAndPrunePurges(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for different version file, got %v", err)
 	}
 
-	if err := st.Prune(context.Background()); err != nil {
+	if err = st.Prune(context.Background()); err != nil {
 		t.Fatalf("prune failed: %v", err)
 	}
-	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected old-version file to be removed, stat err=%v", err)
 	}
 }

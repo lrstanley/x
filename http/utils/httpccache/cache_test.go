@@ -27,13 +27,13 @@ func TestTransportMaxObjectSize(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Cache-Control", "max-age=60")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, strings.Repeat("x", 100))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{
 		Storage:       NewMemoryStorage(128, time.Hour),
@@ -70,13 +70,13 @@ func TestTransportCacheHitMiss(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Cache-Control", "max-age=60")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{
 		Storage: NewMemoryStorage(128, time.Hour),
@@ -111,7 +111,7 @@ func TestTransportNoStoreAndMethodBypass(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.URL.Path == "/nostore" {
 			w.Header().Set("Cache-Control", "no-store")
@@ -121,7 +121,7 @@ func TestTransportNoStoreAndMethodBypass(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{Storage: NewMemoryStorage(128, time.Hour)})
 
@@ -155,12 +155,12 @@ func TestTransportNoStoreAndMethodBypass(t *testing.T) {
 func TestTransportConditionalRangeBypass(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=60")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{Storage: NewMemoryStorage(128, time.Hour)})
 
@@ -189,7 +189,7 @@ func TestTransportRevalidation(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
 		if n == 1 {
 			w.Header().Set("ETag", `"v1"`)
@@ -207,7 +207,7 @@ func TestTransportRevalidation(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("payload-2"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{Storage: NewMemoryStorage(128, time.Hour)})
 
@@ -353,13 +353,13 @@ func TestTransportCustomCacheKeyFunc(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Cache-Control", "max-age=60")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{
 		Storage: NewMemoryStorage(128, time.Hour),
@@ -397,13 +397,13 @@ func TestTransportIgnoredCacheKeyHeadersConfig(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Cache-Control", "public, max-age=60")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
-	t.Cleanup(srv.Close)
+	srv.Start()
 
 	client := NewClient(&Config{
 		Storage:                NewMemoryStorage(128, time.Hour),
@@ -461,7 +461,7 @@ func TestTransportCacheExpiry(t *testing.T) {
 			t.Fatalf("expected miss on first request, got %q", CacheStatusFromResponse(resp1))
 		}
 
-		time.Sleep(3 * time.Second)
+		synctest.Sleep(3 * time.Second)
 
 		req2, _ := http.NewRequest(http.MethodGet, "http://test.local/x", http.NoBody)
 		resp2, err := tr.RoundTrip(req2)
@@ -475,7 +475,7 @@ func TestTransportCacheExpiry(t *testing.T) {
 			t.Fatalf("expected 1 upstream call before expiry, got %d", calls.Load())
 		}
 
-		time.Sleep(3 * time.Second)
+		synctest.Sleep(3 * time.Second)
 
 		req3, _ := http.NewRequest(http.MethodGet, "http://test.local/x", http.NoBody)
 		resp3, err := tr.RoundTrip(req3)
@@ -524,7 +524,7 @@ func TestTransportRevalidationWithFakeTime(t *testing.T) {
 		}
 		_ = resp1.Body.Close()
 
-		time.Sleep(1 * time.Second)
+		synctest.Sleep(1 * time.Second)
 
 		req2, _ := http.NewRequest(http.MethodGet, "http://test.local/reval", http.NoBody)
 		resp2, err := tr.RoundTrip(req2)
@@ -536,7 +536,7 @@ func TestTransportRevalidationWithFakeTime(t *testing.T) {
 			t.Fatalf("expected cache hit within max-age, got %q", CacheStatusFromResponse(resp2))
 		}
 
-		time.Sleep(2 * time.Second)
+		synctest.Sleep(2 * time.Second)
 
 		req3, _ := http.NewRequest(http.MethodGet, "http://test.local/reval", http.NoBody)
 		resp3, err := tr.RoundTrip(req3)

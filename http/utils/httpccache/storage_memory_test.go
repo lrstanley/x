@@ -53,7 +53,7 @@ func TestMemoryStorageRoundTripAndMetaOnlySet(t *testing.T) {
 	updated.ExpiresAt = updated.ExpiresAt.Add(time.Hour)
 	updated.CreatedAt = updated.CreatedAt.Add(2 * time.Second)
 
-	if err := st.Set(context.Background(), key, updated, nil); err != nil {
+	if err = st.Set(context.Background(), key, updated, nil); err != nil {
 		t.Fatalf("set meta-only failed: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestMemoryStoragePruneMaxAge(t *testing.T) {
 			t.Fatalf("set failed: %v", err)
 		}
 
-		time.Sleep(20 * time.Millisecond)
+		synctest.Sleep(20 * time.Millisecond)
 		_, _, err := st.Get(context.Background(), entry.Key)
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("expected ErrNotFound after max age, got %v", err)

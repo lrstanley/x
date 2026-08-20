@@ -331,7 +331,7 @@ func isEmptyValue(v reflect.Value) bool {
 		// [time.Time] and other types may implement IsZero; handled below.
 	}
 
-	if z, ok := v.Interface().(interface{ IsZero() bool }); ok {
+	if z, ok := reflect.TypeAssert[interface{ IsZero() bool }](v); ok {
 		return z.IsZero()
 	}
 	return false

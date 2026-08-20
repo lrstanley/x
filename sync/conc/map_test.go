@@ -5,6 +5,7 @@
 package conc
 
 import (
+	"maps"
 	"sync"
 	"testing"
 )
@@ -233,10 +234,7 @@ func TestMap_Iter(t *testing.T) {
 	m.Store("b", 2)
 	m.Store("c", 3)
 
-	seen := make(map[string]int)
-	for k, v := range m.Iter() {
-		seen[k] = v
-	}
+	seen := maps.Collect(m.Iter())
 
 	if len(seen) != 3 {
 		t.Fatalf("Iter visited %d keys, want 3", len(seen))
