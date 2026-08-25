@@ -12,7 +12,7 @@ import (
 func TestGIFRequiresCaptureSource(t *testing.T) {
 	t.Parallel()
 
-	_, err := GIF(t.TempDir() + "/empty.gif")
+	_, err := GIF()
 	if err == nil {
 		t.Fatal("expected error when neither WithFrameRate nor WithChannel is set")
 	}
@@ -23,7 +23,7 @@ func TestGIFRejectsMutuallyExclusiveSources(t *testing.T) {
 
 	src := image.NewNRGBA(image.Rect(0, 0, 4, 4))
 	ch := make(<-chan Frame)
-	_, err := GIF(t.TempDir()+"/bad.gif",
+	_, err := GIF(
 		WithFrameRate(30, false, func() image.Image { return src }),
 		WithChannel(ch),
 	)
@@ -39,7 +39,7 @@ func TestGIFRejectsInvalidFrameRate(t *testing.T) {
 	fn := func() image.Image { return src }
 
 	for _, fps := range []int{0, -1, MaxFrameRate + 1} {
-		_, err := GIF(t.TempDir()+"/bad.gif", WithFrameRate(fps, false, fn))
+		_, err := GIF(WithFrameRate(fps, false, fn))
 		if err == nil {
 			t.Fatalf("fps %d: expected error", fps)
 		}
@@ -49,7 +49,7 @@ func TestGIFRejectsInvalidFrameRate(t *testing.T) {
 func TestGIFRejectsNilFrameFunction(t *testing.T) {
 	t.Parallel()
 
-	_, err := GIF(t.TempDir()+"/bad.gif", WithFrameRate(30, false, nil))
+	_, err := GIF(WithFrameRate(30, false, nil))
 	if err == nil {
 		t.Fatal("expected error for nil WithFrameRate callback")
 	}

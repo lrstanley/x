@@ -10,17 +10,17 @@ import (
 	"time"
 )
 
-// FrameRecorder captures palettized GIF frames using the production append path.
-type FrameRecorder struct {
+// PalettizedRecorder captures palettized GIF frames using the production append path.
+type PalettizedRecorder struct {
 	rec     gifRecording
 	palette color.Palette
 	useLUT  bool
 }
 
-// NewFrameRecorder returns a recorder configured like default GIF capture.
-func NewFrameRecorder() *FrameRecorder {
+// NewPalettizedRecorder returns a recorder configured like default GIF capture.
+func NewPalettizedRecorder() *PalettizedRecorder {
 	pal := defaultGIFPalette()
-	return &FrameRecorder{
+	return &PalettizedRecorder{
 		palette: pal,
 		useLUT:  true,
 		rec: gifRecording{
@@ -31,7 +31,7 @@ func NewFrameRecorder() *FrameRecorder {
 }
 
 // AddFrame palettizes and appends one frame.
-func (fr *FrameRecorder) AddFrame(frame image.Image, delay time.Duration) error {
+func (fr *PalettizedRecorder) AddFrame(frame image.Image, delay time.Duration) error {
 	return appendRecordingFrame(
 		&fr.rec, fr.palette, fr.useLUT,
 		OptimizeFrames, nil, false, frame, delay, 0,

@@ -6,6 +6,7 @@ package export
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/draw"
@@ -19,56 +20,62 @@ import (
 	"github.com/lrstanley/x/charm/still/units"
 )
 
-// GIF records animated frames to path. Returns a closer that finalizes and
-// encodes on first call; later calls are no-op. Setup errors are returned
-// immediately; finalize and encode errors come from the closer.
-func GIF(path string, opts ...Option) (closer func() error, err error) {
+// FrameRecorder captures GIF frames, then finalizes and encodes via [FrameRecorder.EncodeAll].
+// Call [FrameRecorder.Close] to stop capture goroutines; encoding does not happen on close.
+type FrameRecorder interface {
+	// Frames returns frames captured so far (palettized images and duration delays).
+	Frames() []Frame
+	// EncodeAll runs disposal, palette, and transparency passes, then writes the GIF to w.
+	// w must be non-nil.
+	EncodeAll(w io.Writer) error
+	// Close stops capture and waits for background goroutines. Does not encode.
+	Close() error
+}
+
+// GIF returns a new GIF-based [FrameRecorder].
+func GIF(opts ...Option) (FrameRecorder, error) {
 	cfg, err := collectOptions(formatGIF, opts...)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return nil, err
-	}
 	rec := newGIFRecorder(cfg)
-	rec.encodeFn = func(out *gif.GIF) error {
-		eerr := gif.EncodeAll(f, out)
-		if eerr != nil {
-			_ = f.Close()
-			return eerr
-		}
-		return f.Close()
-	}
 	rec.start()
-	return rec.closer(), nil
+	return rec, nil
 }
 
-// WriteGIF records animated frames to w. See [GIF] for lifecycle and errors.
+// WriteGIF records animated frames for encoding to w. The returned closer calls
+// [FrameRecorder.Close] then [FrameRecorder.EncodeAll] with w; later calls are no-op.
 func WriteGIF(w io.Writer, opts ...Option) (closer func() error, err error) {
+	if w == nil {
+		return nil, errors.New("export: nil writer")
+	}
 	cfg, err := collectOptions(formatGIF, opts...)
 	if err != nil {
 		return nil, err
 	}
 	rec := newGIFRecorder(cfg)
-	rec.encodeFn = func(out *gif.GIF) error {
-		return gif.EncodeAll(w, out)
-	}
 	rec.start()
-	return rec.closer(), nil
+	return rec.finishCloser(w), nil
 }
 
-// MustGIF is a convenience wrapper around [GIF] that panics on setup or close
-// errors.
+// MustGIF is a convenience wrapper around [GIF] that panics on setup, encode, or close
+// errors. The returned function closes capture, then encodes to path.
 func MustGIF(path string, opts ...Option) func() {
-	closer, err := GIF(path, opts...)
+	rec, err := GIF(opts...)
 	if err != nil {
 		panic(err)
 	}
 	return func() {
-		cerr := closer()
-		if cerr != nil {
-			panic(cerr)
+		if err := rec.Close(); err != nil {
+			panic(err)
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		if err := rec.EncodeAll(f); err != nil {
+			panic(err)
 		}
 	}
 }
@@ -91,7 +98,7 @@ type gifRecording struct {
 	backgroundIndex uint8
 }
 
-// gifRecorder captures palettized frames into a [gifRecording] and encodes on close.
+// gifRecorder captures palettized frames into a [gifRecording].
 type gifRecorder struct {
 	// opts is the validated export configuration for this recording session.
 	opts options
@@ -105,23 +112,25 @@ type gifRecorder struct {
 	// lastCapture is wall time of the previous capture attempt, used to derive
 	// non-strict frame delays and deduped idle accumulation.
 	lastCapture time.Time
-	// done is closed by closer to signal capture goroutines to finalize.
+	// done is closed by Close to signal capture goroutines to stop.
 	done chan struct{}
 	// wg waits for capture goroutines during close.
 	wg sync.WaitGroup
-	// encodeFn writes the finalized GIF to the destination file or writer.
-	encodeFn func(*gif.GIF) error
-	// closeErr stores the first capture, validation, or encode error.
+	// closeErr stores the first capture or validation error.
 	closeErr error
 	// once ensures done is closed and wg.Wait runs exactly once on close.
 	once sync.Once
-	// finalizeOnce ensures finalizeAndEncode runs exactly once.
-	finalizeOnce sync.Once
-	// capturing is true while a strict-mode frame function call is in progress.
-	capturing bool
+	// encodeOnce ensures EncodeAll runs finalize and write exactly once.
+	encodeOnce sync.Once
+	// encoded records whether EncodeAll completed (including a no-frame encode).
+	encoded bool
 	// captureMu protects capturing for strict-mode tick skipping.
 	captureMu sync.Mutex
+	// capturing is true while a strict-mode frame function call is in progress.
+	capturing bool
 }
+
+var _ FrameRecorder = (*gifRecorder)(nil)
 
 // newGIFRecorder builds a recorder from validated options, selecting the
 // capture palette and LUT vs draw.Draw palettize path.
@@ -156,15 +165,68 @@ func (r *gifRecorder) start() {
 	}
 }
 
-// closer returns the idempotent finalize callback; the first call closes
-// capture and waits for encode, later calls return the stored error only.
-func (r *gifRecorder) closer() func() error {
+// Frames returns captured frames and their duration delays.
+func (r *gifRecorder) Frames() []Frame {
+	frames := make([]Frame, len(r.rec.images))
+	for i, img := range r.rec.images {
+		var delay time.Duration
+		if i < len(r.rec.delays) {
+			delay = r.rec.delays[i]
+		}
+		frames[i] = Frame{Image: img, Delay: delay}
+	}
+	return frames
+}
+
+// EncodeAll finalizes optimizations and writes the GIF to w.
+func (r *gifRecorder) EncodeAll(w io.Writer) error {
+	var encodeErr error
+	r.encodeOnce.Do(func() {
+		if w == nil {
+			encodeErr = errors.New("export: nil writer")
+			return
+		}
+		if r.opts.optimize.has(OptimizeDirtyRects) && len(r.rec.images) > 0 {
+			optimizeDisposals(r.rec, r.opts.background, r.opts.backgroundSet)
+		}
+		out := buildGIF(r.rec, r.opts)
+		if r.opts.optimize.has(OptimizeColorQuantization) && !r.opts.paletteSet && len(out.Image) > 0 {
+			optimizePalette(out)
+		}
+		if len(out.Image) > 0 {
+			ensureTransparentPaletteSlot(out)
+		}
+		encodeErr = gif.EncodeAll(w, out)
+		r.encoded = true
+	})
+	if encodeErr != nil {
+		return encodeErr
+	}
+	return r.closeErr
+}
+
+// Close stops capture goroutines. Does not encode or close the destination file.
+func (r *gifRecorder) Close() error {
+	r.once.Do(func() {
+		close(r.done)
+		r.wg.Wait()
+	})
+	return r.closeErr
+}
+
+// finishCloser returns the idempotent stop-and-encode callback used by [WriteGIF].
+func (r *gifRecorder) finishCloser(w io.Writer) func() error {
+	var finishOnce sync.Once
+	var finishErr error
 	return func() error {
-		r.once.Do(func() {
-			close(r.done)
-			r.wg.Wait()
+		finishOnce.Do(func() {
+			if err := r.Close(); err != nil {
+				finishErr = err
+				return
+			}
+			finishErr = r.EncodeAll(w)
 		})
-		return r.closeErr
+		return finishErr
 	}
 }
 
@@ -188,7 +250,6 @@ func (r *gifRecorder) runFrameRate() {
 			}
 		case <-r.done:
 			tick.Stop()
-			r.finalizeAndEncode()
 			return
 		}
 	}
@@ -221,11 +282,9 @@ func (r *gifRecorder) runChannel() {
 	for {
 		select {
 		case <-r.done:
-			r.finalizeAndEncode()
 			return
 		case f, ok := <-ch:
 			if !ok {
-				r.finalizeAndEncode()
 				return
 			}
 			r.captureChannelFrame(f)
@@ -397,28 +456,6 @@ func buildGIF(rec *gifRecording, opts options) *gif.GIF {
 // (~655.35s).
 func clampCentiseconds(cs int) int {
 	return units.Clamp(cs, 1, 65535)
-}
-
-// finalizeAndEncode runs disposal, palette, and transparency passes then
-// invokes encodeFn once; errors are stored in closeErr.
-func (r *gifRecorder) finalizeAndEncode() {
-	r.finalizeOnce.Do(func() {
-		if r.opts.optimize.has(OptimizeDirtyRects) && len(r.rec.images) > 0 {
-			optimizeDisposals(r.rec, r.opts.background, r.opts.backgroundSet)
-		}
-		out := buildGIF(r.rec, r.opts)
-		if r.opts.optimize.has(OptimizeColorQuantization) && !r.opts.paletteSet && len(out.Image) > 0 {
-			optimizePalette(out)
-		}
-		if len(out.Image) > 0 {
-			ensureTransparentPaletteSlot(out)
-		}
-		if r.encodeFn != nil {
-			if err := r.encodeFn(out); err != nil && r.closeErr == nil {
-				r.closeErr = err
-			}
-		}
-	})
 }
 
 var (

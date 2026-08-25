@@ -113,7 +113,7 @@ func BenchmarkDrawInto(b *testing.B) {
 func BenchmarkRenderAndExportFrame(b *testing.B) {
 	scr := benchmarkTerminalScreen()
 	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
-	rec := export.NewFrameRecorder()
+	rec := export.NewPalettizedRecorder()
 	cursorVisible := false
 	cursor := uv.Cell{
 		Content: "_",

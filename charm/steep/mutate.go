@@ -42,13 +42,14 @@ type mutatableModel interface {
 // [NewComponentHarness], such as func(Model) Model or func(*Model) *Model.
 func Mutate[M any](h *Harness, fn func(M) M, opts ...Option) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookProgram, nil)()
 	h.requireProgram()
 
 	if fn == nil {
 		h.tb.Fatalf("mutate function must not be nil")
 	}
 
-	cfg := collectOptions(h.mergedOpts(opts...)...)
+	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
 	done := make(chan error, 1)
 	h.SendProgram(mutateMsg[M]{fn: fn, done: done})
 

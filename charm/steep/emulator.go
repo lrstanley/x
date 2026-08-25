@@ -236,6 +236,8 @@ func (h *Harness) View() string {
 // Focus sends the terminal a focus event if focus events mode is enabled. This is
 // the opposite of [Harness.Blur].
 func (h *Harness) Focus() *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.Focus()
 	h.emulator.mu.Unlock()
@@ -248,6 +250,8 @@ func (h *Harness) Focus() *Harness {
 // Blur sends the terminal a blur event if focus events mode is enabled. This is
 // the opposite of [Harness.Focus].
 func (h *Harness) Blur() *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.Blur()
 	h.emulator.mu.Unlock()
@@ -327,6 +331,8 @@ func (h *Harness) Dimensions() (width, height int) {
 // Resize resizes the terminal to the given width and height. This should result
 // in a [tea.WindowSizeMsg] being sent to the [tea.Program].
 func (h *Harness) Resize(width, height int) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.Resize(width, height)
 	h.emulator.mu.Unlock()
@@ -336,6 +342,8 @@ func (h *Harness) Resize(width, height int) *Harness {
 // Paste paste text into the terminal. If bracketed paste mode is enabled, the
 // text is bracketed with the appropriate escape sequences.
 func (h *Harness) Paste(text string) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookInput, InputMeta{Kind: "paste", Text: text})()
 	h.emulator.mu.Lock()
 	h.emulator.vt.Paste(text)
 	h.emulator.mu.Unlock()
@@ -365,6 +373,8 @@ func (h *Harness) CursorColor() color.Color {
 
 // SetFgColor sets the terminal emulator foreground color.
 func (h *Harness) SetFgColor(c color.Color) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetForegroundColor(c)
 	h.emulator.mu.Unlock()
@@ -373,6 +383,8 @@ func (h *Harness) SetFgColor(c color.Color) *Harness {
 
 // SetBgColor sets the terminal emulator background color.
 func (h *Harness) SetBgColor(c color.Color) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetBackgroundColor(c)
 	h.emulator.mu.Unlock()
@@ -381,6 +393,8 @@ func (h *Harness) SetBgColor(c color.Color) *Harness {
 
 // SetCursorColor sets the terminal emulator cursor color.
 func (h *Harness) SetCursorColor(c color.Color) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetCursorColor(c)
 	h.emulator.mu.Unlock()
@@ -389,6 +403,8 @@ func (h *Harness) SetCursorColor(c color.Color) *Harness {
 
 // SetDefaultFgColor sets default foreground color used when none is specified.
 func (h *Harness) SetDefaultFgColor(c color.Color) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetDefaultForegroundColor(c)
 	h.emulator.mu.Unlock()
@@ -397,6 +413,8 @@ func (h *Harness) SetDefaultFgColor(c color.Color) *Harness {
 
 // SetDefaultBgColor sets default background color used when none is specified.
 func (h *Harness) SetDefaultBgColor(c color.Color) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetDefaultBackgroundColor(c)
 	h.emulator.mu.Unlock()
@@ -405,6 +423,8 @@ func (h *Harness) SetDefaultBgColor(c color.Color) *Harness {
 
 // SetDefaultCursorColor sets default cursor color used when none is specified.
 func (h *Harness) SetDefaultCursorColor(c color.Color) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetDefaultCursorColor(c)
 	h.emulator.mu.Unlock()
@@ -469,6 +489,8 @@ func (h *Harness) ScrollbackCount() int {
 // SetScrollbackSize sets maximum scrollback lines retained on the terminals
 // screen buffer.
 func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.SetScrollbackSize(maxLines)
 	h.emulator.mu.Unlock()
@@ -477,6 +499,8 @@ func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 
 // ClearScrollback clears all scrollback history on the screen buffer.
 func (h *Harness) ClearScrollback() *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
 	h.emulator.mu.Lock()
 	h.emulator.vt.ClearScrollback()
 	h.emulator.mu.Unlock()
@@ -492,12 +516,17 @@ func (h *Harness) ClearScrollback() *Harness {
 // order of invocation.
 func (h *Harness) Type(s string) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookInput, InputMeta{Kind: "type", Text: s})()
+	h.typeKeys(s)
+	return h
+}
+
+func (h *Harness) typeKeys(s string) {
 	for _, r := range s {
 		h.emulator.mu.Lock()
 		h.emulator.vt.SendKey(uv.KeyPressEvent{Code: r, Text: string(r)})
 		h.emulator.mu.Unlock()
 	}
-	return h
 }
 
 // Key sends a single key press message to the terminal emulator itself, e.g.
@@ -508,22 +537,20 @@ func (h *Harness) Type(s string) *Harness {
 // order of invocation.
 func (h *Harness) Key(key string) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookInput, InputMeta{Kind: "key", Key: key})()
+	h.key(key)
+	return h
+}
+
+func (h *Harness) key(key string) {
 	ev := mapKeyToEvent(key)
-	// mapKeyToEvent maps unknown multi-character keys to Text-only events.
-	// x/vt SendKey encodes only Code in its default branch, so split into
-	// per-rune presses (same transport as [Harness.Type]).
 	if ev.Code == 0 && ev.Text != "" {
-		for _, r := range ev.Text {
-			h.emulator.mu.Lock()
-			h.emulator.vt.SendKey(uv.KeyPressEvent{Code: r, Text: string(r)})
-			h.emulator.mu.Unlock()
-		}
-		return h
+		h.typeKeys(ev.Text)
+		return
 	}
 	h.emulator.mu.Lock()
 	h.emulator.vt.SendKey(ev)
 	h.emulator.mu.Unlock()
-	return h
 }
 
 // KeyUp sends an up-arrow key press to the terminal emulator.
@@ -585,43 +612,65 @@ func (h *Harness) KeyCtrlD() *Harness {
 // encoding; otherwise events are discarded by the emulator, matching real terminal
 // behavior.
 func (h *Harness) Mouse(m uv.MouseEvent) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookInput, InputMeta{Kind: "mouse"})()
+	h.mouse(m)
+	return h
+}
+
+func (h *Harness) mouse(m uv.MouseEvent) {
 	h.emulator.mu.Lock()
 	h.emulator.vt.SendMouse(m)
 	h.emulator.mu.Unlock()
-	return h
 }
 
 // MouseClick simulates a full press and release at (x, y).
 func (h *Harness) MouseClick(button uv.MouseButton, x, y int) *Harness {
 	h.tb.Helper()
-	h.Mouse(uv.MouseClickEvent{X: x, Y: y, Button: button})
-	h.Mouse(uv.MouseReleaseEvent{X: x, Y: y, Button: button})
+	defer h.hook(HookInput, InputMeta{Kind: "mouse_click"})()
+	h.mouseClick(button, x, y)
 	return h
+}
+
+func (h *Harness) mouseClick(button uv.MouseButton, x, y int) {
+	h.mouse(uv.MouseClickEvent{X: x, Y: y, Button: button})
+	h.mouse(uv.MouseReleaseEvent{X: x, Y: y, Button: button})
 }
 
 // LeftClick is [Harness.MouseClick] with the left mouse button.
 func (h *Harness) LeftClick(x, y int) *Harness {
 	h.tb.Helper()
-	return h.MouseClick(uv.MouseLeft, x, y)
+	defer h.hook(HookInput, InputMeta{Kind: "left_click"})()
+	h.mouseClick(uv.MouseLeft, x, y)
+	return h
 }
 
 // MiddleClick is [Harness.MouseClick] with the middle mouse button.
 func (h *Harness) MiddleClick(x, y int) *Harness {
 	h.tb.Helper()
-	return h.MouseClick(uv.MouseMiddle, x, y)
+	defer h.hook(HookInput, InputMeta{Kind: "middle_click"})()
+	h.mouseClick(uv.MouseMiddle, x, y)
+	return h
 }
 
 // RightClick is [Harness.MouseClick] with the right mouse button.
 func (h *Harness) RightClick(x, y int) *Harness {
 	h.tb.Helper()
-	return h.MouseClick(uv.MouseRight, x, y)
+	defer h.hook(HookInput, InputMeta{Kind: "right_click"})()
+	h.mouseClick(uv.MouseRight, x, y)
+	return h
 }
 
 // MouseDrag simulates a drag from (x1, y1) to (x2, y2).
 func (h *Harness) MouseDrag(button uv.MouseButton, x1, y1, x2, y2 int) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookInput, InputMeta{Kind: "mouse_drag"})()
+	h.mouseDrag(button, x1, y1, x2, y2)
+	return h
+}
 
-	h.Mouse(uv.MouseClickEvent{X: x1, Y: y1, Button: button})
+func (h *Harness) mouseDrag(button uv.MouseButton, x1, y1, x2, y2 int) {
+	h.mouse(uv.MouseClickEvent{X: x1, Y: y1, Button: button})
 
 	dx, dy := 0, 0
 	switch {
@@ -645,15 +694,16 @@ func (h *Harness) MouseDrag(button uv.MouseButton, x1, y1, x2, y2 int) *Harness 
 		if y != y2 {
 			y += dy
 		}
-		h.Mouse(uv.MouseMotionEvent{X: x, Y: y, Button: button})
+		h.mouse(uv.MouseMotionEvent{X: x, Y: y, Button: button})
 	}
 
-	h.Mouse(uv.MouseReleaseEvent{X: x2, Y: y2, Button: button})
-	return h
+	h.mouse(uv.MouseReleaseEvent{X: x2, Y: y2, Button: button})
 }
 
 // LeftDrag is [Harness.MouseDrag] with the left mouse button.
 func (h *Harness) LeftDrag(x1, y1, x2, y2 int) *Harness {
 	h.tb.Helper()
-	return h.MouseDrag(uv.MouseLeft, x1, y1, x2, y2)
+	defer h.hook(HookInput, InputMeta{Kind: "left_drag"})()
+	h.mouseDrag(uv.MouseLeft, x1, y1, x2, y2)
+	return h
 }

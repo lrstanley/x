@@ -38,7 +38,7 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 
 	cursorColor := color.NRGBA{R: 0xff, A: 0xff}
 	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3),
-		WithImageRenderer(still.WithPadding(2)),
+		WithRenderer(still.WithPadding(2)),
 	)
 	h.WaitString("text=image")
 	h.Blur()

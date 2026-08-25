@@ -15,12 +15,25 @@ import (
 	"time"
 )
 
+// finishGIF stops capture then encodes captured frames to path.
+func finishGIF(path string, rec FrameRecorder) error {
+	if err := rec.Close(); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return rec.EncodeAll(f)
+}
+
 // recordViaChannel encodes imgs to path using [WithChannel] and a fixed delay
 // per frame. Additional opts (e.g. [WithOptimize]) are applied after the channel.
 func recordViaChannel(path string, imgs []image.Image, delay time.Duration, opts ...Option) error {
 	ch := make(chan Frame)
 	allOpts := append([]Option{WithChannel(ch)}, opts...)
-	closer, err := GIF(path, allOpts...)
+	rec, err := GIF(allOpts...)
 	if err != nil {
 		return err
 	}
@@ -28,7 +41,7 @@ func recordViaChannel(path string, imgs []image.Image, delay time.Duration, opts
 		ch <- Frame{Image: img, Delay: delay}
 	}
 	close(ch)
-	return closer()
+	return finishGIF(path, rec)
 }
 
 // recordViaChannelWriter is [recordViaChannel] writing encoded bytes to w.

@@ -46,7 +46,7 @@ func colorEqual(a, b color.Color) bool {
 // uses CSI 48 ; … t per [ansi.InBandResize]).
 func waitMessagesContainWindowSize(tb testing.TB, h *Harness, wantW, wantH int) {
 	tb.Helper()
-	cfg := collectOptions()
+	cfg := collectOptions(tb)
 	deadline := time.Now().Add(cfg.timeout)
 
 	for time.Now().Before(deadline) {

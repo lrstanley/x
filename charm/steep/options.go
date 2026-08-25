@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/lrstanley/x/charm/still"
+	"github.com/lrstanley/x/charm/still/export"
 )
 
 const (
@@ -74,6 +75,18 @@ type options struct {
 
 	// imageRendererOpts configures the harness-owned [still.Renderer].
 	imageRendererOpts []still.Option
+
+	exportMode   ExportMode
+	exportTypes  ExportType
+	exportDir    string
+	exportName   string
+	exportOpts   []export.Option
+	hooks        []Hook
+	ignoreEnv    bool
+	slow         time.Duration
+	slowExport   time.Duration
+	gifMaxFrames int
+	snapshotDir  string
 }
 
 func defaultOptions() options {
@@ -98,13 +111,14 @@ func defaultOptions() options {
 	}
 }
 
-func collectOptions(opts ...Option) options {
+func collectOptions(tb testing.TB, opts ...Option) options {
 	cfg := defaultOptions()
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
+	applyEnv(tb, &cfg)
 	return cfg.validate()
 }
 
@@ -195,6 +209,8 @@ func WithProgramOptions(opts ...tea.ProgramOption) Option {
 
 // WithTimeout configures how long waits may run.
 //
+// Environment: STEEP_TIMEOUT (unless [WithIgnoreEnv] is set).
+//
 // See also [DefaultTimeout].
 func WithTimeout(timeout time.Duration) Option {
 	return func(cfg *options) {
@@ -203,6 +219,8 @@ func WithTimeout(timeout time.Duration) Option {
 }
 
 // WithCheck configures how often waits are checked.
+//
+// Environment: STEEP_CHECK.
 //
 // See also [DefaultCheckInterval].
 func WithCheck(interval time.Duration) Option {
@@ -214,6 +232,8 @@ func WithCheck(interval time.Duration) Option {
 // WithSettle configures how long to wait for the [tea.Program] to satisfy
 // settle waits. See [Harness.WaitSettleMessages], [Harness.WaitSettle] and
 // [WaitSettle] for more details.
+//
+// Environment: STEEP_SETTLE.
 //
 // See also [DefaultSettleTimeout].
 func WithSettle(timeout time.Duration) Option {
@@ -250,12 +270,91 @@ func WithANSI(enable bool) Option {
 	}
 }
 
-// WithImageRenderer configures the harness-owned [still.Renderer] used by
+// WithRenderer configures the harness-owned [still.Renderer] used by
 // [Harness.Image] and [Harness.ImageInto]. Options apply only at harness
 // construction; per-draw emulator state is synchronized automatically.
-func WithImageRenderer(opts ...still.Option) Option {
+//
+// Environment: STEEP_RENDERER_FONT_SIZE maps to [still.WithFontSizePt] unless
+// [WithIgnoreEnv] is set.
+func WithRenderer(opts ...still.Option) Option {
 	return func(cfg *options) {
 		cfg.imageRendererOpts = append(cfg.imageRendererOpts, opts...)
+	}
+}
+
+// WithHooks appends user hooks after built-in export hooks.
+func WithHooks(hooks ...Hook) Option {
+	return func(cfg *options) {
+		cfg.hooks = append(cfg.hooks, hooks...)
+	}
+}
+
+// WithIgnoreEnv disables STEEP_* environment overrides (defaults to applying them).
+func WithIgnoreEnv(ignore bool) Option {
+	return func(cfg *options) {
+		cfg.ignoreEnv = ignore
+	}
+}
+
+// WithExport enables artifact export hooks for the given mode and types.
+//
+// Environment: STEEP_EXPORT_MODE, STEEP_EXPORT_TYPE, STEEP_EXPORT_OPTIMIZE,
+// STEEP_EXPORT_MAX_FRAMES, STEEP_EXPORT_DIR.
+func WithExport(mode ExportMode, types ExportType, opts ...export.Option) Option {
+	return func(cfg *options) {
+		cfg.exportMode = mode
+		cfg.exportTypes = types
+		cfg.exportOpts = append(cfg.exportOpts, opts...)
+	}
+}
+
+// WithExportDir sets the directory for export artifacts. When empty, uses
+// [testing.TB.ArtifactDir].
+//
+// Environment: STEEP_EXPORT_DIR.
+func WithExportDir(dir string) Option {
+	return func(cfg *options) {
+		cfg.exportDir = dir
+	}
+}
+
+// WithExportName overrides the basename used for export filenames.
+func WithExportName(name string) Option {
+	return func(cfg *options) {
+		cfg.exportName = name
+	}
+}
+
+// WithSlow sleeps after every hooked harness action's After stage.
+//
+// Environment: STEEP_SLOW.
+func WithSlow(d time.Duration) Option {
+	return func(cfg *options) {
+		cfg.slow = d
+	}
+}
+
+// WithSlowExport sets the delay between exported GIF frames (default 250ms).
+//
+// Environment: STEEP_SLOW_EXPORT.
+func WithSlowExport(d time.Duration) Option {
+	return func(cfg *options) {
+		cfg.slowExport = d
+	}
+}
+
+// WithFailureGIF is shorthand for [WithExport]([ExportOnFailure], [ExportTypeGIF], ...).
+func WithFailureGIF(opts ...export.Option) Option {
+	return WithExport(ExportOnFailure, ExportTypeGIF, opts...)
+}
+
+// WithLog is a shorthand for [WithHooks] & [LoggerHook] with a nil logger
+// (uses [testing.TB.Log] by default).
+//
+// Environment: STEEP_LOG.
+func WithLog(tb testing.TB) Option {
+	return func(cfg *options) {
+		cfg.hooks = append(cfg.hooks, LoggerHook(tb, nil))
 	}
 }
 

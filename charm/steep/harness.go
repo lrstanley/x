@@ -32,12 +32,17 @@ type Harness struct {
 	program  *tea.Program
 	observer *observer
 	opts     []Option
+	cfg      options
 
 	resultMu sync.RWMutex
 	result   *runResult
 	done     chan struct{}
 
 	imageRenderer *still.Renderer
+	export        *exportManager
+	hooks         []Hook
+	logHook       *hookLog
+	readyHooked   bool
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -46,13 +51,13 @@ type Harness struct {
 func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 
 	if cfg.ctx == nil || !cfg.wasContextSet {
 		ctx, cancel := signal.NotifyContext(tb.Context(), os.Interrupt)
 		tb.Cleanup(cancel)
 		opts = append(opts, WithContext(ctx))
-		cfg = collectOptions(opts...)
+		cfg = collectOptions(tb, opts...)
 	}
 
 	imageRenderer, err := still.New(cfg.imageRendererOpts...)
@@ -66,7 +71,18 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		observer:      newObserver(tb, model),
 		done:          make(chan struct{}),
 		opts:          append([]Option(nil), opts...),
+		cfg:           cfg,
 		imageRenderer: imageRenderer,
+		hooks:         append([]Hook(nil), cfg.hooks...),
+	}
+
+	em, err := newExportManager(h, cfg)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	h.export = em
+	if em != nil && em.log != nil {
+		h.logHook = em.log
 	}
 
 	h.program = tea.NewProgram(
@@ -103,11 +119,9 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 }
 
 func (h *Harness) Close() {
-	cfg := collectOptions(h.mergedOpts()...)
+	defer h.hook(HookClose, nil)()
 
-	if err := h.imageRenderer.Close(); err != nil {
-		h.tb.Errorf("failed to close image renderer: %v", err)
-	}
+	cfg := collectOptions(h.tb, h.mergedOpts()...)
 
 	go h.emulator.Close()
 
@@ -140,7 +154,17 @@ func (h *Harness) Close() {
 	}
 	// TB context is already canceled during Cleanups (see testing.T.Context); join with
 	// a detached parent so WaitFinished observes h.done/timer only.
-	h.WaitFinished(WithContext(context.Background()))
+	h.waitFinished(WithContext(context.Background()))
+
+	if h.export != nil {
+		if err := h.export.Finalize(h.tb.Failed()); err != nil {
+			h.tb.Errorf("export finalize: %v", err)
+		}
+	}
+
+	if err := h.imageRenderer.Close(); err != nil {
+		h.tb.Errorf("failed to close image renderer: %v", err)
+	}
 }
 
 func (h *Harness) waitStarted(cfg options) {
@@ -155,6 +179,11 @@ func (h *Harness) waitStarted(cfg options) {
 
 	select {
 	case <-h.observer.firstEvent:
+		if !h.readyHooked {
+			h.readyHooked = true
+			done := h.hook(HookReady, nil)
+			done()
+		}
 	case <-timer.C:
 	case <-cfg.ctx.Done():
 	}
@@ -184,6 +213,7 @@ func (h *Harness) requireProgram() {
 // SendProgram sends msg ([tea.Msg] or [uv.Event], either works) to the [tea.Program].
 func (h *Harness) SendProgram(msg uv.Event) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookProgram, nil)()
 	h.requireProgram()
 	h.program.Send(msg)
 	return h
@@ -192,6 +222,7 @@ func (h *Harness) SendProgram(msg uv.Event) *Harness {
 // QuitProgram requests a graceful shutdown of the [tea.Program].
 func (h *Harness) QuitProgram() *Harness {
 	h.tb.Helper()
+	defer h.hook(HookClose, nil)()
 	h.requireProgram()
 	h.program.Quit()
 	return h

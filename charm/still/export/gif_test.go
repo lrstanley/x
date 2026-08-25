@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/gif"
+	"os"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -22,7 +23,7 @@ func TestGIFFrameCount(t *testing.T) {
 		bounds := image.Rect(0, 0, 8, 8)
 		path := t.TempDir() + "/out.gif"
 
-		closer, err := GIF(path, WithFrameRate(MaxFrameRate, false, func() image.Image {
+		rec, err := GIF(WithFrameRate(MaxFrameRate, false, func() image.Image {
 			img := image.NewNRGBA(bounds)
 			solidFrameInto(img, frame%4)
 			frame++
@@ -35,8 +36,8 @@ func TestGIFFrameCount(t *testing.T) {
 		time.Sleep(265 * time.Millisecond)
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -54,7 +55,7 @@ func TestGIFDedupesIdle(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		path := t.TempDir() + "/idle.gif"
-		closer, err := GIF(path, WithFrameRate(MaxFrameRate, false, func() image.Image {
+		rec, err := GIF(WithFrameRate(MaxFrameRate, false, func() image.Image {
 			return solidFrame(0, 4, 4)
 		}))
 		if err != nil {
@@ -64,8 +65,8 @@ func TestGIFDedupesIdle(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -86,7 +87,7 @@ func TestGIFDedupIncrementalDelay(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		path := t.TempDir() + "/dedup-delay.gif"
-		closer, err := GIF(path, WithFrameRate(MaxFrameRate, false, func() image.Image {
+		rec, err := GIF(WithFrameRate(MaxFrameRate, false, func() image.Image {
 			return solidFrame(0, 4, 4)
 		}))
 		if err != nil {
@@ -96,8 +97,8 @@ func TestGIFDedupIncrementalDelay(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -186,7 +187,7 @@ func TestGIFStrictDedupMultiple(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		tick := 0
 		path := t.TempDir() + "/dedup-multiple.gif"
-		closer, err := GIF(path, WithFrameRate(10, true, func() image.Image {
+		rec, err := GIF(WithFrameRate(10, true, func() image.Image {
 			tick++
 			switch tick {
 			case 1:
@@ -204,8 +205,8 @@ func TestGIFStrictDedupMultiple(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -230,7 +231,7 @@ func TestGIFNonStrictGridSnap(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		frame := 0
 		path := t.TempDir() + "/grid-snap.gif"
-		closer, err := GIF(path, WithFrameRate(10, false, func() image.Image {
+		rec, err := GIF(WithFrameRate(10, false, func() image.Image {
 			img := solidFrame(frame%3, 4, 4)
 			frame++
 			return img
@@ -242,8 +243,8 @@ func TestGIFNonStrictGridSnap(t *testing.T) {
 		time.Sleep(300 * time.Millisecond)
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -516,7 +517,7 @@ func TestGIFStrictFPSFixedDelay(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		frame := 0
 		path := t.TempDir() + "/strict-delay.gif"
-		closer, err := GIF(path, WithFrameRate(10, true, func() image.Image {
+		rec, err := GIF(WithFrameRate(10, true, func() image.Image {
 			img := solidFrame(frame%4, 4, 4)
 			frame++
 			return img
@@ -528,8 +529,8 @@ func TestGIFStrictFPSFixedDelay(t *testing.T) {
 		time.Sleep(300 * time.Millisecond)
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -686,7 +687,7 @@ func TestGIFMaxFramesDedupCap(t *testing.T) {
 
 	ch := make(chan Frame)
 	path := t.TempDir() + "/max-frames-dedup.gif"
-	closer, err := GIF(path,
+	rec, err := GIF(
 		WithChannel(ch),
 		WithMaxFrames(2),
 		WithOptimize(OptimizeFrames),
@@ -705,8 +706,8 @@ func TestGIFMaxFramesDedupCap(t *testing.T) {
 	ch <- Frame{Image: frameC, Delay: 10 * time.Millisecond}
 	close(ch)
 
-	if cerr := closer(); cerr != nil {
-		t.Fatal(cerr)
+	if err := finishGIF(path, rec); err != nil {
+		t.Fatal(err)
 	}
 
 	g, err := gifDecodeFile(path)
@@ -775,7 +776,7 @@ func TestGIFChannelAutoDelay(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ch := make(chan Frame, 2)
 		path := t.TempDir() + "/auto.gif"
-		closer, err := GIF(path, WithChannel(ch))
+		rec, err := GIF(WithChannel(ch))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -786,8 +787,8 @@ func TestGIFChannelAutoDelay(t *testing.T) {
 		ch <- Frame{Image: solidFrame(2, 4, 4)}
 		close(ch)
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := finishGIF(path, rec); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -809,7 +810,7 @@ func TestGIFChannelCloserBeforeClose(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ch := make(chan Frame, 1)
 		path := t.TempDir() + "/early.gif"
-		closer, err := GIF(path, WithChannel(ch))
+		rec, err := GIF(WithChannel(ch))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -817,11 +818,22 @@ func TestGIFChannelCloserBeforeClose(t *testing.T) {
 		ch <- Frame{Image: solidFrame(1, 4, 4), Delay: 10 * time.Millisecond}
 		synctest.Wait()
 
-		if cerr := closer(); cerr != nil {
-			t.Fatal(cerr)
+		if err := rec.Close(); err != nil {
+			t.Fatal(err)
 		}
-		if cerr := closer(); cerr != nil {
-			t.Fatal("second closer call should be no-op")
+		if err := rec.Close(); err != nil {
+			t.Fatal("second Close call should be no-op")
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rec.EncodeAll(f); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
 		}
 
 		g, err := gifDecodeFile(path)
@@ -829,7 +841,7 @@ func TestGIFChannelCloserBeforeClose(t *testing.T) {
 			t.Fatal(err)
 		}
 		if n := len(g.Image); n != 1 {
-			t.Fatalf("got %d frames, want 1 from early closer", n)
+			t.Fatalf("got %d frames, want 1 from early Close", n)
 		}
 	})
 }
@@ -839,7 +851,7 @@ func TestGIFRejectsNilFrame(t *testing.T) {
 
 	ch := make(chan Frame, 1)
 	path := t.TempDir() + "/nil.gif"
-	closer, err := GIF(path, WithChannel(ch))
+	rec, err := GIF(WithChannel(ch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -847,7 +859,7 @@ func TestGIFRejectsNilFrame(t *testing.T) {
 	ch <- Frame{Image: nil}
 	close(ch)
 
-	if cerr := closer(); cerr == nil {
+	if err := finishGIF(path, rec); err == nil {
 		t.Fatal("expected error for nil frame")
 	}
 }
@@ -857,7 +869,7 @@ func TestGIFRejectsEmptyFrame(t *testing.T) {
 
 	ch := make(chan Frame, 1)
 	path := t.TempDir() + "/empty.gif"
-	closer, err := GIF(path, WithChannel(ch))
+	rec, err := GIF(WithChannel(ch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,7 +877,7 @@ func TestGIFRejectsEmptyFrame(t *testing.T) {
 	ch <- Frame{Image: image.NewNRGBA(image.Rect(0, 0, 0, 0))}
 	close(ch)
 
-	if cerr := closer(); cerr == nil {
+	if err := finishGIF(path, rec); err == nil {
 		t.Fatal("expected error for empty frame bounds")
 	}
 }

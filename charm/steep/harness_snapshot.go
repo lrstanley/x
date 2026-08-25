@@ -15,10 +15,15 @@ import (
 )
 
 func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
-	if !collectOptions(h.mergedOpts()...).stripANSI {
-		return opts
+	cfg := collectOptions(h.tb, h.mergedOpts()...)
+	out := opts
+	if dir := snapshotDirFromEnv(cfg); dir != nil {
+		out = append([]snapshot.Option{dir}, out...)
 	}
-	return append([]snapshot.Option{snapshot.WithANSI(false)}, opts...)
+	if !cfg.stripANSI {
+		return out
+	}
+	return append([]snapshot.Option{snapshot.WithANSI(false)}, out...)
 }
 
 // AssertSnapshot compares the current terminal screen buffer against a snapshot
@@ -27,6 +32,7 @@ func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
 // See also [Harness.RequireSnapshot].
 func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookCapture, CaptureMeta{Kind: "snapshot"})()
 	snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...)
 	return h
 }
@@ -37,6 +43,7 @@ func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 // See also [Harness.AssertSnapshot].
 func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookCapture, CaptureMeta{Kind: "snapshot"})()
 	if !snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...) {
 		h.tb.FailNow()
 	}
@@ -49,6 +56,7 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 // See also [Harness.AssertSnapshot].
 func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
 	snapshot.AssertScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
 	return h
 }
@@ -60,6 +68,7 @@ func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 // See also [Harness.AssertJSON].
 func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
+	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
 	snapshot.RequireScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
 	return h
 }
@@ -71,16 +80,19 @@ func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 // See also [Harness.Image].
 func (h *Harness) ImageInto(dst draw.Image) {
 	h.tb.Helper()
+	defer h.hook(HookCapture, CaptureMeta{Kind: "image_into"})()
+	h.drawImageInto(dst)
+}
 
+func (h *Harness) drawImageInto(dst draw.Image) {
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
-
 	h.syncRendererStateLocked()
 	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.emulator.vt)
 }
 
 // Image renders the current terminal screen buffer as an image. Configure the
-// harness renderer with [WithImageRenderer] when creating the harness.
+// harness renderer with [WithRenderer] when creating the harness.
 //
 // The returned [image.Image] is owned by the harness renderer and invalidated
 // by the next [Harness.Image] call or [Harness.Close]. Do not mutate it and do
@@ -90,10 +102,13 @@ func (h *Harness) ImageInto(dst draw.Image) {
 // See also [Harness.ImageInto].
 func (h *Harness) Image() image.Image {
 	h.tb.Helper()
+	defer h.hook(HookCapture, CaptureMeta{Kind: "image"})()
+	return h.drawImage()
+}
 
+func (h *Harness) drawImage() image.Image {
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
-
 	h.syncRendererStateLocked()
 	return h.imageRenderer.Draw(h.emulator.vt)
 }

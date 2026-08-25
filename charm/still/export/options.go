@@ -211,9 +211,9 @@ func WithFrameRate(fps int, strict bool, fn func() image.Image) Option {
 	}
 }
 
-// WithChannel reads frames from ch until it is closed, then finalizes and
-// encodes. The returned closer can cancel early; either channel close or the
-// first closer call triggers finalize (once). GIF only.
+// WithChannel reads frames from ch until it is closed. Call [FrameRecorder.Close]
+// to stop capture early, then [FrameRecorder.EncodeAll] with the output writer.
+// GIF only.
 func WithChannel(ch <-chan Frame) Option {
 	return func(cfg *options) {
 		cfg.channel = ch

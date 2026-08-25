@@ -34,7 +34,7 @@ func WaitViewFunc[T ~string | ~[]byte](
 ) T {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	deadline := time.Now().Add(cfg.timeout)
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
@@ -183,7 +183,7 @@ func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option)
 func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	deadline := time.Now().Add(cfg.timeout)
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
@@ -238,7 +238,7 @@ func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 func AssertString(tb testing.TB, view Viewable, content string, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -270,7 +270,7 @@ func RequireString(tb testing.TB, view Viewable, content string, opts ...Option)
 func AssertStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -305,7 +305,7 @@ func RequireStrings(tb testing.TB, view Viewable, contents []string, opts ...Opt
 func AssertNotString(tb testing.TB, view Viewable, content string, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -338,7 +338,7 @@ func RequireNotString(tb testing.TB, view Viewable, content string, opts ...Opti
 func AssertNotStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -378,7 +378,7 @@ func AssertMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) b
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -415,7 +415,7 @@ func AssertNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option
 	if err != nil {
 		tb.Fatalf("invalid regexp: %v", err)
 	}
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -449,7 +449,7 @@ func RequireNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Optio
 func AssertHeight(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -481,7 +481,7 @@ func RequireHeight(tb testing.TB, view Viewable, n int, opts ...Option) {
 func AssertWidth(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -512,7 +512,7 @@ func RequireWidth(tb testing.TB, view Viewable, n int, opts ...Option) {
 func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) bool {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	out := view()
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
@@ -541,8 +541,8 @@ func RequireDimensions(tb testing.TB, view Viewable, width, height int, opts ...
 //
 // See also [AssertDimensions], [AssertWidth], [AssertHeight], and
 // [Harness.AssertDimensions].
-func Dimensions(out string, opts ...Option) (w, h int) {
-	cfg := collectOptions(opts...)
+func Dimensions(tb testing.TB, out string, opts ...Option) (w, h int) {
+	cfg := collectOptions(tb, opts...)
 	if cfg.stripANSI {
 		out = xansi.StripANSI(out)
 	}
@@ -561,7 +561,7 @@ type MessageCollector interface {
 // as T has been observed.
 func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) bool {
 	tb.Helper()
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 
 	for msg := range log.MessageHistory() {
 		if _, ok := msg.(T); ok {
@@ -626,7 +626,7 @@ func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option
 func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	ctx, cancel := context.WithTimeout(cfg.ctx, cfg.timeout)
 	defer cancel()
 
@@ -655,7 +655,7 @@ func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event)
 func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 	ctx, cancel := context.WithTimeout(cfg.ctx, cfg.timeout)
 	defer cancel()
 
@@ -685,7 +685,7 @@ func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok
 func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()
 
-	cfg := collectOptions(opts...)
+	cfg := collectOptions(tb, opts...)
 
 	ctx, cancel := context.WithTimeout(cfg.ctx, cfg.timeout)
 	defer cancel()
