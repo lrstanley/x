@@ -5,10 +5,10 @@ go 1.26.0
 replace github.com/lrstanley/x/charm/still => ../still
 
 require (
-	charm.land/bubbletea/v2 v2.0.7-0.20260512011140-c60f0c530422
+	charm.land/bubbletea/v2 v2.0.9
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3
-	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/vt v0.0.0-20260511003329-c066bcf2349a
 	github.com/lrstanley/x/charm/still v0.0.0
 	github.com/rivo/uniseg v0.4.7
