@@ -159,6 +159,9 @@ func TestCron_builder(t *testing.T) {
 	if !c.immediate || !c.exitOnError {
 		t.Fatal("flags not set")
 	}
+	if !c.enabled {
+		t.Fatal("expected enabled by default")
+	}
 	if c.logger != l {
 		t.Fatal("logger not set")
 	}
@@ -234,6 +237,73 @@ func TestCron_Invoke_exitOnError(t *testing.T) {
 		err := c.Invoke(ctx)
 		if !errors.Is(err, want) {
 			t.Fatalf("err = %v, want %v", err, want)
+		}
+	})
+}
+
+func TestCron_WithEnabled_disabled(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2500*time.Millisecond)
+		defer cancel()
+
+		runs := atomic.Int32{}
+		job := JobFunc(func(context.Context) error {
+			runs.Add(1)
+			return nil
+		})
+		c := NewCron("t", job).WithImmediate(true).WithEnabled(false).WithInterval(1 * time.Hour)
+
+		err := c.Invoke(ctx)
+		if err != nil {
+			t.Fatalf("Invoke: %v", err)
+		}
+		if n := runs.Load(); n != 0 {
+			t.Fatalf("runs = %d, want 0", n)
+		}
+	})
+}
+
+func TestCron_WithEnabledFunc(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		enabled := atomic.Bool{}
+		runs := atomic.Int32{}
+		job := JobFunc(func(context.Context) error {
+			runs.Add(1)
+			return nil
+		})
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2500*time.Millisecond)
+		defer cancel()
+
+		c := NewCron("t", job).
+			WithImmediate(true).
+			WithEnabledFunc(func() bool { return enabled.Load() }).
+			WithInterval(1 * time.Hour)
+
+		err := c.Invoke(ctx)
+		if err != nil {
+			t.Fatalf("Invoke: %v", err)
+		}
+		if n := runs.Load(); n != 0 {
+			t.Fatalf("runs = %d, want 0 when enabled func returns false", n)
+		}
+
+		enabled.Store(true)
+		runs.Store(0)
+
+		ctx2, cancel2 := context.WithTimeout(t.Context(), 2500*time.Millisecond)
+		defer cancel2()
+
+		c2 := NewCron("t2", job).
+			WithImmediate(true).
+			WithEnabledFunc(func() bool { return enabled.Load() }).
+			WithInterval(1 * time.Hour)
+
+		if err := c2.Invoke(ctx2); err != nil {
+			t.Fatalf("Invoke: %v", err)
+		}
+		if n := runs.Load(); n < 1 {
+			t.Fatalf("runs = %d, want at least 1", n)
 		}
 	})
 }
