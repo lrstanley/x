@@ -90,6 +90,7 @@ type Cron struct {
 	job             Job
 	logger          *slog.Logger
 	validationError error
+	metrics         *Metrics
 }
 
 // NewCron creates a new cron job with the provided name and underlying job. The
@@ -104,7 +105,13 @@ func NewCron(name string, job Job) *Cron {
 		schedule: Every(5 * time.Minute),
 		logger:   slog.Default(),
 		enabled:  true,
+		metrics:  newMetrics(),
 	}
+}
+
+// GetMetrics returns execution metrics for the cron job.
+func (c *Cron) GetMetrics() *Metrics {
+	return c.metrics
 }
 
 func (c *Cron) validate() error {
@@ -190,29 +197,14 @@ func (c *Cron) Invoke(ctx context.Context) error {
 		"exit_on_error", c.exitOnError,
 	)
 
-	var lastRun time.Time
-
 	if c.immediate {
 		// Jitter the first run by 0-2 seconds.
 		time.Sleep(time.Duration(rand.IntN(2)) * time.Second) //nolint:gosec
 
 		if c.shouldInvoke() {
-			lastRun = time.Now()
-			l.InfoContext(ctx, "invoking cron")
-			if err := c.job.Invoke(withLogger(ctx, l)); err != nil {
-				l.ErrorContext(
-					ctx,
-					"cron failed",
-					"error", err,
-					"duration", time.Since(lastRun),
-				)
+			if err := c.invokeOnce(ctx, l); err != nil {
 				return err
 			}
-			l.InfoContext(
-				ctx,
-				"cron complete",
-				"duration", time.Since(lastRun),
-			)
 		}
 	}
 
@@ -231,24 +223,34 @@ func (c *Cron) Invoke(ctx context.Context) error {
 				continue
 			}
 
-			lastRun = time.Now()
-			l.InfoContext(ctx, "invoking cron")
-			if err := c.job.Invoke(withLogger(ctx, l)); err != nil {
-				l.ErrorContext(
-					ctx,
-					"cron failed",
-					"error", err,
-					"duration", time.Since(lastRun),
-				)
-				if c.exitOnError {
-					return err
-				}
+			if err := c.invokeOnce(ctx, l); err != nil && c.exitOnError {
+				return err
 			}
-			l.InfoContext(
-				ctx,
-				"cron complete",
-				"duration", time.Since(lastRun),
-			)
 		}
 	}
+}
+
+func (c *Cron) invokeOnce(ctx context.Context, l *slog.Logger) (err error) {
+	start := c.metrics.beginRun()
+	defer func() { c.metrics.endRun(start, err) }()
+
+	l.InfoContext(ctx, "invoking cron")
+
+	err = c.job.Invoke(withLogger(ctx, l))
+	if err != nil {
+		l.ErrorContext(
+			ctx,
+			"cron failed",
+			"error", err,
+			"duration", time.Since(start),
+		)
+		return err
+	}
+
+	l.InfoContext(
+		ctx,
+		"cron complete",
+		"duration", time.Since(start),
+	)
+	return nil
 }
