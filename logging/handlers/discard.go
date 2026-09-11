@@ -11,6 +11,7 @@ import (
 // NewDiscard creates a new discard handler.
 //
 // Deprecated: Use [log/slog.DiscardHandler] instead.
+//
 //go:fix inline
 func NewDiscard() slog.Handler {
 	return slog.DiscardHandler

@@ -12,6 +12,7 @@ import (
 // [log/slog.Handler] instances.
 //
 // Deprecated: use [log/slog.NewMultiHandler] instead.
+//
 //go:fix inline
 func NewFanout(handlers ...slog.Handler) slog.Handler {
 	return slog.NewMultiHandler(handlers...)
