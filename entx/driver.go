@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 	"uuid"
@@ -82,11 +83,11 @@ func MustDriver(ctx context.Context, logger *slog.Logger, dsn *url.URL) *entsql.
 
 // Driver returns a new database driver for the given DSN. If logger is nil,
 // [slog.Default] is used. Supports the following schemes:
-// - sqlite3 (see [DefaultSQLitePragmas] for default pragmas, optimizing for single-process performance))
-// - sqlite (remapped to sqlite3)
-// - file (remapped to sqlite)
-// - memory through "sqlite::memory:", each call to [MemoryDriver] will create a unique in-memory database.
-// - postgres (using pgx, with pgxpool support, see [pgxpool.ParseConfig] for supported pooling options).
+//   - sqlite3 (see [DefaultSQLitePragmas] for default pragmas, optimizing for single-process performance))
+//   - sqlite (remapped to sqlite3)
+//   - file (remapped to sqlite3)
+//   - memory through "sqlite::memory:", each call to [MemoryDriver] will create a unique in-memory database.
+//   - postgres (using pgx, with pgxpool support, see [pgxpool.ParseConfig] for supported pooling options).
 //
 // Example:
 //
@@ -95,6 +96,14 @@ func MustDriver(ctx context.Context, logger *slog.Logger, dsn *url.URL) *entsql.
 //		panic(err)
 //	}
 //	ent.NewClient(ent.Driver(driver))
+//
+// Example DSNs:
+//
+//   - `sqlite://./some/local/path/data.sqlite`
+//   - `file://some/local/path/data.db`
+//   - `sqlite::memory:`
+//   - `postgres://user:pass@host:5432/db`
+//   - `postgres://user:pass@host:5432/db?application_name=myapp&connect_timeout=10&sslmode=verify-full&timezone=UTC&pool_max_conns=10&pool_min_conns=2&pool_min_idle_conns=2&pool_max_conn_lifetime=1h&pool_max_conn_lifetime_jitter=5m&pool_health_check_period=1m`
 func Driver(ctx context.Context, logger *slog.Logger, dsn *url.URL) (*entsql.Driver, error) {
 	if dsn == nil {
 		return nil, errors.New("dsn is required")
@@ -106,23 +115,23 @@ func Driver(ctx context.Context, logger *slog.Logger, dsn *url.URL) (*entsql.Dri
 check:
 
 	switch {
-	case dsn.Scheme == "file":
-		dsn.Scheme = "sqlite3"
-		goto check
-	case dsn.Scheme == "sqlite":
-		dsn.Scheme = "sqlite3"
-		goto check
 	case dsn.Opaque == "memory" || dsn.Opaque == ":memory:":
 		params := sqlitePragmaValues(DefaultSQLitePragmas...)
 		params.Set("mode", "memory")
 		params.Set("cache", "shared")
 		dsn = &url.URL{
-			Scheme:   "sqlite3",
-			Opaque:   "ent-" + uuid.NewV7().String(),
+			Scheme:   dialect.SQLite,
+			Opaque:   "file:ent-" + uuid.NewV7().String(),
 			RawQuery: params.Encode(),
 		}
 		goto check
-	case dsn.Scheme == "sqlite3" && !dsn.Query().Has("_pragma"):
+	case dsn.Scheme == "file":
+		dsn.Scheme = dialect.SQLite
+		goto check
+	case dsn.Scheme == "sqlite":
+		dsn.Scheme = dialect.SQLite
+		goto check
+	case dsn.Scheme == dialect.SQLite && !dsn.Query().Has("_pragma"):
 		params := dsn.Query()
 		for _, p := range DefaultSQLitePragmas {
 			params.Add("_pragma", p[0]+"("+p[1]+")")
@@ -140,7 +149,17 @@ check:
 		sqliteInit()
 
 		var err error
-		db, err = sql.Open(dsn.Scheme, dsn.String())
+		source := dsn.Opaque
+		if source == "" {
+			source = dsn.Host + dsn.EscapedPath()
+		}
+		if !strings.HasPrefix(source, "file:") {
+			source = "file:" + source
+		}
+		if dsn.RawQuery != "" {
+			source += "?" + dsn.RawQuery
+		}
+		db, err = sql.Open(dsn.Scheme, source)
 		if err != nil {
 			return nil, fmt.Errorf("opening %s: %w", dsn.Scheme, err)
 		}
@@ -167,18 +186,32 @@ check:
 			)
 		}
 
-		poolConfig.MaxConnIdleTime = 5 * time.Minute
-		poolConfig.PingTimeout = 5 * time.Second
-		poolConfig.BeforeConnect = func(ctx context.Context, _ *pgx.ConnConfig) error {
-			databaseLogger().DebugContext(ctx, "initializing new connection")
-			return nil
+		if poolConfig.MaxConnIdleTime == 0 {
+			poolConfig.MaxConnIdleTime = 5 * time.Minute
 		}
-		poolConfig.AfterConnect = func(ctx context.Context, _ *pgx.Conn) error {
-			databaseLogger().DebugContext(ctx, "connection initialized")
-			return nil
+
+		if poolConfig.PingTimeout == 0 {
+			poolConfig.PingTimeout = 5 * time.Second
 		}
-		poolConfig.BeforeClose = func(_ *pgx.Conn) {
-			databaseLogger().DebugContext(ctx, "closing connection")
+
+		if poolConfig.BeforeConnect == nil {
+			poolConfig.BeforeConnect = func(ctx context.Context, _ *pgx.ConnConfig) error {
+				databaseLogger().DebugContext(ctx, "initializing new connection")
+				return nil
+			}
+		}
+
+		if poolConfig.AfterConnect == nil {
+			poolConfig.AfterConnect = func(ctx context.Context, _ *pgx.Conn) error {
+				databaseLogger().DebugContext(ctx, "connection initialized")
+				return nil
+			}
+		}
+
+		if poolConfig.BeforeClose == nil {
+			poolConfig.BeforeClose = func(_ *pgx.Conn) {
+				databaseLogger().DebugContext(ctx, "closing connection")
+			}
 		}
 
 		pdb, err = pgxpool.NewWithConfig(ctx, poolConfig)
