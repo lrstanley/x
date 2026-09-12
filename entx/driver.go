@@ -82,8 +82,8 @@ func MustDriver(ctx context.Context, logger *slog.Logger, dsn *url.URL) *entsql.
 
 // Driver returns a new database driver for the given DSN. If logger is nil,
 // [slog.Default] is used. Supports the following schemes:
-// - sqlite (see [DefaultSQLitePragmas] for default pragmas, optimizing for single-process performance))
-// - sqlite3 (remapped to sqlite)
+// - sqlite3 (see [DefaultSQLitePragmas] for default pragmas, optimizing for single-process performance))
+// - sqlite (remapped to sqlite3)
 // - file (remapped to sqlite)
 // - memory through "sqlite::memory:", each call to [MemoryDriver] will create a unique in-memory database.
 // - postgres (using pgx, with pgxpool support, see [pgxpool.ParseConfig] for supported pooling options).
@@ -107,22 +107,22 @@ check:
 
 	switch {
 	case dsn.Scheme == "file":
-		dsn.Scheme = "sqlite"
+		dsn.Scheme = "sqlite3"
 		goto check
-	case dsn.Scheme == "sqlite3":
-		dsn.Scheme = "sqlite"
+	case dsn.Scheme == "sqlite":
+		dsn.Scheme = "sqlite3"
 		goto check
 	case dsn.Opaque == "memory" || dsn.Opaque == ":memory:":
 		params := sqlitePragmaValues(DefaultSQLitePragmas...)
 		params.Set("mode", "memory")
 		params.Set("cache", "shared")
 		dsn = &url.URL{
-			Scheme:   "sqlite",
+			Scheme:   "sqlite3",
 			Opaque:   "ent-" + uuid.NewV7().String(),
 			RawQuery: params.Encode(),
 		}
 		goto check
-	case dsn.Scheme == "sqlite" && !dsn.Query().Has("_pragma"):
+	case dsn.Scheme == "sqlite3" && !dsn.Query().Has("_pragma"):
 		params := dsn.Query()
 		for _, p := range DefaultSQLitePragmas {
 			params.Add("_pragma", p[0]+"("+p[1]+")")
@@ -136,7 +136,7 @@ check:
 	logger.InfoContext(ctx, "opening database", "dsn", dsn.Redacted())
 
 	switch dsn.Scheme {
-	case "sqlite":
+	case dialect.SQLite:
 		sqliteInit()
 
 		var err error
@@ -146,7 +146,7 @@ check:
 		}
 		db.SetMaxOpenConns(1)
 
-		return entsql.OpenDB("sqlite", db), nil
+		return entsql.OpenDB(dialect.SQLite, db), nil
 	case dialect.Postgres:
 		poolConfig, err := pgxpool.ParseConfig(dsn.String())
 		if err != nil {
