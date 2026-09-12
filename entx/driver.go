@@ -12,14 +12,21 @@ import (
 	"log/slog"
 	"net/url"
 	"slices"
+	"sync"
 	"time"
+	"uuid"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	sqlite "modernc.org/sqlite"
 )
+
+var sqliteInit = sync.OnceFunc(func() {
+	sql.Register(dialect.SQLite, &sqlite.Driver{})
+})
 
 // Pragma is a SQL pragma.
 type Pragma [2]string
@@ -78,8 +85,16 @@ func MustDriver(ctx context.Context, logger *slog.Logger, dsn *url.URL) *entsql.
 // - sqlite (see [DefaultSQLitePragmas] for default pragmas, optimizing for single-process performance))
 // - sqlite3 (remapped to sqlite)
 // - file (remapped to sqlite)
-// - memory through "sqlite::memory:"
+// - memory through "sqlite::memory:", each call to [MemoryDriver] will create a unique in-memory database.
 // - postgres (using pgx, with pgxpool support, see [pgxpool.ParseConfig] for supported pooling options).
+//
+// Example:
+//
+//	driver, err := entx.Driver(ctx, logger, dsn)
+//	if err != nil {
+//		panic(err)
+//	}
+//	ent.NewClient(ent.Driver(driver))
 func Driver(ctx context.Context, logger *slog.Logger, dsn *url.URL) (*entsql.Driver, error) {
 	if dsn == nil {
 		return nil, errors.New("dsn is required")
@@ -103,7 +118,7 @@ check:
 		params.Set("cache", "shared")
 		dsn = &url.URL{
 			Scheme:   "sqlite",
-			Opaque:   "ent",
+			Opaque:   "ent-" + uuid.NewV7().String(),
 			RawQuery: params.Encode(),
 		}
 		goto check
@@ -117,18 +132,21 @@ check:
 	}
 
 	var db *sql.DB
-	driverDialect := dialect.SQLite
 
 	logger.InfoContext(ctx, "opening database", "dsn", dsn.Redacted())
 
 	switch dsn.Scheme {
 	case "sqlite":
+		sqliteInit()
+
 		var err error
 		db, err = sql.Open(dsn.Scheme, dsn.String())
 		if err != nil {
 			return nil, fmt.Errorf("opening %s: %w", dsn.Scheme, err)
 		}
 		db.SetMaxOpenConns(1)
+
+		return entsql.OpenDB("sqlite", db), nil
 	case dialect.Postgres:
 		poolConfig, err := pgxpool.ParseConfig(dsn.String())
 		if err != nil {
@@ -168,11 +186,8 @@ check:
 			return nil, fmt.Errorf("creating %s: %w", dsn.Scheme, err)
 		}
 
-		db = stdlib.OpenDBFromPool(pdb)
-		driverDialect = dialect.Postgres
+		return entsql.OpenDB(dialect.Postgres, stdlib.OpenDBFromPool(pdb)), nil
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", dsn.Scheme)
 	}
-
-	return entsql.OpenDB(driverDialect, db), nil
 }
