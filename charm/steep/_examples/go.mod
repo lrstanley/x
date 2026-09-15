@@ -12,7 +12,7 @@ require (
 	charm.land/bubbles/v2 v2.1.0
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
-	github.com/lrstanley/x/charm/steep v0.0.0-20260510074740-f99adc613ee2
+	github.com/lrstanley/x/charm/steep 8b2b6a04d46b
 	github.com/lrstanley/x/charm/still v0.0.0
 )
 
