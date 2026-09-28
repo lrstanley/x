@@ -65,7 +65,7 @@ func TestObserve_createUpdateDelete(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("after create: got %d events, want 2", len(events))
 	}
-	if events[0].Op != ent.OpCreate || events[0].ID != u1.ID {
+	if events[0].Op != ent.ObserverOpCreate || events[0].ID != u1.ID {
 		t.Fatalf("create event[0] = op=%v id=%v, want create/%d", events[0].Op, events[0].ID, u1.ID)
 	}
 	if events[0].Fields["name"].Value != "a" {
@@ -84,7 +84,7 @@ func TestObserve_createUpdateDelete(t *testing.T) {
 		t.Fatalf("after update: got %d events, want 2", len(events))
 	}
 	for _, ev := range events {
-		if ev.Op != ent.OpUpdate {
+		if ev.Op != ent.ObserverOpUpdate {
 			t.Fatalf("update op = %v", ev.Op)
 		}
 		if ev.Fields["name"].Value != "z" {
@@ -107,7 +107,7 @@ func TestObserve_createUpdateDelete(t *testing.T) {
 		t.Fatalf("after delete: got %d events, want 2", len(events))
 	}
 	for _, ev := range events {
-		if ev.Op != ent.OpDelete {
+		if ev.Op != ent.ObserverOpDelete {
 			t.Fatalf("delete op = %v", ev.Op)
 		}
 		if ev.Fields != nil {
@@ -150,7 +150,7 @@ func TestObserve_fullObjectAndUUID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update document: %v", err)
 	}
-	if len(events) != 1 || events[0].Op != ent.OpUpdateOne {
+	if len(events) != 1 || events[0].Op != ent.ObserverOpUpdate {
 		t.Fatalf("update events = %#v", events)
 	}
 	entity, ok = events[0].Entity.(*ent.Document)
@@ -163,7 +163,7 @@ func TestObserve_fullObjectAndUUID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete document: %v", err)
 	}
-	if len(events) != 1 || events[0].Op != ent.OpDeleteOne {
+	if len(events) != 1 || events[0].Op != ent.ObserverOpDelete {
 		t.Fatalf("delete events = %#v", events)
 	}
 	entity, ok = events[0].Entity.(*ent.Document)
@@ -240,7 +240,7 @@ func TestObserve_txCommitDelivers(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("after commit: got %d events, want 1", len(events))
 	}
-	if events[0].Op != ent.OpCreate || events[0].ID != u.ID {
+	if events[0].Op != ent.ObserverOpCreate || events[0].ID != u.ID {
 		t.Fatalf("event = %#v, want create/%d", events[0], u.ID)
 	}
 }
@@ -284,14 +284,14 @@ func TestObserve_txMultiMutateOrder(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("after commit: got %d events, want 3", len(events))
 	}
-	if events[0].Op != ent.OpCreate || events[0].ID != u1.ID {
+	if events[0].Op != ent.ObserverOpCreate || events[0].ID != u1.ID {
 		t.Fatalf("event[0] = %#v, want create/%d", events[0], u1.ID)
 	}
-	if events[1].Op != ent.OpCreate || events[1].ID != u2.ID {
+	if events[1].Op != ent.ObserverOpCreate || events[1].ID != u2.ID {
 		t.Fatalf("event[1] = %#v, want create/%d", events[1], u2.ID)
 	}
-	if events[2].Op != ent.OpUpdateOne || events[2].ID != u1.ID {
-		t.Fatalf("event[2] = %#v, want updateOne/%d", events[2], u1.ID)
+	if events[2].Op != ent.ObserverOpUpdate || events[2].ID != u1.ID {
+		t.Fatalf("event[2] = %#v, want update/%d", events[2], u1.ID)
 	}
 
 	events = nil
@@ -447,7 +447,7 @@ func TestObserve_eventJSON(t *testing.T) {
 		t.Fatalf("json missing op: %s", s)
 	}
 
-	zero := ent.ObserverEvent{Op: ent.OpCreate, Type: ent.TypeUser, ID: 0}
+	zero := ent.ObserverEvent{Op: ent.ObserverOpCreate, Type: ent.TypeUser, ID: 0}
 	b, err = json.Marshal(zero)
 	if err != nil {
 		t.Fatalf("marshal zero: %v", err)

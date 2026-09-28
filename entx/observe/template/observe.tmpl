@@ -6,7 +6,6 @@ package {{ base $.Config.Package }}
 
 import (
 	"context"
-	"encoding/json/v2"
 	"fmt"
 	"sync"
 {{- range $path := observeImports $ }}
@@ -24,11 +23,21 @@ import (
 // roll back the already-committed write.
 type ObserverHandler func(ctx context.Context, ev ObserverEvent) error
 
+// ObserverOp is the mutation kind on ObserverEvent. Values match the JSON
+// "op" field so Go callers and encoding/json see the same strings.
+type ObserverOp string
+
+const (
+	ObserverOpCreate ObserverOp = "create"
+	ObserverOpUpdate ObserverOp = "update"
+	ObserverOpDelete ObserverOp = "delete"
+)
+
 // ObserverEvent describes a single-entity mutation. Callers must not modify
 // ObserverEvent or the entity it points at. Mutation is for in-process use and
 // is omitted from JSON.
 type ObserverEvent struct {
-	Op       Op                        `json:"op"`
+	Op       ObserverOp                `json:"op"`
 	Type     string                    `json:"type"`
 	ID       any                       `json:"id"`
 	Fields   map[string]ObserverChange `json:"fields,omitempty"`
@@ -43,35 +52,19 @@ type ObserverChange struct {
 	Cleared bool `json:"cleared,omitempty"`
 }
 
-// MarshalJSON encodes Op as create/update/delete and
-// omits Mutation.
-func (e ObserverEvent) MarshalJSON() ([]byte, error) {
-	type observerEventJSON struct {
-		Op     string                    `json:"op"`
-		Type   string                    `json:"type"`
-		ID     any                       `json:"id"`
-		Fields map[string]ObserverChange `json:"fields,omitempty"`
-		Entity any                       `json:"entity,omitempty"`
-	}
-	return json.Marshal(observerEventJSON{
-		Op:     observeOpString(e.Op),
-		Type:   e.Type,
-		ID:     e.ID,
-		Fields: e.Fields,
-		Entity: e.Entity,
-	})
-}
-
-func observeOpString(op Op) string {
+// observeOp maps an ent mutation Op to the public ObserverOp strings. Update
+// and UpdateOne both become ObserverOpUpdate; Delete and DeleteOne both become
+// ObserverOpDelete.
+func observeOp(op Op) ObserverOp {
 	switch {
 	case op.Is(OpCreate):
-		return "create"
+		return ObserverOpCreate
 	case op.Is(OpUpdate | OpUpdateOne):
-		return "update"
+		return ObserverOpUpdate
 	case op.Is(OpDelete | OpDeleteOne):
-		return "delete"
+		return ObserverOpDelete
 	default:
-		return op.String()
+		return ""
 	}
 }
 
@@ -319,9 +312,10 @@ func observe{{ $n.Name }}(ctx context.Context, m Mutation, next Mutator, h Obser
 	}
 
 	events := make([]ObserverEvent, 0, len(ids))
+	observerOp := observeOp(op)
 	for _, id := range ids {
 		ev := ObserverEvent{
-			Op:       op,
+			Op:       observerOp,
 			Type:     Type{{ $n.Name }},
 			ID:       id,
 			Mutation: m,
