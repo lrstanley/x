@@ -56,6 +56,9 @@ func ConstrainDialect(dsn *url.URL, dialects ...string) error {
 	if slices.Contains(dialects, dialect.SQLite) {
 		dialects = append(dialects, "sqlite", "file")
 	}
+	if slices.Contains(dialects, dialect.Postgres) {
+		dialects = append(dialects, "postgresql")
+	}
 
 	if !slices.Contains(dialects, dsn.Scheme) {
 		return fmt.Errorf("unsupported dialect: %s", dsn.Scheme)
@@ -88,6 +91,7 @@ func MustDriver(ctx context.Context, logger *slog.Logger, dsn *url.URL) *entsql.
 //   - file (remapped to sqlite3)
 //   - memory through "sqlite::memory:", each call to [MemoryDriver] will create a unique in-memory database.
 //   - postgres (using pgx, with pgxpool support, see [pgxpool.ParseConfig] for supported pooling options).
+//   - postgresql (remapped to postgres)
 //
 // Example:
 //
@@ -130,6 +134,9 @@ check:
 		goto check
 	case dsn.Scheme == "sqlite":
 		dsn.Scheme = dialect.SQLite
+		goto check
+	case dsn.Scheme == "postgresql":
+		dsn.Scheme = dialect.Postgres
 		goto check
 	case dsn.Scheme == dialect.SQLite && !dsn.Query().Has("_pragma"):
 		params := dsn.Query()

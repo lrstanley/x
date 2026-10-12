@@ -60,6 +60,11 @@ func TestConstrainDialect(t *testing.T) {
 			allowed: []string{dialect.Postgres},
 		},
 		{
+			name:    "postgresql accepts postgres",
+			scheme:  "postgresql",
+			allowed: []string{dialect.Postgres},
+		},
+		{
 			name:    "sqlite rejects postgres",
 			scheme:  "sqlite",
 			allowed: []string{dialect.Postgres},
