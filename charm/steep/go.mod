@@ -7,7 +7,7 @@ replace github.com/lrstanley/x/charm/still => ../still
 require (
 	charm.land/bubbletea/v2 v2.0.10
 	github.com/aymanbagabas/go-udiff v0.4.1
-	github.com/charmbracelet/ultraviolet v0.0.0-20260927222103-b78653fb9f29
+	github.com/charmbracelet/ultraviolet 6b8d4baf91b4
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/vt v0.0.0-20260927004216-9c77d672503d
 	github.com/lrstanley/x/charm/still v0.0.0
