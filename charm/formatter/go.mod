@@ -3,7 +3,7 @@ module github.com/lrstanley/x/charm/formatter
 go 1.25.4
 
 require (
-	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/goccy/go-yaml v1.19.2
 	github.com/rivo/uniseg v0.4.7
 )
