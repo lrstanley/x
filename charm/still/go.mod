@@ -3,8 +3,8 @@ module github.com/lrstanley/x/charm/still
 go 1.26.0
 
 require (
-	github.com/charmbracelet/ultraviolet v0.0.0-20260927222103-b78653fb9f29
-	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4
+	github.com/charmbracelet/x/ansi v0.11.9
 	golang.org/x/image v0.46.0
 )
 
