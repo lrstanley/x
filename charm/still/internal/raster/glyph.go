@@ -16,7 +16,14 @@ import (
 	"golang.org/x/image/font"
 )
 
-const glyphMaskCacheLimit = 128
+const (
+	// glyphMaskCacheEntries and glyphMaskCacheBytes bound the alpha-mask atlas.
+	// Masks are color-independent, so one entry covers every foreground that
+	// uses that face and grapheme. The caps follow a session-sized atlas
+	// (thousands of glyphs, tens of megabytes) rather than a single screen.
+	glyphMaskCacheEntries = 4096
+	glyphMaskCacheBytes   = 32 << 20
+)
 
 type glyphMaskKey struct {
 	face  font.Face
@@ -28,7 +35,10 @@ type cachedGlyphMask struct {
 	alpha  *image.Alpha
 }
 
-type glyphMaskCache map[glyphMaskKey]cachedGlyphMask
+type glyphMaskCache struct {
+	items map[glyphMaskKey]cachedGlyphMask
+	bytes int
+}
 
 // DrawGlyphLayout rasterizes layout onto img.
 func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
@@ -93,6 +103,8 @@ func accumulateGlyphMask(cov *Coverage, dr image.Rectangle, pix []uint8, stride 
 		ay := y - dr.Min.Y
 		row := pix[ay*stride : ay*stride+dx]
 		rowBase := (y-minY)*covDx + (dr.Min.X - minX)
+		rowDirty := false
+		rowMin, rowMax := 0, 0
 		for x := dr.Min.X; x < dr.Max.X; x++ {
 			ga := row[x-dr.Min.X]
 			if ga == 0 {
@@ -101,8 +113,15 @@ func accumulateGlyphMask(cov *Coverage, dr image.Rectangle, pix []uint8, stride 
 			i := rowBase + (x - dr.Min.X)
 			if ga > uint8(pixels[i]) {
 				pixels[i] = packCoveragePixel(ga, fg)
-				cov.markDirty(x, y)
+				if !rowDirty {
+					rowMin = x
+					rowDirty = true
+				}
+				rowMax = x
 			}
+		}
+		if rowDirty {
+			cov.markRow(y, rowMin, rowMax)
 		}
 	}
 }
@@ -115,24 +134,33 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 		face:  layout.Face,
 		glyph: layout.Glyph,
 	}
-	if *cache != nil {
-		if mask, ok := (*cache)[key]; ok {
+	if cache.items != nil {
+		if mask, ok := cache.items[key]; ok {
 			return mask, true
 		}
 	} else {
-		*cache = make(glyphMaskCache)
+		cache.items = make(map[glyphMaskKey]cachedGlyphMask)
 	}
 	mask, ok := buildGlyphLayoutMask(layout)
 	if !ok {
 		return cachedGlyphMask{}, false
 	}
-	if len(*cache) >= glyphMaskCacheLimit {
-		for _, m := range *cache {
+	n := 0
+	if mask.alpha != nil {
+		n = len(mask.alpha.Pix)
+	}
+	if n > glyphMaskCacheBytes {
+		return mask, true
+	}
+	if len(cache.items) >= glyphMaskCacheEntries || cache.bytes+n > glyphMaskCacheBytes {
+		for _, m := range cache.items {
 			alpha.ReleaseGlyphAlpha(m.alpha)
 		}
-		clear(*cache)
+		clear(cache.items)
+		cache.bytes = 0
 	}
-	(*cache)[key] = mask
+	cache.items[key] = mask
+	cache.bytes += n
 	return mask, true
 }
 

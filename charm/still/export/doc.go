@@ -6,8 +6,9 @@
 //
 // GIF capture accumulates per-frame delays as [time.Duration] internally;
 // conversion to centiseconds (1/100s) happens at finalize. Delays shorter than
-// 10 ms round up to 1 cs; the maximum representable delay is about 655.35s
-// (65535cs). [WithChannel] accepts explicit [Frame.Delay] values preserved as
+// 10 ms round up to 1 cs. A single GIF frame stores at most 65535cs (~655.35s);
+// longer [DisposalNone] holds are split into a full frame plus 1×1 transparent
+// continuations so the timeline is preserved. [WithChannel] accepts explicit [Frame.Delay] values preserved as
 // Duration until finalize; zero delay accumulates elapsed wall time since the
 // last capture attempt (including deduped ticks). Non-strict [WithFrameRate]
 // snaps accumulated delays to the nearest nominal FPS grid at finalize.

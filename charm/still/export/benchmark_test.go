@@ -116,6 +116,44 @@ func BenchmarkPalettizeDraw(b *testing.B) {
 	}
 }
 
+func BenchmarkOptimizeDisposals(b *testing.B) {
+	const w, h = 1280, 864
+	pal := defaultGIFPalette()
+	base := image.NewPaletted(image.Rect(0, 0, w, h), pal)
+	for i := range base.Pix {
+		base.Pix[i] = 16
+	}
+	blink := clonePaletted(base)
+	for y := 400; y < 416; y++ {
+		for x := 600; x < 616; x++ {
+			blink.SetColorIndex(x, y, 196)
+		}
+	}
+	frames := [8]*image.Paletted{}
+	for i := range frames {
+		if i%2 == 0 {
+			frames[i] = base
+		} else {
+			frames[i] = blink
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		rec := &gifRecording{
+			config: image.Config{Width: w, Height: h, ColorModel: pal},
+			images: make([]*image.Paletted, len(frames)),
+			delays: make([]time.Duration, len(frames)),
+		}
+		for i, frame := range frames {
+			rec.images[i] = clonePaletted(frame)
+			rec.delays[i] = 50 * time.Millisecond
+		}
+		optimizeDisposals(rec, nil, false)
+	}
+}
+
 func BenchmarkPalettizeLUT(b *testing.B) {
 	src := terminalBenchmarkFrame(0)
 	pal := defaultGIFPalette()

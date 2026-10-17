@@ -16,8 +16,6 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"github.com/lrstanley/x/charm/still/units"
 )
 
 // FrameRecorder captures GIF frames, then finalizes and encodes via [FrameRecorder.EncodeAll].
@@ -442,20 +440,90 @@ func quantizeDelays(delays []time.Duration, opts options) []int {
 
 // buildGIF converts a finalized recording into a gif.GIF with quantized delays.
 func buildGIF(rec *gifRecording, opts options) *gif.GIF {
+	images, delays, disposals := splitLongDelays(rec.images, quantizeDelays(rec.delays, opts), rec.disposal)
 	return &gif.GIF{
 		LoopCount:       rec.loopCount,
 		Config:          rec.config,
-		Image:           rec.images,
-		Delay:           quantizeDelays(rec.delays, opts),
-		Disposal:        rec.disposal,
+		Image:           images,
+		Delay:           delays,
+		Disposal:        disposals,
 		BackgroundIndex: rec.backgroundIndex,
 	}
 }
 
-// clampCentiseconds enforces GIF delay bounds: minimum 1 cs, maximum 65535cs
-// (~655.35s).
+// maxGIFCentiseconds is the largest delay GIF can store in one frame.
+const maxGIFCentiseconds = 65535
+
+// clampCentiseconds enforces the GIF minimum delay of 1 cs. Values above
+// [maxGIFCentiseconds] are split into continuation frames by [splitLongDelays].
 func clampCentiseconds(cs int) int {
-	return units.Clamp(cs, 1, 65535)
+	if cs < 1 {
+		return 1
+	}
+	return cs
+}
+
+// splitLongDelays breaks delays longer than one GIF frame into a chain.
+// DisposalNone holds keep the canvas with a 1×1 transparent continuation, so
+// a static recording longer than ~655s does not lose time. Other disposal
+// methods stay on their original frame and are clamped; extending them would
+// fire disposal before the hold finishes.
+func splitLongDelays(images []*image.Paletted, delays []int, disposals []byte) (outImages []*image.Paletted, outDelays []int, outDisposals []byte) {
+	extra := 0
+	for _, d := range delays {
+		if d > maxGIFCentiseconds {
+			extra += (d+maxGIFCentiseconds-1)/maxGIFCentiseconds - 1
+		}
+	}
+	if extra == 0 {
+		return images, delays, disposals
+	}
+
+	outImages = make([]*image.Paletted, 0, len(images)+extra)
+	outDelays = make([]int, 0, len(images)+extra)
+	outDisposals = make([]byte, 0, len(images)+extra)
+	for i, d := range delays {
+		img := images[i]
+		disp := byte(gif.DisposalNone)
+		if i < len(disposals) {
+			disp = disposals[i]
+		}
+		if d <= maxGIFCentiseconds || disp != gif.DisposalNone {
+			if d > maxGIFCentiseconds {
+				d = maxGIFCentiseconds
+			}
+			outImages = append(outImages, img)
+			outDelays = append(outDelays, d)
+			outDisposals = append(outDisposals, disp)
+			continue
+		}
+		first := true
+		for d > 0 {
+			n := min(d, maxGIFCentiseconds)
+			frame := img
+			if !first {
+				frame = holdFrame(img)
+			}
+			outImages = append(outImages, frame)
+			outDelays = append(outDelays, n)
+			outDisposals = append(outDisposals, gif.DisposalNone)
+			d -= n
+			first = false
+		}
+	}
+	return outImages, outDelays, outDisposals
+}
+
+// holdFrame is a 1×1 transparent patch. With DisposalNone it adds delay
+// without changing the canvas. Palettes without a transparent slot repeat
+// the full frame instead.
+func holdFrame(src *image.Paletted) *image.Paletted {
+	if src == nil || len(src.Palette) <= int(TransparentPaletteIndex) {
+		return src
+	}
+	p := image.NewPaletted(image.Rect(0, 0, 1, 1), src.Palette)
+	p.Pix[0] = TransparentPaletteIndex
+	return p
 }
 
 var (

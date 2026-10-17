@@ -5,6 +5,7 @@
 package still
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"testing"
@@ -155,4 +156,36 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 
 	b.StopTimer()
 	assertBenchmarkBudget(b, renderExportBudget)
+}
+
+// BenchmarkDrawManyGlyphs draws a screen with more unique graphemes than the
+// old 128-entry mask cache could hold, which is the case the atlas budget is
+// sized for.
+func BenchmarkDrawManyGlyphs(b *testing.B) {
+	const cols, rows = 40, 16
+	scr := newTestScreen(cols, rows)
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	for y := range rows {
+		for x := range cols {
+			i := y*cols + x
+			scr.SetCell(x, y, &uv.Cell{
+				Content: fmt.Sprintf("%c%d", rune(0x21+i%90), i),
+				Width:   1,
+				Style:   uv.Style{Fg: fg, Bg: bg},
+			})
+		}
+	}
+
+	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	frame := image.NewNRGBA(d.Bounds(scr))
+	for range benchmarkWarmupIters {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
 }

@@ -99,6 +99,22 @@ func RasterGlyph(dr image.Rectangle, mask image.Image, maskp image.Point) *image
 	if out == nil || out.Bounds() != want {
 		out = image.NewAlpha(want)
 	}
+	if src, ok := mask.(*image.Alpha); ok && src.Bounds().Dx() == want.Dx() && src.Bounds().Dy() == want.Dy() {
+		dw, dh := want.Dx(), want.Dy()
+		x0 := maskp.X - src.Rect.Min.X
+		y0 := maskp.Y - src.Rect.Min.Y
+		if dw > 0 && dh > 0 && x0 >= 0 && y0 >= 0 && x0+dw <= src.Stride {
+			last := (y0+dh-1)*src.Stride + x0 + dw
+			if last <= len(src.Pix) {
+				for y := range dh {
+					si := (y0+y)*src.Stride + x0
+					di := y * out.Stride
+					copy(out.Pix[di:di+dw], src.Pix[si:si+dw])
+				}
+				return out
+			}
+		}
+	}
 	draw.DrawMask(out, out.Bounds(), image.Opaque, image.Point{}, mask, maskp, draw.Src)
 	return out
 }

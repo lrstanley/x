@@ -19,10 +19,12 @@ type Coverage struct {
 	bounds image.Rectangle
 	pixels []uint32 // alpha | R<<8 | G<<16 | B<<24
 
-	dirtyMinX int
-	dirtyMinY int
-	dirtyMaxX int
-	dirtyMaxY int
+	// rowLo and rowHi are inclusive ink spans for each row of bounds.
+	// rowLo[y] < 0 means the row has no ink. Composite visits only those
+	// spans, so line-gap rows between glyphs are not scanned.
+	rowLo  []int
+	rowHi  []int
+	hasInk bool
 }
 
 func packCoveragePixel(alpha uint8, fg color.NRGBA) uint32 {
@@ -37,37 +39,39 @@ func (c *Coverage) reset(bounds image.Rectangle) {
 		c.pixels = c.pixels[:n]
 		clear(c.pixels)
 	}
+	h := bounds.Dy()
+	if cap(c.rowLo) < h {
+		c.rowLo = make([]int, h)
+		c.rowHi = make([]int, h)
+	} else {
+		c.rowLo = c.rowLo[:h]
+		c.rowHi = c.rowHi[:h]
+	}
+	for i := range c.rowLo {
+		c.rowLo[i] = -1
+	}
 	c.bounds = bounds
-	c.clearDirty()
+	c.hasInk = false
 }
 
-func (c *Coverage) clearDirty() {
-	c.dirtyMinX = 1<<31 - 1
-	c.dirtyMinY = 1<<31 - 1
-	c.dirtyMaxX = -1 << 31
-	c.dirtyMaxY = -1 << 31
-}
-
-func (c *Coverage) markDirty(x, y int) {
-	if x < c.dirtyMinX {
-		c.dirtyMinX = x
+// markRow records an inclusive ink span on y. x0 and x1 are absolute pixels.
+func (c *Coverage) markRow(y, x0, x1 int) {
+	yi := y - c.bounds.Min.Y
+	if yi < 0 || yi >= len(c.rowLo) {
+		return
 	}
-	if y < c.dirtyMinY {
-		c.dirtyMinY = y
+	if c.rowLo[yi] < 0 {
+		c.rowLo[yi] = x0
+		c.rowHi[yi] = x1
+	} else {
+		if x0 < c.rowLo[yi] {
+			c.rowLo[yi] = x0
+		}
+		if x1 > c.rowHi[yi] {
+			c.rowHi[yi] = x1
+		}
 	}
-	if x > c.dirtyMaxX {
-		c.dirtyMaxX = x
-	}
-	if y > c.dirtyMaxY {
-		c.dirtyMaxY = y
-	}
-}
-
-func (c *Coverage) dirtyBounds() image.Rectangle {
-	if c.dirtyMaxX < c.dirtyMinX || c.dirtyMaxY < c.dirtyMinY {
-		return image.Rectangle{}
-	}
-	return image.Rect(c.dirtyMinX, c.dirtyMinY, c.dirtyMaxX+1, c.dirtyMaxY+1)
+	c.hasInk = true
 }
 
 func (c *Coverage) index(x, y int) int {
@@ -86,13 +90,16 @@ func (c *Coverage) Accumulate(x, y int, alpha uint8, fg color.NRGBA) {
 	i := c.index(x, y)
 	if alpha > uint8(c.pixels[i]) {
 		c.pixels[i] = packCoveragePixel(alpha, fg)
-		c.markDirty(x, y)
+		c.markRow(y, x, x)
 	}
 }
 
 // Composite blends accumulated glyph coverage over dst.
 func (c *Coverage) Composite(dst *image.NRGBA) {
-	b := c.dirtyBounds().Intersect(c.bounds).Intersect(dst.Bounds())
+	if !c.hasInk || dst == nil {
+		return
+	}
+	b := c.bounds.Intersect(dst.Bounds())
 	if b.Empty() {
 		return
 	}
@@ -100,10 +107,26 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 	db := dst.Bounds()
 	stride := dst.Stride
 	pix := dst.Pix
+	minX, minY := c.bounds.Min.X, c.bounds.Min.Y
 	for y := b.Min.Y; y < b.Max.Y; y++ {
-		i := (y-c.bounds.Min.Y)*dx + (b.Min.X - c.bounds.Min.X)
-		off := (y-db.Min.Y)*stride + (b.Min.X-db.Min.X)*4
-		end := off + (b.Dx()-1)*4
+		yi := y - minY
+		x0 := c.rowLo[yi]
+		if x0 < 0 {
+			continue
+		}
+		x1 := c.rowHi[yi] + 1
+		if x0 < b.Min.X {
+			x0 = b.Min.X
+		}
+		if x1 > b.Max.X {
+			x1 = b.Max.X
+		}
+		if x0 >= x1 {
+			continue
+		}
+		i := (y-minY)*dx + (x0 - minX)
+		off := (y-db.Min.Y)*stride + (x0-db.Min.X)*4
+		end := off + (x1-x0-1)*4
 		for {
 			p := c.pixels[i]
 			a := uint8(p)

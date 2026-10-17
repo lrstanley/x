@@ -5,6 +5,7 @@
 package export
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
@@ -119,11 +120,24 @@ func planDisposalFrames(rec *gifRecording, canvas, before *image.Paletted, scree
 			// including pixels encoded transparent that were showing prior canvas
 			// content. Scroll strips and selection rows rely on those pixels, so
 			// leave the composited canvas intact instead.
+			//
+			// A bbox that is mostly new pixels encodes smaller and builds faster
+			// as an opaque crop. Punching those pixels transparent fragments
+			// runs that would otherwise be one index. Sparse changes (a cursor
+			// inside a larger box) still use a transparent hole.
+			var patch *image.Paletted
+			bboxArea := bbox.Dx() * bbox.Dy()
+			unchanged := bboxArea - diffArea
+			if bboxArea > 0 && unchanged >= 0 && unchanged*4 < bboxArea {
+				patch = cropPaletted(full, bbox)
+			} else {
+				patch = subRectFrame(canvas, full, bbox, pal)
+			}
 			plan = framePlan{
 				kind:     planSubRect,
 				delay:    rec.delays[i],
 				disposal: disposal,
-				image:    subRectFrame(canvas, full, bbox, pal),
+				image:    patch,
 			}
 		}
 
@@ -289,6 +303,11 @@ func revealFrame(pal color.Palette) *image.Paletted {
 // diffBoundingBox returns the smallest rectangle enclosing pixels that differ
 // between canvas and full, and the count of differing pixels.
 func diffBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
+	if canvas != nil && full != nil && canvas.Rect.Eq(screen) && full.Rect.Eq(screen) {
+		if fast, n, ok := diffBoundingBoxRows(canvas, full, screen); ok {
+			return fast, n
+		}
+	}
 	minX, minY := screen.Max.X, screen.Max.Y
 	maxX, maxY := screen.Min.X-1, screen.Min.Y-1
 	diff = 0
@@ -318,6 +337,61 @@ func diffBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox
 	return image.Rect(minX, minY, maxX+1, maxY+1), diff
 }
 
+// diffBoundingBoxRows compares full-canvas frames by row. Identical rows are
+// skipped with bytes.Equal. ok is false when the pixel storage cannot cover
+// the screen, and the caller falls back to per-pixel indexing.
+func diffBoundingBoxRows(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int, ok bool) {
+	width := screen.Dx()
+	height := screen.Dy()
+	if width <= 0 || height <= 0 || canvas.Stride < width || full.Stride < width {
+		return image.Rectangle{}, 0, false
+	}
+	needC := (height-1)*canvas.Stride + width
+	needF := (height-1)*full.Stride + width
+	if len(canvas.Pix) < needC || len(full.Pix) < needF {
+		return image.Rectangle{}, 0, false
+	}
+
+	minX, maxX := width, -1
+	minY, maxY := -1, -1
+	for row := range height {
+		ca := canvas.Pix[row*canvas.Stride : row*canvas.Stride+width]
+		fa := full.Pix[row*full.Stride : row*full.Stride+width]
+		if bytes.Equal(ca, fa) {
+			continue
+		}
+		lo := 0
+		for lo < width && ca[lo] == fa[lo] {
+			lo++
+		}
+		hi := width - 1
+		for hi > lo && ca[hi] == fa[hi] {
+			hi--
+		}
+		rowDiff := 0
+		for x := lo; x <= hi; x++ {
+			if ca[x] != fa[x] {
+				rowDiff++
+			}
+		}
+		diff += rowDiff
+		if lo < minX {
+			minX = lo
+		}
+		if hi > maxX {
+			maxX = hi
+		}
+		if minY < 0 {
+			minY = row
+		}
+		maxY = row
+	}
+	if diff == 0 {
+		return image.Rectangle{}, 0, true
+	}
+	return image.Rect(screen.Min.X+minX, screen.Min.Y+minY, screen.Min.X+maxX+1, screen.Min.Y+maxY+1), diff, true
+}
+
 func paletteIndexAt(pm *image.Paletted, x, y int) uint8 {
 	if !image.Pt(x, y).In(pm.Bounds()) {
 		return TransparentPaletteIndex
@@ -329,16 +403,61 @@ func paletteIndexAt(pm *image.Paletted, x, y int) uint8 {
 // unchanged pixels within bbox are marked transparent (-O2).
 func subRectFrame(canvas, full *image.Paletted, bbox image.Rectangle, pal color.Palette) *image.Paletted {
 	sub := image.NewPaletted(bbox, pal)
+	width := bbox.Dx()
 	for y := bbox.Min.Y; y < bbox.Max.Y; y++ {
-		for x := bbox.Min.X; x < bbox.Max.X; x++ {
-			if paletteIndexAt(canvas, x, y) == paletteIndexAt(full, x, y) {
-				sub.SetColorIndex(x, y, TransparentPaletteIndex)
+		dst, okD := palettedSpan(sub, bbox.Min.X, y, width)
+		cSpan, okC := palettedSpan(canvas, bbox.Min.X, y, width)
+		fSpan, okF := palettedSpan(full, bbox.Min.X, y, width)
+		if !okD || !okC || !okF {
+			for x := bbox.Min.X; x < bbox.Max.X; x++ {
+				if paletteIndexAt(canvas, x, y) == paletteIndexAt(full, x, y) {
+					sub.SetColorIndex(x, y, TransparentPaletteIndex)
+				} else {
+					sub.SetColorIndex(x, y, paletteIndexAt(full, x, y))
+				}
+			}
+			continue
+		}
+		for x := range width {
+			if cSpan[x] == fSpan[x] {
+				dst[x] = TransparentPaletteIndex
 			} else {
-				sub.SetColorIndex(x, y, paletteIndexAt(full, x, y))
+				dst[x] = fSpan[x]
 			}
 		}
 	}
 	return sub
+}
+
+// cropPaletted copies bbox out of src into a tightly packed frame with no
+// transparent holes. Used when almost every pixel in the bbox changed.
+func cropPaletted(src *image.Paletted, bbox image.Rectangle) *image.Paletted {
+	dst := image.NewPaletted(bbox, src.Palette)
+	width := bbox.Dx()
+	for y := bbox.Min.Y; y < bbox.Max.Y; y++ {
+		out := dst.Pix[(y-bbox.Min.Y)*dst.Stride : (y-bbox.Min.Y)*dst.Stride+width]
+		span, ok := palettedSpan(src, bbox.Min.X, y, width)
+		if !ok {
+			for x := bbox.Min.X; x < bbox.Max.X; x++ {
+				dst.SetColorIndex(x, y, paletteIndexAt(src, x, y))
+			}
+			continue
+		}
+		copy(out, span)
+	}
+	return dst
+}
+
+// palettedSpan returns n palette indices starting at (x, y).
+func palettedSpan(pm *image.Paletted, x, y, n int) ([]byte, bool) {
+	if pm == nil || n <= 0 || y < pm.Rect.Min.Y || y >= pm.Rect.Max.Y || x < pm.Rect.Min.X || x+n > pm.Rect.Max.X {
+		return nil, false
+	}
+	i := (y-pm.Rect.Min.Y)*pm.Stride + (x - pm.Rect.Min.X)
+	if i < 0 || i+n > len(pm.Pix) {
+		return nil, false
+	}
+	return pm.Pix[i : i+n], true
 }
 
 // applyFrame composites frame onto canvas, then applies disposal to prepare
@@ -357,33 +476,67 @@ func applyFrame(canvas, before, frame *image.Paletted, disposal byte, bgIdx uint
 
 // blitOpaque copies all pixels from frame onto canvas within clip.
 func blitOpaque(canvas, frame *image.Paletted, clip image.Rectangle) {
-	r := frame.Bounds().Intersect(clip)
+	r := frame.Bounds().Intersect(clip).Intersect(canvas.Bounds())
+	width := r.Dx()
+	if width <= 0 {
+		return
+	}
 	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			canvas.SetColorIndex(x, y, paletteIndexAt(frame, x, y))
+		dst, okD := palettedSpan(canvas, r.Min.X, y, width)
+		src, okS := palettedSpan(frame, r.Min.X, y, width)
+		if !okD || !okS {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				canvas.SetColorIndex(x, y, paletteIndexAt(frame, x, y))
+			}
+			continue
 		}
+		copy(dst, src)
 	}
 }
 
 // blitTransparent copies non-transparent pixels from frame onto canvas.
 func blitTransparent(frame, canvas *image.Paletted) {
-	r := frame.Bounds()
+	r := frame.Bounds().Intersect(canvas.Bounds())
+	width := r.Dx()
+	if width <= 0 {
+		return
+	}
 	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			idx := paletteIndexAt(frame, x, y)
-			if idx != TransparentPaletteIndex {
-				canvas.SetColorIndex(x, y, idx)
+		src, okS := palettedSpan(frame, r.Min.X, y, width)
+		dst, okD := palettedSpan(canvas, r.Min.X, y, width)
+		if !okS || !okD {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				idx := paletteIndexAt(frame, x, y)
+				if idx != TransparentPaletteIndex {
+					canvas.SetColorIndex(x, y, idx)
+				}
+			}
+			continue
+		}
+		for x := range width {
+			if src[x] != TransparentPaletteIndex {
+				dst[x] = src[x]
 			}
 		}
 	}
 }
 
 func clearRect(pm *image.Paletted, r image.Rectangle, bgIdx uint8) {
+	r = r.Intersect(pm.Bounds())
+	width := r.Dx()
+	if width <= 0 {
+		return
+	}
 	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			if image.Pt(x, y).In(pm.Bounds()) {
+		span, ok := palettedSpan(pm, r.Min.X, y, width)
+		if !ok {
+			for x := r.Min.X; x < r.Max.X; x++ {
 				pm.SetColorIndex(x, y, bgIdx)
 			}
+			continue
+		}
+		for i := range span {
+			span[i] = bgIdx
 		}
 	}
 }

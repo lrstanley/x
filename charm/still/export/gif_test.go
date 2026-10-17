@@ -975,3 +975,46 @@ func assertTransparentCenter(t *testing.T, src, got image.Image) {
 		t.Fatalf("replayed center alpha = %d, want 0", ga>>8)
 	}
 }
+
+func TestGIFLongDelaySplits(t *testing.T) {
+	t.Parallel()
+
+	const wantCS = 70000 // 700s, past the 65535cs GIF frame limit
+	src := solidFrame(4, 16, 16)
+	var buf bytes.Buffer
+	if err := recordViaChannelWriter(&buf, []image.Image{src}, 700*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := gif.DecodeAll(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) < 2 {
+		t.Fatalf("got %d frames, want a continuation past 65535cs", len(g.Image))
+	}
+	sum := 0
+	for i, d := range g.Delay {
+		if d < 1 || d > 65535 {
+			t.Fatalf("delay[%d] = %d, want 1..65535", i, d)
+		}
+		sum += d
+	}
+	if sum != wantCS {
+		t.Fatalf("delay sum = %d cs, want %d", sum, wantCS)
+	}
+	if g.Image[1].Bounds().Dx() != 1 || g.Image[1].Bounds().Dy() != 1 {
+		t.Fatalf("continuation bounds = %v, want 1x1", g.Image[1].Bounds())
+	}
+
+	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayed) != len(g.Image) {
+		t.Fatalf("replayed %d frames, gif has %d", len(replayed), len(g.Image))
+	}
+	for i := range replayed {
+		assertPalettizedSimilar(t, src, replayed[i])
+	}
+}
