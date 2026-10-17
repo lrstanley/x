@@ -237,6 +237,21 @@ func (h *Harness) FinalModel(opts ...Option) tea.Model {
 	return h.observer.currentModel()
 }
 
+// FinalModelAs waits for the [tea.Program] to finish and returns the underlying
+// model as M. It fails the test when the model is not M.
+//
+// See also [Harness.FinalModel].
+func (h *Harness) FinalModelAs[M any](opts ...Option) M {
+	h.tb.Helper()
+	model := h.FinalModel(opts...)
+	typed, ok := model.(M)
+	if !ok {
+		var zero M
+		h.tb.Fatalf("final model type = %T, want %T", model, zero)
+	}
+	return typed
+}
+
 // MessageHistory returns a copy of all messages observed by the underlying model.
 func (h *Harness) MessageHistory() iter.Seq[uv.Event] {
 	h.tb.Helper()

@@ -6,9 +6,11 @@ package steep
 
 import (
 	"errors"
+	"iter"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // WaitFinished waits for the [tea.Program] to finish.
@@ -301,4 +303,100 @@ func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 	defer h.hook(HookSettle, SettleMeta{Kind: "messages"})()
 	WaitSettleMessages(h.tb, h, h.mergedOpts(opts...)...)
 	return h
+}
+
+// WaitMessage waits until at least one message with concrete type T has been
+// observed, then returns the first match.
+//
+// See also [WaitMessage], [Harness.WaitMessageWhere], and [Harness.WaitLiveMessage].
+func (h *Harness) WaitMessage[T uv.Event](opts ...Option) T {
+	h.tb.Helper()
+	defer h.hook(HookSettle, SettleMeta{Kind: "message"})()
+	return WaitMessage[T](h.tb, h, h.mergedOpts(opts...)...)
+}
+
+// WaitLiveMessage waits until a new message with concrete type T arrives after
+// this call, then returns the first match.
+//
+// See also [WaitLiveMessage], [Harness.WaitMessage], and [Harness.WaitLiveMessageWhere].
+func (h *Harness) WaitLiveMessage[T uv.Event](opts ...Option) T {
+	h.tb.Helper()
+	defer h.hook(HookSettle, SettleMeta{Kind: "live_message"})()
+	return WaitLiveMessage[T](h.tb, h, h.mergedOpts(opts...)...)
+}
+
+// WaitMessageWhere waits until fn returns true for a message of type T across
+// history and later messages. T is inferred from fn.
+//
+// See also [WaitMessageWhere] and [Harness.WaitLiveMessageWhere].
+func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
+	h.tb.Helper()
+	defer h.hook(HookSettle, SettleMeta{Kind: "message_where"})()
+	return waitMessageWhere[T](h, false, fn, opts...)
+}
+
+// WaitLiveMessageWhere waits until fn returns true for a message of type T
+// received after this call. T is inferred from fn.
+//
+// See also [WaitLiveMessageWhere] and [Harness.WaitMessageWhere].
+func (h *Harness) WaitLiveMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
+	h.tb.Helper()
+	defer h.hook(HookSettle, SettleMeta{Kind: "live_message_where"})()
+	return waitMessageWhere[T](h, true, fn, opts...)
+}
+
+func waitMessageWhere[T uv.Event](h *Harness, live bool, fn func(T) bool, opts ...Option) T {
+	h.tb.Helper()
+	var match T
+	pred := func(msg uv.Event) bool {
+		typed, ok := msg.(T)
+		if !ok || !fn(typed) {
+			return false
+		}
+		match = typed
+		return true
+	}
+	merged := h.mergedOpts(opts...)
+	if live {
+		WaitLiveMessageWhere(h.tb, h, pred, merged...)
+	} else {
+		WaitMessageWhere(h.tb, h, pred, merged...)
+	}
+	return match
+}
+
+// AssertHasMessage reports an error unless history contains a message of type T.
+//
+// See also [AssertHasMessage] and [Harness.RequireHasMessage].
+func (h *Harness) AssertHasMessage[T uv.Event](opts ...Option) bool {
+	h.tb.Helper()
+	defer h.hook(HookAssert, AssertMeta{Kind: "hasMessage"})()
+	return AssertHasMessage[T](h.tb, h, h.mergedOpts(opts...)...)
+}
+
+// RequireHasMessage fails the test immediately unless history contains a message
+// of type T.
+//
+// See also [RequireHasMessage] and [Harness.AssertHasMessage].
+func (h *Harness) RequireHasMessage[T uv.Event](opts ...Option) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookAssert, AssertMeta{Kind: "requireHasMessage"})()
+	RequireHasMessage[T](h.tb, h, h.mergedOpts(opts...)...)
+	return h
+}
+
+// FilterMessagesType yields history messages whose concrete type is T.
+//
+// See also [FilterMessagesType] and [Harness.FilterMessagesFunc].
+func (h *Harness) FilterMessagesType[T uv.Event]() iter.Seq[T] {
+	h.tb.Helper()
+	return FilterMessagesType[T](h.tb, h.MessageHistory())
+}
+
+// FilterMessagesFunc yields history messages of type T for which fn returns true.
+//
+// See also [FilterMessagesFunc] and [Harness.FilterMessagesType].
+func (h *Harness) FilterMessagesFunc[T uv.Event](fn func(T) bool) iter.Seq[T] {
+	h.tb.Helper()
+	return FilterMessagesFunc[T](h.tb, h.MessageHistory(), fn)
 }

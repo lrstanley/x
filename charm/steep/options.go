@@ -183,9 +183,10 @@ func WithWindowSize(width, height int) Option {
 }
 
 // WithContext sets the parent context for blocking waits ([Wait],
-// [WaitMessageWhere], [Harness] wait helpers, etc.) and for the running
-// [tea.Program]. Defaults to a notify context through [signal.NotifyContext]
-// when invoked through [Harness], else [context.Background].
+// [WaitMessageWhere], [Harness.WaitMessageWhere], and other [Harness] wait
+// helpers) and for the running [tea.Program]. Defaults to a notify context
+// through [signal.NotifyContext] when invoked through [Harness], else
+// [context.Background].
 func WithContext(ctx context.Context) Option {
 	if ctx == nil {
 		ctx = context.Background()

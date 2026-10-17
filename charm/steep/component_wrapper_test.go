@@ -133,7 +133,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{})
 
 		h.Wait("size=80x24")
-		msg := WaitMessage[tea.WindowSizeMsg](t, h)
+		msg := h.WaitMessage[tea.WindowSizeMsg]()
 		if msg.Width != 80 || msg.Height != 24 {
 			t.Fatalf("initial size = %dx%d, want 80x24", msg.Width, msg.Height)
 		}
@@ -144,7 +144,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 		h := NewComponentHarness(t, &sizeViewModel{}, WithWindowSize(70, 10))
 
 		h.Wait("size=70x10")
-		msg := WaitMessage[tea.WindowSizeMsg](t, h)
+		msg := h.WaitMessage[tea.WindowSizeMsg]()
 		if msg.Width != 70 || msg.Height != 10 {
 			t.Fatalf("initial size = %dx%d, want 70x10", msg.Width, msg.Height)
 		}
@@ -154,7 +154,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 		t.Parallel()
 		h := NewComponentHarness(t, &sizeViewModel{}, WithWindowSize(0, 0))
 
-		msg := WaitMessage[tea.WindowSizeMsg](t, h)
+		msg := h.WaitMessage[tea.WindowSizeMsg]()
 		if msg.Width != 0 || msg.Height != 0 {
 			t.Fatalf("initial size = %dx%d, want 0x0", msg.Width, msg.Height)
 		}
@@ -194,7 +194,7 @@ func TestComponentHarnessAsyncBridge(t *testing.T) {
 
 	h.Wait([]string{"size=33x4", "text=ready"})
 
-	msg := WaitMessage[appendMsg](t, h)
+	msg := h.WaitMessage[appendMsg]()
 	if msg != "ready" {
 		t.Fatalf("message = %q, want ready", msg)
 	}
@@ -240,7 +240,7 @@ func TestComponentHarnessWaitSettled(t *testing.T) {
 		t.Fatalf("output = %q, want updates=3", out)
 	}
 
-	matches := slices.Collect(FilterMessagesType[settleMsg](t, h.MessageHistory()))
+	matches := slices.Collect(h.FilterMessagesType[settleMsg]())
 	if len(matches) != 3 {
 		t.Fatalf("settle messages = %d, want 3", len(matches))
 	}
@@ -294,7 +294,7 @@ func TestComponentHarnessWaitSettledIgnoreMsgs(t *testing.T) {
 	if !strings.Contains(h.View(), "updates=2") {
 		t.Fatalf("output = %q, want updates=2", h.View())
 	}
-	if len(slices.Collect(FilterMessagesType[settleNoiseTick](t, h.MessageHistory()))) < 3 {
+	if len(slices.Collect(h.FilterMessagesType[settleNoiseTick]())) < 3 {
 		t.Fatalf("expected periodic noise ticks in message log")
 	}
 }
@@ -341,7 +341,7 @@ func TestComponentHarnessWaitSettledView(t *testing.T) {
 	if !strings.Contains(h.View(), "stable") {
 		t.Fatalf("view = %q, want stable", h.View())
 	}
-	tickMsgs := slices.Collect(FilterMessagesType[viewSettleTick](t, h.MessageHistory()))
+	tickMsgs := slices.Collect(h.FilterMessagesType[viewSettleTick]())
 	if len(tickMsgs) < 2 {
 		t.Fatalf("viewSettleTick messages = %d, want at least 2 (ticks while view stayed stable)", len(tickMsgs))
 	}

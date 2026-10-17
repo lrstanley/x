@@ -102,10 +102,11 @@ func (e *emulator) programStatusesLocked() []ansi.ProgramStatus {
 	for i := range out {
 		id := out[i].ID
 		for out[i].App == "" && id != "" {
-			if at := strings.LastIndexByte(id, '/'); at >= 0 {
-				id = id[:at]
-			} else {
+			prefix, _, found := strings.CutLast(id, "/")
+			if !found {
 				id = ""
+			} else {
+				id = prefix
 			}
 			for _, parent := range e.statuses {
 				if parent.ID == id {

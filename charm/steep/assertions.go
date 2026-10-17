@@ -477,6 +477,8 @@ type MessageCollector interface {
 
 // AssertHasMessage asserts that at least one message with the same concrete type
 // as T has been observed.
+//
+// See also [Harness.AssertHasMessage] and [RequireHasMessage].
 func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) bool {
 	tb.Helper()
 	cfg := collectOptions(tb, opts...)
@@ -494,6 +496,8 @@ func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...O
 
 // RequireHasMessage requires that at least one message with the same concrete type
 // as T has been observed.
+//
+// See also [Harness.RequireHasMessage] and [AssertHasMessage].
 func RequireHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()
 
@@ -505,6 +509,8 @@ func RequireHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...
 // WaitLiveMessage waits until a NEW message (only messages received since this
 // function was invoked) with the same concrete type as T has been observed,
 // then returns the first match.
+//
+// See also [Harness.WaitLiveMessage] and [WaitMessage].
 func WaitLiveMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 
@@ -522,6 +528,8 @@ func WaitLiveMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Op
 
 // WaitMessage waits until at least one message with the same concrete type
 // as T has been observed, then returns the first match.
+//
+// See also [Harness.WaitMessage] and [WaitMessageWhere].
 func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 
@@ -540,7 +548,7 @@ func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option
 // WaitLiveMessageWhere waits until "fn" returns true for a NEW message (only messages
 // received since this function was invoked).
 //
-// See also [WaitMessageWhere].
+// See also [Harness.WaitLiveMessageWhere] and [WaitMessageWhere].
 func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
 	tb.Helper()
 
@@ -569,7 +577,7 @@ func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event)
 // WaitMessageWhere waits until "fn" returns true for a message (across all
 // received messages).
 //
-// See also [WaitLiveMessageWhere].
+// See also [Harness.WaitMessageWhere] and [WaitLiveMessageWhere].
 func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
 	tb.Helper()
 
@@ -666,6 +674,8 @@ func IgnoreMessagesReflect(tb testing.TB, messages iter.Seq[uv.Event], ignore ..
 
 // FilterMessagesType filters an iterator of messages to only include messages
 // with the same concrete type as T.
+//
+// See also [Harness.FilterMessagesType].
 func FilterMessagesType[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event]) iter.Seq[T] {
 	tb.Helper()
 	var zero T
@@ -686,6 +696,8 @@ func FilterMessagesType[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event]) 
 
 // FilterMessagesFunc filters an iterator of messages to only include messages
 // that return true from the provided "fn" function.
+//
+// See also [Harness.FilterMessagesFunc].
 func FilterMessagesFunc[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event], fn func(T) bool) iter.Seq[T] {
 	tb.Helper()
 	return func(yield func(T) bool) {

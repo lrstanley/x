@@ -763,8 +763,7 @@ func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
 				t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
 			}
 
-			time.Sleep(500 * time.Millisecond)
-			synctest.Wait()
+			synctest.Sleep(500 * time.Millisecond)
 
 			hiddenImg := drawNRGBA(t, d, scr)
 			if got := hiddenImg.NRGBAAt(p.X, p.Y); got != (color.NRGBA{A: 0xff}) {
@@ -796,8 +795,7 @@ func TestRendererBlinkUsesDeterministicClock(t *testing.T) {
 				t.Fatalf("cursor bar extended past configured thickness")
 			}
 
-			time.Sleep(time.Second)
-			synctest.Wait()
+			synctest.Sleep(time.Second)
 
 			img = drawNRGBA(t, d, scr)
 			if got := img.NRGBAAt(area.Min.X, area.Min.Y); got == cursor {

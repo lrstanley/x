@@ -33,8 +33,7 @@ func TestGIFFrameCount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(265 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(265 * time.Millisecond)
 
 		if err := finishGIF(path, rec); err != nil {
 			t.Fatal(err)
@@ -62,8 +61,7 @@ func TestGIFDedupesIdle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(100 * time.Millisecond)
 
 		if err := finishGIF(path, rec); err != nil {
 			t.Fatal(err)
@@ -94,8 +92,7 @@ func TestGIFDedupIncrementalDelay(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(500 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(500 * time.Millisecond)
 
 		if err := finishGIF(path, rec); err != nil {
 			t.Fatal(err)
@@ -202,8 +199,7 @@ func TestGIFStrictDedupMultiple(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(400 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(400 * time.Millisecond)
 
 		if err := finishGIF(path, rec); err != nil {
 			t.Fatal(err)
@@ -240,8 +236,7 @@ func TestGIFNonStrictGridSnap(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(300 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(300 * time.Millisecond)
 
 		if err := finishGIF(path, rec); err != nil {
 			t.Fatal(err)
@@ -526,8 +521,7 @@ func TestGIFStrictFPSFixedDelay(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(300 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(300 * time.Millisecond)
 
 		if err := finishGIF(path, rec); err != nil {
 			t.Fatal(err)
@@ -782,8 +776,7 @@ func TestGIFChannelAutoDelay(t *testing.T) {
 		}
 
 		ch <- Frame{Image: solidFrame(1, 4, 4)}
-		time.Sleep(50 * time.Millisecond)
-		synctest.Wait()
+		synctest.Sleep(50 * time.Millisecond)
 		ch <- Frame{Image: solidFrame(2, 4, 4)}
 		close(ch)
 

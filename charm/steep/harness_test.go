@@ -66,10 +66,7 @@ func TestHarness(t *testing.T) {
 	h.QuitProgram()
 	h.WaitFinished(WithTimeout(time.Second))
 
-	finalModel, ok := h.FinalModel().(rootTestModel)
-	if !ok {
-		t.Fatalf("final model type = %T, want rootTestModel", h.FinalModel())
-	}
+	finalModel := h.FinalModelAs[rootTestModel]()
 	if finalModel.text != "done" {
 		t.Fatalf("final model text = %q, want done", finalModel.text)
 	}
@@ -89,7 +86,7 @@ func TestHarnessMutateRootModel(t *testing.T) {
 	if !strings.Contains(got, "text=mutated") {
 		t.Fatalf("view = %q, want text=mutated", got)
 	}
-	if len(slices.Collect(FilterMessagesType[mutateMsg[rootTestModel]](t, h.MessageHistory()))) != 0 {
+	if len(slices.Collect(h.FilterMessagesType[mutateMsg[rootTestModel]]())) != 0 {
 		t.Fatalf("mutate messages should not be exposed")
 	}
 }
@@ -146,26 +143,13 @@ func TestHarness_TerminalKey_mapsNamedKeys(t *testing.T) {
 			t.Parallel()
 			h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
 			h.Key(tt.key)
-			got := WaitMessageWhere(t, h, func(msg uv.Event) bool {
-				km, ok := msg.(tea.KeyPressMsg)
-				if !ok {
-					return false
-				}
+			h.WaitMessageWhere(func(km tea.KeyPressMsg) bool {
 				k := km.Key()
-				if k.Code != tt.wantCode {
+				if k.Code != tt.wantCode || k.Mod != tt.wantMod {
 					return false
 				}
-				if k.Mod != tt.wantMod {
-					return false
-				}
-				if tt.wantText != "" && k.Text != tt.wantText {
-					return false
-				}
-				return true
+				return tt.wantText == "" || k.Text == tt.wantText
 			})
-			if _, ok := got.(tea.KeyPressMsg); !ok {
-				t.Fatalf("got message type %T, want tea.KeyPressMsg", got)
-			}
 		})
 	}
 }

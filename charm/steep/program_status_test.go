@@ -45,7 +45,7 @@ func TestProgramStatusProtocol(t *testing.T) {
 	if before != after {
 		t.Fatal("program status changed the screen")
 	}
-	WaitMessage[tea.ProgramStatusSupportMsg](t, h)
+	h.WaitMessage[tea.ProgramStatusSupportMsg]()
 
 	got := h.ProgramStatuses()
 	if len(got) != 1 {
