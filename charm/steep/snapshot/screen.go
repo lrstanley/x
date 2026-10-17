@@ -146,15 +146,28 @@ func (c *Cell) FromUV(cell *uv.Cell) *Cell {
 type ScreenSnapshot struct {
 	// TODO: how to handle modes? not JSON marshalable atm.
 	// Modes     ansi.Modes `json:"modes,omitempty"      yaml:"modes,omitempty"`
-	Title     string    `json:"title,omitempty"      yaml:"title,omitempty"`
-	Rows      int       `json:"rows"                 yaml:"rows"`
-	Cols      int       `json:"cols"                 yaml:"cols"`
-	AltScreen bool      `json:"alt_screen,omitempty" yaml:"alt_screen,omitempty"`
-	Focused   bool      `json:"focused,omitempty"    yaml:"focused,omitempty"`
-	Cursor    Cursor    `json:"cursor,omitempty"     yaml:"cursor"`
-	FgColor   Color     `json:"fg_color,omitzero"    yaml:"fg_color,omitzero"`
-	BgColor   Color     `json:"bg_color,omitzero"    yaml:"bg_color,omitzero"`
-	Cells     [][]*Cell `json:"cells"                yaml:"cells"`
+	Title         string          `json:"title,omitempty"      yaml:"title,omitempty"`
+	Rows          int             `json:"rows"                 yaml:"rows"`
+	Cols          int             `json:"cols"                 yaml:"cols"`
+	AltScreen     bool            `json:"alt_screen,omitempty" yaml:"alt_screen,omitempty"`
+	Focused       bool            `json:"focused,omitempty"    yaml:"focused,omitempty"`
+	Cursor        Cursor          `json:"cursor,omitempty"         yaml:"cursor"`
+	FgColor       Color           `json:"fg_color,omitzero"        yaml:"fg_color,omitzero"`
+	BgColor       Color           `json:"bg_color,omitzero"        yaml:"bg_color,omitzero"`
+	ProgramStatus []ProgramStatus `json:"program_status,omitempty" yaml:"program_status,omitempty"`
+	Cells         [][]*Cell       `json:"cells"                    yaml:"cells"`
+}
+
+// ProgramStatus is one OSC 7501 record. A nil [ProgramStatus.Progress] means
+// the program did not report a percentage.
+type ProgramStatus struct {
+	ID       string `json:"id,omitempty"       yaml:"id,omitempty"`
+	State    string `json:"state"              yaml:"state"`
+	Kind     string `json:"kind,omitempty"     yaml:"kind,omitempty"`
+	App      string `json:"app,omitempty"      yaml:"app,omitempty"`
+	Title    string `json:"title,omitempty"    yaml:"title,omitempty"`
+	Message  string `json:"message,omitempty"  yaml:"message,omitempty"`
+	Progress *int   `json:"progress,omitempty" yaml:"progress,omitempty"`
 }
 
 // Compare compares the current snapshot with the given snapshot, using JSON

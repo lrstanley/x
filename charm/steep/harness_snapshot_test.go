@@ -7,6 +7,7 @@ package steep
 import (
 	"image/color"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -28,9 +29,23 @@ func TestHarnessAssertViewSnapshot(t *testing.T) {
 	h.AssertSnapshot(snapshot.WithDir(snapDir), snapshot.WithUpdate(true))
 
 	got := readSteepSnapshot(t, filepath.Join(snapDir, "TestHarnessAssertViewSnapshot.snap"))
-	if got != "size=80x3\ntext=assert-snap\n" {
-		t.Fatalf("snapshot = %q, want plain view text", got)
+	want := padScreen([]string{"size=80x3", "text=assert-snap", ""}, 80)
+	if got != want {
+		t.Fatalf("snapshot = %q, want full %dx3 screen", got, 80)
 	}
+}
+
+// padScreen pads each line to width with spaces. An empty line is a blank row.
+// Lines are joined without a trailing newline, matching [vt.Emulator.Render].
+func padScreen(lines []string, width int) string {
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		if n := width - len(line); n > 0 {
+			line += strings.Repeat(" ", n)
+		}
+		out[i] = line
+	}
+	return strings.Join(out, "\n")
 }
 
 func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {

@@ -52,9 +52,9 @@ func TestHarness(t *testing.T) {
 
 	h.WaitString("size=80x2").
 		RequireString("size=80x2").
-		RequireWidth(9).
+		RequireWidth(80).
 		RequireHeight(2).
-		RequireDimensions(9, 2).
+		RequireDimensions(80, 2).
 		Type("ab").WaitBytes([]byte("text=ab")).
 		SendProgram(setTextMsg("done")).WaitString("text=done").WaitNotString("text=ab").RequireNotString("text=ab")
 

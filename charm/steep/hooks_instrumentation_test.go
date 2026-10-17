@@ -22,6 +22,7 @@ func init() {
 		"View", "Title", "LastBellAt", "Bounds", "IsAltScreen", "ModeSetting",
 		"Width", "Height", "Dimensions", "IsFocused", "FgColor", "BgColor",
 		"CursorColor", "CursorPosition", "CursorVisible", "CursorBlink", "CursorStyle",
+		"ProgramStatuses",
 		"Scrollback", "ScrollbackCount", "MessageHistory", "Messages", "LiveMessages",
 		"FinalModel", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts",
 		"syncRendererStateLocked", "rendererStateLocked", "drawImage", "drawImageInto",
@@ -41,6 +42,7 @@ func TestHookInstrumentation(t *testing.T) {
 		"harness.go",
 		"harness_assertions.go",
 		"harness_snapshot.go",
+		"program_status.go",
 	}
 
 	fset := token.NewFileSet()

@@ -39,13 +39,12 @@ type emulator struct {
 	altScreen   bool
 	modes       ansi.Modes
 	cursorPos   image.Point
-	cursorVis   bool
 	cursorColor color.Color
-	cursorStyle vt.CursorStyle
-	cursorBlink bool
 	bgColor     color.Color
 	fgColor     color.Color
 	lastBellAt  time.Time // Zero until first [vt.Callbacks.Bell].
+	// statuses is oldest-update first. At most [programStatusMaxRecords].
+	statuses []ansi.ProgramStatus
 }
 
 // vtSink serializes writes from the program output pump with other harness vt I/O.
@@ -86,9 +85,6 @@ func newEmulator(width, height int) *emulator {
 			ansi.ModeAltScreenSaveCursor: ansi.ModeReset,
 			ansi.ModeBracketedPaste:      ansi.ModeReset,
 		},
-		cursorStyle: vt.CursorBlock,
-		cursorBlink: true, // Matches vt default cursor [vt.Cursor] zero value (Steady == false).
-		cursorVis:   true, // Matches vt default [vt.Cursor.Hidden] == false before any visibility callback.
 	}
 
 	emu.vt.SetCallbacks(vt.Callbacks{
@@ -122,17 +118,6 @@ func newEmulator(width, height int) *emulator {
 			emu.cursorPos = next
 			emu.trackMu.Unlock()
 		},
-		CursorVisibility: func(visible bool) {
-			emu.trackMu.Lock()
-			emu.cursorVis = visible
-			emu.trackMu.Unlock()
-		},
-		CursorStyle: func(style vt.CursorStyle, steady bool) {
-			emu.trackMu.Lock()
-			emu.cursorStyle = style
-			emu.cursorBlink = !steady
-			emu.trackMu.Unlock()
-		},
 		CursorColor: func(color color.Color) {
 			emu.trackMu.Lock()
 			emu.cursorColor = color
@@ -148,6 +133,16 @@ func newEmulator(width, height int) *emulator {
 			emu.fgColor = color
 			emu.trackMu.Unlock()
 		},
+	})
+	emu.vt.RegisterOscHandler(7501, emu.handleProgramStatus)
+	emu.vt.RegisterOscHandler(133, emu.handleShellPrompt)
+	// Return false so the emulator's own RIS handler still runs. Last
+	// registered wins only when the handler reports the sequence consumed.
+	emu.vt.RegisterEscHandler('c', func() bool {
+		emu.trackMu.Lock()
+		emu.statuses = nil
+		emu.trackMu.Unlock()
+		return false
 	})
 
 	emu.pipe = vtpipe.New(
@@ -173,20 +168,22 @@ func (e *emulator) snapshot(tb testing.TB, opts ...snapshot.Option) *snapshot.Sc
 	e.trackMu.RLock()
 	defer e.trackMu.RUnlock()
 
+	visible, style, blink := e.cursorLocked()
 	snap := &snapshot.ScreenSnapshot{
-		Title:     e.title,
-		Rows:      e.vt.Height(),
-		Cols:      e.vt.Width(),
-		AltScreen: e.altScreen,
-		Focused:   e.focused,
+		Title:         e.title,
+		Rows:          e.vt.Height(),
+		Cols:          e.vt.Width(),
+		AltScreen:     e.altScreen,
+		Focused:       e.focused,
+		ProgramStatus: snapshotProgramStatuses(e.programStatusesLocked()),
 		Cursor: snapshot.Cursor{
 			Position: snapshot.Position{
 				X: e.cursorPos.X,
 				Y: e.cursorPos.Y,
 			},
-			Visible: e.cursorVis,
-			Blink:   e.cursorBlink,
-			Style:   e.cursorStyle,
+			Visible: visible,
+			Blink:   blink,
+			Style:   style,
 			Color:   snapshot.Color{Color: e.cursorColor},
 		},
 		BgColor: snapshot.Color{Color: e.bgColor},
@@ -223,9 +220,12 @@ func (e *emulator) closeInput() {
 }
 
 // View returns the current VT screen buffer ([vt.Emulator.Render]). [Harness] wait,
-// assert, and snapshot helpers sample this rendered output. Match the terminal
-// dimensions ([WithWindowSize], [Harness.Resize]) to the layout under test so output
-// has no unused rows or columns beyond what the renderer emits for that window size.
+// assert, and snapshot helpers sample this rendered output.
+//
+// Empty cells are spaces, so each line is the terminal width and a blank row is
+// a line of spaces. [Harness.Width] and [Harness.Height] match that grid. Size
+// the terminal with [WithWindowSize] or [Harness.Resize] when the text under
+// test should fill the window.
 func (h *Harness) View() string {
 	h.tb.Helper()
 	h.emulator.mu.RLock()
@@ -305,8 +305,8 @@ func (h *Harness) ModeSetting(mode ansi.Mode) ansi.ModeSetting {
 	return h.emulator.modes.Get(mode)
 }
 
-// Width returns the terminals current width in cells (matches [Harness.View]
-// output width).
+// Width returns the terminal width in cells. This matches [Harness.View], which
+// pads each line out to this width.
 func (h *Harness) Width() int {
 	h.emulator.mu.RLock()
 	defer h.emulator.mu.RUnlock()
@@ -438,27 +438,33 @@ func (h *Harness) CursorPosition() uv.Position {
 	return h.emulator.cursorPos
 }
 
-// CursorVisible reports whether the cursor is visible per the last
-// [vt.Callbacks.CursorVisibility] update (driven by DECTCEM and related screen
-// switches).
+// CursorVisible reports whether the cursor is shown. Visibility follows DECTCEM.
 func (h *Harness) CursorVisible() bool {
-	h.emulator.trackMu.RLock()
-	defer h.emulator.trackMu.RUnlock()
-	return h.emulator.cursorVis
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	return !h.emulator.vt.CursorHidden()
 }
 
-// CursorBlink reports whether blinking is enabled for the tracked cursor style.
+// CursorBlink reports whether the cursor style is blinking.
 func (h *Harness) CursorBlink() bool {
-	h.emulator.trackMu.RLock()
-	defer h.emulator.trackMu.RUnlock()
-	return h.emulator.cursorBlink
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	_, blink := h.emulator.vt.CursorStyle()
+	return blink
 }
 
-// CursorStyle returns the tracked VT cursor shape.
+// CursorStyle returns the current VT cursor shape.
 func (h *Harness) CursorStyle() vt.CursorStyle {
-	h.emulator.trackMu.RLock()
-	defer h.emulator.trackMu.RUnlock()
-	return h.emulator.cursorStyle
+	h.emulator.mu.RLock()
+	defer h.emulator.mu.RUnlock()
+	style, _ := h.emulator.vt.CursorStyle()
+	return style
+}
+
+// cursorLocked reads the live cursor. The caller must hold [emulator.mu].
+func (e *emulator) cursorLocked() (visible bool, style vt.CursorStyle, blink bool) {
+	style, blink = e.vt.CursorStyle()
+	return !e.vt.CursorHidden(), style, blink
 }
 
 // Scrollback returns a copy of the terminals scrollback lines (oldest first).

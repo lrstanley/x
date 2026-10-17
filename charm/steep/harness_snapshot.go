@@ -126,16 +126,17 @@ func (h *Harness) rendererStateLocked() still.EmulatorState {
 	h.emulator.trackMu.RLock()
 	defer h.emulator.trackMu.RUnlock()
 
+	visible, style, blink := h.emulator.cursorLocked()
 	return still.EmulatorState{
 		Title:           h.emulator.title,
 		Focused:         h.emulator.focused,
 		AltScreen:       h.emulator.altScreen,
-		CursorVisible:   h.emulator.cursorVis,
+		CursorVisible:   visible,
 		CursorX:         h.emulator.cursorPos.X,
 		CursorY:         h.emulator.cursorPos.Y,
 		CursorColor:     h.emulator.cursorColor,
-		CursorStyle:     cursorShapeFromVT(h.emulator.cursorStyle),
-		CursorBlink:     h.emulator.cursorBlink,
+		CursorStyle:     cursorShapeFromVT(style),
+		CursorBlink:     blink,
 		FgColor:         h.emulator.fgColor,
 		BgColor:         h.emulator.bgColor,
 		ScrollbackCount: h.emulator.vt.ScrollbackLen(),

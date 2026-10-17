@@ -70,7 +70,7 @@ func TestComponentHarnessMutableUpdate(t *testing.T) {
 
 	h.SendProgram(appendMsg("?")).WaitString("text=ab?!").WaitNotBytes([]byte("missing")).
 		RequireString("text=ab?!").RequireNotString("missing").
-		RequireWidth(9).RequireHeight(1).RequireDimensions(9, 1)
+		RequireWidth(80).RequireHeight(1).RequireDimensions(80, 1)
 
 	msgCount := len(slices.Collect(h.MessageHistory()))
 	if msgCount < 5 {
@@ -384,8 +384,8 @@ func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
 	h.RequireSnapshot(snapshot.WithANSI(false), snapshot.WithDir(snapDir), snapshot.WithUpdate(true))
 
 	got := readSteepSnapshot(t, filepath.Join(snapDir, "TestComponentHarnessRequirePlainSnapshot.snap"))
-	if got != "text=red" {
-		t.Fatalf("snapshot = %q, want text=red", got)
+	if got != padScreen([]string{"text=red"}, 80) {
+		t.Fatalf("snapshot = %q, want text=red padded to the window", got)
 	}
 }
 
