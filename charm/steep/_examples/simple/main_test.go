@@ -13,7 +13,7 @@ import (
 
 func TestModel(t *testing.T) {
 	steep.NewHarness(t, newRankingModel()).
-		WaitString("Tokyo").
+		Wait("Tokyo").
 		AssertSnapshot(snapshot.WithANSI(false)).
 		AssertJSON()
 }

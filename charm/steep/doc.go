@@ -7,7 +7,7 @@
 // Use NewHarness to run a root [tea.Model] in a test:
 //
 //	h := steep.NewHarness(t, model, steep.WithWindowSize(80, 24))
-//	h.Type("hello").WaitSettle().AssertString("hello")
+//	h.Type("hello").WaitSettle().Assert("hello")
 //	h.QuitProgram()
 //	h.WaitFinished()
 //

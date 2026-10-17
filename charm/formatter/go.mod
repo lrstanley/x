@@ -1,6 +1,6 @@
 module github.com/lrstanley/x/charm/formatter
 
-go 1.25.4
+go 1.27.0
 
 require (
 	github.com/charmbracelet/x/ansi v0.11.8

@@ -50,13 +50,13 @@ func TestHarness(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 2))
 
-	h.WaitString("size=80x2").
-		RequireString("size=80x2").
+	h.Wait("size=80x2").
+		Require("size=80x2").
 		RequireWidth(80).
 		RequireHeight(2).
 		RequireDimensions(80, 2).
-		Type("ab").WaitBytes([]byte("text=ab")).
-		SendProgram(setTextMsg("done")).WaitString("text=done").WaitNotString("text=ab").RequireNotString("text=ab")
+		Type("ab").Wait([]byte("text=ab")).
+		SendProgram(setTextMsg("done")).Wait("text=done").WaitNot("text=ab").RequireNot("text=ab")
 
 	msgs := slices.Collect(h.MessageHistory())
 	if len(msgs) < 4 {
@@ -79,12 +79,12 @@ func TestHarnessMutateRootModel(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{text: "start"}, WithWindowSize(80, 3))
 
-	Mutate(h, func(m rootTestModel) rootTestModel {
+	h.Mutate(func(m rootTestModel) rootTestModel {
 		m.text = "mutated"
 		return m
 	})
 
-	h.WaitString("text=mutated")
+	h.Wait("text=mutated")
 	got := h.View()
 	if !strings.Contains(got, "text=mutated") {
 		t.Fatalf("view = %q, want text=mutated", got)
@@ -176,5 +176,5 @@ func TestHarness_TerminalKey_fallbackMultiCharacterLiteralText(t *testing.T) {
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 4))
 	h.Key(arbitrary)
 	// Unknown multi-char keys are sent as one press per rune through the vt layer.
-	h.WaitString("text=" + arbitrary).RequireString("text=" + arbitrary)
+	h.Wait("text=" + arbitrary).Require("text=" + arbitrary)
 }

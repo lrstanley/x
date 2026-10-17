@@ -24,8 +24,7 @@ type Viewable func() string
 
 // WaitViewFunc waits until condition returns true for the latest view output.
 //
-// See also [Harness.WaitBytesFunc], [Harness.WaitStringFunc], [WaitBytes],
-// [WaitMatch], and [WaitStrings].
+// See also [Harness.WaitFunc], [Wait], [WaitNot], and [WaitMatch].
 func WaitViewFunc[T ~string | ~[]byte](
 	tb testing.TB,
 	view Viewable,
@@ -63,79 +62,48 @@ func WaitViewFunc[T ~string | ~[]byte](
 	}
 }
 
-// WaitBytes waits until output contains contents.
-//
-// See also [Harness.WaitBytes], [WaitViewFunc], [WaitStrings], and [WaitNotBytes].
-func WaitBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) []byte {
-	tb.Helper()
-	opts = append(opts, withReason("WaitBytes(%q)", contents))
-	return WaitViewFunc(tb, model, func(bts []byte) bool {
-		return bytes.Contains(bts, contents)
-	}, opts...)
-}
-
-// WaitString waits until output contains contents.
-//
-// See also [Harness.WaitString], [WaitViewFunc], [WaitStrings], and [WaitNotString].
-func WaitString(tb testing.TB, model Viewable, contents string, opts ...Option) string {
-	tb.Helper()
-	opts = append(opts, withReason("WaitString(%q)", contents))
-	return WaitViewFunc(tb, model, func(str string) bool {
-		return strings.Contains(str, contents)
-	}, opts...)
-}
-
-// WaitStrings waits until output contains all contents.
-//
-// See also [Harness.WaitStrings], [WaitString], and [WaitNotStrings].
-func WaitStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) string {
-	tb.Helper()
-	opts = append(opts, withReason("WaitStrings(%q)", contents))
-	return WaitViewFunc(tb, model, func(str string) bool {
-		for _, content := range contents {
-			if !strings.Contains(str, content) {
+// textMatch reports whether view contains content. present selects the sense of
+// the match: true requires content to be present (every string, for a slice)
+// and false requires it to be absent.
+func textMatch[T string | []byte | []string](view string, content T, present bool) bool {
+	switch content := any(content).(type) {
+	case string:
+		return strings.Contains(view, content) == present
+	case []byte:
+		return bytes.Contains([]byte(view), content) == present
+	case []string:
+		for _, part := range content {
+			if strings.Contains(view, part) != present {
 				return false
 			}
 		}
 		return true
+	default:
+		panic("unreachable")
+	}
+}
+
+// Wait waits until output contains contents. contents is a string, a []byte
+// sequence, or every string in a []string. It returns the matching view.
+//
+// See also [Harness.Wait], [WaitViewFunc], [WaitNot], and [WaitMatch].
+func Wait[T string | []byte | []string](tb testing.TB, view Viewable, contents T, opts ...Option) string {
+	tb.Helper()
+	opts = append(opts, withReason("Wait(%q)", contents))
+	return WaitViewFunc(tb, view, func(str string) bool {
+		return textMatch(str, contents, true)
 	}, opts...)
 }
 
-// WaitNotBytes waits until output contains none of the contents.
+// WaitNot waits until output contains none of contents. contents is a string,
+// a []byte sequence, or any string in a []string. It returns the matching view.
 //
-// See also [Harness.WaitNotBytes], [WaitBytes], and [WaitStrings].
-func WaitNotBytes(tb testing.TB, model Viewable, contents []byte, opts ...Option) []byte {
+// See also [Harness.WaitNot], [Wait], and [WaitNotMatch].
+func WaitNot[T string | []byte | []string](tb testing.TB, view Viewable, contents T, opts ...Option) string {
 	tb.Helper()
-	opts = append(opts, withReason("WaitNotBytes(%q)", contents))
-	return WaitViewFunc(tb, model, func(bts []byte) bool {
-		return !bytes.Contains(bts, contents)
-	}, opts...)
-}
-
-// WaitNotString waits until output contains none of the contents.
-//
-// See also [Harness.WaitNotString], [WaitString], and [WaitNotStrings].
-func WaitNotString(tb testing.TB, model Viewable, contents string, opts ...Option) string {
-	tb.Helper()
-	opts = append(opts, withReason("WaitNotString(%q)", contents))
-	return WaitViewFunc(tb, model, func(str string) bool {
-		return !strings.Contains(str, contents)
-	}, opts...)
-}
-
-// WaitNotStrings waits until output contains none of the contents.
-//
-// See also [Harness.WaitNotStrings], [WaitStrings], and [WaitNotString].
-func WaitNotStrings(tb testing.TB, model Viewable, contents []string, opts ...Option) string {
-	tb.Helper()
-	opts = append(opts, withReason("WaitNotStrings(%q)", contents))
-	return WaitViewFunc(tb, model, func(str string) bool {
-		for _, content := range contents {
-			if strings.Contains(str, content) {
-				return false
-			}
-		}
-		return true
+	opts = append(opts, withReason("WaitNot(%q)", contents))
+	return WaitViewFunc(tb, view, func(str string) bool {
+		return textMatch(str, contents, false)
 	}, opts...)
 }
 
@@ -230,138 +198,88 @@ func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 	}
 }
 
-// AssertString reports an error unless content appears in output. It
-// returns whether the output matched and allows the test to continue.
+func renderedView(view Viewable, stripANSI bool) string {
+	out := view()
+	if stripANSI {
+		out = xansi.StripANSI(out)
+	}
+	return out
+}
+
+// Assert reports an error unless content appears in output. content is a
+// string or every string in a []string. It returns whether the output matched
+// and allows the test to continue. Each missing substring is reported separately.
 //
-// See also [Harness.AssertString], [AssertStrings], [AssertNotString], and
-// [WaitString].
-func AssertString(tb testing.TB, view Viewable, content string, opts ...Option) bool {
+// See also [Harness.Assert], [Require], [AssertNot], and [Wait].
+func Assert[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(tb, opts...)
-	out := view()
-	if cfg.stripANSI {
-		out = xansi.StripANSI(out)
+	out := renderedView(view, cfg.stripANSI)
+	if parts, ok := any(content).([]string); ok {
+		matched := true
+		for _, sub := range parts {
+			if !strings.Contains(out, sub) {
+				cfg.Errorf(tb, "expected output to contain %q\noutput:\n%s", sub, out)
+				matched = false
+			}
+		}
+		return matched
 	}
-	if !strings.Contains(out, content) {
+	if !textMatch(out, content, true) {
 		cfg.Errorf(tb, "expected output to contain %q\noutput:\n%s", content, out)
 		return false
 	}
 	return true
 }
 
-// RequireString fails the test immediately unless content appears in output.
+// Require fails the test immediately unless content appears in output.
+// content is a string or every string in a []string.
 //
-// See also [Harness.RequireString], [AssertString], and [RequireStrings].
-func RequireString(tb testing.TB, view Viewable, content string, opts ...Option) {
+// See also [Harness.Require], [Assert], and [Wait].
+func Require[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) {
 	tb.Helper()
 
-	if !AssertString(tb, view, content, opts...) {
+	if !Assert(tb, view, content, opts...) {
 		tb.FailNow()
 	}
 }
 
-// AssertStrings reports an error unless every substring in contents
-// appears in output. It returns whether the output matched and allows the test
-// to continue.
+// AssertNot reports an error if content appears in output. content is a string
+// or any string in a []string. It returns whether the output matched and allows
+// the test to continue. Each present substring is reported separately.
 //
-// See also [Harness.AssertStrings], [AssertString], [RequireStrings], and
-// [WaitStrings].
-func AssertStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) bool {
+// See also [Harness.AssertNot], [Assert], [RequireNot], and [WaitNot].
+func AssertNot[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) bool {
 	tb.Helper()
 
 	cfg := collectOptions(tb, opts...)
-	out := view()
-	if cfg.stripANSI {
-		out = xansi.StripANSI(out)
-	}
-	matched := true
-	for _, sub := range contents {
-		if !strings.Contains(out, sub) {
-			cfg.Errorf(tb, "expected output to contain %q\noutput:\n%s", sub, out)
-			matched = false
+	out := renderedView(view, cfg.stripANSI)
+	if parts, ok := any(content).([]string); ok {
+		matched := true
+		for _, sub := range parts {
+			if strings.Contains(out, sub) {
+				cfg.Errorf(tb, "expected output not to contain %q\noutput:\n%s", sub, out)
+				matched = false
+			}
 		}
+		return matched
 	}
-	return matched
-}
-
-// RequireStrings fails the test immediately unless every substring in
-// contents appears in output.
-//
-// See also [Harness.RequireStrings], [AssertStrings], and [RequireString].
-func RequireStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) {
-	tb.Helper()
-
-	if !AssertStrings(tb, view, contents, opts...) {
-		tb.FailNow()
-	}
-}
-
-// AssertNotString reports an error if content appears in output. It
-// returns whether the output matched and allows the test to continue.
-//
-// See also [Harness.AssertNotString], [AssertString], [AssertNotStrings], and
-// [WaitNotString].
-func AssertNotString(tb testing.TB, view Viewable, content string, opts ...Option) bool {
-	tb.Helper()
-
-	cfg := collectOptions(tb, opts...)
-	out := view()
-	if cfg.stripANSI {
-		out = xansi.StripANSI(out)
-	}
-	if strings.Contains(out, content) {
+	if textMatch(out, content, true) {
 		cfg.Errorf(tb, "expected output not to contain %q\noutput:\n%s", content, out)
 		return false
 	}
 	return true
 }
 
-// RequireNotString fails the test immediately if content appears in output.
+// RequireNot fails the test immediately if content appears in output.
+// content is a string or any string in a []string.
 //
-// See also [Harness.RequireNotString], [AssertNotString], [RequireString],
-// [AssertNotStrings], and [RequireNotStrings].
-func RequireNotString(tb testing.TB, view Viewable, content string, opts ...Option) {
+// See also [Harness.RequireNot], [AssertNot], and [Require].
+func RequireNot[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) {
 	tb.Helper()
 
-	if !AssertNotString(tb, view, content, opts...) {
-		tb.FailNow()
-	}
-}
-
-// AssertNotStrings reports an error if any substring in contents
-// appears in output. It returns whether the output matched and allows the test
-// to continue.
-//
-// See also [Harness.AssertNotStrings], [AssertStrings], [AssertNotString],
-// [WaitStrings], and [WaitNotStrings].
-func AssertNotStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) bool {
-	tb.Helper()
-
-	cfg := collectOptions(tb, opts...)
-	out := view()
-	if cfg.stripANSI {
-		out = xansi.StripANSI(out)
-	}
-	matched := true
-	for _, sub := range contents {
-		if strings.Contains(out, sub) {
-			cfg.Errorf(tb, "expected output not to contain %q\noutput:\n%s", sub, out)
-			matched = false
-		}
-	}
-	return matched
-}
-
-// RequireNotStrings fails the test immediately if any substring in
-// contents appears in output.
-//
-// See also [Harness.RequireNotStrings], [AssertNotStrings], [RequireStrings],
-// and [RequireNotString].
-func RequireNotStrings(tb testing.TB, view Viewable, contents []string, opts ...Option) {
-	tb.Helper()
-
-	if !AssertNotStrings(tb, view, contents, opts...) {
+	if !AssertNot(tb, view, content, opts...) {
 		tb.FailNow()
 	}
 }

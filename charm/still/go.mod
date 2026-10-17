@@ -1,6 +1,6 @@
 module github.com/lrstanley/x/charm/still
 
-go 1.26.0
+go 1.27.2
 
 require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4

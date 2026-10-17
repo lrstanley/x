@@ -69,7 +69,7 @@ func TestGenerateFira(t *testing.T) {
 // steep.WithFailureGIF() or steep.WithExport(steep.ExportOnFailure, ...) so
 // frames are captured via harness hooks into t.ArtifactDir().
 // func generateStill(h *steep.Harness, pngPath, gifPath string) {
-// 	h.WaitString("Tokyo", steep.WithANSI(false))
+// 	h.Wait("Tokyo", steep.WithANSI(false))
 
 // 	export.MustPNG(h.Image(), pngPath)
 

@@ -25,7 +25,7 @@ func TestHarnessAssertViewSnapshot(t *testing.T) {
 
 	h := NewHarness(t, rootTestModel{text: "assert-snap"}, WithWindowSize(80, 3))
 
-	h.WaitStrings([]string{"size=80x3", "text=assert-snap"})
+	h.Wait([]string{"size=80x3", "text=assert-snap"})
 	h.AssertSnapshot(snapshot.WithDir(snapDir), snapshot.WithUpdate(true))
 
 	got := readSteepSnapshot(t, filepath.Join(snapDir, "TestHarnessAssertViewSnapshot.snap"))
@@ -55,7 +55,7 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3),
 		WithRenderer(still.WithPadding(2)),
 	)
-	h.WaitString("text=image")
+	h.Wait("text=image")
 	h.Blur()
 	h.SetCursorColor(cursorColor)
 	h.emulator.mu.Lock()
@@ -91,7 +91,7 @@ func TestHarnessImageConcurrentWithTerminalMutation(t *testing.T) {
 	t.Parallel()
 
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(24, 3))
-	h.WaitString("size=24x3")
+	h.Wait("size=24x3")
 	// Steady cursor: blink phase is time-dependent and this test cannot use synctest
 	// (VT I/O runs outside the bubble).
 	h.emulator.mu.Lock()
@@ -139,7 +139,7 @@ func TestCursorShapeFromVT(t *testing.T) {
 
 func BenchmarkHarness_Image(b *testing.B) {
 	h := NewHarness(b, rootTestModel{text: "benchmark"}, WithWindowSize(80, 24))
-	h.WaitString("text=benchmark")
+	h.Wait("text=benchmark")
 
 	b.ReportAllocs()
 	b.ResetTimer()

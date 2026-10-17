@@ -5,7 +5,6 @@
 package steep
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"iter"
@@ -22,7 +21,7 @@ import (
 func TestAssertStringWithStripANSI(t *testing.T) {
 	t.Parallel()
 	const out = "plain \x1b[31mred\x1b[0m"
-	if !AssertString(t, func() string { return out }, "plain red", WithANSI(false)) {
+	if !Assert(t, func() string { return out }, "plain red", WithANSI(false)) {
 		t.Fatal("expected strip-then-contains to match")
 	}
 }
@@ -150,16 +149,16 @@ func TestWaitViewFunc(t *testing.T) {
 func TestWaitString_WaitBytes_package(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "hi"}, WithWindowSize(80, 1))
-	WaitString(t, h.View, "text=hi", WithTimeout(2*time.Second))
-	out := WaitBytes(t, h.View, []byte("text=hi"), WithTimeout(2*time.Second))
-	if !bytes.Contains(out, []byte("text=hi")) {
+	Wait(t, h.View, "text=hi", WithTimeout(2*time.Second))
+	out := Wait(t, h.View, []byte("text=hi"), WithTimeout(2*time.Second))
+	if !strings.Contains(out, "text=hi") {
 		t.Fatalf("bytes view = %q", out)
 	}
 }
 
 func TestWaitString_withStripANSI(t *testing.T) {
 	t.Parallel()
-	out := WaitString(t, func() string { return "\x1b[31mred\x1b[0m" }, "red", WithANSI(false), WithTimeout(50*time.Millisecond))
+	out := Wait(t, func() string { return "\x1b[31mred\x1b[0m" }, "red", WithANSI(false), WithTimeout(50*time.Millisecond))
 	if strings.TrimSpace(out) != "red" {
 		t.Fatalf("output = %q", out)
 	}
@@ -168,22 +167,22 @@ func TestWaitString_withStripANSI(t *testing.T) {
 func TestWaitStrings(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "ab"}, WithWindowSize(80, 1))
-	WaitStrings(t, h.View, []string{"text=", "ab"}, WithTimeout(2*time.Second))
+	Wait(t, h.View, []string{"text=", "ab"}, WithTimeout(2*time.Second))
 }
 
 func TestWaitNotString_WaitNotBytes(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
 	h.SendProgram(appendMsg("flip")).
-		WaitNotString("BAD", WithTimeout(2*time.Second), WithCheck(5*time.Millisecond)).
-		WaitNotBytes([]byte("BAD"), WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
+		WaitNot("BAD", WithTimeout(2*time.Second), WithCheck(5*time.Millisecond)).
+		WaitNot([]byte("BAD"), WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
 }
 
 func TestWaitNotStrings(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
 	h.SendProgram(appendMsg("flip")).
-		WaitNotStrings([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
+		WaitNot([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
 }
 
 func TestWaitMatch_WaitNotMatch_package(t *testing.T) {
@@ -215,7 +214,7 @@ func TestWaitMatch_invalidRegexp(t *testing.T) {
 func TestWaitSettleView_package(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &viewSettleStableModel{}, WithWindowSize(80, 1))
-	WaitString(t, h.View, "stable")
+	Wait(t, h.View, "stable")
 	WaitSettle(t, h.View,
 		WithSettle(25*time.Millisecond),
 		WithTimeout(2*time.Second),
@@ -229,7 +228,7 @@ func TestWaitSettleView_package(t *testing.T) {
 func TestAssertString_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if assertNo := AssertString(st, func() string { return "abc" }, "nope"); assertNo {
+	if assertNo := Assert(st, func() string { return "abc" }, "nope"); assertNo {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -240,7 +239,7 @@ func TestAssertString_fail(t *testing.T) {
 func TestAssertStrings_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertStrings(st, func() string { return "only a" }, []string{"a", "missing"}) {
+	if Assert(st, func() string { return "only a" }, []string{"a", "missing"}) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -251,7 +250,7 @@ func TestAssertStrings_fail(t *testing.T) {
 func TestAssertNotString_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNotString(st, func() string { return "has needle" }, "needle") {
+	if AssertNot(st, func() string { return "has needle" }, "needle") {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -262,7 +261,7 @@ func TestAssertNotString_fail(t *testing.T) {
 func TestAssertNotStrings_fail(t *testing.T) {
 	t.Parallel()
 	st := &softTB{TB: t}
-	if AssertNotStrings(st, func() string { return "x bad y" }, []string{"zzz", "bad"}) {
+	if AssertNot(st, func() string { return "x bad y" }, []string{"zzz", "bad"}) {
 		t.Fatal("expected false")
 	}
 	if st.nErrors != 1 {
@@ -317,11 +316,11 @@ func TestAssertHeight_fail(t *testing.T) {
 func TestPackageRequireString_andAssertHelpers_ok(t *testing.T) {
 	t.Parallel()
 	v := func() string { return "alpha beta" }
-	RequireString(t, v, "beta")
-	RequireStrings(t, v, []string{"alpha", "beta"})
-	RequireNotString(t, v, "gamma")
-	RequireNotStrings(t, v, []string{"x", "y"})
-	if !AssertNotString(t, v, "gamma") || !AssertNotStrings(t, v, []string{"nope"}) {
+	Require(t, v, "beta")
+	Require(t, v, []string{"alpha", "beta"})
+	RequireNot(t, v, "gamma")
+	RequireNot(t, v, []string{"x", "y"})
+	if !AssertNot(t, v, "gamma") || !AssertNot(t, v, []string{"nope"}) {
 		t.Fatal("negative asserts should pass")
 	}
 	RequireMatch(t, v, `b.t`)

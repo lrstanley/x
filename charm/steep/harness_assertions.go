@@ -59,89 +59,36 @@ func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	return h
 }
 
-// WaitBytesFunc waits until condition returns true for the latest view output.
-// It wraps [WaitViewFunc] with a byte-slice predicate.
+// WaitFunc waits until condition returns true for the latest view output.
+// T is the view type passed to condition: string or []byte.
 //
-// See also [Harness.WaitStringFunc], [WaitBytes], [WaitNotBytes], and [WaitStrings].
-func (h *Harness) WaitBytesFunc(condition func(view []byte) bool, opts ...Option) *Harness {
+// See also [WaitViewFunc], [Harness.Wait], [Harness.WaitNot], and [Harness.WaitMatch].
+func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "bytes_func"})()
+	defer h.hook(HookSettle, SettleMeta{Kind: "func"})()
 	WaitViewFunc(h.tb, h.View, condition, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitStringFunc waits until condition returns true for the latest view output.
-// It wraps [WaitViewFunc] with a string predicate.
+// Wait waits until view output contains contents. contents is a string, a
+// []byte sequence, or every string in a []string.
 //
-// See also [Harness.WaitBytesFunc], [WaitString], [WaitNotString], and [WaitStrings].
-func (h *Harness) WaitStringFunc(condition func(view string) bool, opts ...Option) *Harness {
+// See also [Wait], [Harness.WaitFunc], [Harness.WaitNot], and [Harness.WaitMatch].
+func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "string_func"})()
-	WaitViewFunc(h.tb, h.View, condition, h.mergedOpts(opts...)...)
+	defer h.hook(HookSettle, SettleMeta{Kind: "wait"})()
+	Wait(h.tb, h.View, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
-// WaitBytes waits until view output contains contents.
+// WaitNot waits until view output contains none of contents. contents is a
+// string, a []byte sequence, or any string in a []string.
 //
-// See also [WaitBytes], [Harness.WaitString], [Harness.WaitStrings], and
-// [Harness.WaitBytesFunc].
-func (h *Harness) WaitBytes(contents []byte, opts ...Option) *Harness {
+// See also [WaitNot], [Harness.Wait], and [Harness.WaitNotMatch].
+func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "bytes"})()
-	WaitBytes(h.tb, h.View, contents, h.mergedOpts(opts...)...)
-	return h
-}
-
-// WaitString waits until view output contains contents.
-//
-// See also [WaitString], [Harness.WaitStrings], [Harness.WaitNotString],
-// [Harness.WaitMatch], and [Harness.WaitStringFunc].
-func (h *Harness) WaitString(contents string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "string"})()
-	WaitString(h.tb, h.View, contents, h.mergedOpts(opts...)...)
-	return h
-}
-
-// WaitStrings waits until view output contains all contents.
-//
-// See also [WaitStrings], [Harness.WaitString], and [Harness.WaitNotStrings].
-func (h *Harness) WaitStrings(contents []string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "strings"})()
-	WaitStrings(h.tb, h.View, contents, h.mergedOpts(opts...)...)
-	return h
-}
-
-// WaitNotBytes waits until view output contains none of the contents.
-//
-// See also [WaitNotBytes], [Harness.WaitBytes], [Harness.WaitNotStrings], and
-// [Harness.WaitBytesFunc].
-func (h *Harness) WaitNotBytes(contents []byte, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "not_bytes"})()
-	WaitNotBytes(h.tb, h.View, contents, h.mergedOpts(opts...)...)
-	return h
-}
-
-// WaitNotString waits until view output contains none of the contents.
-//
-// See also [WaitNotString], [Harness.WaitString], [Harness.WaitStrings], and
-// [Harness.WaitNotStrings].
-func (h *Harness) WaitNotString(contents string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "not_string"})()
-	WaitNotString(h.tb, h.View, contents, h.mergedOpts(opts...)...)
-	return h
-}
-
-// WaitNotStrings waits until view output contains none of the contents.
-//
-// See also [WaitNotStrings], [Harness.WaitStrings], and [Harness.WaitNotString].
-func (h *Harness) WaitNotStrings(contents []string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "not_strings"})()
-	WaitNotStrings(h.tb, h.View, contents, h.mergedOpts(opts...)...)
+	defer h.hook(HookSettle, SettleMeta{Kind: "not"})()
+	WaitNot(h.tb, h.View, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -168,103 +115,49 @@ func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 	return h
 }
 
-// AssertString reports an error unless content appears in view output. It
-// allows the test to continue.
+// Assert reports an error unless content appears in view output. content is a
+// string or every string in a []string. It allows the test to continue.
 //
-// See also [AssertString], [Harness.RequireString], [Harness.AssertStrings], and
-// [Harness.WaitString].
-func (h *Harness) AssertString(content string, opts ...Option) *Harness {
+// See also [Assert], [Harness.Require], and [Harness.Wait].
+func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "string"})()
-	AssertString(h.tb, h.View, content, h.mergedOpts(opts...)...)
+	defer h.hook(HookAssert, AssertMeta{Kind: "assert"})()
+	Assert(h.tb, h.View, content, h.mergedOpts(opts...)...)
 	return h
 }
 
-// RequireString fails the test immediately unless content appears in view output.
+// Require fails the test immediately unless content appears in view output.
+// content is a string or every string in a []string.
 //
-// See also [RequireString], [Harness.AssertString], [Harness.RequireStrings], and
-// [WaitString].
-func (h *Harness) RequireString(content string, opts ...Option) *Harness {
+// See also [Require], [Harness.Assert], and [Harness.Wait].
+func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireString"})()
-	if !AssertString(h.tb, h.View, content, h.mergedOpts(opts...)...) {
+	defer h.hook(HookAssert, AssertMeta{Kind: "require"})()
+	if !Assert(h.tb, h.View, content, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h
 }
 
-// AssertStrings reports an error unless every substring in contents
-// appears in view output. It allows the test to continue.
+// AssertNot reports an error if content appears in view output. content is a
+// string or any string in a []string. It allows the test to continue.
 //
-// See also [AssertStrings], [Harness.AssertString], [Harness.RequireStrings], and
-// [WaitStrings].
-func (h *Harness) AssertStrings(contents []string, opts ...Option) *Harness {
+// See also [AssertNot], [Harness.Assert], and [Harness.WaitNot].
+func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertStrings"})()
-	AssertStrings(h.tb, h.View, contents, h.mergedOpts(opts...)...)
+	defer h.hook(HookAssert, AssertMeta{Kind: "assert_not"})()
+	AssertNot(h.tb, h.View, content, h.mergedOpts(opts...)...)
 	return h
 }
 
-// RequireStrings fails the test immediately unless every substring in
-// contents appears in view output.
+// RequireNot fails the test immediately if content appears in view output.
+// content is a string or any string in a []string.
 //
-// See also [RequireStrings], [Harness.RequireString], [AssertStrings], and
-// [WaitStrings].
-func (h *Harness) RequireStrings(contents []string, opts ...Option) *Harness {
+// See also [RequireNot], [Harness.Require], and [Harness.WaitNot].
+func (h *Harness) RequireNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireStrings"})()
-	if !AssertStrings(h.tb, h.View, contents, h.mergedOpts(opts...)...) {
-		h.tb.FailNow()
-	}
-	return h
-}
-
-// AssertNotString reports an error if content appears in view output. It
-// allows the test to continue.
-//
-// See also [AssertNotString], [Harness.AssertString], [Harness.AssertNotStrings],
-// and [Harness.WaitNotString].
-func (h *Harness) AssertNotString(content string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertNotString"})()
-	AssertNotString(h.tb, h.View, content, h.mergedOpts(opts...)...)
-	return h
-}
-
-// RequireNotString fails the test immediately if content appears in view output.
-//
-// See also [RequireNotString], [Harness.RequireString], [AssertNotString],
-// [Harness.RequireNotStrings], and [Harness.WaitNotStrings].
-func (h *Harness) RequireNotString(content string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireNotString"})()
-	if !AssertNotString(h.tb, h.View, content, h.mergedOpts(opts...)...) {
-		h.tb.FailNow()
-	}
-	return h
-}
-
-// AssertNotStrings reports an error if any substring in contents
-// appears in view output. It allows the test to continue.
-//
-// See also [AssertNotStrings], [Harness.AssertStrings], [AssertNotString], and
-// [WaitNotStrings].
-func (h *Harness) AssertNotStrings(contents []string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertNotStrings"})()
-	AssertNotStrings(h.tb, h.View, contents, h.mergedOpts(opts...)...)
-	return h
-}
-
-// RequireNotStrings fails the test immediately if any substring in
-// contents appears in view output.
-//
-// See also [RequireNotStrings], [Harness.RequireStrings], [AssertNotStrings],
-// [Harness.RequireNotString], and [WaitStrings].
-func (h *Harness) RequireNotStrings(contents []string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireNotStrings"})()
-	if !AssertNotStrings(h.tb, h.View, contents, h.mergedOpts(opts...)...) {
+	defer h.hook(HookAssert, AssertMeta{Kind: "require_not"})()
+	if !AssertNot(h.tb, h.View, content, h.mergedOpts(opts...)...) {
 		h.tb.FailNow()
 	}
 	return h

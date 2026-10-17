@@ -41,9 +41,9 @@ type options struct {
 	// spinners, when false (default), normalizes spinner/running glyphs for stable snapshots;
 	// when true, leaves those code points untouched ([WithSpinners]).
 	spinners bool
-	// indent is the encoder indent width for structured formats such as JSON
-	// snapshots ([WithIndent]).
-	indent int
+	// indent, when true, pretty-prints JSON snapshots with one tab per nesting
+	// level ([WithIndent]). Default is compact JSON.
+	indent bool
 }
 
 // collectOptions applies functional options into a single configuration.
@@ -158,11 +158,11 @@ func WithEscapeESC(enable bool) Option {
 	}
 }
 
-// WithIndent sets the indent level for the snapshot, depending on the snapshot
-// format (e.g. JSON).
-func WithIndent(indent int) Option {
+// WithIndent sets whether JSON snapshots are pretty-printed. When true, JSON is
+// indented with one tab per nesting level.
+func WithIndent(enable bool) Option {
 	return func(cfg *options) {
-		cfg.indent = max(0, indent)
+		cfg.indent = enable
 	}
 }
 

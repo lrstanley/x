@@ -5,16 +5,24 @@
 package formatter
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 )
 
 // ToJSON will convert the provided data value into JSON. If mask is true, all
-// concrete values will be masked with asterisks.
+// concrete values will be masked with asterisks. A positive indent emits
+// multiline JSON indented with that many spaces.
 func ToJSON(data any, mask bool, indent int) string {
+	// MaskValue turns structs into maps. Deterministic sorts those keys so the
+	// formatted output is stable.
+	opts := []json.Options{json.Deterministic(true)}
+	if indent > 0 {
+		opts = append(opts, jsontext.WithIndent(strings.Repeat(" ", indent)))
+	}
 	if !mask {
-		b, err := json.MarshalIndent(data, "", strings.Repeat(" ", indent))
+		b, err := json.Marshal(data, opts...)
 		if err != nil {
 			return fmt.Sprintf("error: %v", err)
 		}
@@ -26,7 +34,7 @@ func ToJSON(data any, mask bool, indent int) string {
 	}
 
 	masked := MaskValue(data)
-	b, err := json.MarshalIndent(masked, "", strings.Repeat(" ", indent))
+	b, err := json.Marshal(masked, opts...)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}

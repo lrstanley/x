@@ -69,7 +69,7 @@ type options struct {
 	// envVars are extra environment variables to set for the [tea.Program].
 	envVars []string
 
-	// ctx is the parent context for blocking [WaitString]-style helpers.
+	// ctx is the parent context for blocking [Wait]-style helpers.
 	ctx           context.Context
 	wasContextSet bool
 
@@ -182,7 +182,7 @@ func WithWindowSize(width, height int) Option {
 	}
 }
 
-// WithContext sets the parent context for blocking waits ([WaitString],
+// WithContext sets the parent context for blocking waits ([Wait],
 // [WaitMessageWhere], [Harness] wait helpers, etc.) and for the running
 // [tea.Program]. Defaults to a notify context through [signal.NotifyContext]
 // when invoked through [Harness], else [context.Background].
@@ -263,7 +263,7 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 // WithANSI determines whether ANSI sequences should be kept. When false, ANSI
 // sequences are stripped, which will often make it easier to visually and
 // programmatically compare snapshots, output, etc. This would apply to strings/regex
-// comparisons in [AssertString], [AssertMatch], [WaitString], [WaitStrings], etc.
+// comparisons in [Assert], [AssertMatch], [Wait], and so on.
 func WithANSI(enable bool) Option {
 	return func(cfg *options) {
 		cfg.stripANSI = !enable

@@ -7,13 +7,13 @@ package snapshot
 import (
 	"bytes"
 	"encoding"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"image/color"
 	"os"
 	"reflect"
 	"strconv"
-	"strings"
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -241,11 +241,12 @@ func writeScreen(tb testing.TB, snap *ScreenSnapshot, path string, opts ...Optio
 
 	cfg := collectOptions(tb, opts...)
 	buf := &bytes.Buffer{}
-	enc := json.NewEncoder(buf)
-	if cfg.indent > 0 {
-		enc.SetIndent("", strings.Repeat(" ", cfg.indent))
+	var encOpts []jsontext.Options
+	if cfg.indent {
+		encOpts = append(encOpts, jsontext.Multiline(true))
 	}
-	err := enc.Encode(snap)
+	enc := jsontext.NewEncoder(buf, encOpts...)
+	err := json.MarshalEncode(enc, snap)
 	if err != nil {
 		tb.Fatalf("failed to encode snapshot: %v", err)
 	}

@@ -66,10 +66,10 @@ func TestComponentHarnessMutableUpdate(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{}, WithWindowSize(80, 1))
 
-	h.Type("ab").WaitBytes([]byte("text=ab")).RequireString("text=ab")
+	h.Type("ab").Wait([]byte("text=ab")).Require("text=ab")
 
-	h.SendProgram(appendMsg("?")).WaitString("text=ab?!").WaitNotBytes([]byte("missing")).
-		RequireString("text=ab?!").RequireNotString("missing").
+	h.SendProgram(appendMsg("?")).Wait("text=ab?!").WaitNot([]byte("missing")).
+		Require("text=ab?!").RequireNot("missing").
 		RequireWidth(80).RequireHeight(1).RequireDimensions(80, 1)
 
 	msgCount := len(slices.Collect(h.MessageHistory()))
@@ -82,7 +82,7 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, replacementViewModel{}, WithWindowSize(80, 1))
 
-	h.Type("go").WaitSettle().SendProgram(appendMsg("!")).WaitBytesFunc(func(bts []byte) bool {
+	h.Type("go").WaitSettle().SendProgram(appendMsg("!")).WaitFunc(func(bts []byte) bool {
 		return strings.Contains(string(bts), "text=go!")
 	})
 }
@@ -91,22 +91,22 @@ func TestComponentHarnessMutateMutableModel(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "start"}, WithWindowSize(80, 1))
 
-	Mutate(h, func(m *mutableViewModel) *mutableViewModel {
+	h.Mutate(func(m *mutableViewModel) *mutableViewModel {
 		m.text = "mutated"
 		return m
 	})
-	h.SendProgram(appendMsg("!")).WaitString("text=mutated!")
+	h.SendProgram(appendMsg("!")).Wait("text=mutated!")
 }
 
 func TestComponentHarnessMutateReplacementModel(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, replacementViewModel{text: "start"}, WithWindowSize(80, 1))
 
-	Mutate(h, func(m replacementViewModel) replacementViewModel {
+	h.Mutate(func(m replacementViewModel) replacementViewModel {
 		m.text = "mutated"
 		return m
 	})
-	h.SendProgram(appendMsg("!")).WaitString("text=mutated!")
+	h.SendProgram(appendMsg("!")).Wait("text=mutated!")
 }
 
 type sizeViewModel struct {
@@ -132,7 +132,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 		t.Parallel()
 		h := NewComponentHarness(t, &sizeViewModel{})
 
-		h.WaitString("size=80x24")
+		h.Wait("size=80x24")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 80 || msg.Height != 24 {
 			t.Fatalf("initial size = %dx%d, want 80x24", msg.Width, msg.Height)
@@ -143,7 +143,7 @@ func TestComponentHarnessInitialSize(t *testing.T) {
 		t.Parallel()
 		h := NewComponentHarness(t, &sizeViewModel{}, WithWindowSize(70, 10))
 
-		h.WaitString("size=70x10")
+		h.Wait("size=70x10")
 		msg := WaitMessage[tea.WindowSizeMsg](t, h)
 		if msg.Width != 70 || msg.Height != 10 {
 			t.Fatalf("initial size = %dx%d, want 70x10", msg.Width, msg.Height)
@@ -192,7 +192,7 @@ func TestComponentHarnessAsyncBridge(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &asyncViewModel{}, WithWindowSize(33, 4))
 
-	h.WaitStrings([]string{"size=33x4", "text=ready"})
+	h.Wait([]string{"size=33x4", "text=ready"})
 
 	msg := WaitMessage[appendMsg](t, h)
 	if msg != "ready" {
@@ -228,7 +228,7 @@ func (m *settlingViewModel) Update(msg uv.Event) tea.Cmd {
 func TestComponentHarnessWaitSettled(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &settlingViewModel{}, WithWindowSize(80, 1))
-	h.SendProgram(settleMsg{}).WaitString("updates=3")
+	h.SendProgram(settleMsg{}).Wait("updates=3")
 
 	WaitSettleMessages(t, h,
 		WithSettle(25*time.Millisecond),
@@ -283,7 +283,7 @@ func (m *settlingWithNoiseModel) Update(msg uv.Event) tea.Cmd {
 func TestComponentHarnessWaitSettledIgnoreMsgs(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &settlingWithNoiseModel{}, WithWindowSize(80, 1))
-	h.SendProgram(settleMsg{}).WaitString("updates=2")
+	h.SendProgram(settleMsg{}).Wait("updates=2")
 
 	WaitSettleMessages(t, h,
 		WithSettleIgnoreMsgs(settleNoiseTick{}),
@@ -331,7 +331,7 @@ func (m *viewSettleStableModel) Update(msg uv.Event) tea.Cmd {
 func TestComponentHarnessWaitSettledView(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &viewSettleStableModel{}, WithWindowSize(80, 1))
-	h.WaitString("stable")
+	h.Wait("stable")
 
 	h.WaitSettle(
 		WithSettle(25*time.Millisecond),
@@ -365,7 +365,7 @@ func TestComponentHarnessSendFilterReceivesOriginalMessage(t *testing.T) {
 		})),
 	)
 
-	h.SendProgram(appendMsg("x")).WaitString("text=x")
+	h.SendProgram(appendMsg("x")).Wait("text=x")
 
 	select {
 	case <-seen:
@@ -380,7 +380,7 @@ func TestComponentHarnessRequirePlainSnapshot(t *testing.T) {
 	snapDir := filepath.Join(t.TempDir(), "testdata")
 
 	h := NewComponentHarness(t, &mutableViewModel{text: "\x1b[31mred\x1b[0m"}, WithWindowSize(80, 1))
-	h.WaitString("red")
+	h.Wait("red")
 	h.RequireSnapshot(snapshot.WithANSI(false), snapshot.WithDir(snapDir), snapshot.WithUpdate(true))
 
 	got := readSteepSnapshot(t, filepath.Join(snapDir, "TestComponentHarnessRequirePlainSnapshot.snap"))

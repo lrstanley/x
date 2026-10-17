@@ -5,7 +5,8 @@
 package steep
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"os"
@@ -152,7 +153,7 @@ func (h *Harness) runHooks(event HookEvent, stage HookStage, metadata any) {
 type hookLog struct {
 	mu  sync.Mutex
 	w   io.Writer
-	enc *json.Encoder
+	enc *jsontext.Encoder
 }
 
 func newHookLog(w io.Writer) *hookLog {
@@ -161,7 +162,7 @@ func newHookLog(w io.Writer) *hookLog {
 	}
 	return &hookLog{
 		w:   w,
-		enc: json.NewEncoder(w),
+		enc: jsontext.NewEncoder(w, json.Deterministic(true)),
 	}
 }
 
@@ -178,7 +179,7 @@ func (l *hookLog) Record(event HookEvent, stage HookStage, metadata any, at time
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_ = l.enc.Encode(hookLogEntry{
+	_ = json.MarshalEncode(l.enc, hookLogEntry{
 		Time:     at,
 		Event:    event.String(),
 		Stage:    stage.String(),

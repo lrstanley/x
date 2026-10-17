@@ -5,7 +5,7 @@
 package snapshot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"image/color"
 	"os"
 	"path/filepath"

@@ -419,7 +419,7 @@ func TestHarness_TerminalType_returnsHarnessForChaining(t *testing.T) {
 func TestHarness_TerminalType_deliversPrintableRunesThroughEmulator(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
-	h.Type("ab ").WaitString("text=ab").RequireString("text=ab")
+	h.Type("ab ").Wait("text=ab").Require("text=ab")
 }
 
 func TestHarness_TerminalKey_returnsHarnessForChaining(t *testing.T) {
@@ -433,7 +433,7 @@ func TestHarness_TerminalKey_returnsHarnessForChaining(t *testing.T) {
 func TestHarness_TerminalKey_accumulatesPrintableText(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
-	h.Key("a").Key("b").Key("space").WaitString("text=ab").RequireString("text=ab")
+	h.Key("a").Key("b").Key("space").Wait("text=ab").Require("text=ab")
 }
 
 func TestHarness_TerminalKey_mapsNamedKeysThroughEmulator(t *testing.T) {

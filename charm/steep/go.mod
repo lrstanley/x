@@ -1,6 +1,6 @@
 module github.com/lrstanley/x/charm/steep
 
-go 1.26.0
+go 1.27.2
 
 replace github.com/lrstanley/x/charm/still => ../still
 
