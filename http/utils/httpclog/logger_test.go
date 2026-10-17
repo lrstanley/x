@@ -307,3 +307,168 @@ func TestNewClient(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 }
+
+func TestRoundTrip_WithLogDisabled(t *testing.T) {
+	t.Parallel()
+	logger, buf := newTestLogger(t)
+
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.Start()
+
+	tr := NewTransport(&Config{
+		Logger:        logger,
+		BaseTransport: http.DefaultTransport,
+	})
+	ctx := WithLog(t.Context(), false)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no logs when logging disabled; got %q", buf.String())
+	}
+}
+
+func TestRoundTrip_WithLogChildOverride(t *testing.T) {
+	t.Parallel()
+	logger, buf := newTestLogger(t)
+
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.Start()
+
+	tr := NewTransport(&Config{
+		Logger:        logger,
+		BaseTransport: http.DefaultTransport,
+	})
+	parent := WithLog(t.Context(), false)
+	child := WithLog(parent, true)
+	req, err := http.NewRequestWithContext(child, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	out := buf.String()
+	if !strings.Contains(out, `"msg":"http request"`) {
+		t.Errorf("child context should re-enable logging; got %q", out)
+	}
+}
+
+func TestRoundTrip_WithTraceFromContext(t *testing.T) {
+	t.Parallel()
+	logger, buf := newTestLogger(t)
+
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Test", "yes")
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = w.Write([]byte("tea"))
+	}))
+	srv.Start()
+
+	tr := NewTransport(&Config{
+		Logger:        logger,
+		BaseTransport: http.DefaultTransport,
+	})
+	ctx := WithTrace(t.Context(), true)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	out := buf.String()
+	if !strings.Contains(out, `"request":"GET `) {
+		t.Errorf("context trace should include dumped request; got %q", out)
+	}
+	if !strings.Contains(out, "HTTP/1.1 418") {
+		t.Errorf("context trace should include dumped response; got %q", out)
+	}
+}
+
+func TestRoundTrip_WithTraceRequestFromContext(t *testing.T) {
+	t.Parallel()
+	logger, buf := newTestLogger(t)
+
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.Start()
+
+	tr := NewTransport(&Config{
+		Logger:          logger,
+		BaseTransport:   http.DefaultTransport,
+		DisableEnvTrace: true,
+	})
+	ctx := WithTraceRequest(t.Context(), true)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	out := buf.String()
+	if !strings.Contains(out, `"request":"GET `) {
+		t.Errorf("context trace request should include dumped request; got %q", out)
+	}
+	if strings.Contains(out, `"response":"HTTP`) {
+		t.Errorf("context trace request should not dump response; got %q", out)
+	}
+}
+
+func TestRoundTrip_WithTraceDisabledOverridesConfig(t *testing.T) {
+	t.Parallel()
+	logger, buf := newTestLogger(t)
+
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.Start()
+
+	tr := NewTransport(&Config{
+		Logger:        logger,
+		BaseTransport: http.DefaultTransport,
+		Trace:         true,
+	})
+	ctx := WithTrace(t.Context(), false)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	out := buf.String()
+	if strings.Contains(out, `"request":"GET `) {
+		t.Errorf("context trace false should override config trace; got %q", out)
+	}
+}

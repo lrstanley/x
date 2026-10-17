@@ -162,6 +162,13 @@ func NewClient(config *Config) *http.Client {
 }
 
 func (rt *transport) shouldTraceRequest(req *http.Request) bool {
+	ctx := req.Context()
+	if trace, ok := boolFromContext(ctx, traceRequestKey); ok {
+		return trace
+	}
+	if trace, ok := boolFromContext(ctx, traceKey); ok {
+		return trace
+	}
 	if rt.config.Trace || rt.config.TraceRequest {
 		return true
 	}
@@ -172,6 +179,13 @@ func (rt *transport) shouldTraceRequest(req *http.Request) bool {
 }
 
 func (rt *transport) shouldTraceResponse(resp *http.Response) bool {
+	ctx := resp.Request.Context()
+	if trace, ok := boolFromContext(ctx, traceResponseKey); ok {
+		return trace
+	}
+	if trace, ok := boolFromContext(ctx, traceKey); ok {
+		return trace
+	}
 	if rt.config.Trace || rt.config.TraceResponse {
 		return true
 	}
@@ -216,7 +230,7 @@ func (rt *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	pc := getCallerPC(6)
 
-	if handler.Enabled(ctx, *rt.config.Level) {
+	if logFromContext(ctx) && handler.Enabled(ctx, *rt.config.Level) {
 		r = slog.NewRecord(time.Now(), *rt.config.Level, "http request", pc)
 
 		r.AddAttrs(
@@ -242,7 +256,7 @@ func (rt *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	duration := time.Since(started)
 
 	if err != nil {
-		if handler.Enabled(ctx, slog.LevelError) {
+		if logFromContext(ctx) && handler.Enabled(ctx, slog.LevelError) {
 			r = slog.NewRecord(time.Now(), slog.LevelError, "http request failed", pc)
 			r.AddAttrs(
 				slog.String("url", req.URL.String()),
@@ -263,7 +277,7 @@ func (rt *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	if handler.Enabled(ctx, *rt.config.Level) {
+	if logFromContext(ctx) && handler.Enabled(ctx, *rt.config.Level) {
 		r = slog.NewRecord(time.Now(), *rt.config.Level, "http response", pc)
 		r.AddAttrs(
 			slog.String("url", req.URL.String()),

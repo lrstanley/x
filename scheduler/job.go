@@ -81,6 +81,8 @@ type Cron struct {
 	schedule        Schedule
 	immediate       bool
 	exitOnError     bool
+	enabled         bool
+	enabledFunc     func() bool
 	job             Job
 	logger          *slog.Logger
 	validationError error
@@ -97,6 +99,7 @@ func NewCron(name string, job Job) *Cron {
 		job:      job,
 		schedule: Every(5 * time.Minute),
 		logger:   slog.Default(),
+		enabled:  true,
 	}
 }
 
@@ -149,6 +152,31 @@ func (c *Cron) WithLogger(logger *slog.Logger) *Cron {
 	return c
 }
 
+// WithEnabled sets whether the cron job is enabled. This defaults to true. When
+// false, scheduled invocations are skipped.
+func (c *Cron) WithEnabled(enabled bool) *Cron {
+	c.enabled = enabled
+	return c
+}
+
+// WithEnabledFunc sets a function that is called before each invocation to
+// determine whether the cron job should run. When the function returns false,
+// the invocation is skipped. This is evaluated in addition to [Cron.WithEnabled].
+func (c *Cron) WithEnabledFunc(fn func() bool) *Cron {
+	c.enabledFunc = fn
+	return c
+}
+
+func (c *Cron) shouldInvoke() bool {
+	if !c.enabled {
+		return false
+	}
+	if c.enabledFunc != nil && !c.enabledFunc() {
+		return false
+	}
+	return true
+}
+
 // Invoke runs the cron job. This is typically not called directly, but rather
 // via [Run].
 func (c *Cron) Invoke(ctx context.Context) error {
@@ -164,22 +192,24 @@ func (c *Cron) Invoke(ctx context.Context) error {
 		// Jitter the first run by 0-2 seconds.
 		time.Sleep(time.Duration(rand.IntN(2)) * time.Second) //nolint:gosec
 
-		lastRun = time.Now()
-		l.InfoContext(ctx, "invoking cron")
-		if err := c.job.Invoke(withLogger(ctx, l)); err != nil {
-			l.ErrorContext(
+		if c.shouldInvoke() {
+			lastRun = time.Now()
+			l.InfoContext(ctx, "invoking cron")
+			if err := c.job.Invoke(withLogger(ctx, l)); err != nil {
+				l.ErrorContext(
+					ctx,
+					"cron failed",
+					"error", err,
+					"duration", time.Since(lastRun),
+				)
+				return err
+			}
+			l.InfoContext(
 				ctx,
-				"cron failed",
-				"error", err,
+				"cron complete",
 				"duration", time.Since(lastRun),
 			)
-			return err
 		}
-		l.InfoContext(
-			ctx,
-			"cron complete",
-			"duration", time.Since(lastRun),
-		)
 	}
 
 	var next time.Time
@@ -193,6 +223,9 @@ func (c *Cron) Invoke(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(time.Until(next)):
+			if !c.shouldInvoke() {
+				continue
+			}
 
 			lastRun = time.Now()
 			l.InfoContext(ctx, "invoking cron")

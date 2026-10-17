@@ -241,7 +241,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.config.BaseTransport.RoundTrip(req)
 	retries := 0
 
-	for t.config.DefaultPolicy(req.Context(), resp, err) && retries < t.config.MaxRetries {
+	for retryFromContext(req.Context()) && t.config.DefaultPolicy(req.Context(), resp, err) && retries < t.config.MaxRetries {
 		backoff := t.config.Backoff(t.config, retries, resp)
 
 		if t.config.RetryCallback != nil {

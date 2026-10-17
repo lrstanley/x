@@ -169,6 +169,68 @@ func mockServer(t *testing.T, handlers []http.HandlerFunc, overflow bool) *httpt
 	return srv
 }
 
+func TestWithRetryDisabled(t *testing.T) {
+	t.Parallel()
+
+	config := fastTestConfig()
+	config.MaxRetries = 3
+
+	srv := mockServer(t, []http.HandlerFunc{hstatus(t, http.StatusInternalServerError)}, false)
+
+	client := &http.Client{
+		Transport: NewTransport(config),
+	}
+
+	ctx := WithRetry(t.Context(), false)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected status %d without retries, got %d", http.StatusInternalServerError, resp.StatusCode)
+	}
+}
+
+func TestWithRetryChildOverride(t *testing.T) {
+	t.Parallel()
+
+	config := fastTestConfig()
+	config.MaxRetries = 3
+
+	srv := mockServer(t, []http.HandlerFunc{
+		hstatus(t, http.StatusInternalServerError),
+		hstatus(t, http.StatusOK),
+	}, false)
+
+	client := &http.Client{
+		Transport: NewTransport(config),
+	}
+
+	parent := WithRetry(t.Context(), false)
+	child := WithRetry(parent, true)
+	req, err := http.NewRequestWithContext(child, http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status %d after retry, got %d", http.StatusOK, resp.StatusCode)
+	}
+}
+
 func TestNewTransport(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
