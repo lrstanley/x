@@ -5,6 +5,7 @@
 package vt
 
 import (
+	"bytes"
 	"image/color"
 	"unicode/utf8"
 
@@ -12,13 +13,25 @@ import (
 	"github.com/lrstanley/x/term/vt/screen"
 )
 
+// asciiRunes holds interned one-byte strings for codepoints 1 through 127.
+// rawCell uses them for the common single-rune ASCII path. Codepoint 0
+// stays the " " literal, matching a blank cell.
+var asciiRunes [128]string
+
+func init() {
+	for i := 1; i < len(asciiRunes); i++ {
+		asciiRunes[i] = string(rune(i))
+	}
+}
+
 // The grid is a snapshot of GhosttyRenderState, not a live view of Wasm
 // memory. refreshLocked calls ghostty_render_state_update, then walks
 // the row iterator. CELLS_RAW is a packed 8-byte word per cell
 // (GhosttyCell). Graphemes, styles, and links are a second query
 // through GhosttyRenderStateRowCells, and only for cells whose word
 // says they need it. Copies leave Wasm before the next allocating call.
-// Layout constants are the generated names in wasmvt.
+// Each viewport row keeps its last CELLS_RAW copy so an unchanged row
+// is not unpacked again. Layout constants are the generated names in wasmvt.
 
 // screenLocked returns the frozen frame during a synchronized-output
 // hold. Otherwise it refreshes from the render state.
@@ -40,12 +53,14 @@ func (t *Terminal) captureFrame() (*screen.Buffer, Cursor) {
 }
 
 // refreshLocked pulls GhosttyRenderState into t.grid. The caller holds
-// the terminal lock. A full dirty flag of 1 skips clean rows. The row
-// iterator handle is passed by pointer in scratch. Failure leaves the
-// previous grid in place.
+// the terminal lock. A full dirty flag of 1 skips clean rows. A row
+// whose GhosttyCell words match the cached copy is left clean as well.
+// The row iterator handle is passed by pointer in scratch. Failure leaves
+// the previous grid in place.
 func (t *Terminal) refreshLocked() *screen.Buffer {
 	if rc := t.mod.Xghostty_render_state_update(t.render, t.term); rc != 0 && t.grid == nil {
 		t.grid = screen.NewBuffer(t.cols, t.rows)
+		t.invalidateRowWords()
 		t.gridFresh = true
 		return t.grid
 	}
@@ -59,6 +74,7 @@ func (t *Terminal) refreshLocked() *screen.Buffer {
 	}
 	if !same {
 		t.grid = screen.NewBuffer(t.cols, t.rows)
+		t.invalidateRowWords()
 	} else {
 		t.grid.ClearDirty()
 	}
@@ -69,6 +85,8 @@ func (t *Terminal) refreshLocked() *screen.Buffer {
 		t.gridFresh = true
 		return t.grid
 	}
+	t.prepareRowWords()
+	changed := false
 	for t.mod.Xghostty_render_state_row_iterator_next(t.rowsIt) != 0 {
 		y := int(t.rowI32(wasmvt.RenderStateRowDataViewportY))
 		if y < 0 || y >= t.rows {
@@ -78,10 +96,15 @@ func (t *Terminal) refreshLocked() *screen.Buffer {
 		if dirty == 1 && !rowDirty {
 			continue
 		}
-		t.decodeRow(y)
-		if y < len(t.grid.Dirty) {
+		if t.decodeRow(y) && y < len(t.grid.Dirty) {
 			t.grid.Dirty[y] = true
+			changed = true
 		}
+	}
+	// A following refresh may ClearDirty before anyone draws. The
+	// generation still tells that draw the cells are new.
+	if changed {
+		t.grid.AdvanceGeneration()
 	}
 	t.readCursorLocked()
 	t.alt = t.activeAlt()
@@ -92,14 +115,18 @@ func (t *Terminal) refreshLocked() *screen.Buffer {
 // decodeRow copies CELLS_RAW for viewport row y out of Wasm, then
 // fills grapheme, style, and hyperlink data for cells that need it.
 // The raw pointer is only valid until the next render-state call, so
-// the words are copied into t.rawRow first.
-func (t *Terminal) decodeRow(y int) {
+// the words are copied into t.rawRow first. When those words match the
+// copy kept for this row, the grid row is already current and decodeRow
+// reports false so the caller leaves the row not dirty. A true result
+// means the row was unpacked, or the read failed, and the caller marks
+// the row dirty.
+func (t *Terminal) decodeRow(y int) bool {
 	view := t.scratch
 	t.mod.Zero(view, 8)
 	if err := wasmvt.Result("cells", t.mod.Xghostty_render_state_row_get(
 		t.rowsIt, wasmvt.RenderStateRowDataCellsRaw, view,
 	)); err != nil {
-		return
+		return true
 	}
 	ptr := int32(t.mod.U32(view, 0))
 	n := int(t.mod.U32(view, 4))
@@ -112,116 +139,170 @@ func (t *Terminal) decodeRow(y int) {
 	t.rawRow = t.rawRow[:n*8]
 	copy(t.rawRow, t.mod.Slice(ptr, n*8))
 	raw := t.rawRow
-	needsExtra := false
-	if cap(t.decodedRow) < n {
-		t.decodedRow = make([]decodedCell, n)
+	if t.rowCached(y, raw) {
+		return false
 	}
-	t.decodedRow = t.decodedRow[:n]
-	decoded := t.decodedRow
+	if cap(t.rowFlags) < n {
+		t.rowFlags = make([]byte, n)
+	}
+	t.rowFlags = t.rowFlags[:n]
+	var needs byte
 	for i := range n {
-		decoded[i] = rawCell(raw[i*8 : i*8+8])
-		if decoded[i].extra {
-			needsExtra = true
-		}
-		t.grid.SetRaw(i, y, decoded[i].cell)
-	}
-	if !needsExtra {
-		return
-	}
-	t.mod.SetU32(t.scratch, 0, uint32(t.cells))
-	if err := wasmvt.Result("row cells", t.mod.Xghostty_render_state_row_get(
-		t.rowsIt, wasmvt.RenderStateRowDataCells, t.scratch,
-	)); err != nil {
-		return
-	}
-	for x := range n {
-		word := decoded[x]
-		if !word.extra {
+		cell := t.grid.CellAt(i, y)
+		if cell == nil {
+			t.rowFlags[i] = 0
 			continue
 		}
-		if t.mod.Xghostty_render_state_row_cells_select(t.cells, int32(x)) != 0 {
-			continue
+		f := rawCell(raw[i*8:i*8+8], cell)
+		t.rowFlags[i] = f
+		needs |= f
+	}
+	if needs != 0 {
+		t.mod.SetU32(t.scratch, 0, uint32(t.cells))
+		if err := wasmvt.Result("row cells", t.mod.Xghostty_render_state_row_get(
+			t.rowsIt, wasmvt.RenderStateRowDataCells, t.scratch,
+		)); err != nil {
+			return true
 		}
-		if word.grapheme {
-			if text := t.cellUTF8(); text != "" {
-				c := t.grid.CellAt(x, y)
-				if c != nil {
-					c.Content = text
+		for x := range n {
+			word := t.rowFlags[x]
+			if word == 0 {
+				continue
+			}
+			if t.mod.Xghostty_render_state_row_cells_select(t.cells, int32(x)) != 0 {
+				continue
+			}
+			if word&flagGrapheme != 0 {
+				if text := t.cellUTF8(); text != "" {
+					c := t.grid.CellAt(x, y)
+					if c != nil {
+						c.Content = text
+					}
 				}
 			}
+			if word&flagStyled != 0 {
+				t.applyStyle(x, y)
+			}
+			if word&flagLink != 0 {
+				t.applyLink(x, y)
+			}
 		}
-		if word.styled {
-			t.applyStyle(x, y)
-		}
-		if word.link {
-			t.applyLink(x, y)
-		}
+	}
+	t.storeRowWords(y, raw)
+	return true
+}
+
+func (t *Terminal) invalidateRowWords() {
+	for i := range t.rowWordsN {
+		t.rowWordsN[i] = -1
 	}
 }
 
-// decodedCell is one unpacked GhosttyCell word, before the slow path
-// fills graphemes, styles, and links.
-type decodedCell struct {
-	// cell is what the packed word can express on its own.
-	cell screen.Cell
-	// extra is true when grapheme, styled, or link is set and the row
-	// cells cursor has to be queried.
-	extra bool
-	// grapheme is true when the codepoint is only the first scalar of
-	// the cluster.
-	grapheme bool
-	// styled is true when the style id is non-zero.
-	styled bool
-	// link is true when the word's link bit is set.
-	link bool
+func (t *Terminal) prepareRowWords() {
+	need := t.rows * t.cols * 8
+	if len(t.rowWords) == need && len(t.rowWordsN) == t.rows {
+		return
+	}
+	t.rowWords = make([]byte, need)
+	t.rowWordsN = make([]int, t.rows)
+	for i := range t.rowWordsN {
+		t.rowWordsN[i] = -1
+	}
 }
 
-// rawCell unpacks one GhosttyCell word. The bit layout is the packed
-// manifest type: content tag in bits 0-1, 24 bits of content, 16-bit
-// style id, 2-bit wide flag, and a link bit. Tag 1 means the codepoint
-// is incomplete and cellUTF8 must load the grapheme cluster.
-func rawCell(b []byte) decodedCell {
+func (t *Terminal) rowCached(y int, raw []byte) bool {
+	if y < 0 || y >= len(t.rowWordsN) || t.rowWordsN[y] != len(raw) {
+		return false
+	}
+	off := y * t.cols * 8
+	end := off + len(raw)
+	if off < 0 || end > len(t.rowWords) {
+		return false
+	}
+	return bytes.Equal(t.rowWords[off:end], raw)
+}
+
+func (t *Terminal) storeRowWords(y int, raw []byte) {
+	t.prepareRowWords()
+	if y < 0 || y >= len(t.rowWordsN) {
+		return
+	}
+	off := y * t.cols * 8
+	end := off + len(raw)
+	if off < 0 || end > len(t.rowWords) {
+		return
+	}
+	copy(t.rowWords[off:end], raw)
+	t.rowWordsN[y] = len(raw)
+}
+
+// Flag bits for one GhosttyCell word. They live in a side buffer so
+// decode does not store a screen.Cell twice.
+const (
+	// flagGrapheme means the codepoint is only the first scalar of the
+	// cluster and the row-cells cursor has to load the rest.
+	flagGrapheme byte = 1 << iota
+	// flagStyled means the style id is non-zero.
+	flagStyled
+	// flagLink means the word's link bit is set.
+	flagLink
+)
+
+// rawCell unpacks one GhosttyCell word into dst. The bit layout is the
+// packed manifest type: content tag in bits 0-1, 24 bits of content,
+// 16-bit style id, 2-bit wide flag, and a link bit. Tag 1 means the
+// codepoint is incomplete and cellUTF8 must load the grapheme cluster.
+// The returned flags are flagGrapheme, flagStyled, and flagLink.
+func rawCell(b []byte, dst *screen.Cell) byte {
 	v := uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 	tag := v & 0x3
 	content := (v >> 2) & 0xffffff
 	styleID := (v >> 26) & 0xffff
 	wide := (v >> 42) & 0x3
-	link := (v>>45)&1 == 1
 	cp := rune(content & 0x1fffff)
-	out := decodedCell{}
+	var flags byte
+	if (v>>45)&1 == 1 {
+		flags |= flagLink
+	}
+	width := 1
 	switch wide {
 	case 1:
-		out.cell.Width = 2
+		width = 2
 	case 2, 3:
-		out.cell.Width = 0
-	default:
-		out.cell.Width = 1
+		width = 0
 	}
+	var text string
+	var bg color.Color
 	switch tag {
 	case 0, 1:
 		if cp == 0 {
-			out.cell.Content = " "
+			text = " "
 			if wide == 0 {
-				out.cell.Width = 1
+				width = 1
 			}
+		} else if cp < 128 {
+			text = asciiRunes[cp]
 		} else {
 			var buf [4]byte
 			n := utf8.EncodeRune(buf[:], cp)
-			out.cell.Content = string(buf[:n])
+			text = string(buf[:n])
 		}
-		out.grapheme = tag == 1
+		if tag == 1 {
+			flags |= flagGrapheme
+		}
 	case 2:
-		out.cell.Content = " "
-		out.cell.Style.Bg = screen.Indexed(content & 0xff)
+		text = " "
+		bg = screen.Indexed(content & 0xff)
 	case 3:
-		out.cell.Content = " "
-		out.cell.Style.Bg = color.NRGBA{R: uint8(content), G: uint8(content >> 8), B: uint8(content >> 16), A: 0xff}
+		text = " "
+		bg = color.NRGBA{R: uint8(content), G: uint8(content >> 8), B: uint8(content >> 16), A: 0xff}
 	}
-	out.styled = styleID != 0
-	out.link = link
-	out.extra = out.grapheme || out.styled || out.link
-	return out
+	if styleID != 0 {
+		flags |= flagStyled
+	}
+	*dst = screen.Cell{Content: text, Width: width, Style: screen.Style{Bg: bg}}
+	return flags
 }
 
 // cellUTF8 reads GRAPHEMES_UTF8 for the selected row cell into a

@@ -6,9 +6,9 @@ package still
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 
-	icol "github.com/lrstanley/x/term/still/internal/color"
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/internal/effects"
 	"github.com/lrstanley/x/term/vt/screen"
@@ -73,7 +73,7 @@ func (d *Renderer) drawIntoLocked(dst draw.Image, area image.Rectangle, scr scre
 }
 
 func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
-	d.drawBackground(dst, f)
+	windowBg := d.drawBackground(dst, f)
 
 	view := f.screenBounds
 	gridMaxX := f.gridBounds.Max.X
@@ -87,11 +87,22 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 	}
 
 	var cell *screen.Cell
-	var area image.Rectangle
 	for y := view.Min.Y; y < view.Max.Y; y++ {
 		row := y - view.Min.Y
-		cellMinY := gridMin.Y + row*cellH
-		cellMaxY := cellMinY + cellH
+		rowY0 := gridMin.Y + row*cellH
+		rowY1 := rowY0 + cellH
+
+		// Consecutive explicit backgrounds that still need paint and share a
+		// stored color become one Fill. Width-0 spacers are skipped and do
+		// not end a run; a cell that does not need a fill does. A run extends
+		// only when the next span starts where the previous one ended, so a
+		// wide cell contributes its full pixel width and gaps stay unpainted.
+		var (
+			open     bool
+			runX0    int
+			runX1    int
+			runColor color.NRGBA
+		)
 		for x := view.Min.X; x < view.Max.X; x++ {
 			cell = scr.CellAt(x, y)
 			if cell == nil {
@@ -101,24 +112,50 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 				continue
 			}
 			col := x - view.Min.X
-			cellMinX := gridMin.X + col*cellW
-			cellMaxX := cellMinX + cellW
-			if cell.Width > 1 {
-				cellMaxX = min(gridMaxX, cellMinX+cell.Width*cellW)
-			}
-			area = image.Rect(cellMinX, cellMinY, cellMaxX, cellMaxY)
-
-			if icol.CellHasExplicitBackground(cell) {
-				if idraw.TextVisible(f, cell) &&
-					(cellHasForegroundGlyph(cell) || cellHasForegroundDecorations(cell)) {
-					fg, bg := f.CellColorsNRGBA(cell)
-					idraw.Fill(dst, area, f.cellBackgroundFromResolved(cell, bg))
-					d.drawCellFgColor(dst, area, cell, f, usePass, fg, true)
-					continue
+			area := cellDrawArea(gridMin, gridMaxX, cellW, cellH, col, row, cell.Width)
+			fg, fgReady, fill, need := cellBackgroundFill(f, cell, area, windowBg)
+			if !need {
+				if open {
+					idraw.Fill(dst, image.Rect(runX0, rowY0, runX1, rowY1), runColor)
+					open = false
 				}
-				d.drawCellBg(dst, area, cell, f)
+			} else if open && fill == runColor && area.Min.X == runX1 {
+				runX1 = area.Max.X
+			} else {
+				if open {
+					idraw.Fill(dst, image.Rect(runX0, rowY0, runX1, rowY1), runColor)
+				}
+				open = true
+				runX0 = area.Min.X
+				runX1 = area.Max.X
+				runColor = fill
 			}
-			d.drawCellFg(dst, area, cell, f, usePass)
+			if !usePass {
+				continue
+			}
+			if fgReady {
+				d.drawCellFgColor(dst, area, cell, f, true, fg, true)
+				continue
+			}
+			d.drawCellFg(dst, area, cell, f, true)
+		}
+		if open {
+			idraw.Fill(dst, image.Rect(runX0, rowY0, runX1, rowY1), runColor)
+		}
+		if usePass {
+			continue
+		}
+		for x := view.Min.X; x < view.Max.X; x++ {
+			cell = scr.CellAt(x, y)
+			if cell == nil {
+				cell = &screen.EmptyCell
+			}
+			if cell.Width == 0 {
+				continue
+			}
+			col := x - view.Min.X
+			area := cellDrawArea(gridMin, gridMaxX, cellW, cellH, col, row, cell.Width)
+			d.drawCellFg(dst, area, cell, f, false)
 		}
 	}
 

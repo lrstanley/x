@@ -21,7 +21,8 @@ type Coverage struct {
 
 	// rowLo and rowHi are inclusive ink spans for each row of bounds.
 	// rowLo[y] < 0 means the row has no ink. Composite visits only those
-	// spans, so line-gap rows between glyphs are not scanned.
+	// spans, so line-gap rows between glyphs are not scanned. reset clears
+	// just those spans when bounds are unchanged.
 	rowLo  []int
 	rowHi  []int
 	hasInk bool
@@ -33,13 +34,31 @@ func packCoveragePixel(alpha uint8, fg color.NRGBA) uint32 {
 
 func (c *Coverage) reset(bounds image.Rectangle) {
 	n := bounds.Dx() * bounds.Dy()
+	h := bounds.Dy()
+	// Same rectangle and same buffer: only the previous ink is dirty.
+	if bounds == c.bounds && len(c.pixels) == n && len(c.rowLo) == h {
+		if c.hasInk {
+			dx := bounds.Dx()
+			minX := bounds.Min.X
+			pix := c.pixels
+			for yi, x0 := range c.rowLo {
+				if x0 < 0 {
+					continue
+				}
+				i := yi*dx + (x0 - minX)
+				clear(pix[i : i+(c.rowHi[yi]-x0+1)])
+				c.rowLo[yi] = -1
+			}
+			c.hasInk = false
+		}
+		return
+	}
 	if cap(c.pixels) < n {
 		c.pixels = make([]uint32, n)
 	} else {
 		c.pixels = c.pixels[:n]
 		clear(c.pixels)
 	}
-	h := bounds.Dy()
 	if cap(c.rowLo) < h {
 		c.rowLo = make([]int, h)
 		c.rowHi = make([]int, h)
@@ -52,6 +71,15 @@ func (c *Coverage) reset(bounds image.Rectangle) {
 	}
 	c.bounds = bounds
 	c.hasInk = false
+}
+
+// div255 returns floor(v/255). It is exact for every v in [0, 65025], the
+// range of fg*a+dst*(255-a) when fg, dst, and a are 8-bit. Let q = v>>8 and
+// r = v&255. Then v/255 = q+floor((q+r)/255), and for this range q+r <= 508
+// so the floor is 0 or 1. (v+1+(v>>8))>>8 = q+floor((q+r+1)/256), which is
+// the same correction: 1 exactly when q+r >= 255.
+func div255(v int) uint8 {
+	return uint8((v + 1 + (v >> 8)) >> 8)
 }
 
 // markRow records an inclusive ink span on y. x0 and x1 are absolute pixels.
@@ -126,26 +154,35 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 		}
 		i := (y-minY)*dx + (x0 - minX)
 		off := (y-db.Min.Y)*stride + (x0-db.Min.X)*4
-		end := off + (x1-x0-1)*4
-		for {
-			p := c.pixels[i]
+		n := x1 - x0
+		pixels := c.pixels
+		for k := 0; k < n; {
+			p := pixels[i]
 			a := uint8(p)
-			if a != 0 {
-				if a == 255 {
-					binary.LittleEndian.PutUint32(pix[off:off+4], (p>>8)|0xff000000)
-				} else {
-					inv := 255 - int(a)
-					pix[off] = uint8((int(uint8(p>>8))*int(a) + int(pix[off])*inv) / 255)
-					pix[off+1] = uint8((int(uint8(p>>16))*int(a) + int(pix[off+1])*inv) / 255)
-					pix[off+2] = uint8((int(uint8(p>>24))*int(a) + int(pix[off+2])*inv) / 255)
-					pix[off+3] = 255
+			if a == 0 {
+				i++
+				off += 4
+				k++
+				for k+4 <= n && pixels[i]|pixels[i+1]|pixels[i+2]|pixels[i+3] == 0 {
+					i += 4
+					off += 16
+					k += 4
 				}
+				continue
 			}
-			if off == end {
-				break
+			if a == 255 {
+				binary.LittleEndian.PutUint32(pix[off:off+4], (p>>8)|0xff000000)
+			} else {
+				inv := 255 - int(a)
+				ai := int(a)
+				pix[off] = div255(int(uint8(p>>8))*ai + int(pix[off])*inv)
+				pix[off+1] = div255(int(uint8(p>>16))*ai + int(pix[off+1])*inv)
+				pix[off+2] = div255(int(uint8(p>>24))*ai + int(pix[off+2])*inv)
+				pix[off+3] = 255
 			}
 			i++
 			off += 4
+			k++
 		}
 	}
 }

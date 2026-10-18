@@ -27,7 +27,7 @@ func init() {
 		"Scrollback", "ScrollbackCount", "MessageHistory", "Messages", "LiveMessages",
 		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts",
 		"FilterMessagesType", "FilterMessagesFunc",
-		"syncRendererState", "rendererState", "drawImage", "drawImageInto",
+		"drawImage", "drawImageInto", "imageViewport", "dropImageScreen",
 		"key", "typeKeys", "mouse", "mouseClick", "mouseDrag", "waitFinished",
 		"KeyUp", "KeyDown", "KeyLeft", "KeyRight", "KeyEsc", "KeyDelete",
 		"KeyBackspace", "KeyCtrlC", "KeyCtrlD",

@@ -6,10 +6,13 @@ package steep
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 
 	"github.com/lrstanley/x/term/steep/snapshot"
 	"github.com/lrstanley/x/term/still"
+	"github.com/lrstanley/x/term/vt"
+	"github.com/lrstanley/x/term/vt/screen"
 )
 
 func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
@@ -83,8 +86,8 @@ func (h *Harness) ImageInto(dst draw.Image) {
 }
 
 func (h *Harness) drawImageInto(dst draw.Image) {
-	h.syncRendererState()
-	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.emulator.term.Screen())
+	h.tb.Helper()
+	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.imageViewport())
 }
 
 // Image renders the current terminal screen buffer as an image. Configure the
@@ -103,32 +106,73 @@ func (h *Harness) Image() image.Image {
 }
 
 func (h *Harness) drawImage() image.Image {
-	h.syncRendererState()
-	return h.imageRenderer.Draw(h.emulator.term.Screen())
+	return h.imageRenderer.Draw(h.imageViewport())
 }
 
-// syncRendererState copies live emulator state into the harness renderer.
-func (h *Harness) syncRendererState() {
-	h.tb.Helper()
-	state := h.rendererState()
-	h.imageRenderer.UpdateEmulatorState(&state)
+// imageViewport copies emulator state into the renderer and returns the
+// retained viewport clone when its generation still matches the terminal.
+// A mismatch clones via Screen, so a generation change is never drawn
+// from the previous grid.
+func (h *Harness) imageViewport() *screen.Buffer {
+	st := h.emulator.term.Snapshot()
+	syncViewport(h, st)
+
+	h.imageMu.Lock()
+	if scr := h.imageScreen; st.Generation != 0 && scr != nil && scr.Generation() == st.Generation {
+		h.imageMu.Unlock()
+		return scr
+	}
+	h.imageMu.Unlock()
+
+	scr := h.emulator.term.Screen()
+	h.imageMu.Lock()
+	h.imageScreen = scr
+	h.imageMu.Unlock()
+	return scr
 }
 
-func (h *Harness) rendererState() still.EmulatorState {
-	cur := h.emulator.term.Cursor()
-	cursorColor, _ := h.emulator.term.CursorColor()
-	return still.EmulatorState{
-		Title:           h.emulator.term.Title(),
+func (h *Harness) dropImageScreen() {
+	h.imageMu.Lock()
+	h.imageScreen = nil
+	h.imageMu.Unlock()
+}
+
+// syncViewport copies st into the renderer when it differs from the
+// last copy. Unchanged NRGBA colors keep the previous interface value.
+// The terminal lock is not held here.
+func syncViewport(h *Harness, st vt.Snapshot) {
+	h.imageMu.Lock()
+	defer h.imageMu.Unlock()
+
+	prev := h.imageState
+	cur := st.Cursor
+	next := still.EmulatorState{
+		Title:           st.Title,
 		Focused:         h.emulator.focused,
-		AltScreen:       h.emulator.term.AltScreen(),
+		AltScreen:       st.AltScreen,
 		CursorVisible:   cur.Visible,
 		CursorX:         cur.X,
 		CursorY:         cur.Y,
-		CursorColor:     cursorColor,
+		CursorColor:     reuseNRGBA(prev.CursorColor, st.CursorColor),
 		CursorStyle:     cur.Shape,
 		CursorBlink:     cur.Blink,
-		FgColor:         h.emulator.term.Foreground(),
-		BgColor:         h.emulator.term.Background(),
-		ScrollbackCount: h.emulator.term.ScrollbackLen(),
+		FgColor:         reuseNRGBA(prev.FgColor, st.Foreground),
+		BgColor:         reuseNRGBA(prev.BgColor, st.Background),
+		ScrollbackCount: st.ScrollbackLen,
 	}
+	if h.imageStateSet && prev == next {
+		return
+	}
+	h.imageRenderer.UpdateEmulatorState(&next)
+	h.imageState = next
+	h.imageStateSet = true
+}
+
+// reuseNRGBA returns prev when it already boxes next. Assigning an
+// NRGBA to a color.Color allocates, so an unchanged color must not.
+func reuseNRGBA(prev color.Color, next color.NRGBA) color.Color {
+	if c, ok := prev.(color.NRGBA); ok && c == next {
+		return prev
+	}
+	return next
 }

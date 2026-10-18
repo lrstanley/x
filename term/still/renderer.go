@@ -34,6 +34,12 @@ type Renderer struct {
 	emulatorState *EmulatorState
 
 	frame *image.NRGBA
+	// frameReady is set after Draw paints frame. A rebuild or Close clears it.
+	frameReady bool
+	frameGen   uint64
+	frameSnap  frameSnap
+	blinkGen   uint64
+	blinkOn    bool
 
 	fgPass raster.Pass
 }
@@ -83,7 +89,8 @@ func (d *Renderer) GetEmulatorState() *EmulatorState {
 }
 
 // UpdateEmulatorState replaces live emulator state used during [Renderer.Draw].
-// Passing nil clears the state.
+// Passing nil clears the state. The renderer keeps one state value and
+// updates it in place. The caller's struct is copied, not retained.
 func (d *Renderer) UpdateEmulatorState(state *EmulatorState) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -93,8 +100,12 @@ func (d *Renderer) UpdateEmulatorState(state *EmulatorState) {
 		d.emulatorState = nil
 		return
 	}
-	st := *state
-	d.emulatorState = &st
+	if d.emulatorState == nil {
+		st := *state
+		d.emulatorState = &st
+		return
+	}
+	*d.emulatorState = *state
 }
 
 // Metrics returns the current derived renderer metrics.
@@ -105,16 +116,22 @@ func (d *Renderer) Metrics() Metrics {
 }
 
 // Draw rasterizes scr into the renderer's reusable frame buffer and returns it.
+// When the cached frame is already that picture, Draw returns it without painting.
 func (d *Renderer) Draw(scr screen.Screen) image.Image {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.ensureOpen()
+	if d.reuseFrame(scr) {
+		return d.frame
+	}
+	d.frameReady = false
 	f := d.borrowRenderFrame(image.Point{}, scr)
 	defer releaseRenderFrame(f)
 	bounds := f.imageBounds
 	img := d.ensureFrameLocked(bounds)
 	d.render(img, scr, f)
+	d.rememberFrame(scr)
 	return img
 }
 
@@ -126,6 +143,7 @@ func (d *Renderer) Close() error {
 	err := d.fonts.Close()
 	d.fonts = nil
 	d.frame = nil
+	d.frameReady = false
 	d.closed = true
 	return err
 }
@@ -144,6 +162,7 @@ func (d *Renderer) ensureOpen() {
 }
 
 func (d *Renderer) buildRenderer() error {
+	d.frameReady = false
 	fonts, err := fontset.Build(d.opts)
 	if err != nil {
 		return err

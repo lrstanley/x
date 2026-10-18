@@ -142,10 +142,16 @@ type Terminal struct {
 	gridCursor Cursor
 	// gridFresh is true when grid matches the emulator since the last write.
 	gridFresh bool
-	// rawRow and decodedRow are scratch for one viewport row. rawRow holds
-	// the copied GhosttyCell words. decodedRow is the unpacked form.
-	rawRow     []byte
-	decodedRow []decodedCell
+	// rawRow is scratch for one viewport row of GhosttyCell words.
+	// rowFlags is one flag byte per cell in that row (grapheme, style, link).
+	// rowWords is the last words copied for every viewport row of the
+	// current grid, cols*8 bytes each. rowWordsN is the cached byte length
+	// of each row, or -1 when that row has not been decoded into this grid.
+	// Resize and any replacement of grid storage clear rowWordsN.
+	rawRow    []byte
+	rowFlags  []byte
+	rowWords  []byte
+	rowWordsN []int
 	// callbacksOn is true after installCallbacks. The table entries stay
 	// for the life of the module, including while the instance is pooled.
 	callbacksOn bool
@@ -256,6 +262,7 @@ func (t *Terminal) resetStateLocked() {
 	t.statuses = nil
 	t.resizeOK = false
 	t.grid = nil
+	t.invalidateRowWords()
 	t.gridFresh = false
 	t.hasCursor = false
 	t.kittyLimit = 0
@@ -289,6 +296,9 @@ func (t *Terminal) resizeLocked(cols, rows int) error {
 	rc := t.mod.Xghostty_terminal_resize(t.term, int32(cols), int32(rows), int32(t.cellW), int32(t.cellH))
 	if err := wasmvt.Result("resize", rc); err != nil {
 		return err
+	}
+	if cols != t.cols || rows != t.rows {
+		t.invalidateRowWords()
 	}
 	t.cols, t.rows = cols, rows
 	return nil
@@ -329,6 +339,10 @@ func (t *Terminal) Screen() *screen.Buffer {
 func (t *Terminal) Cursor() Cursor {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.cursorLocked()
+}
+
+func (t *Terminal) cursorLocked() Cursor {
 	if t.held && t.frozen != nil {
 		return t.frozenCur
 	}
@@ -336,6 +350,48 @@ func (t *Terminal) Cursor() Cursor {
 		t.screenLocked()
 	}
 	return t.gridCursor
+}
+
+// GridGeneration returns the content generation of the viewport grid
+// [Terminal.Screen] would copy. It does not copy cells. Zero means there
+// is no grid. A caller that already holds a screen copy can keep that
+// copy while this value is unchanged.
+func (t *Terminal) GridGeneration() uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.gridGenerationLocked()
+}
+
+func (t *Terminal) gridGenerationLocked() uint64 {
+	if t.held && t.frozen != nil {
+		return t.frozen.Generation()
+	}
+	if !t.gridFresh {
+		t.screenLocked()
+	}
+	return t.grid.Generation()
+}
+
+// Snapshot returns [Snapshot] under one lock. It does not copy the grid
+// and does not hold the lock after it returns.
+func (t *Terminal) Snapshot() Snapshot {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cur := t.cursorLocked()
+	gen := t.gridGenerationLocked()
+	t.alt = t.activeAlt()
+	cc, hasCursor := t.cursorColorLocked()
+	return Snapshot{
+		Title:          t.title,
+		AltScreen:      t.alt,
+		Cursor:         cur,
+		Foreground:     t.shownColor(t.fgOverride, t.fgDefault, wasmvt.TerminalDataColorForeground, t.fg),
+		Background:     t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
+		CursorColor:    cc,
+		CursorColorSet: hasCursor,
+		ScrollbackLen:  t.scrollbackLenLocked(),
+		Generation:     gen,
+	}
 }
 
 // Held reports synchronized-output mode 2026. Image capture skips frames
@@ -449,6 +505,10 @@ func (t *Terminal) Background() color.NRGBA {
 func (t *Terminal) CursorColor() (color.NRGBA, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.cursorColorLocked()
+}
+
+func (t *Terminal) cursorColorLocked() (color.NRGBA, bool) {
 	if t.cursorOverride == nil && t.cursorDefault == nil {
 		return t.readRGB(wasmvt.TerminalDataColorCursor, t.cursor), false
 	}

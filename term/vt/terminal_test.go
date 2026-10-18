@@ -6,6 +6,7 @@ package vt
 
 import (
 	"context"
+	"image/color"
 	"strings"
 	"sync"
 	"testing"
@@ -325,6 +326,134 @@ func TestProgramStatusAndPrompt(t *testing.T) {
 
 // testRuntime is this package's pool. Tests do not use a process-wide one.
 var testRuntime = NewRuntime(0)
+
+func TestGridGenerationMatchesScreen(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 8, 2)
+	before := term.GridGeneration()
+	scr := term.Screen()
+	if scr == nil {
+		t.Fatal("nil screen")
+	}
+	if before == 0 || scr.Generation() != before {
+		t.Fatalf("GridGeneration = %d, Screen generation = %d", before, scr.Generation())
+	}
+	if again := term.GridGeneration(); again != before {
+		t.Fatalf("second GridGeneration = %d, want %d", again, before)
+	}
+	if _, err := term.Write([]byte("A")); err != nil {
+		t.Fatal(err)
+	}
+	after := term.GridGeneration()
+	if after == before || after == 0 {
+		t.Fatalf("generation after write = %d, want a new non-zero value", after)
+	}
+	if got := term.Screen().Generation(); got != after {
+		t.Fatalf("GridGeneration = %d, Screen generation = %d", after, got)
+	}
+
+	if _, err := term.Write([]byte("\x1b[?2026hB")); err != nil {
+		t.Fatal(err)
+	}
+	held := term.GridGeneration()
+	if held == 0 || held != term.Screen().Generation() {
+		t.Fatalf("held GridGeneration = %d, Screen generation = %d", held, term.Screen().Generation())
+	}
+	if _, err := term.Write([]byte("C")); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.GridGeneration(); got != held {
+		t.Fatalf("generation during hold = %d, want %d", got, held)
+	}
+}
+
+func TestSnapshotMatchesAccessors(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 8, 2)
+	if _, err := term.Write([]byte("A\x1b]0;snap-title\x07")); err != nil {
+		t.Fatal(err)
+	}
+	fg := color.NRGBA{R: 1, G: 2, B: 3, A: 0xff}
+	if err := term.SetForeground(fg); err != nil {
+		t.Fatal(err)
+	}
+	got := term.Snapshot()
+	if got.Title != "snap-title" || got.Foreground != fg {
+		t.Fatalf("snapshot title/fg = %q %#v", got.Title, got.Foreground)
+	}
+	assertSnapshot(t, term)
+
+	if _, err := term.Write([]byte("\x1b[?2026hB")); err != nil {
+		t.Fatal(err)
+	}
+	held := term.Snapshot()
+	assertSnapshot(t, term)
+	if _, err := term.Write([]byte("C")); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.Snapshot(); got.Generation != held.Generation || got.Cursor != held.Cursor {
+		t.Fatalf("snapshot during hold = %+v, want generation %d cursor %+v", got, held.Generation, held.Cursor)
+	}
+}
+
+func assertSnapshot(t *testing.T, term *Terminal) {
+	t.Helper()
+	got := term.Snapshot()
+	if got.Title != term.Title() {
+		t.Fatalf("Title = %q, want %q", got.Title, term.Title())
+	}
+	if got.AltScreen != term.AltScreen() {
+		t.Fatalf("AltScreen = %v, want %v", got.AltScreen, term.AltScreen())
+	}
+	if cur := term.Cursor(); got.Cursor != cur {
+		t.Fatalf("Cursor = %+v, want %+v", got.Cursor, cur)
+	}
+	if fg := term.Foreground(); got.Foreground != fg {
+		t.Fatalf("Foreground = %#v, want %#v", got.Foreground, fg)
+	}
+	if bg := term.Background(); got.Background != bg {
+		t.Fatalf("Background = %#v, want %#v", got.Background, bg)
+	}
+	cc, set := term.CursorColor()
+	if got.CursorColor != cc || got.CursorColorSet != set {
+		t.Fatalf("CursorColor = %#v set=%v, want %#v set=%v", got.CursorColor, got.CursorColorSet, cc, set)
+	}
+	if n := term.ScrollbackLen(); got.ScrollbackLen != n {
+		t.Fatalf("ScrollbackLen = %d, want %d", got.ScrollbackLen, n)
+	}
+	if gen := term.GridGeneration(); got.Generation != gen {
+		t.Fatalf("Generation = %d, want %d", got.Generation, gen)
+	}
+	scr := term.Screen()
+	if scr == nil {
+		t.Fatal("nil screen")
+	}
+	if scr.Generation() != got.Generation {
+		t.Fatalf("Screen generation = %d, snapshot = %d", scr.Generation(), got.Generation)
+	}
+}
+
+func TestScreenGenerationSurvivesCleanRefresh(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 8, 2)
+	before := term.Screen().Generation()
+	if _, err := term.Write([]byte("A")); err != nil {
+		t.Fatal(err)
+	}
+	_ = term.Cursor()
+	scr := term.Screen()
+	if scr == nil || len(scr.Text()) == 0 || scr.Text()[0] != 'A' {
+		t.Fatalf("text = %q", scr.Text())
+	}
+	for _, row := range scr.Dirty {
+		if row {
+			t.Fatal("Screen after Cursor refresh still had a dirty row")
+		}
+	}
+	if scr.Generation() == before || scr.Generation() == 0 {
+		t.Fatalf("generation = %d, want a new non-zero value", scr.Generation())
+	}
+}
 
 func openTest(t *testing.T, cols, rows int) *Terminal {
 	t.Helper()

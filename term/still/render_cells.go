@@ -15,13 +15,48 @@ import (
 	"github.com/lrstanley/x/term/vt/screen"
 )
 
-func (d *Renderer) drawBackground(dst draw.Image, f *renderFrame) {
-	idraw.Fill(dst, f.imageBounds, icol.NRGBA(f.marginColor()))
-	idraw.Fill(dst, f.windowBounds, f.windowBackgroundNRGBA())
+// drawBackground paints the margin and the window. Equal rectangles or equal
+// stored colors are one fill; a margin frame whose color differs is painted
+// first, then the window. The returned color is what windowBounds holds.
+func (d *Renderer) drawBackground(dst draw.Image, f *renderFrame) color.NRGBA {
+	margin := icol.NRGBA(f.marginColor())
+	window := f.windowBackgroundNRGBA()
+	if f.imageBounds.Eq(f.windowBounds) || margin == window {
+		idraw.Fill(dst, f.imageBounds, window)
+		return window
+	}
+	idraw.Fill(dst, f.imageBounds, margin)
+	idraw.Fill(dst, f.windowBounds, window)
+	return window
 }
 
-func (d *Renderer) drawCellBg(dst draw.Image, area image.Rectangle, cell *screen.Cell, f *renderFrame) {
-	idraw.Fill(dst, area, f.cellBackgroundNRGBA(cell))
+// cellBackgroundFill reports the foreground already resolved for a visible
+// glyph or decoration, the cell fill that would be stored, and whether that
+// fill still needs to be painted. Cells inside the window whose fill matches
+// the color drawBackground stored there are skipped.
+func cellBackgroundFill(f *renderFrame, cell *screen.Cell, area image.Rectangle, windowBg color.NRGBA) (fg color.NRGBA, fgReady bool, fill color.NRGBA, need bool) {
+	if !icol.CellHasExplicitBackground(cell) {
+		return color.NRGBA{}, false, color.NRGBA{}, false
+	}
+	if idraw.TextVisible(f, cell) && (cellHasForegroundGlyph(cell) || cellHasForegroundDecorations(cell)) {
+		var bg color.NRGBA
+		fg, bg = f.CellColorsNRGBA(cell)
+		fgReady = true
+		fill = f.cellBackgroundFromResolved(cell, bg)
+	} else {
+		fill = f.cellBackgroundNRGBA(cell)
+	}
+	return fg, fgReady, fill, !area.In(f.windowBounds) || fill != windowBg
+}
+
+func cellDrawArea(gridMin image.Point, gridMaxX, cellW, cellH, col, row, width int) image.Rectangle {
+	minX := gridMin.X + col*cellW
+	maxX := minX + cellW
+	if width > 1 {
+		maxX = min(gridMaxX, minX+width*cellW)
+	}
+	minY := gridMin.Y + row*cellH
+	return image.Rect(minX, minY, maxX, minY+cellH)
 }
 
 func (d *Renderer) drawCellFg(dst draw.Image, area image.Rectangle, cell *screen.Cell, f *renderFrame, usePass bool) {

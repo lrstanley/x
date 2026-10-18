@@ -5,7 +5,10 @@
 package steep
 
 import (
+	"bytes"
+	"image"
 	"image/color"
+	"image/draw"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -82,6 +85,62 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	if got := h.Image().Bounds(); got != img.Bounds() {
 		t.Fatalf("persistent image options bounds = %v, want %v", got, img.Bounds())
 	}
+}
+
+func TestHarnessImageTracksEmulatorStateChanges(t *testing.T) {
+	t.Parallel()
+
+	h := NewHarness(t, rootTestModel{text: "state"}, WithWindowSize(24, 3))
+	h.Wait("text=state")
+	_ = h.Image()
+
+	fg := color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}
+	bg := color.NRGBA{R: 0x01, G: 0x02, B: 0x03, A: 0xff}
+	h.SetFgColor(fg).SetBgColor(bg).Blur()
+	if err := h.emulator.writeString(ansi.SetWindowTitle("renamed")); err != nil {
+		t.Fatalf("set title: %v", err)
+	}
+	_ = h.Image()
+	st := h.imageRenderer.GetEmulatorState()
+	if st == nil || st.Focused || st.Title != "renamed" || st.FgColor != fg || st.BgColor != bg {
+		t.Fatalf("state = %#v", st)
+	}
+
+	fg = color.NRGBA{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}
+	h.SetFgColor(fg).Focus()
+	_ = h.Image()
+	st = h.imageRenderer.GetEmulatorState()
+	if st == nil || !st.Focused || st.Title != "renamed" || st.FgColor != fg || st.BgColor != bg {
+		t.Fatalf("updated state = %#v", st)
+	}
+}
+
+func TestHarnessImageFollowsGridGeneration(t *testing.T) {
+	t.Parallel()
+
+	h := NewHarness(t, rootTestModel{text: "one"}, WithWindowSize(20, 2))
+	h.Wait("text=one")
+	first := copyImage(t, h.Image())
+	h.SendProgram(setTextMsg("two")).Wait("text=two")
+	second := copyImage(t, h.Image())
+	if bytes.Equal(first.Pix, second.Pix) {
+		t.Fatal("image unchanged after screen update")
+	}
+	third := copyImage(t, h.Image())
+	if !bytes.Equal(second.Pix, third.Pix) {
+		t.Fatal("image changed without a screen update")
+	}
+}
+
+func copyImage(t *testing.T, src image.Image) *image.NRGBA {
+	t.Helper()
+	if src == nil || src.Bounds().Empty() {
+		t.Fatal("empty image")
+	}
+	b := src.Bounds()
+	dst := image.NewNRGBA(b)
+	draw.Draw(dst, b, src, b.Min, draw.Src)
+	return dst
 }
 
 func TestHarnessImageConcurrentWithTerminalMutation(t *testing.T) {

@@ -350,12 +350,7 @@ func appendRecordingFrame(
 		}
 	}
 
-	rec.images = append(rec.images, &image.Paletted{
-		Pix:     pm.Pix,
-		Stride:  pm.Stride,
-		Rect:    pm.Rect,
-		Palette: pm.Palette,
-	})
+	rec.images = append(rec.images, pm)
 	rec.delays = append(rec.delays, delay)
 	truncateRecording(rec, maxFrames)
 	return nil

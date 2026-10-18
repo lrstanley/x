@@ -26,6 +26,31 @@ type Cursor struct {
 	Color color.Color
 }
 
+// Snapshot is the host metadata around the cell grid, read together.
+// Generation is the content generation [Terminal.Screen] would copy.
+// Zero means there is no grid. The grid itself is not copied.
+type Snapshot struct {
+	// Title is the last OSC 0 / OSC 2 title.
+	Title string
+	// AltScreen reports whether the alternate screen is active.
+	AltScreen bool
+	// Cursor is the caret from the latest grid read.
+	Cursor Cursor
+	// Foreground is the override color, or the default when the override is clear.
+	Foreground color.NRGBA
+	// Background is the override color, or the default when the override is clear.
+	Background color.NRGBA
+	// CursorColor is the cursor color [Terminal.CursorColor] would return.
+	// CursorColorSet is false when neither the host nor the program has set one.
+	CursorColor    color.NRGBA
+	CursorColorSet bool
+	// ScrollbackLen is the number of scrollback rows. It is zero on the
+	// alternate screen.
+	ScrollbackLen int
+	// Generation is the viewport content generation. It does not copy cells.
+	Generation uint64
+}
+
 // Progress is the latest OSC 9;4 report. The zero value means the program
 // has not reported one.
 type Progress struct {

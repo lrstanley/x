@@ -5,6 +5,7 @@
 package raster
 
 import (
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/draw"
@@ -99,26 +100,33 @@ func accumulateGlyphMask(cov *Coverage, dr image.Rectangle, pix []uint8, stride 
 	covDx := b.Dx()
 	minX, minY := b.Min.X, b.Min.Y
 	pixels := cov.pixels
+	xOrigin := dr.Min.X
 	for y := dr.Min.Y; y < dr.Max.Y; y++ {
-		ay := y - dr.Min.Y
-		row := pix[ay*stride : ay*stride+dx]
-		rowBase := (y-minY)*covDx + (dr.Min.X - minX)
+		off := (y - dr.Min.Y) * stride
+		row := pix[off : off+dx : off+dx]
+		rowBase := (y-minY)*covDx + (xOrigin - minX)
 		rowDirty := false
 		rowMin, rowMax := 0, 0
-		for x := dr.Min.X; x < dr.Max.X; x++ {
-			ga := row[x-dr.Min.X]
-			if ga == 0 {
+		for xi := 0; xi < dx; {
+			// Most mask bytes are 0. A zero uint64 is eight zero alphas.
+			if xi&7 == 0 && xi+8 <= dx && binary.LittleEndian.Uint64(row[xi:]) == 0 {
+				xi += 8
 				continue
 			}
-			i := rowBase + (x - dr.Min.X)
-			if ga > uint8(pixels[i]) {
-				pixels[i] = packCoveragePixel(ga, fg)
-				if !rowDirty {
-					rowMin = x
-					rowDirty = true
+			ga := row[xi]
+			if ga != 0 {
+				i := rowBase + xi
+				if ga > uint8(pixels[i]) {
+					pixels[i] = packCoveragePixel(ga, fg)
+					x := xOrigin + xi
+					if !rowDirty {
+						rowMin = x
+						rowDirty = true
+					}
+					rowMax = x
 				}
-				rowMax = x
 			}
+			xi++
 		}
 		if rowDirty {
 			cov.markRow(y, rowMin, rowMax)

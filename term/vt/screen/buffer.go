@@ -4,7 +4,11 @@
 
 package screen
 
-import "image"
+import (
+	"image"
+	"strings"
+	"sync/atomic"
+)
 
 // Screen is a cell grid. Coordinates are absolute: [Screen.Bounds] may
 // start at an origin other than (0, 0).
@@ -17,31 +21,90 @@ type Screen interface {
 // Buffer is a dense cell grid. Dirty reports which rows changed since the
 // last [Buffer.ClearDirty] call. A nil Dirty slice means every row is dirty.
 type Buffer struct {
-	// lines are the rows, top to bottom. Each row has the same length.
+	// cells is the grid in row-major order, index y*width+x.
 	// Cells are values, so the buffer does not alias emulator memory.
-	lines [][]Cell
-	// origin is the absolute coordinate of lines[0][0]. Bounds start here.
+	cells []Cell
+	// width and height are the grid size in cells. Height 0 reports width 0,
+	// matching a grid with no rows.
+	width  int
+	height int
+	// origin is the absolute coordinate of cell (0, 0). Bounds start here.
 	origin image.Point
 	// Dirty reports which rows changed since the last ClearDirty. A nil
-	// slice means every row is dirty. The index matches lines, not the
+	// slice means every row is dirty. The index matches the row, not the
 	// absolute Y coordinate.
 	Dirty []bool
+	// gen identifies cell contents. It changes when cells change and stays
+	// put across ClearDirty. Clones copy it.
+	gen uint64
 }
+
+// bufGen issues content generations. Clones share the source generation
+// until one side is edited.
+var bufGen atomic.Uint64
 
 // NewBuffer returns a width by height grid of empty cells. Every row starts dirty.
 func NewBuffer(width, height int) *Buffer {
-	b := &Buffer{
-		lines: make([][]Cell, height),
-		Dirty: make([]bool, height),
+	dirty := make([]bool, height)
+	w := width
+	if height == 0 {
+		w = 0
 	}
-	for y := range b.lines {
-		b.lines[y] = make([]Cell, width)
-		for x := range b.lines[y] {
-			b.lines[y][x] = EmptyCell
-		}
+	b := &Buffer{
+		cells:  make([]Cell, w*height),
+		width:  w,
+		height: height,
+		Dirty:  dirty,
+	}
+	for i := range b.cells {
+		b.cells[i] = EmptyCell
+	}
+	for y := range b.Dirty {
 		b.Dirty[y] = true
 	}
+	b.advanceGen()
 	return b
+}
+
+// Generation identifies cell contents. Equal values mean equal cells,
+// including across ClearDirty. Zero means the buffer was not built by
+// NewBuffer or Clone.
+func (b *Buffer) Generation() uint64 {
+	if b == nil {
+		return 0
+	}
+	return b.gen
+}
+
+// AdvanceGeneration records an in-place cell edit. SetCell and SetRaw
+// already do this. ClearDirty does not.
+func (b *Buffer) AdvanceGeneration() {
+	if b == nil {
+		return
+	}
+	b.advanceGen()
+}
+
+func (b *Buffer) advanceGen() {
+	b.gen = bufGen.Add(1)
+}
+
+// Blinks reports whether any drawn cell has a blink attribute.
+func (b *Buffer) Blinks() bool {
+	if b == nil {
+		return false
+	}
+	const mask = AttrBlink | AttrRapidBlink
+	for i := range b.cells {
+		c := &b.cells[i]
+		if c.Width == 0 {
+			continue
+		}
+		if c.Style.Attrs&mask != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Bounds returns the grid rectangle.
@@ -49,14 +112,9 @@ func (b *Buffer) Bounds() image.Rectangle {
 	if b == nil {
 		return image.Rectangle{}
 	}
-	h := len(b.lines)
-	w := 0
-	if h > 0 {
-		w = len(b.lines[0])
-	}
 	return image.Rectangle{
 		Min: b.origin,
-		Max: b.origin.Add(image.Pt(w, h)),
+		Max: b.origin.Add(image.Pt(b.width, b.height)),
 	}
 }
 
@@ -73,10 +131,10 @@ func (b *Buffer) CellAt(x, y int) *Cell {
 	}
 	col := x - b.origin.X
 	row := y - b.origin.Y
-	if row < 0 || row >= len(b.lines) || col < 0 || col >= len(b.lines[row]) {
+	if row < 0 || row >= b.height || col < 0 || col >= b.width {
 		return nil
 	}
-	return &b.lines[row][col]
+	return &b.cells[row*b.width+col]
 }
 
 // SetRaw writes c exactly, including a width-0 spacer. The emulator uses
@@ -88,13 +146,14 @@ func (b *Buffer) SetRaw(x, y int, c Cell) {
 	}
 	col := x - b.origin.X
 	row := y - b.origin.Y
-	if row < 0 || row >= len(b.lines) || col < 0 || col >= len(b.lines[row]) {
+	if row < 0 || row >= b.height || col < 0 || col >= b.width {
 		return
 	}
-	b.lines[row][col] = c
+	b.cells[row*b.width+col] = c
 	if row < len(b.Dirty) {
 		b.Dirty[row] = true
 	}
+	b.advanceGen()
 }
 
 // SetCell writes c at x, y. A nil cell becomes an empty cell. Wide cells
@@ -107,13 +166,10 @@ func (b *Buffer) SetCell(x, y int, c *Cell) {
 	}
 	col := x - b.origin.X
 	row := y - b.origin.Y
-	if row < 0 || row >= len(b.lines) {
+	if row < 0 || row >= b.height || col < 0 || col >= b.width {
 		return
 	}
-	line := b.lines[row]
-	if col < 0 || col >= len(line) {
-		return
-	}
+	line := b.cells[row*b.width : (row+1)*b.width]
 	clearWide(line, col)
 	if c == nil {
 		line[col] = EmptyCell
@@ -134,6 +190,7 @@ func (b *Buffer) SetCell(x, y int, c *Cell) {
 	if row < len(b.Dirty) {
 		b.Dirty[row] = true
 	}
+	b.advanceGen()
 }
 
 // RowDirty reports whether row y should be redrawn. Rows are dirty when
@@ -149,20 +206,19 @@ func (b *Buffer) RowDirty(y int) bool {
 	return b.Dirty[row]
 }
 
-// Clone returns a deep copy. Dirty flags are copied too.
+// Clone returns a deep copy. Dirty flags and the content generation are copied too.
 func (b *Buffer) Clone() *Buffer {
 	if b == nil {
 		return nil
 	}
-	out := &Buffer{
+	return &Buffer{
 		origin: b.origin,
-		lines:  make([][]Cell, len(b.lines)),
+		cells:  append([]Cell(nil), b.cells...),
+		width:  b.width,
+		height: b.height,
 		Dirty:  append([]bool(nil), b.Dirty...),
+		gen:    b.gen,
 	}
-	for y, line := range b.lines {
-		out.lines[y] = append([]Cell(nil), line...)
-	}
-	return out
 }
 
 // ClearDirty marks every row unchanged. The next [Buffer.SetCell] marks
@@ -177,33 +233,40 @@ func (b *Buffer) ClearDirty() {
 // are spaces and trailing spaces on each line are kept, so the line width
 // matches the grid.
 func (b *Buffer) Text() string {
-	if b == nil || len(b.lines) == 0 {
+	if b == nil || b.height == 0 {
 		return ""
 	}
-	n := 0
-	for _, line := range b.lines {
-		for _, c := range line {
-			n += len(c.Content)
+	n := b.height - 1
+	for i := range b.cells {
+		c := &b.cells[i]
+		if c.Width == 0 {
+			continue
 		}
-		n++
+		if c.Content == "" {
+			n++
+			continue
+		}
+		n += len(c.Content)
 	}
-	buf := make([]byte, 0, n)
-	for i, line := range b.lines {
-		if i > 0 {
-			buf = append(buf, '\n')
+	var buf strings.Builder
+	buf.Grow(n)
+	for row := 0; row < b.height; row++ {
+		if row > 0 {
+			buf.WriteByte('\n')
 		}
+		line := b.cells[row*b.width : (row+1)*b.width]
 		for _, c := range line {
 			if c.Width == 0 {
 				continue
 			}
 			if c.Content == "" {
-				buf = append(buf, ' ')
+				buf.WriteByte(' ')
 				continue
 			}
-			buf = append(buf, c.Content...)
+			buf.WriteString(c.Content)
 		}
 	}
-	return string(buf)
+	return buf.String()
 }
 
 func clearWide(line []Cell, col int) {

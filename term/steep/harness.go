@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/term/still"
+	"github.com/lrstanley/x/term/vt/screen"
 )
 
 type runResult struct {
@@ -39,6 +40,14 @@ type Harness struct {
 	done     chan struct{}
 
 	imageRenderer *still.Renderer
+	// imageScreen is the last viewport clone drawn by Image. Close drops
+	// it so a later draw cannot reuse a grid from before reset.
+	imageScreen *screen.Buffer
+	// imageState is the last emulator state copied into the renderer.
+	// Its color interfaces stay when the NRGBA bytes are unchanged.
+	imageState    still.EmulatorState
+	imageStateSet bool
+	imageMu       sync.Mutex
 	export        *exportManager
 	hooks         []Hook
 	logHook       *hookLog
@@ -125,7 +134,10 @@ func (h *Harness) Close() {
 
 	// Unblock the program input loop before Quit. The terminal stays
 	// readable for export, then returns to the pool when Close returns.
+	// Drop the retained screen before the terminal is pooled so a later
+	// draw cannot paint the previous checkout's grid.
 	defer h.emulator.Close()
+	defer h.dropImageScreen()
 	h.emulator.closeInput()
 
 	quitDone := make(chan struct{})

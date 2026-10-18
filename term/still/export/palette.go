@@ -23,6 +23,42 @@ const (
 	palettizeParallelRowsPerWorker  = 64
 )
 
+// palettizeJob is one disjoint row span for the process-lifetime workers.
+type palettizeJob struct {
+	dst  *image.Paletted
+	src  *image.NRGBA
+	area image.Rectangle
+	minY int
+	maxY int
+	wg   *sync.WaitGroup
+}
+
+// palettizeJobs is filled by palettizeNRGBA and drained by a fixed worker set.
+// The workers live for the process so a frame does not allocate goroutines.
+var (
+	palettizeJobs chan palettizeJob
+	palettizeN    int
+	// palettizeWaiters reuses the per-frame WaitGroup. A fresh one escapes and
+	// allocates; the pool does not.
+	palettizeWaiters      = sync.Pool{New: func() any { return new(sync.WaitGroup) }}
+	startPalettizeWorkers = sync.OnceFunc(func() {
+		palettizeN = max(runtime.GOMAXPROCS(0), 1)
+		// One buffered slot per worker lets a frame enqueue every span without
+		// waiting for the first span to finish.
+		palettizeJobs = make(chan palettizeJob, palettizeN)
+		for range palettizeN {
+			go palettizeWorker()
+		}
+	})
+)
+
+func palettizeWorker() {
+	for job := range palettizeJobs {
+		palettizeNRGBARows(job.dst, job.src, job.area, job.minY, job.maxY)
+		job.wg.Done()
+	}
+}
+
 // defaultGIFPalette returns the standard xterm-256color palette for GIF
 // encoding. Terminal renders mostly use ANSI, cube, and grayscale slots;
 // mapping through this palette preserves lipgloss and emulator colors better
@@ -119,20 +155,37 @@ func palettizeInto(dst *image.Paletted, src image.Image) {
 func palettizeNRGBA(dst *image.Paletted, src *image.NRGBA) {
 	area := src.Bounds().Intersect(dst.Bounds())
 	workers := palettizeWorkerCount(area)
-	if workers == 1 {
+	if workers > 1 {
+		startPalettizeWorkers()
+		if workers > palettizeN {
+			workers = palettizeN
+		}
+	}
+	if workers <= 1 {
 		palettizeNRGBARows(dst, src, area, area.Min.Y, area.Max.Y)
 		return
 	}
 
-	rowsPerWorker := (area.Dy() + workers - 1) / workers
-	var wg sync.WaitGroup
-	for y0 := area.Min.Y; y0 < area.Max.Y; y0 += rowsPerWorker {
+	height := area.Dy()
+	rowsPerWorker := (height + workers - 1) / workers
+	spans := (height + rowsPerWorker - 1) / rowsPerWorker
+	wg := palettizeWaiters.Get().(*sync.WaitGroup)
+	wg.Add(spans)
+	y0 := area.Min.Y
+	for range spans {
 		y1 := min(y0+rowsPerWorker, area.Max.Y)
-		wg.Go(func() {
-			palettizeNRGBARows(dst, src, area, y0, y1)
-		})
+		palettizeJobs <- palettizeJob{
+			dst:  dst,
+			src:  src,
+			area: area,
+			minY: y0,
+			maxY: y1,
+			wg:   wg,
+		}
+		y0 = y1
 	}
 	wg.Wait()
+	palettizeWaiters.Put(wg)
 }
 
 func palettizeWorkerCount(area image.Rectangle) int {

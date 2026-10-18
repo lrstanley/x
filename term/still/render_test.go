@@ -5,6 +5,7 @@
 package still
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"strings"
@@ -902,4 +903,89 @@ func TestBoxThicknessOverrideThickensHorizontalLine(t *testing.T) {
 	if thickInk.Dy() < 4 {
 		t.Fatalf("thickened ink height = %d, want at least 4px", thickInk.Dy())
 	}
+}
+
+func TestDrawSkipsCleanBufferUntilPictureChanges(t *testing.T) {
+	t.Parallel()
+
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	buf := screen.NewBuffer(2, 1)
+	buf.SetCell(0, 0, &screen.Cell{Content: "A", Width: 1, Style: screen.Style{Fg: red}})
+	buf.ClearDirty()
+
+	d := MustNew()
+	img := drawNRGBA(t, d, buf)
+	sentinel := color.NRGBA{R: 1, G: 2, B: 3, A: 4}
+	img.SetNRGBA(0, 0, sentinel)
+	buf.ClearDirty()
+	if got := drawNRGBA(t, d, buf).NRGBAAt(0, 0); got != sentinel {
+		t.Fatalf("clean buffer repainted pixel = %#v, want cached %#v", got, sentinel)
+	}
+
+	buf.SetCell(0, 0, &screen.Cell{Content: "B", Width: 1, Style: screen.Style{Fg: red}})
+	buf.ClearDirty()
+	if got := drawNRGBA(t, d, buf).NRGBAAt(0, 0); got == sentinel {
+		t.Fatal("cell change after ClearDirty kept the cached frame")
+	}
+
+	d.UpdateEmulatorState(&EmulatorState{Focused: true, CursorVisible: true, CursorX: 0, CursorColor: red})
+	buf.ClearDirty()
+	moved := append([]byte(nil), drawNRGBA(t, d, buf).Pix...)
+	d.UpdateEmulatorState(&EmulatorState{Focused: true, CursorVisible: true, CursorX: 1, CursorColor: red})
+	buf.ClearDirty()
+	if bytes.Equal(drawNRGBA(t, d, buf).Pix, moved) {
+		t.Fatal("cursor move kept the cached frame")
+	}
+}
+
+func TestDrawCleanBufferDoesNotCacheBlink(t *testing.T) {
+	t.Run("cell", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			red := color.NRGBA{R: 0xff, A: 0xff}
+			buf := screen.NewBuffer(1, 1)
+			buf.SetCell(0, 0, &screen.Cell{
+				Content: " ",
+				Width:   1,
+				Style:   screen.Style{Fg: red, Underline: screen.UnderlineSingle, Attrs: screen.AttrBlink},
+			})
+			d := MustNew()
+			img := drawNRGBA(t, d, buf)
+			ctx := d.layoutSnapshot(t, image.Point{}, buf)
+			p := image.Pt(ctx.cellBounds(0, 0).Min.X, ctx.cellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
+			if got := img.NRGBAAt(p.X, p.Y); got != red {
+				t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
+			}
+			buf.ClearDirty()
+			synctest.Sleep(500 * time.Millisecond)
+			if got := drawNRGBA(t, d, buf).NRGBAAt(p.X, p.Y); got != (color.NRGBA{A: 0xff}) {
+				t.Fatalf("hidden blink pixel = %#v, want background", got)
+			}
+		})
+	})
+
+	t.Run("cursor", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			cursor := color.NRGBA{R: 0xff, A: 0xff}
+			buf := screen.NewBuffer(1, 1)
+			buf.ClearDirty()
+			d := MustNew(WithCursorBlinkSpeed(time.Second))
+			d.UpdateEmulatorState(&EmulatorState{
+				Focused:       true,
+				CursorVisible: true,
+				CursorColor:   cursor,
+				CursorStyle:   screen.CursorBar,
+				CursorBlink:   true,
+			})
+			img := drawNRGBA(t, d, buf)
+			area := d.layoutSnapshot(t, image.Point{}, buf).cellBounds(0, 0)
+			if got := img.NRGBAAt(area.Min.X, area.Min.Y); got != cursor {
+				t.Fatalf("cursor bar pixel = %#v, want %#v", got, cursor)
+			}
+			buf.ClearDirty()
+			synctest.Sleep(time.Second)
+			if got := drawNRGBA(t, d, buf).NRGBAAt(area.Min.X, area.Min.Y); got == cursor {
+				t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
+			}
+		})
+	})
 }
