@@ -6,15 +6,17 @@ package steep
 
 import (
 	"image"
-	"image/draw"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode"
 
 	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/vt"
+	"github.com/lrstanley/x/term/vt/screen"
 )
 
 // ExportMode controls when harness export artifacts are written.
@@ -70,10 +72,26 @@ type exportManager struct {
 	gifRec  export.FrameRecorder
 	gifPath string
 
+	// mu guards the commit queue and GIF send. noteCommit runs on the
+	// program goroutine; flush and hook capture run on the test goroutine.
+	mu       sync.Mutex
+	stopped  bool
+	pending  []commitFrame
+	haveSent bool
+	sent     vt.Snapshot
+	heldSkip bool
+
 	lastPNG  image.Image
 	lastSnap []byte
 	log      *hookLog
 	logPath  string
+}
+
+// commitFrame is one visible terminal commit. The screen clone outlives
+// later writes. state is the metadata Draw needs for that same moment.
+type commitFrame struct {
+	screen *screen.Buffer
+	state  vt.Snapshot
 }
 
 func newExportManager(h *Harness, cfg options) (*exportManager, error) {
@@ -117,7 +135,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 	}
 
 	if types.has(ExportTypeGIF) && cfg.exportMode != ExportOff {
-		m.gifCh = make(chan export.Frame)
+		m.gifCh = make(chan export.Frame, maxFrames)
 		switch cfg.exportMode { //nolint:exhaustive
 		case ExportOn:
 			m.gifPath = filepath.Join(dir, m.stem()+".gif")
@@ -153,6 +171,7 @@ func (m *exportManager) hook(event HookEvent, stage HookStage, _ any) error {
 	if stage != HookStageAfter || !exportCaptureEvent(event) || event == HookClose {
 		return nil
 	}
+	m.flushCommits()
 	if m.types.has(ExportTypeGIF) {
 		if err := m.captureGIF(); err != nil {
 			return err
@@ -171,12 +190,127 @@ func (m *exportManager) hook(event HookEvent, stage HookStage, _ any) error {
 	return nil
 }
 
+// noteCommit queues a GIF frame for a program write that left a visible grid.
+// It runs on the writer goroutine, after the write has been parsed, and
+// returns before [vt.Terminal.OutputSeq] advances. A synchronized-output hold
+// is not a frame; the write that ends the hold queues the released grid.
+func (m *exportManager) noteCommit() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.stopped || m.gifCh == nil {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+
+	term := m.h.emulator.term
+	if term.Held() {
+		return
+	}
+	st := term.Snapshot()
+	if m.duplicateCommit(st) {
+		return
+	}
+	scr := term.Screen()
+	if scr == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped || m.gifCh == nil || m.duplicateCommitLocked(st) {
+		return
+	}
+	// cap matches the GIF channel: the recorder keeps this many frames and
+	// drops the oldest, so the queue does too.
+	if max := cap(m.gifCh); max > 0 && len(m.pending) >= max {
+		m.pending[0] = commitFrame{}
+		m.pending = m.pending[1:]
+	}
+	m.pending = append(m.pending, commitFrame{screen: scr, state: st})
+}
+
+func (m *exportManager) duplicateCommit(st vt.Snapshot) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.duplicateCommitLocked(st)
+}
+
+func (m *exportManager) duplicateCommitLocked(st vt.Snapshot) bool {
+	if m.haveSent && sameCommit(m.sent, st) {
+		return true
+	}
+	n := len(m.pending)
+	return n > 0 && sameCommit(m.pending[n-1].state, st)
+}
+
+// flushCommits renders queued commits into the GIF. It runs on the test
+// goroutine so it can use the harness renderer without racing [Harness.Image].
+func (m *exportManager) flushCommits() {
+	if m == nil {
+		return
+	}
+	for {
+		m.mu.Lock()
+		batch := m.pending
+		m.pending = nil
+		m.mu.Unlock()
+		if len(batch) == 0 {
+			return
+		}
+		for _, frame := range batch {
+			if m.duplicateCommit(frame.state) {
+				continue
+			}
+			m.sendFrame(frame.state, copyCommitted(m.h, frame.screen, frame.state))
+		}
+	}
+}
+
 func (m *exportManager) captureGIF() error {
-	if m.gifCh == nil || m.h.emulator.term.Held() {
+	if m.h.emulator.term.Held() {
+		m.noteHeldSkip()
 		return nil
 	}
-	m.gifCh <- export.Frame{Image: m.h.copyImage(), Delay: m.frameDelay}
+	st := m.h.emulator.term.Snapshot()
+	if m.duplicateCommit(st) {
+		return nil
+	}
+	m.sendFrame(st, m.h.copyImage())
 	return nil
+}
+
+func (m *exportManager) noteHeldSkip() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.heldSkip {
+		return
+	}
+	m.heldSkip = true
+	m.tb.Log("export skipped a frame: terminal synchronized output is held")
+}
+
+func (m *exportManager) sendFrame(st vt.Snapshot, img image.Image) {
+	if img == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gifCh == nil || m.stopped || m.duplicateCommitLocked(st) {
+		return
+	}
+	m.haveSent = true
+	m.sent = st
+	m.gifCh <- export.Frame{Image: img, Delay: m.frameDelay}
+}
+
+func sameCommit(a, b vt.Snapshot) bool {
+	if a.Generation != b.Generation || a.Title != b.Title || a.AltScreen != b.AltScreen {
+		return false
+	}
+	ac, bc := a.Cursor, b.Cursor
+	return ac.X == bc.X && ac.Y == bc.Y && ac.Visible == bc.Visible && ac.Blink == bc.Blink && ac.Shape == bc.Shape
 }
 
 func (m *exportManager) capturePNG(event HookEvent) error {
@@ -211,9 +345,17 @@ func (m *exportManager) Finalize(failed bool) error {
 		return nil
 	}
 
-	if m.gifCh != nil {
-		close(m.gifCh)
-		m.gifCh = nil
+	m.mu.Lock()
+	m.stopped = true
+	m.mu.Unlock()
+	m.flushCommits()
+
+	m.mu.Lock()
+	ch := m.gifCh
+	m.gifCh = nil
+	m.mu.Unlock()
+	if ch != nil {
+		close(ch)
 	}
 	if m.gifRec != nil {
 		if err := m.gifRec.Close(); err != nil {
@@ -320,12 +462,5 @@ func encodeGIFFile(path string, rec export.FrameRecorder) error {
 
 func (h *Harness) copyImage() image.Image {
 	h.tb.Helper()
-	src := h.drawImage()
-	if src == nil {
-		return nil
-	}
-	b := src.Bounds()
-	dst := image.NewRGBA(b)
-	draw.Draw(dst, b, src, b.Min, draw.Src)
-	return dst
+	return copyRGBA(h.drawImage())
 }

@@ -20,9 +20,13 @@
 // export hooks run first (see [WithExport], [WithFailureGIF]), then user hooks from
 // [WithHooks]. Hook errors fail the test immediately.
 //
-// Export capture runs on After for HookInput, HookTerminal, HookProgram, HookSettle,
-// HookReady, and HookClose. Call [Harness.WaitSettle] or a wait helper after input
-// when GIF/PNG frames must reflect the updated terminal.
+// GIF frames are taken when the program commits terminal output, including
+// each paint in a burst of keys, so a recording does not need [WithSlow].
+// After hooks for input, terminal, and program wait until that paint is
+// visible, then capture PNG and snapshot artifacts. Settle, ready, and close
+// capture the screen those helpers already observed. [WithSlow] still sleeps
+// before After hooks when a test wants the program to keep running between
+// actions. [WithSlowExport] is the playback delay stamped on each GIF frame.
 //
 // Artifacts are written under [testing.TB.ArtifactDir]. Environment variables
 // STEEP_EXPORT_MODE, STEEP_EXPORT_TYPE, STEEP_EXPORT_DIR, STEEP_SLOW, and related

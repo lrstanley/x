@@ -94,6 +94,10 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		h.logHook = em.log
 	}
 
+	if h.export != nil && h.export.gifCh != nil {
+		h.emulator.setWriteNotify(h.export.noteCommit)
+	}
+
 	h.program = tea.NewProgram(
 		h.observer,
 		append(

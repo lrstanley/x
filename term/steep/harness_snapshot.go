@@ -145,8 +145,33 @@ func syncViewport(h *Harness, st vt.Snapshot) {
 	defer h.imageMu.Unlock()
 
 	prev := h.imageState
+	next := viewportState(h, prev, st)
+	if h.imageStateSet && prev == next {
+		return
+	}
+	h.imageRenderer.UpdateEmulatorState(&next)
+	h.imageState = next
+	h.imageStateSet = true
+}
+
+// copyCommitted renders scr as it looked at st and returns an owned image.
+// The harness image cache is invalidated so the next live draw does not
+// reuse metadata from this historical frame. Call it from the test goroutine.
+func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot) image.Image {
+	if scr == nil {
+		return nil
+	}
+	h.imageMu.Lock()
+	defer h.imageMu.Unlock()
+	next := viewportState(h, h.imageState, st)
+	h.imageRenderer.UpdateEmulatorState(&next)
+	h.imageStateSet = false
+	return copyRGBA(h.imageRenderer.Draw(scr))
+}
+
+func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.EmulatorState {
 	cur := st.Cursor
-	next := still.EmulatorState{
+	return still.EmulatorState{
 		Title:           st.Title,
 		Focused:         h.emulator.focused,
 		AltScreen:       st.AltScreen,
@@ -160,12 +185,16 @@ func syncViewport(h *Harness, st vt.Snapshot) {
 		BgColor:         reuseNRGBA(prev.BgColor, st.Background),
 		ScrollbackCount: st.ScrollbackLen,
 	}
-	if h.imageStateSet && prev == next {
-		return
+}
+
+func copyRGBA(src image.Image) image.Image {
+	if src == nil {
+		return nil
 	}
-	h.imageRenderer.UpdateEmulatorState(&next)
-	h.imageState = next
-	h.imageStateSet = true
+	b := src.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, src, b.Min, draw.Src)
+	return dst
 }
 
 // reuseNRGBA returns prev when it already boxes next. Assigning an

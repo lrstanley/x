@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -30,6 +31,34 @@ func TestWriteTextAndLinefeed(t *testing.T) {
 	line, _, _ := strings.Cut(text, "\n")
 	if len(line) != 8 {
 		t.Fatalf("line width = %d, text %q", len(line), text)
+	}
+}
+
+func TestOutputSeqAndWriteNotify(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 8, 2)
+	var calls atomic.Int32
+	term.SetWriteNotify(func() { calls.Add(1) })
+
+	before := term.OutputSeq()
+	if _, err := term.Write(nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.OutputSeq(); got != before || calls.Load() != 0 {
+		t.Fatalf("empty write: seq=%d calls=%d, want seq=%d calls=0", got, calls.Load(), before)
+	}
+	if _, err := term.Write([]byte("A")); err != nil {
+		t.Fatal(err)
+	}
+	if got, n := term.OutputSeq(), calls.Load(); got != before+1 || n != 1 {
+		t.Fatalf("after A: seq=%d calls=%d, want seq=%d calls=1", got, n, before+1)
+	}
+	term.SetWriteNotify(nil)
+	if _, err := term.Write([]byte("B")); err != nil {
+		t.Fatal(err)
+	}
+	if got, n := term.OutputSeq(), calls.Load(); got != before+2 || n != 1 {
+		t.Fatalf("after clear: seq=%d calls=%d, want seq=%d calls=1", got, n, before+2)
 	}
 }
 

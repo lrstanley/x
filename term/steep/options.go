@@ -202,9 +202,11 @@ func WithProgramOptions(opts ...tea.ProgramOption) Option {
 	}
 }
 
-// WithTimeout configures how long waits may run.
+// WithTimeout configures the maximum time blocking waits (assertions, startup,
+// settle, mutation) may run before failing the test. The settle timeout is
+// capped at 80% of this value; see [WithSettle].
 //
-// Environment: STEEP_TIMEOUT (unless [WithIgnoreEnv] is set).
+// Environment: STEEP_TIMEOUT (overrides this option unless [WithIgnoreEnv] is set).
 //
 // See also [DefaultTimeout].
 func WithTimeout(timeout time.Duration) Option {
@@ -213,9 +215,11 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithCheck configures how often waits are checked.
+// WithCheck configures how often polling waits re-check their condition. It is
+// also the idle gap export capture waits after a paint before sampling the
+// screen, so a very large value slows recorded actions.
 //
-// Environment: STEEP_CHECK.
+// Environment: STEEP_CHECK (overrides this option unless [WithIgnoreEnv] is set).
 //
 // See also [DefaultCheckInterval].
 func WithCheck(interval time.Duration) Option {
@@ -224,11 +228,13 @@ func WithCheck(interval time.Duration) Option {
 	}
 }
 
-// WithSettle configures how long to wait for the [tea.Program] to satisfy
-// settle waits. See [Harness.WaitSettleMessages], [Harness.WaitSettle] and
-// [WaitSettle] for more details.
+// WithSettle configures the quiet period the [tea.Program] must stay idle before
+// settle waits succeed. See [Harness.WaitSettleMessages], [Harness.WaitSettle]
+// and [WaitSettle] for more details. It is capped at 80% of [WithTimeout]. When
+// exporting, it also bounds how long an action waits for the program to paint
+// (with a 50ms floor) before giving up.
 //
-// Environment: STEEP_SETTLE.
+// Environment: STEEP_SETTLE (overrides this option unless [WithIgnoreEnv] is set).
 //
 // See also [DefaultSettleTimeout].
 func WithSettle(timeout time.Duration) Option {
@@ -241,9 +247,7 @@ func WithSettle(timeout time.Duration) Option {
 // used by [Harness.WaitSettleMessages]. Pass a value of each type to ignore (for
 // example a zero value of your periodic tick type). The dynamic type of each
 // observed message is compared with [reflect.TypeOf] on those samples; nil
-// samples are skipped.
-//
-// See also [DefaultSettleIgnoreMsgs].
+// samples are skipped. Calls accumulate; there is no default ignore list.
 func WithSettleIgnoreMsgs(types ...any) Option {
 	return func(cfg *options) {
 		for _, s := range types {
@@ -255,10 +259,12 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 	}
 }
 
-// WithANSI determines whether ANSI sequences should be kept. When false, ANSI
-// sequences are stripped, which will often make it easier to visually and
-// programmatically compare snapshots, output, etc. This would apply to strings/regex
-// comparisons in [Assert], [AssertMatch], [Wait], and so on.
+// WithANSI determines whether ANSI sequences should be kept. ANSI is kept by
+// default. When false, ANSI sequences are stripped, which will often make it
+// easier to visually and programmatically compare snapshots, output, etc. This
+// applies to string/regex comparisons in [Assert], [AssertMatch], [Wait], and so
+// on, and to [Harness.AssertSnapshot]. It does not change what image exports
+// render.
 func WithANSI(enable bool) Option {
 	return func(cfg *options) {
 		cfg.stripANSI = !enable
@@ -266,35 +272,51 @@ func WithANSI(enable bool) Option {
 }
 
 // WithRenderer configures the harness-owned [still.Renderer] used by
-// [Harness.Image] and [Harness.ImageInto]. Options apply only at harness
-// construction; per-draw emulator state is synchronized automatically.
+// [Harness.Image] and [Harness.ImageInto], and therefore by PNG and GIF exports
+// (font, size, padding, margin, and so on). Options apply only at harness
+// construction; per-draw emulator state is synchronized automatically. Calls
+// accumulate.
 //
-// Environment: STEEP_RENDERER_FONT_SIZE maps to [still.WithFontSizePt] unless
-// [WithIgnoreEnv] is set.
+// Environment: STEEP_RENDERER_FONT_SIZE maps to [still.WithFontSizePt] and is
+// appended after these options, so it wins, unless [WithIgnoreEnv] is set.
 func WithRenderer(opts ...still.Option) Option {
 	return func(cfg *options) {
 		cfg.imageRendererOpts = append(cfg.imageRendererOpts, opts...)
 	}
 }
 
-// WithHooks appends user hooks after built-in export hooks.
+// WithHooks appends user hooks, which run after the built-in export hooks for
+// each event and stage (see [Hook]). A hook that returns an error fails the test
+// immediately. Calls accumulate.
 func WithHooks(hooks ...Hook) Option {
 	return func(cfg *options) {
 		cfg.hooks = append(cfg.hooks, hooks...)
 	}
 }
 
-// WithIgnoreEnv disables STEEP_* environment overrides (defaults to applying them).
+// WithIgnoreEnv disables STEEP_* environment overrides (defaults to applying
+// them). Environment values are applied after every other option, regardless of
+// option order, so by default a STEEP_* variable overrides the matching option
+// set in code. Use this to pin a test's configuration.
 func WithIgnoreEnv(ignore bool) Option {
 	return func(cfg *options) {
 		cfg.ignoreEnv = ignore
 	}
 }
 
-// WithExport enables artifact export hooks for the given mode and types.
+// WithExport enables artifact export hooks for the given mode and types. opts
+// are passed to the PNG/GIF encoders (see [export.Option]).
 //
-// Environment: STEEP_EXPORT_MODE, STEEP_EXPORT_TYPE, STEEP_EXPORT_OPTIMIZE,
-// STEEP_EXPORT_MAX_FRAMES, STEEP_EXPORT_DIR.
+// With [ExportOn], artifacts are written as the test runs. With
+// [ExportOnFailure], they are buffered and only written when the test fails.
+// [ExportOff] disables export (except [ExportTypeLog], see [ExportMode]). If
+// types is 0 and mode is not [ExportOff], GIF and PNG are exported. Files go to
+// [WithExportDir], else [testing.TB.ArtifactDir].
+//
+// Environment (each overrides this option unless [WithIgnoreEnv] is set):
+// STEEP_EXPORT_MODE (on, off, failure), STEEP_EXPORT_TYPE (comma-separated png,
+// gif, log, snapshot, or all), STEEP_EXPORT_OPTIMIZE, STEEP_EXPORT_MAX_FRAMES,
+// STEEP_EXPORT_DIR.
 func WithExport(mode ExportMode, types ExportType, opts ...export.Option) Option {
 	return func(cfg *options) {
 		cfg.exportMode = mode
@@ -303,24 +325,37 @@ func WithExport(mode ExportMode, types ExportType, opts ...export.Option) Option
 	}
 }
 
-// WithExportDir sets the directory for export artifacts. When empty, uses
+// WithExportDir sets the directory for export artifacts, creating it if needed.
+// A relative path is relative to the test's package directory. When empty, uses
 // [testing.TB.ArtifactDir].
 //
-// Environment: STEEP_EXPORT_DIR.
+// Environment: STEEP_EXPORT_DIR (overrides this option unless [WithIgnoreEnv] is set).
 func WithExportDir(dir string) Option {
 	return func(cfg *options) {
 		cfg.exportDir = dir
 	}
 }
 
-// WithExportName overrides the basename used for export filenames.
+// WithExportName overrides the basename used for export filenames, which
+// defaults to the normalized test name. With [ExportOn] this gives stable names
+// (for example "name.gif", "name_input.png"), so committed recordings are
+// overwritten each run instead of accumulating timestamped files.
 func WithExportName(name string) Option {
 	return func(cfg *options) {
 		cfg.exportName = name
 	}
 }
 
-// WithSlow sleeps after every hooked harness action's After stage.
+// WithSlow makes the harness sleep for d after every hooked action (input,
+// terminal, program, settle, ready, close) finishes, before its After hooks
+// run. This paces the test so the program has real time to run between actions,
+// which is useful for animations, ticks, and timers, or for watching a test
+// play out.
+//
+// It is not required for complete GIF/PNG exports: frames are captured when the
+// program paints, not when the sleep ends. It also does not set GIF playback
+// speed; see [WithSlowExport]. The sleep applies to every hooked action, so it
+// slows the whole test, whether or not exporting is enabled.
 //
 // Environment: STEEP_SLOW.
 func WithSlow(d time.Duration) Option {
@@ -329,9 +364,12 @@ func WithSlow(d time.Duration) Option {
 	}
 }
 
-// WithSlowExport sets the delay between exported GIF frames (default 250ms).
+// WithSlowExport sets the playback delay stamped on each exported GIF frame
+// (default 100ms). It does not sleep the test (see [WithSlow]) and does not
+// follow the test's real timing: every frame plays for the same duration, no
+// matter how long the test actually spent between screens.
 //
-// Environment: STEEP_SLOW_EXPORT.
+// Environment: STEEP_SLOW_EXPORT (overrides this option unless [WithIgnoreEnv] is set).
 func WithSlowExport(d time.Duration) Option {
 	return func(cfg *options) {
 		cfg.slowExport = d
@@ -339,25 +377,33 @@ func WithSlowExport(d time.Duration) Option {
 }
 
 // WithFailureGIF is shorthand for [WithExport]([ExportOnFailure], [ExportTypeGIF], ...).
+// A GIF of the test is written (as "<name>_failed.gif") only if the test fails,
+// and nothing is written when it passes.
 func WithFailureGIF(opts ...export.Option) Option {
 	return WithExport(ExportOnFailure, ExportTypeGIF, opts...)
 }
 
-// WithLog is a shorthand for [WithHooks] & [LoggerHook] with a nil logger
-// (uses [testing.TB.Log] by default).
+// WithLog is a shorthand for [WithHooks] & [LoggerHook] with a nil logger,
+// logging every hooked harness action (before and after) to tb through
+// [testing.TB.Log]. Log output only shows for failing tests or with go test -v.
 //
-// Environment: STEEP_LOG.
+// Environment: STEEP_LOG (true or 1) adds the same hook without code changes
+// unless [WithIgnoreEnv] is set.
 func WithLog(tb testing.TB) Option {
 	return func(cfg *options) {
 		cfg.hooks = append(cfg.hooks, LoggerHook(tb, nil))
 	}
 }
 
-// WithEnvVars sets extra environment variables for the [tea.Program], in the form
-// of "key=value". Defaults:
+// WithEnvVars sets environment variables for the [tea.Program], in the form of
+// "key=value". Without this option the program sees only the defaults:
 //
 //   - TTY_FORCE=1
 //   - TERM=xterm-256color
+//
+// Using this option replaces those defaults with the test process environment
+// plus vars, so pass TTY_FORCE and TERM again if the program needs them. It
+// panics if an entry is not in "key=value" form.
 func WithEnvVars(vars ...string) Option {
 	return func(cfg *options) {
 		current := map[string]string{}

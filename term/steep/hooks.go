@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const defaultSlowExport = 200 * time.Millisecond
+const defaultSlowExport = 100 * time.Millisecond
 
 // InputMeta describes keyboard, paste, and mouse harness actions.
 type InputMeta struct {
@@ -121,13 +121,85 @@ type Hook func(event HookEvent, stage HookStage, metadata any) error
 
 func (h *Harness) hook(event HookEvent, metadata any) func() {
 	h.tb.Helper()
+	var seq uint64
+	if h.awaitsPaint(event) {
+		seq = h.emulator.term.OutputSeq()
+	}
 	h.runHooks(event, HookStageBefore, metadata)
 	return func() {
+		if h.awaitsPaint(event) {
+			h.waitForPaint(seq)
+		}
 		if d := h.cfg.slow; d > 0 {
 			time.Sleep(d)
 		}
 		h.runHooks(event, HookStageAfter, metadata)
 	}
+}
+
+// awaitsPaint reports whether After hooks for event must wait until the
+// program has committed the action's terminal output. Export reads the
+// screen in After; without the wait that read is the previous frame.
+func (h *Harness) awaitsPaint(event HookEvent) bool {
+	if h.export == nil || h.export.mode == ExportOff {
+		return false
+	}
+	visual := h.export.types.has(ExportTypeGIF) ||
+		h.export.types.has(ExportTypePNG) ||
+		h.export.types.has(ExportTypeSnapshot)
+	if !visual {
+		return false
+	}
+	return event == HookInput || event == HookProgram || event == HookTerminal
+}
+
+// waitForPaint blocks until the terminal has accepted program output newer
+// than start and then stayed idle for one check interval, or until the paint
+// wait elapses. Synchronized-output holds do not count as idle: the visible
+// grid is still the previous frame.
+func (h *Harness) waitForPaint(start uint64) {
+	h.tb.Helper()
+	quiet := h.cfg.checkInterval
+	if quiet <= 0 {
+		quiet = time.Millisecond
+	}
+	deadline := time.Now().Add(h.paintWait())
+	var idleAt time.Time
+	timer := time.NewTimer(time.Millisecond)
+	defer timer.Stop()
+	for {
+		seq := h.emulator.term.OutputSeq()
+		held := h.emulator.term.Held()
+		if seq != start && !held {
+			start = seq
+			idleAt = time.Now().Add(quiet)
+		}
+		now := time.Now()
+		if !idleAt.IsZero() && !held && seq == start && !now.Before(idleAt) {
+			return
+		}
+		if idleAt.IsZero() && !now.Before(deadline) {
+			return
+		}
+		select {
+		case <-h.cfg.ctx.Done():
+			return
+		case <-timer.C:
+			timer.Reset(time.Millisecond)
+		}
+	}
+}
+
+// paintWait is how long an exporting action waits for a program write before
+// After hooks sample the screen. A paint that never comes must not stall for
+// the full test timeout. The floor covers a harness whose settle interval is
+// shorter than one scheduler delay.
+func (h *Harness) paintWait() time.Duration {
+	wait := h.cfg.settleTimeout
+	if wait < 50*time.Millisecond {
+		wait = 50 * time.Millisecond
+	}
+	return wait
 }
 
 func (h *Harness) runHooks(event HookEvent, stage HookStage, metadata any) {

@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"image/gif"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,61 @@ func TestExportOnFailureWritesArtifacts(t *testing.T) {
 		}
 		t.Fatalf("artifacts: png=%v snap=%v in %s (files: %v)", foundPNG, foundSnap, dir, names)
 	}
+}
+
+func TestExportGIFCapturesKeysWithoutSlow(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var got []string
+	var h *Harness
+	h = NewHarness(t, rootTestModel{},
+		WithWindowSize(80, 2),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(dir),
+		WithIgnoreEnv(true),
+		WithHooks(func(event HookEvent, stage HookStage, _ any) error {
+			if event == HookInput && stage == HookStageAfter {
+				got = append(got, viewField(h.View(), "text="))
+			}
+			return nil
+		}),
+	)
+	h.Type("a").Type("b").Type("c")
+	want := []string{"a", "ab", "abc"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("views after each Type = %q, want %q", got, want)
+	}
+	h.QuitProgram()
+	h.WaitFinished()
+	if err := h.export.Finalize(false); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(h.export.gifPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	distinct := make(map[string]struct{}, len(g.Image))
+	for _, img := range g.Image {
+		distinct[string(img.Pix)] = struct{}{}
+	}
+	if len(distinct) < len(want) {
+		t.Fatalf("distinct gif frames = %d, want at least %d", len(distinct), len(want))
+	}
+}
+
+func viewField(view, prefix string) string {
+	for _, line := range strings.Split(view, "\n") {
+		rest, ok := strings.CutPrefix(line, prefix)
+		if ok {
+			return strings.TrimRight(rest, " ")
+		}
+	}
+	return ""
 }
 
 func TestExportFilenameOverwrite(t *testing.T) {

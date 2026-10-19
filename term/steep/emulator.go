@@ -94,8 +94,15 @@ func (e *emulator) closeInput() { e.term.CloseReader() }
 func (e *emulator) Close() {
 	e.shutdownOnce.Do(func() {
 		e.closeInput()
+		e.term.SetWriteNotify(nil)
 		_ = e.term.Close()
 	})
+}
+
+// setWriteNotify registers fn to run after each program write to the
+// terminal. See [vt.Terminal.SetWriteNotify].
+func (e *emulator) setWriteNotify(fn func()) {
+	e.term.SetWriteNotify(fn)
 }
 
 func (e *emulator) Read(p []byte) (int, error)  { return e.term.Read(p) }
