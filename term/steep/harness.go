@@ -226,6 +226,10 @@ func (h *Harness) requireProgram() {
 }
 
 // SendProgram sends msg ([tea.Msg] or [uv.Event], either works) to the [tea.Program].
+//
+// Prefer not to use SendProgram. It will error if the Harness is not a [tea.Program].
+// Drive input with [Harness.Type], [Harness.Key], [Harness.Paste], or the mouse
+// helpers instead.
 func (h *Harness) SendProgram(msg uv.Event) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookProgram, nil)()
@@ -235,6 +239,8 @@ func (h *Harness) SendProgram(msg uv.Event) *Harness {
 }
 
 // QuitProgram requests a graceful shutdown of the [tea.Program].
+//
+// Prefer not to use QuitProgram. It will error if the Harness is not a [tea.Program].
 func (h *Harness) QuitProgram() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookClose, nil)()
@@ -245,6 +251,8 @@ func (h *Harness) QuitProgram() *Harness {
 
 // FinalModel waits for the [tea.Program] to finish and returns the latest
 // underlying root model.
+//
+// Prefer not to use FinalModel. It will error if the Harness is not a [tea.Program].
 func (h *Harness) FinalModel(opts ...Option) tea.Model {
 	h.tb.Helper()
 	h.requireProgram()
@@ -254,6 +262,8 @@ func (h *Harness) FinalModel(opts ...Option) tea.Model {
 
 // FinalModelAs waits for the [tea.Program] to finish and returns the underlying
 // model as M. It fails the test when the model is not M.
+//
+// Prefer not to use FinalModelAs. It will error if the Harness is not a [tea.Program].
 //
 // See also [Harness.FinalModel].
 func (h *Harness) FinalModelAs[M any](opts ...Option) M {
@@ -268,6 +278,8 @@ func (h *Harness) FinalModelAs[M any](opts ...Option) M {
 }
 
 // MessageHistory returns a copy of all messages observed by the underlying model.
+//
+// Prefer not to use MessageHistory. It will error if the Harness is not a [tea.Program].
 func (h *Harness) MessageHistory() iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()
@@ -276,6 +288,8 @@ func (h *Harness) MessageHistory() iter.Seq[uv.Event] {
 
 // Messages returns a iterator to all (historical and live) messages observed
 // by the underlying model.
+//
+// Prefer not to use Messages. It will error if the Harness is not a [tea.Program].
 func (h *Harness) Messages(ctx context.Context) iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()
@@ -285,6 +299,8 @@ func (h *Harness) Messages(ctx context.Context) iter.Seq[uv.Event] {
 // LiveMessages returns a new iterator to live messages observed by the
 // underlying model, starting from the first message observed after the call
 // returns.
+//
+// Prefer not to use LiveMessages. It will error if the Harness is not a [tea.Program].
 func (h *Harness) LiveMessages(ctx context.Context) iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()

@@ -37,6 +37,8 @@ type mutatableModel interface {
 // a specific scenario that is otherwise not possible or would pollute your
 // model with unnecessary state.
 //
+// Prefer not to use Mutate. It will error if the Harness is not a [tea.Program].
+//
 // fn should use the same model type originally passed to [NewHarness] or
 // [NewComponentHarness], such as func(Model) Model or func(*Model) *Model.
 func (h *Harness) Mutate[M any](fn func(M) M, opts ...Option) *Harness {
