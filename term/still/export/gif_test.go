@@ -1018,3 +1018,37 @@ func TestGIFLongDelaySplits(t *testing.T) {
 		assertPalettizedSimilar(t, src, replayed[i])
 	}
 }
+
+func TestGIFLoopCount(t *testing.T) {
+	t.Parallel()
+
+	frames := []image.Image{solidFrame(0, 4, 4), solidFrame(1, 4, 4)}
+	tests := []struct {
+		name string
+		opts []Option
+		want int
+	}{
+		{name: "default infinite", want: LoopForever},
+		{name: "explicit infinite", opts: []Option{WithLoopCount(LoopForever)}, want: LoopForever},
+		{name: "play once", opts: []Option{WithLoopCount(LoopOnce)}, want: LoopOnce},
+		{name: "play n plus one", opts: []Option{WithLoopCount(4)}, want: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			if err := recordViaChannelWriter(&buf, frames, 50*time.Millisecond, tt.opts...); err != nil {
+				t.Fatal(err)
+			}
+			g, err := gif.DecodeAll(bytes.NewReader(buf.Bytes()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g.LoopCount != tt.want {
+				t.Fatalf("LoopCount = %d, want %d", g.LoopCount, tt.want)
+			}
+		})
+	}
+}

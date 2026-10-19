@@ -21,6 +21,16 @@ const (
 	// MaxFrameRate is the highest FPS accepted by [WithFrameRate]. GIF delays
 	// are stored in centiseconds, so cannot represent more than 100 FPS.
 	MaxFrameRate = 100
+
+	// LoopForever is the default [WithLoopCount]: viewers repeat the GIF until
+	// stopped.
+	LoopForever = 0
+	// LoopOnce plays a GIF a single time and does not repeat.
+	LoopOnce = -1
+
+	// maxGIFLoopCount is the largest loop count image/gif can store. Larger
+	// values wrap when encoded as a uint16.
+	maxGIFLoopCount = 65535
 )
 
 // OptimizeFlags selects post-process and capture optimizations. Each
@@ -62,7 +72,7 @@ type Frame struct {
 
 // Option configures PNG or GIF exports. Options are validated in
 // collectOptions; GIF-only capture options return an error from PNG entry
-// points.
+// points. [WithLoopCount] is ignored on PNG.
 type Option func(*options)
 
 type options struct {
@@ -95,6 +105,9 @@ type options struct {
 	channelSet bool
 	// maxFrames caps stored palettized frames during GIF capture; 0 is unlimited.
 	maxFrames int
+	// loopCount is copied into GIF output. [LoopForever] (0) loops forever,
+	// [LoopOnce] (-1) plays once, and n > 0 plays n+1 times. PNG ignores it.
+	loopCount int
 }
 
 func defaultOptions() options {
@@ -147,6 +160,9 @@ func (o options) validate(format string) error {
 		}
 	}
 	if format == formatGIF {
+		if o.loopCount < LoopOnce || o.loopCount > maxGIFLoopCount {
+			return fmt.Errorf("export: WithLoopCount %d out of range [%d, %d]", o.loopCount, LoopOnce, maxGIFLoopCount)
+		}
 		if !o.frameRateSet && !o.channelSet {
 			return errors.New("export: GIF requires WithFrameRate or WithChannel")
 		}
@@ -218,6 +234,19 @@ func WithChannel(ch <-chan Frame) Option {
 	return func(cfg *options) {
 		cfg.channel = ch
 		cfg.channelSet = true
+	}
+}
+
+// WithLoopCount sets how many times a GIF animation repeats, matching
+// image/gif's GIF.LoopCount field.
+//
+// [LoopForever] (0), the default, loops forever. [LoopOnce] (-1) plays the
+// animation once and does not repeat. A count n in [1, 65535] plays the
+// animation n+1 times. Values outside [-1, 65535] are rejected. PNG ignores
+// this option.
+func WithLoopCount(n int) Option {
+	return func(cfg *options) {
+		cfg.loopCount = n
 	}
 }
 

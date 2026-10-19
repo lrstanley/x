@@ -46,6 +46,18 @@ func TestGIFRejectsInvalidFrameRate(t *testing.T) {
 	}
 }
 
+func TestGIFRejectsLoopCount(t *testing.T) {
+	t.Parallel()
+
+	ch := make(<-chan Frame)
+	for _, n := range []int{LoopOnce - 1, maxGIFLoopCount + 1} {
+		_, err := GIF(WithChannel(ch), WithLoopCount(n))
+		if err == nil {
+			t.Fatalf("loop count %d: expected error", n)
+		}
+	}
+}
+
 func TestGIFRejectsNilFrameFunction(t *testing.T) {
 	t.Parallel()
 

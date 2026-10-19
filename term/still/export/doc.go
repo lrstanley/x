@@ -17,6 +17,10 @@
 // (after dedup when [OptimizeFrames] is enabled). Dropped frame delays are not
 // carried forward; disposal optimization runs on the retained window only.
 //
+// [WithLoopCount] sets how many times a GIF animation repeats. The default,
+// [LoopForever], loops until the viewer stops. [LoopOnce] plays the animation
+// a single time. PNG ignores [WithLoopCount].
+//
 // Export defaults to [OptimizeAll] when WithOptimize is omitted. GIF uses frame
 // dedup, disposal/sub-rect optimization, and palette compaction. PNG applies
 // [OptimizeColorQuantization] only ([OptimizeFrames] and [OptimizeDirtyRects]

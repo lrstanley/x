@@ -144,7 +144,7 @@ func newGIFRecorder(cfg options) *gifRecorder {
 		palette: pal,
 		useLUT:  useLUT,
 		rec: &gifRecording{
-			loopCount: 0,
+			loopCount: cfg.loopCount,
 			config: image.Config{
 				ColorModel: pal,
 			},

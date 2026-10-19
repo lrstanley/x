@@ -72,6 +72,18 @@ func TestPNGRejectsGIFOnlyOptions(t *testing.T) {
 	}
 }
 
+func TestPNGIgnoresLoopCount(t *testing.T) {
+	t.Parallel()
+
+	src := solidNRGBA(8, 8, color.NRGBA{R: 0xff, G: 0x00, B: 0x80, A: 0xff})
+	path := t.TempDir() + "/loop.png"
+	for _, n := range []int{LoopOnce, LoopForever, maxGIFLoopCount + 1} {
+		if err := PNG(src, path, WithLoopCount(n)); err != nil {
+			t.Fatalf("WithLoopCount(%d): %v", n, err)
+		}
+	}
+}
+
 func TestPNGIndexedQuantization(t *testing.T) {
 	t.Parallel()
 
