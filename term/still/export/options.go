@@ -99,6 +99,11 @@ type options struct {
 	frameRateFn func() image.Image
 	// frameRateSet records whether [WithFrameRate] was set.
 	frameRateSet bool
+	// delayGrid is the FPS that explicit [Frame] delays snap to when
+	// delayGridSet is true.
+	delayGrid int
+	// delayGridSet records whether [WithDelayGrid] was set.
+	delayGridSet bool
 	// channel receives frames for channel-driven capture when channelSet is true.
 	channel <-chan Frame
 	// channelSet records whether [WithChannel] was set.
@@ -134,6 +139,12 @@ func (o options) validate(format string) error {
 	if o.frameRateSet && o.channelSet {
 		return errors.New("export: WithFrameRate and WithChannel are mutually exclusive")
 	}
+	if o.frameRateSet && o.delayGridSet {
+		return errors.New("export: WithFrameRate and WithDelayGrid are mutually exclusive")
+	}
+	if o.delayGridSet && o.delayGrid != units.Clamp(o.delayGrid, 1, MaxFrameRate) {
+		return fmt.Errorf("export: WithDelayGrid fps %d out of range [1, %d]", o.delayGrid, MaxFrameRate)
+	}
 	if o.frameRateSet {
 		if o.frameRate != units.Clamp(o.frameRate, 1, MaxFrameRate) {
 			return fmt.Errorf("export: WithFrameRate fps %d out of range [1, %d]", o.frameRate, MaxFrameRate)
@@ -154,6 +165,9 @@ func (o options) validate(format string) error {
 		}
 		if o.channelSet {
 			return errors.New("export: WithChannel applies to GIF only")
+		}
+		if o.delayGridSet {
+			return errors.New("export: WithDelayGrid applies to GIF only")
 		}
 		if o.maxFrames > 0 {
 			return errors.New("export: WithMaxFrames applies to GIF only")
@@ -224,6 +238,19 @@ func WithFrameRate(fps int, strict bool, fn func() image.Image) Option {
 		cfg.frameRateStrict = strict
 		cfg.frameRateFn = fn
 		cfg.frameRateSet = true
+	}
+}
+
+// WithDelayGrid snaps each [Frame] delay received through [WithChannel] to the
+// nearest multiple of the FPS grid, using the same math as [WithFrameRate]
+// (max(1, 100/fps) centiseconds per step, minimum one step). Without it,
+// channel delays are rounded to the nearest centisecond. fps must be in
+// [1, [MaxFrameRate]]; see [WithFrameRate] for which rates play back smoothly.
+// Mutually exclusive with [WithFrameRate]. GIF only.
+func WithDelayGrid(fps int) Option {
+	return func(cfg *options) {
+		cfg.delayGrid = fps
+		cfg.delayGridSet = true
 	}
 }
 

@@ -303,6 +303,33 @@ func TestQuantizeDelaysFPSGrid(t *testing.T) {
 	}
 }
 
+func TestQuantizeDelaysDelayGrid(t *testing.T) {
+	t.Parallel()
+
+	opts := options{delayGridSet: true, delayGrid: 20}
+	nominalCS := 5
+
+	cases := []struct {
+		name  string
+		delay time.Duration
+		want  int
+	}{
+		{"zero floors to one step", 0, nominalCS},
+		{"sub-step rounds up", 3 * time.Millisecond, nominalCS},
+		{"snaps to nearest step", 120 * time.Millisecond, 2 * nominalCS},
+		{"exact step", 50 * time.Millisecond, nominalCS},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := quantizeDelays([]time.Duration{tc.delay}, opts)
+			if got[0] != tc.want {
+				t.Fatalf("quantizeDelays(%v) = %d cs, want %d cs", tc.delay, got[0], tc.want)
+			}
+		})
+	}
+}
+
 func TestOptimizeDisposalsMergesDurationDelays(t *testing.T) {
 	t.Parallel()
 
@@ -1050,5 +1077,26 @@ func TestGIFLoopCount(t *testing.T) {
 				t.Fatalf("LoopCount = %d, want %d", g.LoopCount, tt.want)
 			}
 		})
+	}
+}
+
+func TestChannelCloseKeepsBufferedFrames(t *testing.T) {
+	t.Parallel()
+
+	const n = 20
+	ch := make(chan Frame, n)
+	rec, err := GIF(WithChannel(ch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range n {
+		ch <- Frame{Image: solidFrame(i*10, 64, 64), Delay: 10 * time.Millisecond}
+	}
+	close(ch)
+	if err = rec.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(rec.Frames()); got != n {
+		t.Fatalf("recorded %d frames, want all %d buffered frames", got, n)
 	}
 }

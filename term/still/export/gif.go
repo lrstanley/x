@@ -273,19 +273,38 @@ func (r *gifRecorder) endCapture() {
 }
 
 // runChannel reads WithChannel frames until the channel closes or done
-// is signaled.
+// is signaled. When done is signaled, frames already buffered are still kept.
 func (r *gifRecorder) runChannel() {
 	r.lastCapture = time.Now()
 	ch := r.opts.channel
 	for {
 		select {
 		case <-r.done:
+			r.drainChannel(ch)
 			return
 		case f, ok := <-ch:
 			if !ok {
 				return
 			}
 			r.captureChannelFrame(f)
+		}
+	}
+}
+
+// drainChannel records frames already buffered in ch without blocking for more.
+// A sender that fills the channel and then calls [FrameRecorder.Close] (like
+// closing ch first) would otherwise lose whatever the reader had not yet
+// palettized, since select picks randomly between done and a ready channel.
+func (r *gifRecorder) drainChannel(ch <-chan Frame) {
+	for {
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				return
+			}
+			r.captureChannelFrame(f)
+		default:
+			return
 		}
 	}
 }
@@ -412,14 +431,18 @@ func (r *gifRecorder) nextDelay(explicit time.Duration) time.Duration {
 }
 
 // quantizeDelays converts accumulated duration delays to GIF centiseconds. FPS
-// modes snap to the nearest nominal grid multiple; channel mode rounds once. If
-// we stored delays as centiseconds, it doesn't provide enough precision for some
-// of the other rounding, deduplication, etc that we do, and it would result in
-// slightly inconsistent FPS for higher-FPS GIFs.
+// modes and [WithDelayGrid] snap to the nearest nominal grid multiple; plain
+// channel mode rounds once. If we stored delays as centiseconds, it doesn't
+// provide enough precision for some of the other rounding, deduplication, etc
+// that we do, and it would result in slightly inconsistent FPS for higher-FPS
+// GIFs.
 func quantizeDelays(delays []time.Duration, opts options) []int {
 	cs := make([]int, len(delays))
-	if opts.frameRateSet {
-		fps := opts.frameRate
+	fps := opts.frameRate
+	if opts.delayGridSet {
+		fps = opts.delayGrid
+	}
+	if opts.frameRateSet || opts.delayGridSet {
 		nominal := time.Second / time.Duration(fps)
 		nominalCS := max(1, 100/fps)
 		for i, d := range delays {

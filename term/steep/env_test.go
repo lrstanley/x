@@ -50,6 +50,15 @@ func TestApplyEnvSlow(t *testing.T) {
 	}
 }
 
+func TestApplyEnvExportTiming(t *testing.T) {
+	t.Setenv("STEEP_EXPORT_FPS", "10")
+	t.Setenv("STEEP_EXPORT_SPEED", "0.5")
+	cfg := collectOptions(t)
+	if cfg.exportFPS != 10 || cfg.exportSpeed != 0.5 {
+		t.Fatalf("got fps=%d speed=%v", cfg.exportFPS, cfg.exportSpeed)
+	}
+}
+
 func TestParseOptimizeFlags(t *testing.T) {
 	t.Parallel()
 	if got := parseOptimizeFlags("none"); got != export.OptimizeNone {

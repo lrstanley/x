@@ -12,7 +12,7 @@ import (
 )
 
 // Example of outputting GIFs from a given test:
-//  STEEP_EXPORT_DIR=testdata/ STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif STEEP_SLOW=200ms go test -v -count 1 ./...
+//  STEEP_EXPORT_DIR=testdata/ STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif STEEP_SLOW=10ms go test -v -count 1 ./...
 
 func firaFontFamily(t *testing.T) fonts.FontFamily {
 	t.Helper()
@@ -55,7 +55,8 @@ func TestGenerateFira(t *testing.T) {
 	// steep.WithExportDir("testdata/"),
 	// steep.WithExport(steep.ExportOn, steep.ExportTypeGIF),
 	// steep.WithSlow(200*time.Millisecond), // should I get rid of this?
-	// steep.WithSlowExport(200*time.Millisecond),
+	// steep.WithExportFPS(20),
+	// steep.WithExportSpeed(1),
 
 	for range 10 {
 		h.KeyDown()

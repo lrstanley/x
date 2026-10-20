@@ -15,7 +15,13 @@ import (
 	"time"
 )
 
-const defaultSlowExport = 100 * time.Millisecond
+const (
+	// defaultExportFPS is the GIF delay grid. 20 FPS (5cs steps) plays back at
+	// the requested speed in browsers, which clamp very short delays to 10 FPS.
+	defaultExportFPS = 20
+	// defaultExportSpeed plays the GIF at the speed the test ran.
+	defaultExportSpeed = 1.0
+)
 
 // InputMeta describes keyboard, paste, and mouse harness actions.
 type InputMeta struct {

@@ -6,6 +6,7 @@ package export
 
 import (
 	"image"
+	"path/filepath"
 	"testing"
 )
 
@@ -30,6 +31,30 @@ func TestGIFRejectsMutuallyExclusiveSources(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for WithFrameRate and WithChannel together")
 	}
+}
+
+func TestDelayGridValidation(t *testing.T) {
+	t.Parallel()
+
+	src := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	fn := func() image.Image { return src }
+
+	for _, fps := range []int{0, -1, MaxFrameRate + 1} {
+		if _, err := GIF(WithChannel(make(<-chan Frame)), WithDelayGrid(fps)); err == nil {
+			t.Fatalf("expected error for WithDelayGrid(%d)", fps)
+		}
+	}
+	if _, err := GIF(WithFrameRate(10, false, fn), WithDelayGrid(10)); err == nil {
+		t.Fatal("expected error for WithFrameRate and WithDelayGrid together")
+	}
+	if err := PNG(src, filepath.Join(t.TempDir(), "x.png"), WithDelayGrid(10)); err == nil {
+		t.Fatal("expected error for WithDelayGrid on PNG")
+	}
+	rec, err := GIF(WithChannel(make(chan Frame)), WithDelayGrid(20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = rec.Close()
 }
 
 func TestGIFRejectsInvalidFrameRate(t *testing.T) {

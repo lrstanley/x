@@ -5,12 +5,18 @@
 package steep
 
 import (
+	"image"
+	"image/draw"
 	"image/gif"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/term/still/export"
 )
 
 func TestExportOnFailureWritesArtifacts(t *testing.T) {
@@ -97,6 +103,136 @@ func TestExportGIFCapturesKeysWithoutSlow(t *testing.T) {
 	}
 	if len(distinct) < len(want) {
 		t.Fatalf("distinct gif frames = %d, want at least %d", len(distinct), len(want))
+	}
+}
+
+func TestExportGIFDelaysFollowRealTimeOnFPSGrid(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	h := NewHarness(t, rootTestModel{},
+		WithWindowSize(80, 2),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(dir),
+		WithExportFPS(10),
+		WithIgnoreEnv(true),
+	)
+	h.Type("a")
+	time.Sleep(400 * time.Millisecond)
+	h.Type("b")
+	h.QuitProgram()
+	h.WaitFinished()
+	if err := h.export.Finalize(false); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(h.export.gifPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var longest int
+	for i, d := range g.Delay {
+		if d%10 != 0 {
+			t.Fatalf("frame %d delay = %d cs, want a multiple of the 10 FPS grid (10 cs)", i, d)
+		}
+		longest = max(longest, d)
+	}
+	if longest < 40 {
+		t.Fatalf("longest frame delay = %d cs, want >= 40 cs for the 400ms the screen was held", longest)
+	}
+}
+
+func TestExportEmitHeldDelay(t *testing.T) {
+	t.Parallel()
+	start := time.Now()
+	cases := []struct {
+		name    string
+		speed   float64
+		elapsed time.Duration
+		want    time.Duration
+	}{
+		{"real time", 1, 300 * time.Millisecond, 300 * time.Millisecond},
+		{"double speed", 2, 400 * time.Millisecond, 200 * time.Millisecond},
+		{"half speed", 0.5, 300 * time.Millisecond, 600 * time.Millisecond},
+		{"floored to one step", 1, time.Millisecond, 50 * time.Millisecond},
+		{"out of order floored", 1, -time.Second, 50 * time.Millisecond},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := &exportManager{
+				gifCh:  make(chan export.Frame, 1),
+				step:   50 * time.Millisecond,
+				speed:  tc.speed,
+				held:   &export.Frame{},
+				heldAt: start,
+			}
+			m.emitHeldLocked(start.Add(tc.elapsed))
+			if m.held != nil {
+				t.Fatal("held frame should be cleared after emit")
+			}
+			if got := (<-m.gifCh).Delay; got != tc.want {
+				t.Fatalf("delay = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// altScreenModel is rootTestModel on the alternate screen, which a program
+// leaves (revealing a blank primary screen) as it exits.
+type altScreenModel struct{ rootTestModel }
+
+func (m altScreenModel) Update(msg uv.Event) (tea.Model, tea.Cmd) {
+	next, cmd := m.rootTestModel.Update(msg)
+	m.rootTestModel = next.(rootTestModel)
+	return m, cmd
+}
+
+func (m altScreenModel) View() tea.View {
+	v := m.rootTestModel.View()
+	v.AltScreen = true
+	return v
+}
+
+func TestExportGIFOmitsProgramExitRepaint(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	h := NewHarness(t, altScreenModel{},
+		WithWindowSize(20, 2),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(dir),
+		WithIgnoreEnv(true),
+	)
+	h.Type("abc")
+	h.QuitProgram()
+	h.WaitFinished()
+	if err := h.export.Finalize(false); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(h.export.gifPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, g.Config.Width, g.Config.Height))
+	for _, frame := range g.Image {
+		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Src)
+	}
+	var lit int
+	for i := 0; i < len(canvas.Pix); i += 4 {
+		if int(canvas.Pix[i])+int(canvas.Pix[i+1])+int(canvas.Pix[i+2]) > 0 {
+			lit++
+		}
+	}
+	if lit < 50 {
+		t.Fatalf("last gif frame has %d lit pixels, want the final screen and not the blank exit repaint", lit)
 	}
 }
 

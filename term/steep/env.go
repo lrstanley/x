@@ -69,9 +69,15 @@ func applyEnv(tb testing.TB, cfg *options) {
 		}
 	}
 
-	if v := os.Getenv("STEEP_SLOW_EXPORT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.slowExport = d
+	if v := os.Getenv("STEEP_EXPORT_FPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.exportFPS = n
+		}
+	}
+
+	if v := os.Getenv("STEEP_EXPORT_SPEED"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.exportSpeed = f
 		}
 	}
 

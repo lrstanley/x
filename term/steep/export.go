@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"cmp"
 	"image"
 	"os"
 	"path/filepath"
@@ -66,11 +67,20 @@ type exportManager struct {
 	dir        string
 	baseName   string
 	exportOpts []export.Option
-	frameDelay time.Duration
+	// step is one tick of the export FPS grid, the shortest a frame plays.
+	step time.Duration
+	// speed scales real elapsed time into playback time (2 plays twice as fast).
+	speed float64
 
 	gifCh   chan export.Frame
 	gifRec  export.FrameRecorder
 	gifPath string
+
+	// held is the most recent frame. It stays unsent until the next frame (or
+	// [exportManager.Finalize]) so its delay is how long it was actually
+	// visible, starting at heldAt.
+	held   *export.Frame
+	heldAt time.Time
 
 	// mu guards the commit queue and GIF send. noteCommit runs on the
 	// program goroutine; flush and hook capture run on the test goroutine.
@@ -92,6 +102,7 @@ type exportManager struct {
 type commitFrame struct {
 	screen *screen.Buffer
 	state  vt.Snapshot
+	at     time.Time
 }
 
 func newExportManager(h *Harness, cfg options) (*exportManager, error) {
@@ -108,9 +119,10 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		dir = artifactDir(h.tb)
 	}
 
-	delay := cfg.slowExport
-	if delay == 0 {
-		delay = defaultSlowExport
+	fps := min(max(cmp.Or(cfg.exportFPS, defaultExportFPS), 1), export.MaxFrameRate)
+	speed := cfg.exportSpeed
+	if !(speed > 0) { // Also catches NaN.
+		speed = defaultExportSpeed
 	}
 
 	maxFrames := cfg.gifMaxFrames
@@ -127,7 +139,8 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		dir:        dir,
 		baseName:   cfg.exportName,
 		exportOpts: exportOpts,
-		frameDelay: delay,
+		step:       time.Second / time.Duration(fps),
+		speed:      speed,
 	}
 
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -147,6 +160,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 				m.exportOpts,
 				export.WithMaxFrames(maxFrames),
 				export.WithChannel(m.gifCh),
+				export.WithDelayGrid(fps),
 			)...,
 		)
 		if err != nil {
@@ -228,7 +242,7 @@ func (m *exportManager) noteCommit() {
 		m.pending[0] = commitFrame{}
 		m.pending = m.pending[1:]
 	}
-	m.pending = append(m.pending, commitFrame{screen: scr, state: st})
+	m.pending = append(m.pending, commitFrame{screen: scr, state: st, at: time.Now()})
 }
 
 func (m *exportManager) duplicateCommit(st vt.Snapshot) bool {
@@ -263,7 +277,7 @@ func (m *exportManager) flushCommits() {
 			if m.duplicateCommit(frame.state) {
 				continue
 			}
-			m.sendFrame(frame.state, copyCommitted(m.h, frame.screen, frame.state))
+			m.sendFrame(frame.state, copyCommitted(m.h, frame.screen, frame.state), frame.at)
 		}
 	}
 }
@@ -277,7 +291,7 @@ func (m *exportManager) captureGIF() error {
 	if m.duplicateCommit(st) {
 		return nil
 	}
-	m.sendFrame(st, m.h.copyImage())
+	m.sendFrame(st, m.h.copyImage(), time.Now())
 	return nil
 }
 
@@ -291,7 +305,9 @@ func (m *exportManager) noteHeldSkip() {
 	m.tb.Log("export skipped a frame: terminal synchronized output is held")
 }
 
-func (m *exportManager) sendFrame(st vt.Snapshot, img image.Image) {
+// sendFrame makes img the current GIF frame as of at, finishing the previous
+// frame with the time it was on screen.
+func (m *exportManager) sendFrame(st vt.Snapshot, img image.Image, at time.Time) {
 	if img == nil {
 		return
 	}
@@ -302,7 +318,23 @@ func (m *exportManager) sendFrame(st vt.Snapshot, img image.Image) {
 	}
 	m.haveSent = true
 	m.sent = st
-	m.gifCh <- export.Frame{Image: img, Delay: m.frameDelay}
+	m.emitHeldLocked(at)
+	m.held = &export.Frame{Image: img}
+	m.heldAt = at
+}
+
+// emitHeldLocked sends the held frame, if any, for the real time between heldAt
+// and until, scaled by the playback speed. Delays are snapped to the FPS grid
+// by the recorder; the floor of one step keeps every distinct state visible
+// even when several paints land within the same tick (or out of order).
+func (m *exportManager) emitHeldLocked(until time.Time) {
+	if m.held == nil {
+		return
+	}
+	elapsed := time.Duration(float64(until.Sub(m.heldAt)) / m.speed)
+	m.held.Delay = max(elapsed, m.step)
+	m.gifCh <- *m.held
+	m.held = nil
 }
 
 func sameCommit(a, b vt.Snapshot) bool {
@@ -345,12 +377,19 @@ func (m *exportManager) Finalize(failed bool) error {
 		return nil
 	}
 
+	// Commits still queued here were painted after the last hook, while the
+	// program was shutting down: typically a repaint on exiting the alternate
+	// screen, which is blank. A recording ends on the last state the test saw,
+	// so they are discarded, not rendered.
 	m.mu.Lock()
 	m.stopped = true
+	m.pending = nil
 	m.mu.Unlock()
-	m.flushCommits()
 
 	m.mu.Lock()
+	if m.gifCh != nil {
+		m.emitHeldLocked(time.Now())
+	}
 	ch := m.gifCh
 	m.gifCh = nil
 	m.mu.Unlock()

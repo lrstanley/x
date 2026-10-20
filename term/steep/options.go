@@ -84,7 +84,8 @@ type options struct {
 	hooks        []Hook
 	ignoreEnv    bool
 	slow         time.Duration
-	slowExport   time.Duration
+	exportFPS    int
+	exportSpeed  float64
 	gifMaxFrames int
 	snapshotDir  string
 }
@@ -360,7 +361,7 @@ func WithExportName(name string) Option {
 //
 // It is not required for complete GIF/PNG exports: frames are captured when the
 // program paints, not when the sleep ends. It also does not set GIF playback
-// speed; see [WithSlowExport]. The sleep applies to every hooked action, so it
+// speed; see [WithExportSpeed]. The sleep applies to every hooked action, so it
 // slows the whole test, whether or not exporting is enabled.
 //
 // Environment: STEEP_SLOW.
@@ -370,15 +371,33 @@ func WithSlow(d time.Duration) Option {
 	}
 }
 
-// WithSlowExport sets the playback delay stamped on each exported GIF frame
-// (default 100ms). It does not sleep the test (see [WithSlow]) and does not
-// follow the test's real timing: every frame plays for the same duration, no
-// matter how long the test actually spent between screens.
+// WithExportFPS sets the frame rate grid for exported GIFs (default 20, clamped
+// to 1-100). Each frame is shown for the real time it was on screen, snapped
+// to the nearest multiple of 1/fps, and never for less than one step, so every
+// distinct screen the program painted stays visible even when several paints
+// land in the same instant. It does not sleep the test (see [WithSlow]).
 //
-// Environment: STEEP_SLOW_EXPORT (overrides this option unless [WithIgnoreEnv] is set).
-func WithSlowExport(d time.Duration) Option {
+// GIF delays are centiseconds, and browsers often cap playback near 50 FPS and
+// clamp higher rates to 10 FPS, so prefer 10 or 20. See [export.WithFrameRate]
+// for the full caveats.
+//
+// Environment: STEEP_EXPORT_FPS (overrides this option unless [WithIgnoreEnv] is set).
+func WithExportFPS(fps int) Option {
 	return func(cfg *options) {
-		cfg.slowExport = d
+		cfg.exportFPS = fps
+	}
+}
+
+// WithExportSpeed sets the GIF playback speed relative to the test's real
+// timing (default 1; values <= 0 use the default). 0.5 plays at half speed (every frame is shown twice as
+// long) and 2 plays twice as fast. It scales recorded time only, so it never
+// sleeps the test (see [WithSlow]). The one-step minimum from [WithExportFPS]
+// still applies, which limits how far a recording can be sped up.
+//
+// Environment: STEEP_EXPORT_SPEED (overrides this option unless [WithIgnoreEnv] is set).
+func WithExportSpeed(factor float64) Option {
+	return func(cfg *options) {
+		cfg.exportSpeed = factor
 	}
 }
 

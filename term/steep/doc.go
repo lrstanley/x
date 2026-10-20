@@ -26,7 +26,12 @@
 // visible, then capture PNG and snapshot artifacts. Settle, ready, and close
 // capture the screen those helpers already observed. [WithSlow] still sleeps
 // before After hooks when a test wants the program to keep running between
-// actions. [WithSlowExport] is the playback delay stamped on each GIF frame.
+// actions.
+//
+// Each GIF frame plays for the real time it was on screen, snapped to the
+// [WithExportFPS] grid (default 20) with a minimum of one step, so the test
+// never sleeps to pace the recording. [WithExportSpeed] speeds up or slows down
+// playback without affecting the test.
 //
 // Artifacts are written under [testing.TB.ArtifactDir] unless [WithExportDir] is
 // set. Run tests with "go test -artifacts" (Go 1.26+) for them to be persisted
