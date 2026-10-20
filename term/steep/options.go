@@ -313,6 +313,11 @@ func WithIgnoreEnv(ignore bool) Option {
 // types is 0 and mode is not [ExportOff], GIF and PNG are exported. Files go to
 // [WithExportDir], else [testing.TB.ArtifactDir].
 //
+// Without [WithExportDir], artifacts are only persisted when the tests are run
+// with "go test -artifacts" (Go 1.26+). Otherwise, [testing.TB.ArtifactDir] is a
+// temporary directory that is deleted when the test completes, so exported
+// files are lost. Use "-outputdir" to choose where they are written.
+//
 // Environment (each overrides this option unless [WithIgnoreEnv] is set):
 // STEEP_EXPORT_MODE (on, off, failure), STEEP_EXPORT_TYPE (comma-separated png,
 // gif, log, snapshot, or all), STEEP_EXPORT_OPTIMIZE, STEEP_EXPORT_MAX_FRAMES,
@@ -327,7 +332,8 @@ func WithExport(mode ExportMode, types ExportType, opts ...export.Option) Option
 
 // WithExportDir sets the directory for export artifacts, creating it if needed.
 // A relative path is relative to the test's package directory. When empty, uses
-// [testing.TB.ArtifactDir].
+// [testing.TB.ArtifactDir], which only persists files when tests are run with
+// "go test -artifacts".
 //
 // Environment: STEEP_EXPORT_DIR (overrides this option unless [WithIgnoreEnv] is set).
 func WithExportDir(dir string) Option {
@@ -379,6 +385,10 @@ func WithSlowExport(d time.Duration) Option {
 // WithFailureGIF is shorthand for [WithExport]([ExportOnFailure], [ExportTypeGIF], ...).
 // A GIF of the test is written (as "<name>_failed.gif") only if the test fails,
 // and nothing is written when it passes.
+//
+// Unless [WithExportDir] is set, the GIF is written to [testing.TB.ArtifactDir],
+// which is a temporary directory that is deleted when the test completes unless
+// tests are run with "go test -artifacts". Without that flag, the GIF is lost.
 func WithFailureGIF(opts ...export.Option) Option {
 	return WithExport(ExportOnFailure, ExportTypeGIF, opts...)
 }

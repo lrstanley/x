@@ -28,7 +28,10 @@
 // before After hooks when a test wants the program to keep running between
 // actions. [WithSlowExport] is the playback delay stamped on each GIF frame.
 //
-// Artifacts are written under [testing.TB.ArtifactDir]. Environment variables
+// Artifacts are written under [testing.TB.ArtifactDir] unless [WithExportDir] is
+// set. Run tests with "go test -artifacts" (Go 1.26+) for them to be persisted
+// (see "-outputdir"); without it, the artifact directory is temporary and
+// removed when the test completes. Environment variables
 // STEEP_EXPORT_MODE, STEEP_EXPORT_TYPE, STEEP_EXPORT_DIR, STEEP_SLOW, and related
 // keys override options unless [WithIgnoreEnv] is set.
 package steep
