@@ -16,6 +16,7 @@ dist
 vendor/*
 bin
 **/*.cache
+**/_artifacts
 **/.env
 go.work*
 .cursor/plans/
