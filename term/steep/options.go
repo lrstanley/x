@@ -76,18 +76,19 @@ type options struct {
 	// imageRendererOpts configures the harness-owned [still.Renderer].
 	imageRendererOpts []still.Option
 
-	exportMode   ExportMode
-	exportTypes  ExportType
-	exportDir    string
-	exportName   string
-	exportOpts   []export.Option
-	hooks        []Hook
-	ignoreEnv    bool
-	slow         time.Duration
-	exportFPS    int
-	exportSpeed  float64
-	gifMaxFrames int
-	snapshotDir  string
+	exportMode     ExportMode
+	exportTypes    ExportType
+	exportDir      string
+	exportName     string
+	exportOpts     []export.Option
+	exportMutators []ExportMutator
+	hooks          []Hook
+	ignoreEnv      bool
+	slow           time.Duration
+	exportFPS      int
+	exportSpeed    float64
+	gifMaxFrames   int
+	snapshotDir    string
 }
 
 func defaultOptions() options {
@@ -350,6 +351,26 @@ func WithExportDir(dir string) Option {
 func WithExportName(name string) Option {
 	return func(cfg *options) {
 		cfg.exportName = name
+	}
+}
+
+// WithExportMutators appends [ExportMutator]s that change GIF frames between
+// the terminal and the encoder: overlays, inserted cards (see
+// [ExportIntroCard] and [ExportOutroCard]), holds, and so on. Calls accumulate.
+//
+// Mutators run in order, and each sees the frames the ones before it
+// returned. A later mutator draws on top of an earlier one and sees any cards
+// it inserted, so list overlays that should not cover a card before it.
+//
+// Inserted frames count toward the GIF frame cap (STEEP_EXPORT_MAX_FRAMES),
+// which keeps the newest frames, so a long recording can drop an intro card.
+// An overlay that changes pixels on otherwise identical frames defeats
+// duplicate frame merging and grows the GIF. Mutators apply to [ExportOn] and
+// [ExportOnFailure] recordings alike; see [ExportContext.Mode]. There is no
+// environment override.
+func WithExportMutators(mutators ...ExportMutator) Option {
+	return func(cfg *options) {
+		cfg.exportMutators = append(cfg.exportMutators, mutators...)
 	}
 }
 

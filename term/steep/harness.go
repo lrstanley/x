@@ -29,6 +29,7 @@ var _ MessageCollector = (*Harness)(nil) // Enforce implementation of [MessageCo
 // Harness is a test harness for a [tea.Program].
 type Harness struct {
 	tb       testing.TB
+	failures *failureTB
 	emulator *emulator
 	program  *tea.Program
 	observer *observer
@@ -59,6 +60,8 @@ type Harness struct {
 // helpers for driving and asserting on runtime behavior.
 func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	tb.Helper()
+	failures := &failureTB{TB: tb}
+	tb = failures
 
 	cfg := collectOptions(tb, opts...)
 
@@ -76,6 +79,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 
 	h := &Harness{
 		tb:            tb,
+		failures:      failures,
 		emulator:      newEmulator(tb, cfg.width, cfg.height),
 		observer:      newObserver(tb, model),
 		done:          make(chan struct{}),

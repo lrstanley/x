@@ -6,6 +6,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/lrstanley/x/term/steep"
 	"github.com/lrstanley/x/term/still/fonts"
@@ -64,6 +65,28 @@ func TestGenerateFira(t *testing.T) {
 	for range 10 {
 		h.KeyUp()
 	}
+}
+
+// TestTitleCards records the ranking list between a "steep" intro card and a
+// PASS/FAIL outro card. Run it with STEEP_EXPORT_DIR set (or "go test
+// -artifacts") to keep the GIF.
+func TestTitleCards(t *testing.T) {
+	h := steep.NewHarness(t, newRankingModel(),
+		steep.WithExport(steep.ExportOn, steep.ExportTypeGIF),
+		steep.WithExportName("title_cards"),
+		steep.WithExportMutators(
+			steep.ExportIntroCard(1500*time.Millisecond),
+			steep.ExportOutroCard(1500*time.Millisecond),
+		),
+	)
+	h.Wait("Tokyo", steep.WithANSI(false))
+	for range 10 {
+		h.KeyDown()
+	}
+	for range 10 {
+		h.KeyUp()
+	}
+	time.Sleep(500 * time.Millisecond)
 }
 
 // generateStill writes committed testdata. For failure artifacts in CI, prefer

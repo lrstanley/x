@@ -163,8 +163,14 @@ func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot) image.Image {
 	}
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
-	next := viewportState(h, h.imageState, st)
-	h.imageRenderer.UpdateEmulatorState(&next)
+	return copyDrawnLocked(h, scr, viewportState(h, h.imageState, st))
+}
+
+// copyDrawnLocked renders scr with state and returns an owned image. It
+// invalidates the harness image cache like [copyCommitted]. h.imageMu must be
+// held.
+func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState) image.Image {
+	h.imageRenderer.UpdateEmulatorState(&state)
 	h.imageStateSet = false
 	return copyRGBA(h.imageRenderer.Draw(scr))
 }
