@@ -17,8 +17,8 @@
 // # Hooks and export
 //
 // Harness actions invoke [Hook] callbacks before and after the action body. Built-in
-// export hooks run first (see [WithExport], [WithFailureGIF]), then user hooks from
-// [WithHooks]. Hook errors fail the test immediately.
+// export hooks run first (see [WithExport], [WithFailureGIF], [WithFailurePNG]), then
+// user hooks from [WithHooks]. Hook errors fail the test immediately.
 //
 // GIF frames are taken when the program commits terminal output, including
 // each paint in a burst of keys, so a recording does not need [WithSlow].

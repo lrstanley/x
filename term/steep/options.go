@@ -393,6 +393,17 @@ func WithFailureGIF(opts ...export.Option) Option {
 	return WithExport(ExportOnFailure, ExportTypeGIF, opts...)
 }
 
+// WithFailurePNG is shorthand for [WithExport]([ExportOnFailure], [ExportTypePNG], ...).
+// A PNG of the last visible screen is written (as "<name>_failed.png") only if
+// the test fails, and nothing is written when it passes.
+//
+// Unless [WithExportDir] is set, the PNG is written to [testing.TB.ArtifactDir],
+// which is a temporary directory that is deleted when the test completes unless
+// tests are run with "go test -artifacts". Without that flag, the PNG is lost.
+func WithFailurePNG(opts ...export.Option) Option {
+	return WithExport(ExportOnFailure, ExportTypePNG, opts...)
+}
+
 // WithLog is a shorthand for [WithHooks] & [LoggerHook] with a nil logger,
 // logging every hooked harness action (before and after) to tb through
 // [testing.TB.Log]. Log output only shows for failing tests or with go test -v.
