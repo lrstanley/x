@@ -87,8 +87,7 @@ func (ec ExportContext) steepLogo(d time.Duration) []ExportFrame {
 	}
 
 	frame := func(level, phase int, showName bool, delay time.Duration) ExportFrame {
-		img := image.NewRGBA(b)
-		draw.Draw(img, b, base, b.Min, draw.Src)
+		img := cloneNRGBA(base)
 		if showName && name != nil {
 			draw.Draw(img, nameAt, name, name.Bounds().Min, draw.Src)
 		}

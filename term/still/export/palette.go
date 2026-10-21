@@ -26,14 +26,24 @@ const (
 // palettizeJob is one disjoint row span for the process-lifetime workers.
 type palettizeJob struct {
 	dst  *image.Paletted
-	src  *image.NRGBA
+	src  rgbaPixels
 	area image.Rectangle
 	minY int
 	maxY int
 	wg   *sync.WaitGroup
 }
 
-// palettizeJobs is filled by palettizeNRGBA and drained by a fixed worker set.
+// rgbaPixels is the pixel layout *image.NRGBA and *image.RGBA share: four
+// bytes per pixel, R, G, B, A. RGBA's color channels are premultiplied by
+// alpha.
+type rgbaPixels struct {
+	pix           []uint8
+	stride        int
+	rect          image.Rectangle
+	premultiplied bool
+}
+
+// palettizeJobs is filled by palettizePixels and drained by a fixed worker set.
 // The workers live for the process so a frame does not allocate goroutines.
 var (
 	palettizeJobs chan palettizeJob
@@ -54,7 +64,7 @@ var (
 
 func palettizeWorker() {
 	for job := range palettizeJobs {
-		palettizeNRGBARows(job.dst, job.src, job.area, job.minY, job.maxY)
+		palettizeRows(job.dst, job.src, job.area, job.minY, job.maxY)
 		job.wg.Done()
 	}
 }
@@ -140,20 +150,30 @@ var (
 	})
 )
 
+// palettizeInto maps src onto dst's palette. NRGBA and RGBA sources, which
+// is every frame still renders, use defaultGIFLUT; anything else falls back
+// to draw.Draw's much slower per-pixel palette search.
 func palettizeInto(dst *image.Paletted, src image.Image) {
-	if nrgba, ok := src.(*image.NRGBA); ok {
-		initDefaultGIFLUT()
-		palettizeNRGBA(dst, nrgba)
-		return
+	switch src := src.(type) {
+	case *image.NRGBA:
+		palettizePixels(dst, rgbaPixels{pix: src.Pix, stride: src.Stride, rect: src.Rect})
+	case *image.RGBA:
+		palettizePixels(dst, rgbaPixels{pix: src.Pix, stride: src.Stride, rect: src.Rect, premultiplied: true})
+	default:
+		draw.Draw(dst, src.Bounds(), src, src.Bounds().Min, draw.Src)
 	}
-	draw.Draw(dst, src.Bounds(), src, src.Bounds().Min, draw.Src)
 }
 
-// palettizeNRGBA maps opaque NRGBA pixels through defaultGIFLUT. Alpha 0
-// writes TransparentPaletteIndex; opaque LUT hits on that index are remapped
-// to TransparentPaletteIndex-1 so the transparent slot stays reserved.
+// palettizeNRGBA is palettizeInto for an NRGBA source.
 func palettizeNRGBA(dst *image.Paletted, src *image.NRGBA) {
-	area := src.Bounds().Intersect(dst.Bounds())
+	palettizePixels(dst, rgbaPixels{pix: src.Pix, stride: src.Stride, rect: src.Rect})
+}
+
+// palettizePixels maps src through defaultGIFLUT, splitting large frames
+// across the palettize workers.
+func palettizePixels(dst *image.Paletted, src rgbaPixels) {
+	initDefaultGIFLUT()
+	area := src.rect.Intersect(dst.Bounds())
 	workers := palettizeWorkerCount(area)
 	if workers > 1 {
 		startPalettizeWorkers()
@@ -162,7 +182,7 @@ func palettizeNRGBA(dst *image.Paletted, src *image.NRGBA) {
 		}
 	}
 	if workers <= 1 {
-		palettizeNRGBARows(dst, src, area, area.Min.Y, area.Max.Y)
+		palettizeRows(dst, src, area, area.Min.Y, area.Max.Y)
 		return
 	}
 
@@ -206,20 +226,30 @@ func palettizeWorkerCount(area image.Rectangle) int {
 	), 1)
 }
 
-func palettizeNRGBARows(dst *image.Paletted, src *image.NRGBA, area image.Rectangle, minY, maxY int) {
+// palettizeRows maps rows minY through maxY of src through defaultGIFLUT.
+// Alpha 0 writes TransparentPaletteIndex. Other pixels map by their color
+// alone, so a translucent pixel becomes its opaque color; premultiplied
+// colors are restored first so RGBA and NRGBA sources match. Opaque LUT hits
+// on TransparentPaletteIndex are remapped to TransparentPaletteIndex-1 so the
+// transparent slot stays reserved.
+func palettizeRows(dst *image.Paletted, src rgbaPixels, area image.Rectangle, minY, maxY int) {
 	width := area.Dx()
 	for y := minY; y < maxY; y++ {
-		si := (y-src.Rect.Min.Y)*src.Stride + (area.Min.X-src.Rect.Min.X)*4
+		si := (y-src.rect.Min.Y)*src.stride + (area.Min.X-src.rect.Min.X)*4
 		di := (y-dst.Rect.Min.Y)*dst.Stride + (area.Min.X - dst.Rect.Min.X)
-		srcPix := src.Pix[si : si+width*4]
+		srcPix := src.pix[si : si+width*4]
 		dstPix := dst.Pix[di : di+width]
 		for x := range dstPix {
 			sx := x * 4
-			if srcPix[sx+3] == 0 {
+			a := srcPix[sx+3]
+			if a == 0 {
 				dstPix[x] = TransparentPaletteIndex
 				continue
 			}
 			r, g, b := srcPix[sx], srcPix[sx+1], srcPix[sx+2]
+			if src.premultiplied && a != 0xff {
+				r, g, b = unpremultiply(r, a), unpremultiply(g, a), unpremultiply(b, a)
+			}
 			idx := defaultGIFLUT[r>>3][g>>3][b>>3]
 			if idx == TransparentPaletteIndex {
 				idx = TransparentPaletteIndex - 1
@@ -227,6 +257,12 @@ func palettizeNRGBARows(dst *image.Paletted, src *image.NRGBA, area image.Rectan
 			dstPix[x] = idx
 		}
 	}
+}
+
+// unpremultiply restores a color channel premultiplied by alpha a, which must
+// not be zero, rounding like [color.NRGBAModel].
+func unpremultiply(c, a uint8) uint8 {
+	return uint8(min(uint32(c)*0xffff/uint32(a)>>8, 0xff)) //nolint:gosec // clamped.
 }
 
 func clonePaletted(src *image.Paletted) *image.Paletted {

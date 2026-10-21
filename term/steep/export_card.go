@@ -35,7 +35,7 @@ type CardLine struct {
 func (ec ExportContext) Card(lines ...CardLine) image.Image {
 	state := ec.cardState()
 	ec.h.imageMu.Lock()
-	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state).(*image.RGBA)
+	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state)
 	ec.h.imageMu.Unlock()
 
 	if text := ec.cardText(state, lines); text != nil {
@@ -89,8 +89,24 @@ func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) im
 		writeCentered(buf, i, line)
 	}
 
-	size := ec.h.imageRenderer.Metrics().FontSize * still.Pt(ec.cardScale())
-	r, err := still.New(append(slices.Clip(ec.h.cfg.imageRendererOpts),
+	ec.h.imageMu.Lock()
+	defer ec.h.imageMu.Unlock()
+	r, err := ec.h.cardRendererLocked(ec.h.imageRenderer.Metrics().FontSize * still.Pt(ec.cardScale()))
+	if err != nil {
+		ec.h.tb.Errorf("card text renderer: %v", err)
+		return nil
+	}
+	r.UpdateEmulatorState(&state)
+	return copyNRGBA(r.Draw(buf))
+}
+
+// cardRendererLocked returns the harness renderer for card text at size: the
+// harness renderer's options without window chrome. h.imageMu must be held.
+func (h *Harness) cardRendererLocked(size still.Pt) (*still.Renderer, error) {
+	if h.cardRenderer != nil && h.cardFontSize == size {
+		return h.cardRenderer, nil
+	}
+	r, err := still.New(append(slices.Clip(h.cfg.imageRendererOpts),
 		still.WithFontSizePt(size),
 		still.WithPadding(0),
 		still.WithMargin(0, nil),
@@ -98,12 +114,13 @@ func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) im
 		still.WithScrollbar(false),
 	)...)
 	if err != nil {
-		ec.h.tb.Errorf("card text renderer: %v", err)
-		return nil
+		return nil, err
 	}
-	defer func() { _ = r.Close() }()
-	r.UpdateEmulatorState(&state)
-	return copyRGBA(r.Draw(buf))
+	if h.cardRenderer != nil {
+		_ = h.cardRenderer.Close()
+	}
+	h.cardRenderer, h.cardFontSize = r, size
+	return r, nil
 }
 
 // Failures returns the failure messages the harness has reported so far,

@@ -82,6 +82,7 @@ type options struct {
 	exportName     string
 	exportOpts     []export.Option
 	exportMutators []ExportMutator
+	exportKeys     ExportMutator
 	exportIntro    ExportMutator
 	exportOutro    ExportMutator
 	hooks          []Hook
@@ -358,8 +359,9 @@ func WithExportName(name string) Option {
 
 // WithExportMutators appends [ExportMutator]s that change GIF frames between
 // the terminal and the encoder: overlays, inserted cards, holds, and so on.
-// Calls accumulate. The cards from [WithExportIntro] and [WithExportOutro] are
-// added after every mutator, so overlays never cover them.
+// Calls accumulate. The key overlay from [WithExportKeys] and the cards from
+// [WithExportIntro] and [WithExportOutro] are added after every mutator, in
+// that order, so overlays never cover the keys or the cards.
 //
 // Mutators run in order, and each sees the frames the ones before it
 // returned. A later mutator draws on top of an earlier one and sees any cards
@@ -374,6 +376,24 @@ func WithExportName(name string) Option {
 func WithExportMutators(mutators ...ExportMutator) Option {
 	return func(cfg *options) {
 		cfg.exportMutators = append(cfg.exportMutators, mutators...)
+	}
+}
+
+// WithExportKeys overlays the keys the test presses (see [Harness.Key] and
+// [Harness.Type]) on GIF recordings, in the bottom right corner. Keys pressed
+// within d of each other are shown together, repeats as one key with a count,
+// and stay for d after the last of them, fading out over its final third.
+// Paste and mouse input are not shown. A d of zero or less removes the
+// overlay.
+//
+// The overlay splits frames wherever it changes, which adds a few frames per
+// burst of keys toward the frame cap (see [WithExportMutators]).
+func WithExportKeys(d time.Duration) Option {
+	return func(cfg *options) {
+		cfg.exportKeys = nil
+		if d > 0 {
+			cfg.exportKeys = keysOverlay(d)
+		}
 	}
 }
 

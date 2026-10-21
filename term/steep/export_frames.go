@@ -15,8 +15,11 @@ import (
 
 // ExportFrame is one recorded frame on its way to the GIF encoder.
 type ExportFrame struct {
-	// Image is the frame's pixels. Neighboring frames may share it, so treat
-	// it as read-only: draw an overlay on a copy, never in place.
+	// Image is the frame's pixels, an *image.NRGBA for recorded frames and
+	// cards. Neighboring frames may share it, so treat it as read-only: draw
+	// an overlay on a copy, never in place. Return *image.NRGBA or
+	// *image.RGBA images; the encoder maps other types to the GIF palette
+	// much more slowly.
 	Image image.Image
 	// At is the real time the frame appeared on the terminal. Frames a mutator
 	// inserts may leave it zero.

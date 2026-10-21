@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/term/still"
 	"github.com/lrstanley/x/term/still/export"
 )
 
@@ -317,5 +318,40 @@ func TestExportCardScale(t *testing.T) {
 		if got := ec.cardScale(); got != tc.want {
 			t.Errorf("cardScale(%dx%d) = %v, want %v", tc.cols, tc.rows, got, tc.want)
 		}
+	}
+}
+
+func TestExportFramesKeepTranslucency(t *testing.T) {
+	t.Parallel()
+	var frames []image.Image
+	capture := func(_ ExportContext, f ExportFrame) []ExportFrame {
+		frames = append(frames, f.Image)
+		return []ExportFrame{f}
+	}
+	h := NewHarness(t, rootTestModel{},
+		WithWindowSize(20, 4),
+		WithRenderer(still.WithBackgroundOpacity(0.6)),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(t.TempDir()),
+		WithExportMutators(capture),
+		WithIgnoreEnv(true),
+	)
+	h.Type("abc").Wait("text=abc")
+	want, ok := h.Image().(*image.NRGBA)
+	if !ok {
+		t.Fatalf("renderer image is %T, want *image.NRGBA", h.Image())
+	}
+	want = cloneNRGBA(want)
+	finishGIF(t, h, false)
+
+	got, ok := frames[len(frames)-1].(*image.NRGBA)
+	if !ok {
+		t.Fatalf("recorded frame is %T, want *image.NRGBA", frames[len(frames)-1])
+	}
+	if a := got.NRGBAAt(2, got.Bounds().Dy()/2).A; a == 0xff || a == 0 {
+		t.Errorf("background alpha = %d, want the translucent renderer background", a)
+	}
+	if !slices.Equal(got.Pix, want.Pix) {
+		t.Error("recorded frame differs from the renderer's image; want its exact pixels and alpha")
 	}
 }

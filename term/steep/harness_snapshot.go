@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
@@ -169,10 +170,10 @@ func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot) image.Image {
 // copyDrawnLocked renders scr with state and returns an owned image. It
 // invalidates the harness image cache like [copyCommitted]. h.imageMu must be
 // held.
-func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState) image.Image {
+func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState) *image.NRGBA {
 	h.imageRenderer.UpdateEmulatorState(&state)
 	h.imageStateSet = false
-	return copyRGBA(h.imageRenderer.Draw(scr))
+	return cloneNRGBA(h.imageRenderer.Draw(scr))
 }
 
 func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.EmulatorState {
@@ -193,12 +194,23 @@ func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.E
 	}
 }
 
-func copyRGBA(src image.Image) image.Image {
+func copyNRGBA(src image.Image) image.Image {
 	if src == nil {
 		return nil
 	}
+	return cloneNRGBA(src)
+}
+
+// cloneNRGBA returns an owned copy of src, which must not be nil, to draw on.
+// Frames stay NRGBA, the renderer's own format, from the renderer to the GIF
+// encoder: copying one is a plain byte copy, the encoder maps it to the GIF
+// palette with a lookup table, and translucent pixels keep their exact color.
+func cloneNRGBA(src image.Image) *image.NRGBA {
+	if n, ok := src.(*image.NRGBA); ok {
+		return &image.NRGBA{Pix: bytes.Clone(n.Pix), Stride: n.Stride, Rect: n.Rect}
+	}
 	b := src.Bounds()
-	dst := image.NewRGBA(b)
+	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, src, b.Min, draw.Src)
 	return dst
 }

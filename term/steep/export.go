@@ -83,6 +83,9 @@ type exportManager struct {
 	// are only used on the test goroutine.
 	held   ExportFrame
 	frames exportPipeline
+	// keys are the keys the test pressed, oldest first, for
+	// [WithExportKeys]. Only recorded for GIFs, on the test goroutine.
+	keys []keyPress
 
 	// mu guards the commit queue and the duplicate check. noteCommit runs on
 	// the program goroutine; flush and hook capture run on the test goroutine.
@@ -145,7 +148,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		speed:      speed,
 	}
 	m.frames = exportPipeline{base: ExportContext{Mode: cfg.exportMode, Step: m.step, h: h}}
-	for _, mutate := range append(slices.Clip(cfg.exportMutators), cfg.exportIntro, cfg.exportOutro) {
+	for _, mutate := range append(slices.Clip(cfg.exportMutators), cfg.exportKeys, cfg.exportIntro, cfg.exportOutro) {
 		if mutate != nil {
 			m.frames.stages = append(m.frames.stages, mutatorStage{mutate: mutate})
 		}
@@ -190,7 +193,12 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 	return m, nil
 }
 
-func (m *exportManager) hook(event HookEvent, stage HookStage, _ any) error {
+func (m *exportManager) hook(event HookEvent, stage HookStage, metadata any) error {
+	if event == HookInput && stage == HookStageBefore && m.gifCh != nil {
+		if label := keyLabel(metadata); label != "" {
+			m.keys = append(m.keys, keyPress{at: time.Now(), label: label})
+		}
+	}
 	if stage != HookStageAfter || !exportCaptureEvent(event) || event == HookClose {
 		return nil
 	}
@@ -509,5 +517,5 @@ func encodeGIFFile(path string, rec export.FrameRecorder) error {
 
 func (h *Harness) copyImage() image.Image {
 	h.tb.Helper()
-	return copyRGBA(h.drawImage())
+	return copyNRGBA(h.drawImage())
 }
