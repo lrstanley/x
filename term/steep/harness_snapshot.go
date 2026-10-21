@@ -194,13 +194,6 @@ func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.E
 	}
 }
 
-func copyNRGBA(src image.Image) image.Image {
-	if src == nil {
-		return nil
-	}
-	return cloneNRGBA(src)
-}
-
 // cloneNRGBA returns an owned copy of src, which must not be nil, to draw on.
 // Frames stay NRGBA, the renderer's own format, from the renderer to the GIF
 // encoder: copying one is a plain byte copy, the encoder maps it to the GIF

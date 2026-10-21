@@ -48,15 +48,11 @@ type Harness struct {
 	// Its color interfaces stay when the NRGBA bytes are unchanged.
 	imageState    still.EmulatorState
 	imageStateSet bool
-	// cardRenderer draws card text (see [ExportContext.Card]) at cardFontSize.
-	// It is created on first use and replaced when the size changes.
-	cardRenderer *still.Renderer
-	cardFontSize still.Pt
-	imageMu      sync.Mutex
-	export       *exportManager
-	hooks        []Hook
-	logHook      *hookLog
-	readyHooked  bool
+	imageMu       sync.Mutex
+	export        *exportManager
+	hooks         []Hook
+	logHook       *hookLog
+	readyHooked   bool
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -191,11 +187,6 @@ func (h *Harness) Close() {
 
 	if err := h.imageRenderer.Close(); err != nil {
 		h.tb.Errorf("failed to close image renderer: %v", err)
-	}
-	if h.cardRenderer != nil {
-		if err := h.cardRenderer.Close(); err != nil {
-			h.tb.Errorf("failed to close card renderer: %v", err)
-		}
 	}
 }
 

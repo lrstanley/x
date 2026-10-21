@@ -68,24 +68,16 @@ type exportManager struct {
 	dir        string
 	baseName   string
 	exportOpts []export.Option
-	// step is one tick of the export FPS grid, the shortest a frame plays.
-	step time.Duration
-	// speed scales real elapsed time into playback time (2 plays twice as fast).
-	speed float64
 
 	gifCh   chan export.Frame
 	gifRec  export.FrameRecorder
 	gifPath string
 
-	// held is the most recent frame. It stays unsent until the next frame (or
-	// [exportManager.Finalize]) so its delay is how long it was actually
-	// visible, starting at held.At. A nil Image means none. held and frames
-	// are only used on the test goroutine.
-	held   ExportFrame
+	// frames turns captured frames into GIF frames; keys and cards belong to
+	// its built-in stages. All three are only used on the test goroutine.
 	frames exportPipeline
-	// keys are the keys the test pressed, oldest first, for
-	// [WithExportKeys]. Only recorded for GIFs, on the test goroutine.
-	keys []keyPress
+	keys   *keysOverlay
+	cards  cardRenderer
 
 	// mu guards the commit queue and the duplicate check. noteCommit runs on
 	// the program goroutine; flush and hook capture run on the test goroutine.
@@ -144,11 +136,19 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		dir:        dir,
 		baseName:   cfg.exportName,
 		exportOpts: exportOpts,
-		step:       time.Second / time.Duration(fps),
-		speed:      speed,
 	}
-	m.frames = exportPipeline{base: ExportContext{Mode: cfg.exportMode, Step: m.step, h: h}}
-	for _, mutate := range append(slices.Clip(cfg.exportMutators), cfg.exportKeys, cfg.exportIntro, cfg.exportOutro) {
+	m.cards.opts = cfg.imageRendererOpts
+	m.frames = exportPipeline{
+		base:  ExportContext{Mode: cfg.exportMode, Step: time.Second / time.Duration(fps), h: h, cards: &m.cards},
+		speed: speed,
+	}
+	mutators := slices.Clip(cfg.exportMutators)
+	gif := types.has(ExportTypeGIF) && cfg.exportMode != ExportOff
+	if gif && cfg.exportKeys > 0 {
+		m.keys = &keysOverlay{shown: cfg.exportKeys, speed: speed}
+		mutators = append(mutators, m.keys.mutate)
+	}
+	for _, mutate := range append(mutators, cfg.exportIntro, cfg.exportOutro) {
 		if mutate != nil {
 			m.frames.stages = append(m.frames.stages, mutatorStage{mutate: mutate})
 		}
@@ -158,7 +158,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		return nil, err
 	}
 
-	if types.has(ExportTypeGIF) && cfg.exportMode != ExportOff {
+	if gif {
 		m.gifCh = make(chan export.Frame, maxFrames)
 		switch cfg.exportMode { //nolint:exhaustive
 		case ExportOn:
@@ -194,10 +194,8 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 }
 
 func (m *exportManager) hook(event HookEvent, stage HookStage, metadata any) error {
-	if event == HookInput && stage == HookStageBefore && m.gifCh != nil {
-		if label := keyLabel(metadata); label != "" {
-			m.keys = append(m.keys, keyPress{at: time.Now(), label: label})
-		}
+	if m.keys != nil && event == HookInput && stage == HookStageBefore {
+		m.keys.press(metadata, time.Now())
 	}
 	if stage != HookStageAfter || !exportCaptureEvent(event) || event == HookClose {
 		return nil
@@ -338,23 +336,7 @@ func (m *exportManager) sendFrame(src frameSource, img image.Image, at time.Time
 	m.haveSent = true
 	m.sent = src.state
 	m.mu.Unlock()
-	m.emitHeld(at)
-	m.held = ExportFrame{Image: img, At: at, src: src}
-}
-
-// emitHeld sends the held frame, if any, into the mutator pipeline for the
-// real time between held.At and until, scaled by the playback speed. The floor
-// of one step keeps paints that land out of order from reaching mutators with
-// a negative delay.
-func (m *exportManager) emitHeld(until time.Time) {
-	f := m.held
-	if f.Image == nil {
-		return
-	}
-	m.held = ExportFrame{}
-	elapsed := time.Duration(float64(until.Sub(f.At)) / m.speed)
-	f.Delay = max(elapsed, m.step)
-	m.frames.push(0, f)
+	m.frames.record(img, at, src)
 }
 
 func sameCommit(a, b vt.Snapshot) bool {
@@ -408,9 +390,11 @@ func (m *exportManager) Finalize(failed bool) error {
 	m.gifCh = nil
 	m.mu.Unlock()
 	if ch != nil {
-		m.emitHeld(time.Now())
-		m.frames.finish(failed)
+		m.frames.finish(time.Now(), failed)
 		close(ch)
+	}
+	if err := m.cards.close(); err != nil {
+		return err
 	}
 	if m.gifRec != nil {
 		if err := m.gifRec.Close(); err != nil {
@@ -517,5 +501,5 @@ func encodeGIFFile(path string, rec export.FrameRecorder) error {
 
 func (h *Harness) copyImage() image.Image {
 	h.tb.Helper()
-	return copyNRGBA(h.drawImage())
+	return cloneNRGBA(h.drawImage())
 }

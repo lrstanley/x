@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/vt/screen"
 )
 
@@ -75,24 +76,50 @@ func keyLabel(metadata any) string {
 		}
 		return mods + key
 	case "type":
-		text := strings.NewReplacer("\n", "⏎", "\t", "⇥").Replace(meta.Text)
-		if r := []rune(text); len(r) > keysMaxText {
-			text = string(r[:keysMaxText-1]) + "…"
-		}
-		return text
+		return ansi.Truncate(typedGlyphs.Replace(meta.Text), keysMaxText, "…")
 	}
 	return ""
 }
 
-// keysOverlay is the mutator behind [WithExportKeys]. Cards (frames without
-// an At) pass through.
-func keysOverlay(d time.Duration) ExportMutator {
-	return func(ec ExportContext, f ExportFrame) []ExportFrame {
-		if f.At.IsZero() {
-			return []ExportFrame{f}
-		}
-		return newKeyTimeline(ec, f, d).frames(ec, f)
+// typedGlyphs labels the control characters in typed text like their keys.
+var typedGlyphs = strings.NewReplacer("\n", keyGlyphs["enter"], "\t", keyGlyphs["tab"])
+
+// keysOverlay is the stage behind [WithExportKeys]. A recording owns one: it
+// collects the keys the test presses and draws them on the frames they were
+// pressed during.
+type keysOverlay struct {
+	// shown is how long keys stay after the last press of a burst.
+	shown time.Duration
+	// speed scales real time into playback time, like the recording's.
+	speed   float64
+	presses []keyPress
+	// chips is the last chip row drawn and the labels and scale it shows,
+	// reused while a burst spans several frames.
+	chips      image.Image
+	chipsLabel string
+	chipsScale float64
+}
+
+// press records a key press from an input hook's metadata.
+func (k *keysOverlay) press(metadata any, at time.Time) {
+	if label := keyLabel(metadata); label != "" {
+		k.presses = append(k.presses, keyPress{at: at, label: label})
 	}
+}
+
+// mutate is the overlay's [ExportMutator]. Inserted frames without an At,
+// such as cards, pass through.
+func (k *keysOverlay) mutate(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
+	if f.At.IsZero() {
+		emit(f)
+		return
+	}
+	k.timeline(f, ec.Step).frames(ec, k, f, emit)
+}
+
+// playback converts real time since a frame's paint into playback time.
+func (k *keysOverlay) playback(d time.Duration) time.Duration {
+	return time.Duration(float64(d) / k.speed)
 }
 
 // keyTimeline places the keys pressed before a frame ends on that frame's
@@ -101,34 +128,30 @@ func keysOverlay(d time.Duration) ExportMutator {
 type keyTimeline struct {
 	at     []time.Duration
 	labels []string
-	// shown is how long keys stay after the last press of a burst, and hold
-	// how much of that they stay opaque before fading.
-	shown, hold time.Duration
-	step        time.Duration
+	// shown is how long keys stay after the last press of a burst. They stay
+	// opaque for the first two thirds, then fade.
+	shown time.Duration
+	step  time.Duration
 }
 
-func newKeyTimeline(ec ExportContext, f ExportFrame, d time.Duration) keyTimeline {
-	m := ec.h.export
-	t := keyTimeline{shown: d, hold: d * 2 / 3, step: ec.Step}
-	for _, k := range m.keys {
-		at := t.snap(time.Duration(float64(k.at.Sub(f.At)) / m.speed))
+func (k *keysOverlay) timeline(f ExportFrame, step time.Duration) keyTimeline {
+	t := keyTimeline{shown: k.shown, step: step}
+	for _, p := range k.presses {
+		at := k.playback(p.at.Sub(f.At)).Round(step)
 		if at >= f.Delay {
 			break
 		}
 		t.at = append(t.at, at)
-		t.labels = append(t.labels, k.label)
+		t.labels = append(t.labels, p.label)
 	}
 	return t
-}
-
-func (t keyTimeline) snap(d time.Duration) time.Duration {
-	return d.Round(t.step)
 }
 
 // fade is when the key pressed at at starts fade level (see [keyState]), on
 // the step grid. Level keysFadeLevels+1 is when it disappears.
 func (t keyTimeline) fade(at time.Duration, level int) time.Duration {
-	return t.snap(at + t.hold + (t.shown-t.hold)*time.Duration(level-1)/keysFadeLevels)
+	hold := t.shown * 2 / 3
+	return (at + hold + (t.shown-hold)*time.Duration(level-1)/keysFadeLevels).Round(t.step)
 }
 
 // keyState is what the overlay shows at one moment: keys first through last,
@@ -164,8 +187,9 @@ func (t keyTimeline) state(p time.Duration) keyState {
 	return keyState{first: first, last: last, level: level}
 }
 
-// frames splits f wherever the overlay changes and draws it on each piece.
-func (t keyTimeline) frames(ec ExportContext, f ExportFrame) []ExportFrame {
+// frames splits f wherever the overlay changes and emits each piece with the
+// overlay drawn on it.
+func (t keyTimeline) frames(ec ExportContext, k *keysOverlay, f ExportFrame, emit func(ExportFrame)) {
 	cuts := []time.Duration{0}
 	for _, at := range t.at {
 		cuts = append(cuts, at)
@@ -182,7 +206,6 @@ func (t keyTimeline) frames(ec ExportContext, f ExportFrame) []ExportFrame {
 
 	var out []ExportFrame
 	var prev keyState
-	chips := map[[2]int]image.Image{}
 	for i, start := range cuts {
 		end := f.Delay
 		if i+1 < len(cuts) {
@@ -195,18 +218,26 @@ func (t keyTimeline) frames(ec ExportContext, f ExportFrame) []ExportFrame {
 		}
 		prev = st
 		piece := f
-		piece.At = f.At.Add(time.Duration(float64(start) * ec.h.export.speed))
+		piece.At = f.At.Add(time.Duration(float64(start) * k.speed))
 		piece.Delay = end - start
 		if st != noKeys {
-			key := [2]int{st.first, st.last}
-			if chips[key] == nil {
-				chips[key] = ec.keyChips(t.labels[st.first : st.last+1])
-			}
-			piece.Image = overlayKeys(f.Image, chips[key], st.level)
+			piece.Image = overlayKeys(f.Image, k.chipRow(ec, t.labels[st.first:st.last+1]), st.level)
 		}
 		out = append(out, piece)
 	}
-	return out
+	for _, piece := range out {
+		emit(piece)
+	}
+}
+
+// chipRow returns the chips for labels, drawing them only when they differ
+// from the last row drawn.
+func (k *keysOverlay) chipRow(ec ExportContext, labels []string) image.Image {
+	joined, scale := strings.Join(labels, "\x00"), ec.cardScale()
+	if k.chips == nil || joined != k.chipsLabel || scale != k.chipsScale {
+		k.chips, k.chipsLabel, k.chipsScale = ec.keyChips(labels), joined, scale
+	}
+	return k.chips
 }
 
 // keyChips renders labels as a row of chips, repeats merged and only the

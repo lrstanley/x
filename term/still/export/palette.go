@@ -150,9 +150,10 @@ var (
 	})
 )
 
-// palettizeInto maps src onto dst's palette. NRGBA and RGBA sources, which
-// is every frame still renders, use defaultGIFLUT; anything else falls back
-// to draw.Draw's much slower per-pixel palette search.
+// palettizeInto maps src onto dst's palette. NRGBA sources (what still
+// renders) and RGBA sources (what image/draw callers usually produce) use
+// defaultGIFLUT; anything else falls back to draw.Draw's per-pixel palette
+// search, which is hundreds of times slower.
 func palettizeInto(dst *image.Paletted, src image.Image) {
 	switch src := src.(type) {
 	case *image.NRGBA:
@@ -162,11 +163,6 @@ func palettizeInto(dst *image.Paletted, src image.Image) {
 	default:
 		draw.Draw(dst, src.Bounds(), src, src.Bounds().Min, draw.Src)
 	}
-}
-
-// palettizeNRGBA is palettizeInto for an NRGBA source.
-func palettizeNRGBA(dst *image.Paletted, src *image.NRGBA) {
-	palettizePixels(dst, rgbaPixels{pix: src.Pix, stride: src.Stride, rect: src.Rect})
 }
 
 // palettizePixels maps src through defaultGIFLUT, splitting large frames

@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"image"
 	"image/color"
-	"image/draw"
 	"image/gif"
 	"os"
 	"testing"
@@ -1111,12 +1110,10 @@ func TestPalettizeRGBAMatchesNRGBA(t *testing.T) {
 			src.SetNRGBA(x, y, color.NRGBA{R: uint8(x * 4), G: 0x80, B: uint8(255 - x*4), A: a}) //nolint:gosec // bounded.
 		}
 	}
-	rgba := image.NewRGBA(src.Bounds())
-	draw.Draw(rgba, rgba.Bounds(), src, image.Point{}, draw.Src)
+	rgba := toRGBA(src)
 	// Premultiplying loses precision at low alpha, so compare against the
 	// NRGBA image the RGBA one converts back to.
-	back := image.NewNRGBA(src.Bounds())
-	draw.Draw(back, back.Bounds(), rgba, image.Point{}, draw.Src)
+	back := toNRGBA(rgba)
 
 	pal := defaultGIFPalette()
 	want := palettize(back, pal)

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/gif"
 	"io"
 	"os"
@@ -166,6 +167,14 @@ func toNRGBA(img image.Image) *image.NRGBA {
 			dst.Set(x, y, img.At(x, y))
 		}
 	}
+	return dst
+}
+
+// toRGBA converts img to a premultiplied *image.RGBA.
+func toRGBA(img image.Image) *image.RGBA {
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, img, b.Min, draw.Src)
 	return dst
 }
 

@@ -10,16 +10,9 @@ import (
 	"testing"
 )
 
-// quietTB swallows non-fatal failures so failureTB can be tested without
-// failing the test.
-type quietTB struct{ testing.TB }
-
-func (quietTB) Error(...any)          {}
-func (quietTB) Errorf(string, ...any) {}
-
 func TestFailureTBRecords(t *testing.T) {
 	t.Parallel()
-	f := &failureTB{TB: quietTB{t}}
+	f := &failureTB{TB: &softTB{TB: t}}
 	f.Error("want", 3, "rows")
 	f.Errorf("timeout after %s", "2s")
 	want := []string{"want 3 rows", "timeout after 2s"}

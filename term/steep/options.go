@@ -82,7 +82,7 @@ type options struct {
 	exportName     string
 	exportOpts     []export.Option
 	exportMutators []ExportMutator
-	exportKeys     ExportMutator
+	exportKeys     time.Duration
 	exportIntro    ExportMutator
 	exportOutro    ExportMutator
 	hooks          []Hook
@@ -364,7 +364,7 @@ func WithExportName(name string) Option {
 // that order, so overlays never cover the keys or the cards.
 //
 // Mutators run in order, and each sees the frames the ones before it
-// returned. A later mutator draws on top of an earlier one and sees any cards
+// emitted. A later mutator draws on top of an earlier one and sees any cards
 // it inserted, so list overlays that should not cover a card before it.
 //
 // Inserted frames count toward the GIF frame cap (STEEP_EXPORT_MAX_FRAMES),
@@ -390,10 +390,7 @@ func WithExportMutators(mutators ...ExportMutator) Option {
 // burst of keys toward the frame cap (see [WithExportMutators]).
 func WithExportKeys(d time.Duration) Option {
 	return func(cfg *options) {
-		cfg.exportKeys = nil
-		if d > 0 {
-			cfg.exportKeys = keysOverlay(d)
-		}
+		cfg.exportKeys = d
 	}
 }
 
@@ -401,9 +398,9 @@ func WithExportKeys(d time.Duration) Option {
 // recording. With lines, the card shows them (see [ExportContext.Card]). With
 // none, it is an animated steep logo: a teacup and wordmark fill with tea, then
 // steam rises for d while the test name appears. Terminals too small for the
-// logo get "steep" and the test name as text instead. The logo adds eight
-// frames plus one for every 150ms of d, and they count toward the frame cap
-// (see [WithExportMutators]). A d of zero or less removes the intro.
+// logo get "steep" and the test name as text instead. The animation's frames
+// count toward the frame cap (see [WithExportMutators]). A d of zero or less
+// removes the intro.
 func WithExportIntro(d time.Duration, lines ...CardLine) Option {
 	return func(cfg *options) {
 		cfg.exportIntro = nil

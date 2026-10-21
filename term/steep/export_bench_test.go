@@ -117,6 +117,7 @@ func BenchmarkExportRecording(b *testing.B) {
 		{"themed/240x72", themed, benchmarkSizes[1], nil},
 		{"themed-cards/80x24", themed, benchmarkSizes[0], []Option{WithExportIntro(1500 * time.Millisecond), WithExportOutro(1500 * time.Millisecond)}},
 		{"themed-keys/80x24", themed, benchmarkSizes[0], []Option{WithExportKeys(1500 * time.Millisecond)}},
+		{"themed-cards/240x72", themed, benchmarkSizes[1], []Option{WithExportIntro(1500 * time.Millisecond), WithExportOutro(1500 * time.Millisecond)}},
 	}
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {

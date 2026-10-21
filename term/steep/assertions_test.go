@@ -80,6 +80,10 @@ func (s *softTB) Errorf(_ string, _ ...any) {
 	s.nErrors++
 }
 
+func (s *softTB) Error(...any) {
+	s.nErrors++
+}
+
 type fatalSentinelType struct{}
 
 var fatalSentinel = fatalSentinelType{}

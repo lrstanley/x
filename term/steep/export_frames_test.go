@@ -30,33 +30,53 @@ func imageLabel(img image.Image) uint8 {
 	return uint8(r >> 8)
 }
 
+// recordFrames is an [ExportMutator] that appends every frame it sees to
+// frames and passes it on.
+func recordFrames(frames *[]ExportFrame) ExportMutator {
+	return func(_ ExportContext, f ExportFrame, emit func(ExportFrame)) {
+		*frames = append(*frames, f)
+		emit(f)
+	}
+}
+
+// gifOptions record a GIF of a small terminal into a temporary directory,
+// ignoring the environment, followed by opts.
+func gifOptions(t *testing.T, opts ...Option) []Option {
+	t.Helper()
+	return append([]Option{
+		WithWindowSize(20, 4),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(t.TempDir()),
+		WithIgnoreEnv(true),
+	}, opts...)
+}
+
 func TestExportPipeline(t *testing.T) {
 	t.Parallel()
 
 	// trace records the position flags each call saw, then passes frames on.
 	trace := func(log *[]string) ExportMutator {
-		return func(ec ExportContext, f ExportFrame) []ExportFrame {
+		return func(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
 			*log = append(*log, fmt.Sprintf("%d:%t:%t:%t", imageLabel(f.Image), ec.First, ec.Last, ec.Failed))
-			return []ExportFrame{f}
+			emit(f)
 		}
 	}
 	insert := func(label uint8, first bool) ExportMutator {
-		return func(ec ExportContext, f ExportFrame) []ExportFrame {
+		return func(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
 			card := ExportFrame{Image: labelImage(label)}
-			switch {
-			case first && ec.First:
-				return []ExportFrame{card, f}
-			case !first && ec.Last:
-				return []ExportFrame{f, card}
+			if first && ec.First {
+				emit(card)
 			}
-			return []ExportFrame{f}
+			emit(f)
+			if !first && ec.Last {
+				emit(card)
+			}
 		}
 	}
-	keepFirst := func(ec ExportContext, f ExportFrame) []ExportFrame {
+	keepFirst := func(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
 		if ec.First {
-			return []ExportFrame{f}
+			emit(f)
 		}
-		return nil
 	}
 
 	cases := []struct {
@@ -125,9 +145,9 @@ func TestExportPipeline(t *testing.T) {
 				p.stages = append(p.stages, mutatorStage{mutate: mutate})
 			}
 			for i := range tc.frames {
-				p.push(0, ExportFrame{Image: labelImage(uint8(i + 1)), Delay: time.Second})
+				p.push(0, sourcedFrame{ExportFrame: ExportFrame{Image: labelImage(uint8(i + 1)), Delay: time.Second}})
 			}
-			p.finish(true)
+			p.finish(time.Now(), true)
 			close(ch)
 
 			var out []uint8
@@ -153,22 +173,18 @@ func TestExportCardsMatchRecording(t *testing.T) {
 	t.Parallel()
 	var intro, outro image.Image
 	var outroFailed bool
-	capture := func(ec ExportContext, f ExportFrame) []ExportFrame {
+	capture := func(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
 		switch {
 		case ec.First:
 			intro = f.Image
 		case ec.Last:
 			outro, outroFailed = f.Image, ec.Failed
 		}
-		return []ExportFrame{f}
+		emit(f)
 	}
-	h := NewHarness(t, rootTestModel{},
-		WithWindowSize(20, 4),
-		WithExport(ExportOn, ExportTypeGIF),
-		WithExportDir(t.TempDir()),
+	h := NewHarness(t, rootTestModel{}, gifOptions(t,
 		WithExportMutators(introCard(time.Second), outroCard(time.Second), capture),
-		WithIgnoreEnv(true),
-	)
+	)...)
 	h.Type("abc")
 	want := h.Image().Bounds()
 	g := finishGIF(t, h, true)
@@ -212,25 +228,17 @@ func (m backgroundModel) View() tea.View {
 
 func TestExportCardsIgnoreProgramColors(t *testing.T) {
 	t.Parallel()
-	var frames []image.Image
-	capture := func(_ ExportContext, f ExportFrame) []ExportFrame {
-		frames = append(frames, f.Image)
-		return []ExportFrame{f}
-	}
-	h := NewHarness(t, backgroundModel{},
-		WithWindowSize(20, 4),
-		WithExport(ExportOn, ExportTypeGIF),
-		WithExportDir(t.TempDir()),
-		WithExportMutators(introCard(time.Second), outroCard(time.Second), capture),
-		WithIgnoreEnv(true),
-	)
+	var frames []ExportFrame
+	h := NewHarness(t, backgroundModel{}, gifOptions(t,
+		WithExportMutators(introCard(time.Second), outroCard(time.Second), recordFrames(&frames)),
+	)...)
 	h.Type("abc")
 	finishGIF(t, h, false)
 
 	if len(frames) < 3 {
 		t.Fatalf("frames = %d, want an intro, the recording, and an outro", len(frames))
 	}
-	intro, program, outro := frames[0], frames[len(frames)-2], frames[len(frames)-1]
+	intro, program, outro := frames[0].Image, frames[len(frames)-2].Image, frames[len(frames)-1].Image
 	// A point in the left padding, clear of any text.
 	x, y := 2, intro.Bounds().Dy()/2
 	if intro.At(x, y) != outro.At(x, y) {
@@ -243,22 +251,15 @@ func TestExportCardsIgnoreProgramColors(t *testing.T) {
 
 func TestExportIntroLogo(t *testing.T) {
 	t.Parallel()
-	var intro []ExportFrame
-	capture := func(_ ExportContext, f ExportFrame) []ExportFrame {
-		if f.At.IsZero() {
-			intro = append(intro, f)
-		}
-		return []ExportFrame{f}
-	}
-	h := NewHarness(t, rootTestModel{},
-		WithExport(ExportOn, ExportTypeGIF),
-		WithExportDir(t.TempDir()),
-		WithExportMutators(introCard(1500*time.Millisecond), capture),
-		WithIgnoreEnv(true),
-	)
+	var frames []ExportFrame
+	h := NewHarness(t, rootTestModel{}, gifOptions(t,
+		WithWindowSize(DefaultTermWidth, DefaultTermHeight),
+		WithExportMutators(introCard(1500*time.Millisecond), recordFrames(&frames)),
+	)...)
 	h.Type("abc")
 	want := h.Image().Bounds()
 	finishGIF(t, h, false)
+	intro := slices.DeleteFunc(frames, func(f ExportFrame) bool { return !f.At.IsZero() })
 
 	// An empty hold, one frame per pixel row of fill, then ten steps of steam.
 	if got := len(intro); got != 1+len(logoBitmap)+10 {
@@ -279,22 +280,18 @@ func TestExportIntroLogo(t *testing.T) {
 func TestExportCardsAfterMutators(t *testing.T) {
 	t.Parallel()
 	var seen int
-	overlay := func(_ ExportContext, f ExportFrame) []ExportFrame {
+	overlay := func(_ ExportContext, f ExportFrame, emit func(ExportFrame)) {
 		if f.At.IsZero() {
 			t.Error("mutator saw a card; cards should be added after every mutator")
 		}
 		seen++
-		return []ExportFrame{f}
+		emit(f)
 	}
-	h := NewHarness(t, rootTestModel{},
-		WithWindowSize(20, 4),
-		WithExport(ExportOn, ExportTypeGIF),
-		WithExportDir(t.TempDir()),
+	h := NewHarness(t, rootTestModel{}, gifOptions(t,
 		WithExportIntro(time.Second),
 		WithExportOutro(time.Second),
 		WithExportMutators(overlay),
-		WithIgnoreEnv(true),
-	)
+	)...)
 	h.Type("abc")
 	g := finishGIF(t, h, false)
 	if len(g.Image) != seen+2 {
@@ -323,19 +320,11 @@ func TestExportCardScale(t *testing.T) {
 
 func TestExportFramesKeepTranslucency(t *testing.T) {
 	t.Parallel()
-	var frames []image.Image
-	capture := func(_ ExportContext, f ExportFrame) []ExportFrame {
-		frames = append(frames, f.Image)
-		return []ExportFrame{f}
-	}
-	h := NewHarness(t, rootTestModel{},
-		WithWindowSize(20, 4),
+	var frames []ExportFrame
+	h := NewHarness(t, rootTestModel{}, gifOptions(t,
 		WithRenderer(still.WithBackgroundOpacity(0.6)),
-		WithExport(ExportOn, ExportTypeGIF),
-		WithExportDir(t.TempDir()),
-		WithExportMutators(capture),
-		WithIgnoreEnv(true),
-	)
+		WithExportMutators(recordFrames(&frames)),
+	)...)
 	h.Type("abc").Wait("text=abc")
 	want, ok := h.Image().(*image.NRGBA)
 	if !ok {
@@ -344,9 +333,10 @@ func TestExportFramesKeepTranslucency(t *testing.T) {
 	want = cloneNRGBA(want)
 	finishGIF(t, h, false)
 
-	got, ok := frames[len(frames)-1].(*image.NRGBA)
+	last := frames[len(frames)-1].Image
+	got, ok := last.(*image.NRGBA)
 	if !ok {
-		t.Fatalf("recorded frame is %T, want *image.NRGBA", frames[len(frames)-1])
+		t.Fatalf("recorded frame is %T, want *image.NRGBA", last)
 	}
 	if a := got.NRGBAAt(2, got.Bounds().Dy()/2).A; a == 0xff || a == 0 {
 		t.Errorf("background alpha = %d, want the translucent renderer background", a)

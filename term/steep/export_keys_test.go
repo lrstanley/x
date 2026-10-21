@@ -6,6 +6,7 @@ package steep
 
 import (
 	"image"
+	"slices"
 	"testing"
 	"time"
 )
@@ -40,7 +41,7 @@ func TestKeyTimelineState(t *testing.T) {
 	// levels on the 50ms grid at 1000, 1150 (1166 snapped), and 1350 (1333).
 	tl := keyTimeline{
 		at:    []time.Duration{0, 100 * ms, 3000 * ms},
-		shown: 1500 * ms, hold: 1000 * ms, step: 50 * ms,
+		shown: 1500 * ms, step: 50 * ms,
 	}
 	for _, tc := range []struct {
 		p    time.Duration
@@ -64,25 +65,28 @@ func TestKeyTimelineState(t *testing.T) {
 
 func TestExportKeysOverlay(t *testing.T) {
 	t.Parallel()
-	const shown = 300 * time.Millisecond
+	// The overlay runs between two recorders, fed by a hook, so the frames on
+	// each side of it can be compared.
+	keys := &keysOverlay{shown: 300 * time.Millisecond, speed: 1}
 	var in, out []ExportFrame
-	capture := func(frames *[]ExportFrame) ExportMutator {
-		return func(_ ExportContext, f ExportFrame) []ExportFrame {
-			*frames = append(*frames, f)
-			return []ExportFrame{f}
-		}
-	}
-	h := NewHarness(t, rootTestModel{},
-		WithExport(ExportOn, ExportTypeGIF),
-		WithExportDir(t.TempDir()),
-		WithExportMutators(capture(&in), keysOverlay(shown), capture(&out)),
-		WithIgnoreEnv(true),
-	)
+	h := NewHarness(t, rootTestModel{}, gifOptions(t,
+		WithWindowSize(80, 24),
+		WithExportMutators(recordFrames(&in), keys.mutate, recordFrames(&out)),
+		WithHooks(func(event HookEvent, stage HookStage, metadata any) error {
+			if event == HookInput && stage == HookStageBefore {
+				keys.press(metadata, time.Now())
+			}
+			return nil
+		}),
+	)...)
 	h.Type("abc")
 	h.Key("enter")
-	time.Sleep(2 * shown)
+	time.Sleep(2 * keys.shown)
 	finishGIF(t, h, false)
 
+	isInput := func(img image.Image) bool {
+		return slices.ContainsFunc(in, func(f ExportFrame) bool { return f.Image == img })
+	}
 	var inTotal, outTotal time.Duration
 	for _, f := range in {
 		inTotal += f.Delay
@@ -90,7 +94,7 @@ func TestExportKeysOverlay(t *testing.T) {
 	shownFrames := 0
 	for _, f := range out {
 		outTotal += f.Delay
-		if !isInput(in, f.Image) {
+		if !isInput(f.Image) {
 			shownFrames++
 			if f.Image.Bounds() != in[0].Image.Bounds() {
 				t.Errorf("overlay bounds = %v, want %v", f.Image.Bounds(), in[0].Image.Bounds())
@@ -108,12 +112,16 @@ func TestExportKeysOverlay(t *testing.T) {
 	}
 }
 
-// isInput reports whether img is one of the frames' own images, not a copy.
-func isInput(frames []ExportFrame, img image.Image) bool {
-	for _, f := range frames {
-		if f.Image == img {
-			return true
+func TestExportKeysOnlyWhenEnabled(t *testing.T) {
+	t.Parallel()
+	for _, keys := range []time.Duration{0, time.Second} {
+		h := NewHarness(t, rootTestModel{}, gifOptions(t, WithExportKeys(keys))...)
+		h.Type("ab")
+		if got := h.export.keys != nil; got != (keys > 0) {
+			t.Errorf("WithExportKeys(%v): overlay = %v, want %v", keys, got, keys > 0)
+		}
+		if keys > 0 && len(h.export.keys.presses) != 1 {
+			t.Errorf("recorded presses = %d, want 1", len(h.export.keys.presses))
 		}
 	}
-	return false
 }

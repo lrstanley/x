@@ -10,7 +10,6 @@ import (
 
 	"github.com/lrstanley/x/term/still/export"
 	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
 )
 
 // ExportFrame is one recorded frame on its way to the GIF encoder.
@@ -28,15 +27,10 @@ type ExportFrame struct {
 	// The encoder snaps it to the [WithExportFPS] grid, and anything shorter
 	// than one step plays for one step.
 	Delay time.Duration
-
-	// src is the terminal the frame was drawn from. Frames a mutator returns
-	// without one inherit it from the frame they replaced.
-	src frameSource
 }
 
 // frameSource is the terminal state a frame was drawn from, so a card drawn
-// beside it matches its size and window chrome. The zero value means
-// unset; a terminal always has at least one column.
+// beside it matches its size and window chrome.
 type frameSource struct {
 	cols, rows int
 	state      vt.Snapshot
@@ -61,39 +55,76 @@ type ExportContext struct {
 	// Step.
 	Step time.Duration
 
-	h   *Harness
-	src frameSource
+	h     *Harness
+	cards *cardRenderer
+	src   frameSource
 }
 
 // ExportMutator changes the frames of a GIF recording between the terminal
-// and the encoder. It receives one frame and returns the frames to record in
-// its place: the frame unchanged to keep it, none to drop it, a modified copy
-// to overlay or retime it, or several to insert cards or expand it.
+// and the encoder. It receives one frame and emits the frames to record in
+// its place, in order: the frame unchanged to keep it, nothing to drop it, a
+// modified copy to overlay or retime it, or several to insert cards or expand
+// it. Each emitted frame moves on as soon as it is emitted, so a mutator that
+// inserts many need not hold them all. Frames without an Image are dropped.
 //
 // Mutators run on the test goroutine. One built for an option shared by
 // parallel tests must not keep per-recording state; use
 // [ExportContext.First] and [ExportContext.Last] instead.
 //
 // See [WithExportMutators].
-type ExportMutator func(ec ExportContext, frame ExportFrame) []ExportFrame
+type ExportMutator func(ec ExportContext, frame ExportFrame, emit func(ExportFrame))
 
-// exportPipeline runs frames through the [ExportMutator] chain into out. Each
-// stage holds back one frame, so it can tell its mutator which frame is last
-// once the stages before it have finished. It runs on the test goroutine.
+// exportPipeline runs recorded frames through the [ExportMutator] chain into
+// out. It holds back the newest recorded frame until the next one (or
+// finish) says how long it was on screen, and each stage holds back one frame
+// so it can tell its mutator which frame is last once the stages before it
+// have finished. It runs on the test goroutine.
 type exportPipeline struct {
 	// base holds the fields of every [ExportContext] that do not depend on
 	// the frame.
-	base   ExportContext
+	base ExportContext
+	// speed scales real elapsed time into playback time (2 plays twice as
+	// fast).
+	speed  float64
+	newest sourcedFrame
 	stages []mutatorStage
 	out    chan<- export.Frame
 }
 
+// sourcedFrame is a frame with the terminal it was drawn from. Frames a
+// mutator emits take the source of the frame it was given. A nil Image
+// means none: the pipeline drops frames without one.
+type sourcedFrame struct {
+	ExportFrame
+	src frameSource
+}
+
 type mutatorStage struct {
 	mutate ExportMutator
-	// held is the frame waiting to learn whether it is last. A nil Image
-	// means none; frames without one are dropped on entry.
-	held    ExportFrame
+	// held is the frame waiting to learn whether it is last.
+	held    sourcedFrame
 	started bool
+}
+
+// record makes img, painted at at, the newest frame, and sends the previous
+// one into the chain with the time it was on screen.
+func (p *exportPipeline) record(img image.Image, at time.Time, src frameSource) {
+	p.release(at)
+	p.newest = sourcedFrame{ExportFrame{Image: img, At: at}, src}
+}
+
+// release sends the newest frame into the chain, playing for the real time
+// between its paint and until, scaled by the playback speed. The floor of one
+// step keeps paints that land out of order from reaching mutators with a
+// negative delay.
+func (p *exportPipeline) release(until time.Time) {
+	f := p.newest
+	if f.Image == nil {
+		return
+	}
+	p.newest = sourcedFrame{}
+	f.Delay = max(time.Duration(float64(until.Sub(f.At))/p.speed), p.base.Step)
+	p.push(0, f)
 }
 
 // push hands f to stage i, or to the encoder past the last stage. The encoder
@@ -101,7 +132,7 @@ type mutatorStage struct {
 // including ones a mutator inserted without a delay, plays for at least one
 // step. That also keeps each distinct screen visible when several paints land
 // within one tick.
-func (p *exportPipeline) push(i int, f ExportFrame) {
+func (p *exportPipeline) push(i int, f sourcedFrame) {
 	if f.Image == nil {
 		return
 	}
@@ -116,65 +147,26 @@ func (p *exportPipeline) push(i int, f ExportFrame) {
 	s.held = f
 }
 
-// finish runs each stage's held frame as its last, in order, so every stage
-// has received all of its input before its own last frame is decided.
-func (p *exportPipeline) finish(failed bool) {
+// finish ends the newest frame at now, then runs each stage's held frame as
+// its last, in order, so every stage has received all of its input before its
+// own last frame is decided.
+func (p *exportPipeline) finish(now time.Time, failed bool) {
+	p.release(now)
 	for i := range p.stages {
 		s := &p.stages[i]
 		if f := s.held; f.Image != nil {
-			s.held = ExportFrame{}
+			s.held = sourcedFrame{}
 			p.run(i, f, true, failed)
 		}
 	}
 }
 
-func (p *exportPipeline) run(i int, f ExportFrame, last, failed bool) {
+func (p *exportPipeline) run(i int, f sourcedFrame, last, failed bool) {
 	s := &p.stages[i]
 	ec := p.base
 	ec.First, ec.Last, ec.Failed, ec.src = !s.started, last, failed, f.src
 	s.started = true
-	for _, out := range s.mutate(ec, f) {
-		if out.src.cols == 0 {
-			out.src = f.src
-		}
-		p.push(i+1, out)
-	}
-}
-
-// introCard is the mutator behind [WithExportIntro].
-func introCard(d time.Duration, lines ...CardLine) ExportMutator {
-	return func(ec ExportContext, f ExportFrame) []ExportFrame {
-		if !ec.First {
-			return []ExportFrame{f}
-		}
-		if len(lines) == 0 {
-			if logo := ec.steepLogo(d); logo != nil {
-				return append(logo, f)
-			}
-		}
-		card := lines
-		if len(card) == 0 {
-			card = ec.titleLines(CardLine{Text: "steep", Style: screen.Style{Attrs: screen.AttrBold}})
-		}
-		return []ExportFrame{{Image: ec.Card(card...), Delay: d}, f}
-	}
-}
-
-// outroCard is the mutator behind [WithExportOutro].
-func outroCard(d time.Duration, lines ...CardLine) ExportMutator {
-	return func(ec ExportContext, f ExportFrame) []ExportFrame {
-		if !ec.Last {
-			return []ExportFrame{f}
-		}
-		card := lines
-		switch {
-		case len(card) > 0:
-		case ec.Failed:
-			card = ec.titleLines(CardLine{Text: "FAIL", Style: screen.Style{Fg: screen.Indexed(1), Attrs: screen.AttrBold}})
-			card = append(card, ec.failureLines()...)
-		default:
-			card = ec.titleLines(CardLine{Text: "PASS", Style: screen.Style{Fg: screen.Indexed(2), Attrs: screen.AttrBold}})
-		}
-		return []ExportFrame{f, {Image: ec.Card(card...), Delay: d}}
-	}
+	s.mutate(ec, f.ExportFrame, func(out ExportFrame) {
+		p.push(i+1, sourcedFrame{out, f.src})
+	})
 }

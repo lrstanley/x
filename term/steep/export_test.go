@@ -119,7 +119,7 @@ func TestExportGIFDelaysFollowRealTimeOnFPSGrid(t *testing.T) {
 	}
 }
 
-func TestExportEmitHeldDelay(t *testing.T) {
+func TestExportPipelineDelay(t *testing.T) {
 	t.Parallel()
 	start := time.Now()
 	cases := []struct {
@@ -138,16 +138,9 @@ func TestExportEmitHeldDelay(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ch := make(chan export.Frame, 1)
-			m := &exportManager{
-				step:   50 * time.Millisecond,
-				speed:  tc.speed,
-				held:   ExportFrame{Image: labelImage(0), At: start},
-				frames: exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, out: ch},
-			}
-			m.emitHeld(start.Add(tc.elapsed))
-			if m.held.Image != nil {
-				t.Fatal("held frame should be cleared after emit")
-			}
+			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, speed: tc.speed, out: ch}
+			p.record(labelImage(0), start, frameSource{})
+			p.finish(start.Add(tc.elapsed), false)
 			if got := (<-ch).Delay; got != tc.want {
 				t.Fatalf("delay = %v, want %v", got, tc.want)
 			}

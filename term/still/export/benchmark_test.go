@@ -158,11 +158,10 @@ func BenchmarkPalettizeLUT(b *testing.B) {
 	src := terminalBenchmarkFrame(0)
 	pal := defaultGIFPalette()
 	dst := image.NewPaletted(src.Bounds(), pal)
-	initDefaultGIFLUT()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		palettizeNRGBA(dst, src)
+		palettizeInto(dst, src)
 	}
 }
 
@@ -176,11 +175,6 @@ func benchmarkSources() []struct {
 	translucent := terminalBenchmarkFrame(0)
 	for i := 3; i < len(translucent.Pix); i += 4 {
 		translucent.Pix[i] = 0x99
-	}
-	toRGBA := func(src *image.NRGBA) *image.RGBA {
-		dst := image.NewRGBA(src.Bounds())
-		draw.Draw(dst, dst.Bounds(), src, image.Point{}, draw.Src)
-		return dst
 	}
 	return []struct {
 		name string

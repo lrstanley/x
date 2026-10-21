@@ -24,7 +24,7 @@ type failureTB struct {
 
 func (f *failureTB) Error(args ...any) {
 	f.TB.Helper()
-	f.record(strings.TrimSuffix(fmt.Sprintln(args...), "\n"))
+	f.record(sprintln(args...))
 	f.TB.Error(args...)
 }
 
@@ -36,7 +36,7 @@ func (f *failureTB) Errorf(format string, args ...any) {
 
 func (f *failureTB) Fatal(args ...any) {
 	f.TB.Helper()
-	f.record(strings.TrimSuffix(fmt.Sprintln(args...), "\n"))
+	f.record(sprintln(args...))
 	f.TB.Fatal(args...)
 }
 
@@ -44,6 +44,11 @@ func (f *failureTB) Fatalf(format string, args ...any) {
 	f.TB.Helper()
 	f.record(fmt.Sprintf(format, args...))
 	f.TB.Fatalf(format, args...)
+}
+
+// sprintln formats args like [testing.TB.Error] does.
+func sprintln(args ...any) string {
+	return strings.TrimSuffix(fmt.Sprintln(args...), "\n")
 }
 
 func (f *failureTB) record(msg string) {

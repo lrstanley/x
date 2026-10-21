@@ -43,37 +43,33 @@ var logoSteamX = []int{2, 5, 8}
 
 // logoTea is the tea gradient, top pixel row to bottom. The colors are on the
 // xterm-256 cube, so the default GIF palette keeps them exact.
-var logoTea = []color.RGBA{
-	{255, 255, 175, 255}, // 229
-	{255, 255, 135, 255}, // 228
-	{255, 215, 95, 255},  // 221
-	{255, 215, 0, 255},   // 220
-	{255, 175, 0, 255},   // 214
-	{255, 135, 0, 255},   // 208
-	{255, 95, 0, 255},    // 202
+var logoTea = []color.Color{
+	screen.Indexed(229), screen.Indexed(228), screen.Indexed(221), screen.Indexed(220),
+	screen.Indexed(214), screen.Indexed(208), screen.Indexed(202),
 }
 
 var (
-	// logoEmpty colors pixel rows the tea has not reached yet (xterm 237).
-	logoEmpty = color.RGBA{58, 58, 58, 255}
-	// logoSteam fades from the bottom of a wisp to its top (xterm 245 to 236).
-	logoSteam = []color.RGBA{{138, 138, 138, 255}, {108, 108, 108, 255}, {78, 78, 78, 255}, {48, 48, 48, 255}}
+	// logoEmpty colors pixel rows the tea has not reached yet.
+	logoEmpty = screen.Indexed(237)
+	// logoSteam fades from the bottom of a wisp to its top.
+	logoSteam = []color.Color{screen.Indexed(245), screen.Indexed(242), screen.Indexed(239), screen.Indexed(236)}
 	// logoSway is the sideways drift of a wisp, in half logo pixels.
 	logoSway = []int{0, 0, 1, 1, 1, 0, 0, -1, -1, -1}
 )
 
-// steepLogo returns the frames of the animated intro: the teacup and wordmark
+// steepLogo emits the frames of the animated intro: the teacup and wordmark
 // start empty and fill with tea from the bottom up, one pixel row per step,
 // then steam rises from the cup for d while the test name fades in. It
-// returns nil when the terminal is too small to draw the logo.
-func (ec ExportContext) steepLogo(d time.Duration) []ExportFrame {
+// emits nothing and returns false when the terminal is too small for the
+// logo.
+func (ec ExportContext) steepLogo(d time.Duration, emit func(ExportFrame)) bool {
 	logoW, logoH := len(logoBitmap[0]), len(logoBitmap)
 	base := ec.Card()
 	b := base.Bounds()
 	px := min(b.Dx()*2/3/logoW, b.Dy()/3/(logoH+logoSteamRows))
 	px -= px % 2 // Steam is drawn in half pixels.
 	if px < logoMinPixel {
-		return nil
+		return false
 	}
 
 	// The wordmark sits a pixel above the middle, and the test name below it,
@@ -95,7 +91,7 @@ func (ec ExportContext) steepLogo(d time.Duration) []ExportFrame {
 			draw.Draw(img, image.Rect(0, 0, size, size).Add(at), image.NewUniform(c), image.Point{}, draw.Src)
 		}
 		for y, row := range logoBitmap {
-			c := color.Color(logoTea[y])
+			c := logoTea[y]
 			if y < level {
 				c = logoEmpty
 			}
@@ -117,13 +113,13 @@ func (ec ExportContext) steepLogo(d time.Duration) []ExportFrame {
 		return ExportFrame{Image: img, Delay: delay}
 	}
 
-	frames := []ExportFrame{frame(logoH, 0, false, logoEmptyHold)}
+	emit(frame(logoH, 0, false, logoEmptyHold))
 	for level := logoH - 1; level >= 0; level-- {
-		frames = append(frames, frame(level, 0, false, logoFillStep))
+		emit(frame(level, 0, false, logoFillStep))
 	}
 	steps := max(int(d/logoSteamStep), 1)
 	for phase := 1; phase <= steps; phase++ {
-		frames = append(frames, frame(0, phase, phase >= min(3, steps), logoSteamStep))
+		emit(frame(0, phase, phase >= min(3, steps), logoSteamStep))
 	}
-	return frames
+	return true
 }

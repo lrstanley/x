@@ -10,6 +10,8 @@ import (
 	"image/draw"
 	"slices"
 	"strings"
+	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/steep/internal/xansi"
@@ -89,38 +91,57 @@ func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) im
 		writeCentered(buf, i, line)
 	}
 
-	ec.h.imageMu.Lock()
-	defer ec.h.imageMu.Unlock()
-	r, err := ec.h.cardRendererLocked(ec.h.imageRenderer.Metrics().FontSize * still.Pt(ec.cardScale()))
-	if err != nil {
-		ec.h.tb.Errorf("card text renderer: %v", err)
-		return nil
-	}
-	r.UpdateEmulatorState(&state)
-	return copyNRGBA(r.Draw(buf))
+	return ec.cards.draw(ec.h.tb, ec.h.imageRenderer.Metrics().FontSize*still.Pt(ec.cardScale()), state, buf)
 }
 
-// cardRendererLocked returns the harness renderer for card text at size: the
-// harness renderer's options without window chrome. h.imageMu must be held.
-func (h *Harness) cardRendererLocked(size still.Pt) (*still.Renderer, error) {
-	if h.cardRenderer != nil && h.cardFontSize == size {
-		return h.cardRenderer, nil
+// cardRenderer draws card text with the harness renderer's options, without
+// window chrome, at a font size that follows the card scale. A recording owns
+// one; it is built on first use, rebuilt when the size changes, and closed
+// when the recording finishes.
+type cardRenderer struct {
+	opts []still.Option
+	r    *still.Renderer
+	size still.Pt
+	// failed is set when building the renderer fails, so the error is logged
+	// once and later cards are drawn without text.
+	failed bool
+}
+
+// draw renders scr at size with state and returns an owned image, or nil when
+// the renderer cannot be built.
+func (c *cardRenderer) draw(tb testing.TB, size still.Pt, state still.EmulatorState, scr screen.Screen) image.Image {
+	if c.failed {
+		return nil
 	}
-	r, err := still.New(append(slices.Clip(h.cfg.imageRendererOpts),
-		still.WithFontSizePt(size),
-		still.WithPadding(0),
-		still.WithMargin(0, nil),
-		still.WithBorderRadius(0),
-		still.WithScrollbar(false),
-	)...)
-	if err != nil {
-		return nil, err
+	if c.r == nil || c.size != size {
+		r, err := still.New(append(slices.Clip(c.opts),
+			still.WithFontSizePt(size),
+			still.WithPadding(0),
+			still.WithMargin(0, nil),
+			still.WithBorderRadius(0),
+			still.WithScrollbar(false),
+		)...)
+		if err != nil {
+			c.failed = true
+			tb.Logf("export: drawing cards without text: %v", err)
+			return nil
+		}
+		if cerr := c.close(); cerr != nil {
+			tb.Logf("export: closing card renderer: %v", cerr)
+		}
+		c.r, c.size = r, size
 	}
-	if h.cardRenderer != nil {
-		_ = h.cardRenderer.Close()
+	c.r.UpdateEmulatorState(&state)
+	return cloneNRGBA(c.r.Draw(scr))
+}
+
+func (c *cardRenderer) close() error {
+	if c.r == nil {
+		return nil
 	}
-	h.cardRenderer, h.cardFontSize = r, size
-	return r, nil
+	r := c.r
+	c.r = nil
+	return r.Close()
 }
 
 // Failures returns the failure messages the harness has reported so far,
@@ -203,4 +224,47 @@ func writeCentered(buf *screen.Buffer, y int, line CardLine) {
 		buf.SetCell(x, y, &screen.Cell{Content: g.Str(), Style: line.Style, Width: w})
 		x += w
 	}
+}
+
+// introCard is the mutator behind [WithExportIntro]: lines as a card, or
+// without lines the animated logo, or "steep" and the test name as text when
+// the terminal is too small for the logo.
+func introCard(d time.Duration, lines ...CardLine) ExportMutator {
+	return func(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
+		switch {
+		case !ec.First:
+		case len(lines) > 0:
+			emit(ExportFrame{Image: ec.Card(lines...), Delay: d})
+		case !ec.steepLogo(d, emit):
+			title := ec.titleLines(CardLine{Text: "steep", Style: screen.Style{Attrs: screen.AttrBold}})
+			emit(ExportFrame{Image: ec.Card(title...), Delay: d})
+		}
+		emit(f)
+	}
+}
+
+// outroCard is the mutator behind [WithExportOutro]: lines as a card, or
+// without lines PASS or FAIL with the test name and failures.
+func outroCard(d time.Duration, lines ...CardLine) ExportMutator {
+	return func(ec ExportContext, f ExportFrame, emit func(ExportFrame)) {
+		emit(f)
+		if !ec.Last {
+			return
+		}
+		card := lines
+		if len(card) == 0 {
+			card = ec.resultLines()
+		}
+		emit(ExportFrame{Image: ec.Card(card...), Delay: d})
+	}
+}
+
+// resultLines are the default outro card: PASS or FAIL, the test name, and
+// for a failure, what failed.
+func (ec ExportContext) resultLines() []CardLine {
+	if !ec.Failed {
+		return ec.titleLines(CardLine{Text: "PASS", Style: screen.Style{Fg: screen.Indexed(2), Attrs: screen.AttrBold}})
+	}
+	lines := ec.titleLines(CardLine{Text: "FAIL", Style: screen.Style{Fg: screen.Indexed(1), Attrs: screen.AttrBold}})
+	return append(lines, ec.failureLines()...)
 }
