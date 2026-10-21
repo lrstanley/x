@@ -16,10 +16,7 @@ import (
 
 func firaFontFamily(t *testing.T) fonts.FontFamily {
 	t.Helper()
-	family, err := fonts.LoadFamily(fonts.FontFamilyNames{
-		Regular: "FiraMonoNerdFontMono-Regular",
-		Bold:    "FiraMonoNerdFontMono-Bold",
-	})
+	family, err := fonts.LoadFamily("FiraMono Nerd Font Mono")
 	if err != nil {
 		t.Skipf("fira mono nerd font mono not installed: %v", err)
 	}

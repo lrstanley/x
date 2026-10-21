@@ -143,7 +143,7 @@ func TestGlyphVerticalAdjust(t *testing.T) {
 
 func mustTestFace(t *testing.T) font.Face {
 	t.Helper()
-	tf, err := fonts.Load("JetBrainsMono-Regular")
+	tf, err := fonts.LoadFace("JetBrains Mono", fonts.StyleRegular)
 	if err != nil {
 		t.Fatalf("load font: %v", err)
 	}

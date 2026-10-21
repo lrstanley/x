@@ -115,7 +115,7 @@ func TestSyntheticFace(t *testing.T) {
 
 func newSyntheticTestFace(t *testing.T) font.Face {
 	t.Helper()
-	tf, err := Load(embeddedFixture)
+	tf, err := LoadFace(embeddedFixture, StyleRegular)
 	if err != nil {
 		t.Fatal(err)
 	}

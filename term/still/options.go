@@ -171,6 +171,23 @@ func WithFontFamily(family fonts.FontFamily) Option {
 	}
 }
 
+// WithFontFamilyName sets the primary font family by the family name recorded in
+// the font files (for example "JetBrains Mono" or "FiraMono Nerd Font Mono"),
+// resolving the regular, bold, italic, and bold italic faces from embedded and
+// installed fonts. See [fonts.LoadFamily]. Construction fails with an
+// error naming the family and the searched directories if it cannot be found.
+func WithFontFamilyName(name string) Option {
+	return func(d *Renderer) error {
+		family, err := fonts.LoadFamily(name)
+		if err != nil {
+			return err
+		}
+		d.opts.FontFamily = family
+		d.opts.FontFamilySet = true
+		return nil
+	}
+}
+
 // WithCodepointMap forces Unicode codepoint ranges to map to a specific font family.
 func WithCodepointMap(cp map[string]fonts.FontFamily) Option {
 	return func(d *Renderer) error {

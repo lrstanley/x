@@ -10,6 +10,8 @@ import (
 	"image/color"
 	"sync"
 	"testing"
+
+	"github.com/lrstanley/x/term/still/fonts"
 )
 
 func TestRendererCloseSemantics(t *testing.T) {
@@ -223,5 +225,18 @@ func TestRendererPaletteFrozenAtNew(t *testing.T) {
 	d.palette.Indexed[1] = red
 	if got := d.opts.Palette.Indexed[1]; got != blue {
 		t.Fatalf("opts palette = %#v, want original %#v", got, blue)
+	}
+}
+
+func TestWithFontFamilyName(t *testing.T) {
+	t.Parallel()
+
+	if _, err := New(WithFontFamilyName("JetBrains Mono")); err != nil {
+		t.Fatalf("embedded family by name: %v", err)
+	}
+
+	_, err := New(WithFontFamilyName("Definitely Not A Font"))
+	if !errors.Is(err, fonts.ErrFamilyNotFound) {
+		t.Fatalf("err = %v, want fonts.ErrFamilyNotFound", err)
 	}
 }

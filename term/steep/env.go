@@ -33,6 +33,10 @@ func applyEnv(tb testing.TB, cfg *options) {
 		}
 	}
 
+	if v := os.Getenv("STEEP_RENDERER_FONT_FAMILY"); v != "" {
+		cfg.imageRendererOpts = append(cfg.imageRendererOpts, still.WithFontFamilyName(v))
+	}
+
 	if v := os.Getenv("STEEP_EXPORT_MODE"); v != "" {
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "true", "on", "1":

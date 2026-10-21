@@ -473,9 +473,7 @@ func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
 func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
 	t.Parallel()
 
-	family, err := fonts.LoadFamily(fonts.FontFamilyNames{
-		Regular: "FiraMonoNerdFontMono-Regular",
-	})
+	family, err := fonts.LoadFamily("FiraMono Nerd Font Mono")
 	if err != nil {
 		t.Skip(err)
 	}
