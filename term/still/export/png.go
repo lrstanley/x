@@ -44,10 +44,10 @@ func MustPNG(img image.Image, path string, opts ...Option) {
 
 func encodePNG(img image.Image, w io.Writer, cfg options) error {
 	if cfg.optimize.has(OptimizeColorQuantization) {
-		pal := defaultGIFPalette()
-		pm := image.NewPaletted(img.Bounds(), pal)
-		palettizeInto(pm, img)
-		compactPalette([]*image.Paletted{pm}, pal)
+		adaptive := newAdaptivePalette(false)
+		pm := image.NewPaletted(img.Bounds(), adaptive.pal)
+		adaptive.palettize(pm, img)
+		compactPalette([]*image.Paletted{pm}, adaptive.pal)
 		return png.Encode(w, pm)
 	}
 	return png.Encode(w, img)

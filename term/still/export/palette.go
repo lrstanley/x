@@ -31,6 +31,10 @@ type palettizeJob struct {
 	minY int
 	maxY int
 	wg   *sync.WaitGroup
+	// adaptive, when non-nil, maps through its cache instead of the LUT and
+	// records uncached colors for span.
+	adaptive *adaptivePalette
+	span     int
 }
 
 // rgbaPixels is the pixel layout *image.NRGBA and *image.RGBA share: four
@@ -64,7 +68,7 @@ var (
 
 func palettizeWorker() {
 	for job := range palettizeJobs {
-		palettizeRows(job.dst, job.src, job.area, job.minY, job.maxY)
+		palettizeSpan(job)
 		job.wg.Done()
 	}
 }
@@ -169,39 +173,65 @@ func palettizeInto(dst *image.Paletted, src image.Image) {
 // across the palettize workers.
 func palettizePixels(dst *image.Paletted, src rgbaPixels) {
 	initDefaultGIFLUT()
-	area := src.rect.Intersect(dst.Bounds())
+	runPalettizeSpans(dst, src, src.rect.Intersect(dst.Bounds()), nil)
+}
+
+// palettizeSpanCount returns how many row spans area is split into.
+func palettizeSpanCount(area image.Rectangle) int {
 	workers := palettizeWorkerCount(area)
 	if workers > 1 {
 		startPalettizeWorkers()
-		if workers > palettizeN {
-			workers = palettizeN
-		}
+		workers = min(workers, palettizeN)
 	}
 	if workers <= 1 {
-		palettizeRows(dst, src, area, area.Min.Y, area.Max.Y)
+		return 1
+	}
+	height := area.Dy()
+	rowsPerWorker := (height + workers - 1) / workers
+	return (height + rowsPerWorker - 1) / rowsPerWorker
+}
+
+// runPalettizeSpans maps area of src into dst, through adaptive when non-nil
+// and defaultGIFLUT otherwise, splitting large frames across the palettize
+// workers.
+func runPalettizeSpans(dst *image.Paletted, src rgbaPixels, area image.Rectangle, adaptive *adaptivePalette) {
+	spans := palettizeSpanCount(area)
+	if adaptive != nil {
+		adaptive.resetSpans(spans)
+	}
+	if spans <= 1 {
+		palettizeSpan(palettizeJob{dst: dst, src: src, area: area, minY: area.Min.Y, maxY: area.Max.Y, adaptive: adaptive})
 		return
 	}
 
-	height := area.Dy()
-	rowsPerWorker := (height + workers - 1) / workers
-	spans := (height + rowsPerWorker - 1) / rowsPerWorker
+	rowsPerSpan := (area.Dy() + spans - 1) / spans
 	wg := palettizeWaiters.Get().(*sync.WaitGroup)
 	wg.Add(spans)
 	y0 := area.Min.Y
-	for range spans {
-		y1 := min(y0+rowsPerWorker, area.Max.Y)
+	for i := range spans {
+		y1 := min(y0+rowsPerSpan, area.Max.Y)
 		palettizeJobs <- palettizeJob{
-			dst:  dst,
-			src:  src,
-			area: area,
-			minY: y0,
-			maxY: y1,
-			wg:   wg,
+			dst:      dst,
+			src:      src,
+			area:     area,
+			minY:     y0,
+			maxY:     y1,
+			wg:       wg,
+			adaptive: adaptive,
+			span:     i,
 		}
 		y0 = y1
 	}
 	wg.Wait()
 	palettizeWaiters.Put(wg)
+}
+
+func palettizeSpan(job palettizeJob) {
+	if job.adaptive != nil {
+		job.adaptive.writeSpan(job.span, job.dst, job.src, job.area, job.minY, job.maxY)
+		return
+	}
+	palettizeRows(job.dst, job.src, job.area, job.minY, job.maxY)
 }
 
 func palettizeWorkerCount(area image.Rectangle) int {

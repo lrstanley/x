@@ -196,8 +196,10 @@ func WithOptimize(flags OptimizeFlags) Option {
 	}
 }
 
-// WithPalette overrides the capture palette for GIF palettization. Disables
-// automatic palette compaction when [OptimizeColorQuantization] is set. GIF
+// WithPalette overrides the capture palette for GIF palettization, replacing
+// the palette built from captured colors (see package documentation).
+// Disables automatic palette compaction when [OptimizeColorQuantization] is
+// set. GIF
 // only. When using disposal optimization, palettes with 256 entries should
 // reserve [TransparentPaletteIndex] (255) as a zero-alpha color; see package
 // documentation for the transparency invariant.

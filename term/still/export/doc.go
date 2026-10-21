@@ -27,14 +27,25 @@
 // are stripped). Pass [OptimizeNone] for unoptimized GIF or full RGBA PNG
 // with alpha preserved.
 //
+// # Palette
+//
+// Without [WithPalette], GIF capture builds its palette from the colors the
+// recording uses. Each color keeps the index it was first given, so earlier
+// frames stay valid as the palette grows. Colors covering many pixels (fills
+// and glyph bodies) get exact entries first. Antialiased glyph edges get exact
+// entries while slots remain, otherwise median cut picks representatives along
+// each blend, which keeps edges on the foreground's hue. Once every slot is
+// used, new colors map to the nearest existing entry. PNG with
+// [OptimizeColorQuantization] uses the same palette builder on its single
+// image.
+//
 // # GIF palette transparency
 //
 // The capture and optimization pipeline reserves palette index 255
 // ([TransparentPaletteIndex]) for transparency. During palettization, fully
-// transparent source pixels (alpha 0) map to this index; opaque pixels that
-// would otherwise quantize to 255 are remapped to 254 so the slot stays free.
-// The default xterm-256 capture palette pre-fills slot 255 with a zero-alpha
-// marker instead of the grayscale color that would occupy it otherwise.
+// transparent source pixels (alpha 0) map to this index, and opaque pixels
+// never do. The default capture palette pre-fills slot 255 with a zero-alpha
+// marker.
 //
 // At finalize, disposal sub-rect optimization marks unchanged pixels with
 // TransparentPaletteIndex; GIF viewers require a zero-alpha palette entry at

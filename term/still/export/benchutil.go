@@ -19,13 +19,13 @@ type PalettizedRecorder struct {
 
 // NewPalettizedRecorder returns a recorder configured like default GIF capture.
 func NewPalettizedRecorder() *PalettizedRecorder {
-	pal := defaultGIFPalette()
+	adaptive := newAdaptivePalette(true)
 	return &PalettizedRecorder{
-		palette: pal,
-		useLUT:  true,
+		palette: adaptive.pal,
 		rec: gifRecording{
 			loopCount: 0,
-			config:    image.Config{ColorModel: pal},
+			config:    image.Config{ColorModel: adaptive.pal},
+			adaptive:  adaptive,
 		},
 	}
 }

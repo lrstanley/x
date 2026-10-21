@@ -94,6 +94,9 @@ type gifRecording struct {
 	// backgroundIndex is the disposal background palette index; set by
 	// [optimizeDisposals].
 	backgroundIndex uint8
+	// adaptive grows config.ColorModel from captured colors when no capture
+	// palette was given. Nil uses the palette passed to [appendRecordingFrame].
+	adaptive *adaptivePalette
 }
 
 // gifRecorder captures palettized frames into a [gifRecording].
@@ -101,10 +104,8 @@ type gifRecorder struct {
 	// opts is the validated export configuration for this recording session.
 	opts options
 	// palette is the capture palette; custom when WithPalette is set, otherwise
-	// the default internal xterm-256 palette.
+	// the adaptive palette built from captured colors.
 	palette color.Palette
-	// useLUT enables the fast LUT palettize path when palette is the default.
-	useLUT bool
 	// rec accumulates frames and duration delays until finalize and encode.
 	rec *gifRecording
 	// lastCapture is wall time of the previous capture attempt, used to derive
@@ -131,23 +132,23 @@ type gifRecorder struct {
 var _ FrameRecorder = (*gifRecorder)(nil)
 
 // newGIFRecorder builds a recorder from validated options, selecting the
-// capture palette and LUT vs draw.Draw palettize path.
+// adaptive palette or the custom capture palette with the draw.Draw path.
 func newGIFRecorder(cfg options) *gifRecorder {
-	pal := defaultGIFPalette()
-	useLUT := true
-	if cfg.paletteSet {
-		pal = cfg.palette
-		useLUT = false
+	var adaptive *adaptivePalette
+	pal := cfg.palette
+	if !cfg.paletteSet {
+		adaptive = newAdaptivePalette(true)
+		pal = adaptive.pal
 	}
 	return &gifRecorder{
 		opts:    cfg,
 		palette: pal,
-		useLUT:  useLUT,
 		rec: &gifRecording{
 			loopCount: cfg.loopCount,
 			config: image.Config{
 				ColorModel: pal,
 			},
+			adaptive: adaptive,
 		},
 		done: make(chan struct{}),
 	}
@@ -359,8 +360,11 @@ func appendRecordingFrame(
 		rec.config.ColorModel = palette
 	}
 
+	if rec.adaptive != nil {
+		palette = rec.adaptive.pal
+	}
 	pm := image.NewPaletted(bounds, palette)
-	palettizeCaptureFrame(pm, frame, useLUT, background, backgroundSet)
+	palettizeCaptureFrame(pm, frame, rec.adaptive, useLUT, background, backgroundSet)
 
 	if optimize.has(OptimizeFrames) {
 		if n := len(rec.images); n > 0 && bytes.Equal(rec.images[n-1].Pix, pm.Pix) {
@@ -379,7 +383,7 @@ func appendRecordingFrame(
 // storing validation errors in closeErr.
 func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration) {
 	if err := appendRecordingFrame(
-		r.rec, r.palette, r.useLUT, r.opts.optimize,
+		r.rec, r.palette, false, r.opts.optimize,
 		r.opts.background, r.opts.backgroundSet, frame, delay, r.opts.maxFrames,
 	); err != nil {
 		r.closeErr = err
@@ -387,13 +391,18 @@ func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration)
 }
 
 // palettizeCaptureFrame writes src into pm, compositing onto background when
-// configured and using the LUT or draw.Draw path per useLUT.
-func palettizeCaptureFrame(pm *image.Paletted, frame image.Image, useLUT bool, background color.Color, backgroundSet bool) {
+// configured. It uses adaptive when non-nil, otherwise the LUT or draw.Draw
+// path per useLUT.
+func palettizeCaptureFrame(pm *image.Paletted, frame image.Image, adaptive *adaptivePalette, useLUT bool, background color.Color, backgroundSet bool) {
 	src := frame
 	if backgroundSet {
 		src = compositeBackgroundNRGBA(asNRGBA(frame), background)
 	}
-	if useLUT {
+	switch {
+	case adaptive != nil:
+		adaptive.palettize(pm, src)
+		return
+	case useLUT:
 		palettizeInto(pm, src)
 		return
 	}

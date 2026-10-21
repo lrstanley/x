@@ -42,7 +42,7 @@ const (
 var logoSteamX = []int{2, 5, 8}
 
 // logoTea is the tea gradient, top pixel row to bottom. The colors are on the
-// xterm-256 cube, so the default GIF palette keeps them exact.
+// xterm-256 cube, so any GIF palette that includes it keeps them exact.
 var logoTea = []color.Color{
 	screen.Indexed(229), screen.Indexed(228), screen.Indexed(221), screen.Indexed(220),
 	screen.Indexed(214), screen.Indexed(208), screen.Indexed(202),

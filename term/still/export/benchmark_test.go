@@ -105,6 +105,51 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 	}
 }
 
+// BenchmarkGIFAddFrameAdaptive is BenchmarkGIFAddFrame with the default
+// adaptive palette, after its colors are cached.
+func BenchmarkGIFAddFrameAdaptive(b *testing.B) {
+	frameA := terminalBenchmarkFrame(0)
+	frameB := terminalBenchmarkFrame(1)
+	rec := &gifRecording{adaptive: newAdaptivePalette(true)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; b.Loop(); i++ {
+		frame := frameA
+		if i&1 == 1 {
+			frame = frameB
+		}
+		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.StopTimer()
+	assertBenchmarkBudget(b, gifAddFrameBudget)
+}
+
+// BenchmarkAdaptivePaletteCold palettizes a frame of antialiased ramps into a
+// fresh adaptive palette, so every color is new and median cut runs.
+func BenchmarkAdaptivePaletteCold(b *testing.B) {
+	src := terminalBenchmarkFrame(0)
+	for i := 0; i < len(src.Pix); i += 4 {
+		px := i / 4
+		t := uint8(px % 251) //nolint:gosec // bounded.
+		c := (px / 251) % 12
+		src.Pix[i] = uint8(int(t) * (c*20 + 15) / 255)    //nolint:gosec // bounded.
+		src.Pix[i+1] = uint8(int(t) * (255 - c*20) / 255) //nolint:gosec // bounded.
+		src.Pix[i+2] = uint8(int(t)*(c*7+100)/255 + 30)   //nolint:gosec // bounded.
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		ap := newAdaptivePalette(true)
+		dst := image.NewPaletted(src.Bounds(), ap.pal)
+		ap.palettize(dst, src)
+	}
+}
+
 func BenchmarkPalettizeDraw(b *testing.B) {
 	src := terminalBenchmarkFrame(0)
 	pal := defaultGIFPalette()
