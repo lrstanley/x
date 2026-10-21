@@ -7,6 +7,8 @@ package steep
 import (
 	"fmt"
 	"image"
+	"image/draw"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -26,23 +28,82 @@ type CardLine struct {
 // drawn with the harness renderer at the same pixel size and window chrome as
 // the frame being mutated, so it can sit beside that frame in a recording.
 // Cards use the renderer's default colors (see [WithRenderer]), not ones the
-// program set, so every card in a recording looks the same. Text beyond the
-// terminal's width or height is cut off. The image is owned by the caller.
+// program set, so every card in a recording looks the same. On terminals
+// larger than 80x24, the text is drawn larger than the terminal font, so it
+// stays readable when the recording is scaled down to fit a page. Text that
+// does not fit is cut off. The image is owned by the caller.
 func (ec ExportContext) Card(lines ...CardLine) image.Image {
-	buf := screen.NewBuffer(ec.src.cols, ec.src.rows)
-	top := max(0, (ec.src.rows-len(lines))/2)
-	for i, line := range lines {
-		writeCentered(buf, top+i, line)
+	state := ec.cardState()
+	ec.h.imageMu.Lock()
+	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state).(*image.RGBA)
+	ec.h.imageMu.Unlock()
+
+	if text := ec.cardText(state, lines); text != nil {
+		b, tb := card.Bounds(), text.Bounds()
+		at := b.Min.Add(image.Pt((b.Dx()-tb.Dx())/2, (b.Dy()-tb.Dy())/2))
+		draw.Draw(card, tb.Sub(tb.Min).Add(at), text, tb.Min, draw.Src)
 	}
+	return card
+}
+
+// cardState is the renderer state for cards: the frame's window state with
+// default colors, no cursor, and nothing to scroll.
+func (ec ExportContext) cardState() still.EmulatorState {
 	state := viewportState(ec.h, still.EmulatorState{}, ec.src.state)
 	state.FgColor, state.BgColor = nil, nil
-	// A blank screen has no cursor and nothing to scroll.
 	state.CursorVisible = false
 	state.ScrollbackCount = 0
+	return state
+}
 
-	ec.h.imageMu.Lock()
-	defer ec.h.imageMu.Unlock()
-	return copyDrawnLocked(ec.h, buf, state)
+// cardScale is how much larger card text is than the terminal font. It grows
+// at three quarters the rate the terminal grows past 80x24, so text on a large
+// terminal stays readable without filling the card.
+func (ec ExportContext) cardScale() float64 {
+	grown := min(float64(ec.src.cols)/DefaultTermWidth, float64(ec.src.rows)/DefaultTermHeight)
+	return max(1, 1+(grown-1)*3/4)
+}
+
+// cardGrid is the number of columns and rows of card text that fit on the
+// card at [ExportContext.cardScale].
+func (ec ExportContext) cardGrid() (cols, rows int) {
+	scale := ec.cardScale()
+	return int(float64(ec.src.cols) / scale), int(float64(ec.src.rows) / scale)
+}
+
+// cardText renders lines, each centered, as a block of text without window
+// chrome, at [ExportContext.cardScale] and cut to [ExportContext.cardGrid].
+// It returns nil when there is nothing to draw.
+func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) image.Image {
+	cols, rows := ec.cardGrid()
+	var width int
+	for _, line := range lines {
+		width = max(width, uniseg.StringWidth(line.Text))
+	}
+	width, height := min(width, cols), min(len(lines), rows)
+	if width == 0 || height == 0 {
+		return nil
+	}
+	buf := screen.NewBuffer(width, height)
+	for i, line := range lines[:height] {
+		writeCentered(buf, i, line)
+	}
+
+	size := ec.h.imageRenderer.Metrics().FontSize * still.Pt(ec.cardScale())
+	r, err := still.New(append(slices.Clip(ec.h.cfg.imageRendererOpts),
+		still.WithFontSizePt(size),
+		still.WithPadding(0),
+		still.WithMargin(0, nil),
+		still.WithBorderRadius(0),
+		still.WithScrollbar(false),
+	)...)
+	if err != nil {
+		ec.h.tb.Errorf("card text renderer: %v", err)
+		return nil
+	}
+	defer func() { _ = r.Close() }()
+	r.UpdateEmulatorState(&state)
+	return copyRGBA(r.Draw(buf))
 }
 
 // Failures returns the failure messages the harness has reported so far,
@@ -62,8 +123,9 @@ func (ec ExportContext) Failures() []string {
 func (ec ExportContext) failureLines() []CardLine {
 	failures := ec.Failures()
 	// Leave rows for the two title lines, a spacer, and a margin above and below.
-	room := ec.src.rows - 5
-	width := max(ec.src.cols-6, 10)
+	cols, rows := ec.cardGrid()
+	room := rows - 5
+	width := max(cols-6, 10)
 
 	var msg []string
 	shown := 0

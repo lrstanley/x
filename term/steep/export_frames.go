@@ -138,13 +138,16 @@ func (p *exportPipeline) run(i int, f ExportFrame, last, failed bool) {
 	}
 }
 
-// ExportIntroCard returns an [ExportMutator] that shows a title card for d
-// before the first frame. With no lines, the card shows "steep" and the test
-// name.
-func ExportIntroCard(d time.Duration, lines ...CardLine) ExportMutator {
+// introCard is the mutator behind [WithExportIntro].
+func introCard(d time.Duration, lines ...CardLine) ExportMutator {
 	return func(ec ExportContext, f ExportFrame) []ExportFrame {
 		if !ec.First {
 			return []ExportFrame{f}
+		}
+		if len(lines) == 0 {
+			if logo := ec.steepLogo(d); logo != nil {
+				return append(logo, f)
+			}
 		}
 		card := lines
 		if len(card) == 0 {
@@ -154,12 +157,8 @@ func ExportIntroCard(d time.Duration, lines ...CardLine) ExportMutator {
 	}
 }
 
-// ExportOutroCard returns an [ExportMutator] that shows a title card for d
-// after the last frame. With no lines, the card shows PASS or FAIL, matching
-// the test result, and the test name. A FAIL card also lists the summary line
-// of each failure the harness reported (see [ExportContext.Failures]), as
-// many as fit.
-func ExportOutroCard(d time.Duration, lines ...CardLine) ExportMutator {
+// outroCard is the mutator behind [WithExportOutro].
+func outroCard(d time.Duration, lines ...CardLine) ExportMutator {
 	return func(ec ExportContext, f ExportFrame) []ExportFrame {
 		if !ec.Last {
 			return []ExportFrame{f}

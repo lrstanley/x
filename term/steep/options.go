@@ -82,6 +82,8 @@ type options struct {
 	exportName     string
 	exportOpts     []export.Option
 	exportMutators []ExportMutator
+	exportIntro    ExportMutator
+	exportOutro    ExportMutator
 	hooks          []Hook
 	ignoreEnv      bool
 	slow           time.Duration
@@ -355,8 +357,9 @@ func WithExportName(name string) Option {
 }
 
 // WithExportMutators appends [ExportMutator]s that change GIF frames between
-// the terminal and the encoder: overlays, inserted cards (see
-// [ExportIntroCard] and [ExportOutroCard]), holds, and so on. Calls accumulate.
+// the terminal and the encoder: overlays, inserted cards, holds, and so on.
+// Calls accumulate. The cards from [WithExportIntro] and [WithExportOutro] are
+// added after every mutator, so overlays never cover them.
 //
 // Mutators run in order, and each sees the frames the ones before it
 // returned. A later mutator draws on top of an earlier one and sees any cards
@@ -371,6 +374,37 @@ func WithExportName(name string) Option {
 func WithExportMutators(mutators ...ExportMutator) Option {
 	return func(cfg *options) {
 		cfg.exportMutators = append(cfg.exportMutators, mutators...)
+	}
+}
+
+// WithExportIntro shows a title card for d before the first frame of a GIF
+// recording. With lines, the card shows them (see [ExportContext.Card]). With
+// none, it is an animated steep logo: a teacup and wordmark fill with tea, then
+// steam rises for d while the test name appears. Terminals too small for the
+// logo get "steep" and the test name as text instead. The logo adds eight
+// frames plus one for every 150ms of d, and they count toward the frame cap
+// (see [WithExportMutators]). A d of zero or less removes the intro.
+func WithExportIntro(d time.Duration, lines ...CardLine) Option {
+	return func(cfg *options) {
+		cfg.exportIntro = nil
+		if d > 0 {
+			cfg.exportIntro = introCard(d, lines...)
+		}
+	}
+}
+
+// WithExportOutro shows a title card for d after the last frame of a GIF
+// recording. With lines, the card shows them (see [ExportContext.Card]). With
+// none, it shows PASS or FAIL, matching the test result, and the test name. A
+// FAIL card also lists the summary line of each failure the harness reported
+// (see [ExportContext.Failures]), as many as fit. A d of zero or less removes
+// the outro.
+func WithExportOutro(d time.Duration, lines ...CardLine) Option {
+	return func(cfg *options) {
+		cfg.exportOutro = nil
+		if d > 0 {
+			cfg.exportOutro = outroCard(d, lines...)
+		}
 	}
 }
 

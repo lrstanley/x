@@ -165,7 +165,7 @@ func TestExportCardsMatchRecording(t *testing.T) {
 		WithWindowSize(20, 4),
 		WithExport(ExportOn, ExportTypeGIF),
 		WithExportDir(t.TempDir()),
-		WithExportMutators(ExportIntroCard(time.Second), ExportOutroCard(time.Second), capture),
+		WithExportMutators(introCard(time.Second), outroCard(time.Second), capture),
 		WithIgnoreEnv(true),
 	)
 	h.Type("abc")
@@ -220,7 +220,7 @@ func TestExportCardsIgnoreProgramColors(t *testing.T) {
 		WithWindowSize(20, 4),
 		WithExport(ExportOn, ExportTypeGIF),
 		WithExportDir(t.TempDir()),
-		WithExportMutators(ExportIntroCard(time.Second), ExportOutroCard(time.Second), capture),
+		WithExportMutators(introCard(time.Second), outroCard(time.Second), capture),
 		WithIgnoreEnv(true),
 	)
 	h.Type("abc")
@@ -237,5 +237,85 @@ func TestExportCardsIgnoreProgramColors(t *testing.T) {
 	}
 	if intro.At(x, y) == program.At(x, y) {
 		t.Errorf("card background = %v, want the renderer default, not the program's %v", intro.At(x, y), program.At(x, y))
+	}
+}
+
+func TestExportIntroLogo(t *testing.T) {
+	t.Parallel()
+	var intro []ExportFrame
+	capture := func(_ ExportContext, f ExportFrame) []ExportFrame {
+		if f.At.IsZero() {
+			intro = append(intro, f)
+		}
+		return []ExportFrame{f}
+	}
+	h := NewHarness(t, rootTestModel{},
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(t.TempDir()),
+		WithExportMutators(introCard(1500*time.Millisecond), capture),
+		WithIgnoreEnv(true),
+	)
+	h.Type("abc")
+	want := h.Image().Bounds()
+	finishGIF(t, h, false)
+
+	// An empty hold, one frame per pixel row of fill, then ten steps of steam.
+	if got := len(intro); got != 1+len(logoBitmap)+10 {
+		t.Fatalf("intro frames = %d, want %d", got, 1+len(logoBitmap)+10)
+	}
+	var total time.Duration
+	for i, f := range intro {
+		if f.Image.Bounds() != want {
+			t.Fatalf("intro frame %d bounds = %v, want %v", i, f.Image.Bounds(), want)
+		}
+		total += f.Delay
+	}
+	if want := logoEmptyHold + time.Duration(len(logoBitmap))*logoFillStep + 1500*time.Millisecond; total != want {
+		t.Errorf("intro plays for %v, want %v", total, want)
+	}
+}
+
+func TestExportCardsAfterMutators(t *testing.T) {
+	t.Parallel()
+	var seen int
+	overlay := func(_ ExportContext, f ExportFrame) []ExportFrame {
+		if f.At.IsZero() {
+			t.Error("mutator saw a card; cards should be added after every mutator")
+		}
+		seen++
+		return []ExportFrame{f}
+	}
+	h := NewHarness(t, rootTestModel{},
+		WithWindowSize(20, 4),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(t.TempDir()),
+		WithExportIntro(time.Second),
+		WithExportOutro(time.Second),
+		WithExportMutators(overlay),
+		WithIgnoreEnv(true),
+	)
+	h.Type("abc")
+	g := finishGIF(t, h, false)
+	if len(g.Image) != seen+2 {
+		t.Errorf("gif frames = %d, want the %d recorded frames plus an intro and an outro", len(g.Image), seen)
+	}
+}
+
+func TestExportCardScale(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		cols, rows int
+		want       float64
+	}{
+		{20, 4, 1},
+		{80, 24, 1},
+		{160, 48, 1.75},
+		{240, 72, 2.5},
+		{240, 24, 1}, // The smaller dimension wins.
+	} {
+		ec := ExportContext{src: frameSource{cols: tc.cols, rows: tc.rows}}
+		if got := ec.cardScale(); got != tc.want {
+			t.Errorf("cardScale(%dx%d) = %v, want %v", tc.cols, tc.rows, got, tc.want)
+		}
 	}
 }

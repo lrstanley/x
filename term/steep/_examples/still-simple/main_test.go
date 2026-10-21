@@ -67,17 +67,15 @@ func TestGenerateFira(t *testing.T) {
 	}
 }
 
-// TestTitleCards records the ranking list between a "steep" intro card and a
-// PASS/FAIL outro card. Run it with STEEP_EXPORT_DIR set (or "go test
+// TestTitleCards records the ranking list between the animated steep logo and
+// a PASS/FAIL outro card. Run it with STEEP_EXPORT_DIR set (or "go test
 // -artifacts") to keep the GIF.
 func TestTitleCards(t *testing.T) {
 	h := steep.NewHarness(t, newRankingModel(),
 		steep.WithExport(steep.ExportOn, steep.ExportTypeGIF),
 		steep.WithExportName("title_cards"),
-		steep.WithExportMutators(
-			steep.ExportIntroCard(1500*time.Millisecond),
-			steep.ExportOutroCard(1500*time.Millisecond),
-		),
+		steep.WithExportIntro(1500*time.Millisecond),
+		steep.WithExportOutro(1500*time.Millisecond),
 	)
 	h.Wait("Tokyo", steep.WithANSI(false))
 	for range 10 {

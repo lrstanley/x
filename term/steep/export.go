@@ -9,6 +9,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -144,7 +145,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		speed:      speed,
 	}
 	m.frames = exportPipeline{base: ExportContext{Mode: cfg.exportMode, Step: m.step, h: h}}
-	for _, mutate := range cfg.exportMutators {
+	for _, mutate := range append(slices.Clip(cfg.exportMutators), cfg.exportIntro, cfg.exportOutro) {
 		if mutate != nil {
 			m.frames.stages = append(m.frames.stages, mutatorStage{mutate: mutate})
 		}
