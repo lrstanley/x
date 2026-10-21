@@ -91,18 +91,20 @@ func FallbackGlyphScaled(dst draw.Image, target image.Rectangle, face font.Face,
 	case ScaleStretch:
 		const padX = 0.03
 		const padY = 0.005
-		tw := float64(target.Dx()) * (1 + 2*padX)
-		th := float64(target.Dy()) * (1 + 2*padY)
-		sx = tw / float64(dr.Dx())
-		sy = th / float64(dr.Dy())
-		dw := max(1, int(math.Ceil(float64(dr.Dx())*sx)))
-		dh := max(1, int(math.Ceil(float64(dr.Dy())*sy)))
+		// The bleed is whole pixels, rounded from the fractional pad, so the
+		// overdraw tracks the cell size. Horizontally it keeps a 1px floor: the
+		// glyph's own edge column is only partly opaque, and without the bleed
+		// that shows as a seam against the neighboring cell. Vertically there
+		// is no floor, so small cells don't poke out above or below. The scaled
+		// mask is exactly the bleed-extended target, so it stays centered.
+		bleedX := max(1, int(math.Round(float64(target.Dx())*padX)))
+		bleedY := int(math.Round(float64(target.Dy()) * padY))
+		dw := max(1, target.Dx()+2*bleedX)
+		dh := max(1, target.Dy()+2*bleedY)
 		scaledAlpha := image.NewAlpha(image.Rect(0, 0, dw, dh))
 		xdraw.ApproxBiLinear.Scale(scaledAlpha, scaledAlpha.Bounds(), srcAlpha, dr, draw.Src, nil)
 
-		bleedX := max(1, int(math.Round(float64(target.Dx())*padX)))
-		bleedY := max(1, int(math.Round(float64(target.Dy())*padY)))
-		y0 = target.Min.Y - bleedY + (target.Dy()+2*bleedY-dh)/2
+		y0 = target.Min.Y - bleedY
 		if alignEnd {
 			x0 = target.Max.X + bleedX - dw
 		} else {
