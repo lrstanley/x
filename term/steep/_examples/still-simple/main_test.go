@@ -9,36 +9,12 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/steep"
-	"github.com/lrstanley/x/term/still/fonts"
 )
 
 // Example of outputting GIFs from a given test:
 //  STEEP_EXPORT_DIR=testdata/ STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif STEEP_SLOW=10ms go test -v -count 1 ./...
 
-func firaFontFamily(t *testing.T) fonts.FontFamily {
-	t.Helper()
-	family, err := fonts.LoadFamily("FiraMono Nerd Font Mono")
-	if err != nil {
-		t.Skipf("fira mono nerd font mono not installed: %v", err)
-	}
-	return family
-}
-
-// func TestGenerate(t *testing.T) {
-// 	opts := []still.Option{
-// 		still.WithFontSizePt(still.Pt(20)),
-// 		still.WithBorderRadius(10),
-// 		still.WithMargin(40, lipgloss.Color("#812cd1")),
-// 		still.WithPadding(10),
-// 	}
-
-// 	h := steep.NewHarness(t, newRankingModel(), steep.WithRenderer(opts...))
-// 	generateStill(h, "testdata/test.png", "testdata/test.gif")
-// }
-
-func TestGenerateFira(t *testing.T) {
-	// fira := firaFontFamily(t)
-
+func TestGenerate(t *testing.T) {
 	// opts := []still.Option{
 	// 	still.WithFontFamily(fira),
 	// 	still.WithCodepointMap(map[string]fonts.FontFamily{
@@ -68,7 +44,8 @@ func TestGenerateFira(t *testing.T) {
 // a PASS/FAIL outro card. Run it with STEEP_EXPORT_DIR set (or "go test
 // -artifacts") to keep the GIF.
 func TestTitleCards(t *testing.T) {
-	h := steep.NewHarness(t, newRankingModel(),
+	h := steep.NewHarness(
+		t, newRankingModel(),
 		steep.WithExport(steep.ExportOn, steep.ExportTypeGIF),
 		steep.WithExportName("title_cards"),
 		steep.WithExportIntro(1500*time.Millisecond),
@@ -84,35 +61,12 @@ func TestTitleCards(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 }
 
-// generateStill writes committed testdata. For failure artifacts in CI, prefer
-// steep.WithFailureGIF() or steep.WithExport(steep.ExportOnFailure, ...) so
-// frames are captured via harness hooks into t.ArtifactDir().
-// func generateStill(h *steep.Harness, pngPath, gifPath string) {
-// 	h.Wait("Tokyo", steep.WithANSI(false))
-
-// 	export.MustPNG(h.Image(), pngPath)
-
-// 	gifCloser := export.MustGIF(gifPath, export.WithFrameRate(50, false, func() image.Image {
-// 		return h.Image()
-// 	}))
-// 	defer gifCloser()
-
-// 	for range 20 {
-// 		h.KeyDown()
-// 		time.Sleep(30 * time.Millisecond)
-// 	}
-// 	for range 20 {
-// 		h.KeyUp()
-// 		time.Sleep(30 * time.Millisecond)
-// 	}
-// 	time.Sleep(400 * time.Millisecond)
-// }
-
 // TestKeyOverlay records the ranking list with the keys the test presses
 // drawn in the corner. The first burst fades out before the second starts.
 // Run it with STEEP_EXPORT_DIR set (or "go test -artifacts") to keep the GIF.
 func TestKeyOverlay(t *testing.T) {
-	h := steep.NewHarness(t, newRankingModel(),
+	h := steep.NewHarness(
+		t, newRankingModel(),
 		steep.WithExport(steep.ExportOn, steep.ExportTypeGIF),
 		steep.WithExportName("key_overlay"),
 		steep.WithExportKeys(1500*time.Millisecond),
