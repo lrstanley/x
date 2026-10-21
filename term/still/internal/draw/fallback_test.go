@@ -153,3 +153,51 @@ func mustTestFace(t *testing.T) font.Face {
 	}
 	return face
 }
+
+func TestFallbackGlyphScaledStretchOverdraw(t *testing.T) {
+	t.Parallel()
+
+	tf, err := fonts.LoadFace("Symbols Nerd Font Mono", fonts.StyleRegular)
+	if err != nil {
+		t.Fatalf("load font: %v", err)
+	}
+
+	for _, size := range []struct{ w, h int }{{9, 20}, {18, 40}, {36, 80}, {72, 160}} {
+		face, err := fonts.NewFace(tf, &opentype.FaceOptions{Size: float64(size.h) / 2, DPI: 72})
+		if err != nil {
+			t.Fatalf("new face: %v", err)
+		}
+		target := image.Rect(size.w*2, size.h*2, size.w*3, size.h*3)
+		dst := image.NewNRGBA(image.Rect(0, 0, size.w*5, size.h*5))
+		dot := fixed.Point26_6{X: fixed.I(target.Min.X), Y: fixed.I(target.Max.Y - size.h/4)}
+		idraw.FallbackGlyphScaled(dst, target, face, color.White, "", dot, idraw.ScaleStretch, false)
+
+		// Padding is 3% horizontally (at least 1px, to hide the glyph's partly
+		// transparent edge column) and 0.5% vertically, rounded to whole pixels.
+		wantX := max(1, (size.w*3+50)/100)
+		wantY := (size.h*5 + 500) / 1000
+		ink := image.Rectangle{}
+		for y := range dst.Bounds().Dy() {
+			for x := range dst.Bounds().Dx() {
+				if dst.NRGBAAt(x, y).A != 0 {
+					ink = ink.Union(image.Rect(x, y, x+1, y+1))
+				}
+			}
+		}
+		if ink.Empty() {
+			t.Fatalf("%dx%d: no ink drawn", size.w, size.h)
+		}
+		if got := target.Min.X - ink.Min.X; got < 0 || got > wantX {
+			t.Errorf("%dx%d: left overdraw %d, want 0..%d", size.w, size.h, got, wantX)
+		}
+		if got := ink.Max.X - target.Max.X; got > wantX {
+			t.Errorf("%dx%d: right overdraw %d, want <= %d", size.w, size.h, got, wantX)
+		}
+		if got := target.Min.Y - ink.Min.Y; got < 0 || got > wantY {
+			t.Errorf("%dx%d: top overdraw %d, want 0..%d", size.w, size.h, got, wantY)
+		}
+		if got := ink.Max.Y - target.Max.Y; got > wantY {
+			t.Errorf("%dx%d: bottom overdraw %d, want <= %d", size.w, size.h, got, wantY)
+		}
+	}
+}
