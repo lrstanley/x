@@ -76,18 +76,22 @@ type options struct {
 	// imageRendererOpts configures the harness-owned [still.Renderer].
 	imageRendererOpts []still.Option
 
-	exportMode   ExportMode
-	exportTypes  ExportType
-	exportDir    string
-	exportName   string
-	exportOpts   []export.Option
-	hooks        []Hook
-	ignoreEnv    bool
-	slow         time.Duration
-	exportFPS    int
-	exportSpeed  float64
-	gifMaxFrames int
-	snapshotDir  string
+	exportMode     ExportMode
+	exportTypes    ExportType
+	exportDir      string
+	exportName     string
+	exportOpts     []export.Option
+	exportMutators []ExportMutator
+	exportKeys     time.Duration
+	exportIntro    ExportMutator
+	exportOutro    ExportMutator
+	hooks          []Hook
+	ignoreEnv      bool
+	slow           time.Duration
+	exportFPS      int
+	exportSpeed    float64
+	gifMaxFrames   int
+	snapshotDir    string
 }
 
 func defaultOptions() options {
@@ -351,6 +355,74 @@ func WithExportDir(dir string) Option {
 func WithExportName(name string) Option {
 	return func(cfg *options) {
 		cfg.exportName = name
+	}
+}
+
+// WithExportMutators appends [ExportMutator]s that change GIF frames between
+// the terminal and the encoder: overlays, inserted cards, holds, and so on.
+// Calls accumulate. The key overlay from [WithExportKeys] and the cards from
+// [WithExportIntro] and [WithExportOutro] are added after every mutator, in
+// that order, so overlays never cover the keys or the cards.
+//
+// Mutators run in order, and each sees the frames the ones before it
+// emitted. A later mutator draws on top of an earlier one and sees any cards
+// it inserted, so list overlays that should not cover a card before it.
+//
+// Inserted frames count toward the GIF frame cap (STEEP_EXPORT_MAX_FRAMES),
+// which keeps the newest frames, so a long recording can drop an intro card.
+// An overlay that changes pixels on otherwise identical frames defeats
+// duplicate frame merging and grows the GIF. Mutators apply to [ExportOn] and
+// [ExportOnFailure] recordings alike; see [ExportContext.Mode]. There is no
+// environment override.
+func WithExportMutators(mutators ...ExportMutator) Option {
+	return func(cfg *options) {
+		cfg.exportMutators = append(cfg.exportMutators, mutators...)
+	}
+}
+
+// WithExportKeys overlays the keys the test presses (see [Harness.Key] and
+// [Harness.Type]) on GIF recordings, in the bottom right corner. Keys pressed
+// within d of each other are shown together, repeats as one key with a count,
+// and stay for d after the last of them, fading out over its final third.
+// Paste and mouse input are not shown. A d of zero or less removes the
+// overlay.
+//
+// The overlay splits frames wherever it changes, which adds a few frames per
+// burst of keys toward the frame cap (see [WithExportMutators]).
+func WithExportKeys(d time.Duration) Option {
+	return func(cfg *options) {
+		cfg.exportKeys = d
+	}
+}
+
+// WithExportIntro shows a title card for d before the first frame of a GIF
+// recording. With lines, the card shows them (see [ExportContext.Card]). With
+// none, it is an animated steep logo: a teacup and wordmark fill with tea, then
+// steam rises for d while the test name appears. Terminals too small for the
+// logo get "steep" and the test name as text instead. The animation's frames
+// count toward the frame cap (see [WithExportMutators]). A d of zero or less
+// removes the intro.
+func WithExportIntro(d time.Duration, lines ...CardLine) Option {
+	return func(cfg *options) {
+		cfg.exportIntro = nil
+		if d > 0 {
+			cfg.exportIntro = introCard(d, lines...)
+		}
+	}
+}
+
+// WithExportOutro shows a title card for d after the last frame of a GIF
+// recording. With lines, the card shows them (see [ExportContext.Card]). With
+// none, it shows PASS or FAIL, matching the test result, and the test name. A
+// FAIL card also lists the summary line of each failure the harness reported
+// (see [ExportContext.Failures]), as many as fit. A d of zero or less removes
+// the outro.
+func WithExportOutro(d time.Duration, lines ...CardLine) Option {
+	return func(cfg *options) {
+		cfg.exportOutro = nil
+		if d > 0 {
+			cfg.exportOutro = outroCard(d, lines...)
+		}
 	}
 }
 

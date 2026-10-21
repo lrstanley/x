@@ -1100,3 +1100,38 @@ func TestChannelCloseKeepsBufferedFrames(t *testing.T) {
 		t.Fatalf("recorded %d frames, want all %d buffered frames", got, n)
 	}
 }
+
+func TestPalettizeRGBAMatchesNRGBA(t *testing.T) {
+	t.Parallel()
+	src := image.NewNRGBA(image.Rect(0, 0, 64, 4))
+	for x := range 64 {
+		// Rows: opaque, translucent, barely visible, and fully transparent.
+		for y, a := range []uint8{0xff, 0x99, 0x01, 0x00} {
+			src.SetNRGBA(x, y, color.NRGBA{R: uint8(x * 4), G: 0x80, B: uint8(255 - x*4), A: a}) //nolint:gosec // bounded.
+		}
+	}
+	rgba := toRGBA(src)
+	// Premultiplying loses precision at low alpha, so compare against the
+	// NRGBA image the RGBA one converts back to.
+	back := toNRGBA(rgba)
+
+	pal := defaultGIFPalette()
+	want := palettize(back, pal)
+	got := image.NewPaletted(src.Bounds(), pal)
+	palettizeInto(got, rgba)
+	for y := range 4 {
+		for x := range 64 {
+			if w, g := want.ColorIndexAt(x, y), got.ColorIndexAt(x, y); w != g {
+				t.Errorf("pixel (%d,%d): RGBA source index %d, NRGBA source index %d", x, y, g, w)
+			}
+		}
+	}
+	if !bytes.Equal(palettize(src, pal).Pix[:64], got.Pix[:64]) {
+		t.Error("opaque pixels differ between RGBA and NRGBA sources")
+	}
+	for x := range 64 {
+		if got.ColorIndexAt(x, 3) != TransparentPaletteIndex {
+			t.Errorf("pixel (%d,3) is fully transparent, want TransparentPaletteIndex", x)
+		}
+	}
+}

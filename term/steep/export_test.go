@@ -83,20 +83,7 @@ func TestExportGIFCapturesKeysWithoutSlow(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("views after each Type = %q, want %q", got, want)
 	}
-	h.QuitProgram()
-	h.WaitFinished()
-	if err := h.export.Finalize(false); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(h.export.gifPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	g, err := gif.DecodeAll(f)
-	if err != nil {
-		t.Fatal(err)
-	}
+	g := finishGIF(t, h, false)
 	distinct := make(map[string]struct{}, len(g.Image))
 	for _, img := range g.Image {
 		distinct[string(img.Pix)] = struct{}{}
@@ -119,20 +106,7 @@ func TestExportGIFDelaysFollowRealTimeOnFPSGrid(t *testing.T) {
 	h.Type("a")
 	time.Sleep(400 * time.Millisecond)
 	h.Type("b")
-	h.QuitProgram()
-	h.WaitFinished()
-	if err := h.export.Finalize(false); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(h.export.gifPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	g, err := gif.DecodeAll(f)
-	if err != nil {
-		t.Fatal(err)
-	}
+	g := finishGIF(t, h, false)
 	var longest int
 	for i, d := range g.Delay {
 		if d%10 != 0 {
@@ -145,7 +119,7 @@ func TestExportGIFDelaysFollowRealTimeOnFPSGrid(t *testing.T) {
 	}
 }
 
-func TestExportEmitHeldDelay(t *testing.T) {
+func TestExportPipelineDelay(t *testing.T) {
 	t.Parallel()
 	start := time.Now()
 	cases := []struct {
@@ -163,18 +137,11 @@ func TestExportEmitHeldDelay(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m := &exportManager{
-				gifCh:  make(chan export.Frame, 1),
-				step:   50 * time.Millisecond,
-				speed:  tc.speed,
-				held:   &export.Frame{},
-				heldAt: start,
-			}
-			m.emitHeldLocked(start.Add(tc.elapsed))
-			if m.held != nil {
-				t.Fatal("held frame should be cleared after emit")
-			}
-			if got := (<-m.gifCh).Delay; got != tc.want {
+			ch := make(chan export.Frame, 1)
+			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, speed: tc.speed, out: ch}
+			p.record(labelImage(0), start, frameSource{})
+			p.finish(start.Add(tc.elapsed), false)
+			if got := (<-ch).Delay; got != tc.want {
 				t.Fatalf("delay = %v, want %v", got, tc.want)
 			}
 		})
@@ -207,20 +174,7 @@ func TestExportGIFOmitsProgramExitRepaint(t *testing.T) {
 		WithIgnoreEnv(true),
 	)
 	h.Type("abc")
-	h.QuitProgram()
-	h.WaitFinished()
-	if err := h.export.Finalize(false); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(h.export.gifPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	g, err := gif.DecodeAll(f)
-	if err != nil {
-		t.Fatal(err)
-	}
+	g := finishGIF(t, h, false)
 	canvas := image.NewRGBA(image.Rect(0, 0, g.Config.Width, g.Config.Height))
 	for _, frame := range g.Image {
 		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Src)
@@ -234,6 +188,26 @@ func TestExportGIFOmitsProgramExitRepaint(t *testing.T) {
 	if lit < 50 {
 		t.Fatalf("last gif frame has %d lit pixels, want the final screen and not the blank exit repaint", lit)
 	}
+}
+
+// finishGIF quits the program, finalizes export, and decodes the recorded GIF.
+func finishGIF(t *testing.T, h *Harness, failed bool) *gif.GIF {
+	t.Helper()
+	h.QuitProgram()
+	h.WaitFinished()
+	if err := h.export.Finalize(failed); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(h.export.gifPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
 }
 
 func viewField(view, prefix string) string {

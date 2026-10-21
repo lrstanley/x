@@ -158,10 +158,65 @@ func BenchmarkPalettizeLUT(b *testing.B) {
 	src := terminalBenchmarkFrame(0)
 	pal := defaultGIFPalette()
 	dst := image.NewPaletted(src.Bounds(), pal)
-	initDefaultGIFLUT()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		palettizeNRGBA(dst, src)
+		palettizeInto(dst, src)
+	}
+}
+
+// benchmarkSources returns the terminal benchmark frame as each image type a
+// caller may send, opaque and with a translucent background.
+func benchmarkSources() []struct {
+	name string
+	img  image.Image
+} {
+	opaque := terminalBenchmarkFrame(0)
+	translucent := terminalBenchmarkFrame(0)
+	for i := 3; i < len(translucent.Pix); i += 4 {
+		translucent.Pix[i] = 0x99
+	}
+	return []struct {
+		name string
+		img  image.Image
+	}{
+		{"NRGBA", opaque},
+		{"RGBA", toRGBA(opaque)},
+		{"NRGBA-translucent", translucent},
+		{"RGBA-translucent", toRGBA(translucent)},
+	}
+}
+
+// BenchmarkGIFAddFrameSource is the per-frame encoder cost for each source
+// image type, against the frame budget at [MaxFrameRate].
+func BenchmarkGIFAddFrameSource(b *testing.B) {
+	for _, src := range benchmarkSources() {
+		b.Run(src.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				rec := &gifRecording{}
+				if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, src.img, time.Millisecond, 0); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(b.Elapsed())/float64(b.N)/float64(time.Second/MaxFrameRate)*100, "%budget")
+		})
+	}
+}
+
+// BenchmarkGIFAddFrameCustomPalette is BenchmarkGIFAddFrameSource with a
+// custom palette, which skips the default palette lookup table.
+func BenchmarkGIFAddFrameCustomPalette(b *testing.B) {
+	pal := append(color.Palette(nil), defaultGIFPalette()[:128]...)
+	for _, src := range benchmarkSources()[:2] {
+		b.Run(src.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				rec := &gifRecording{}
+				if err := appendRecordingFrame(rec, pal, false, OptimizeFrames, nil, false, src.img, time.Millisecond, 0); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
