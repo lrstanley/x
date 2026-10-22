@@ -8,9 +8,14 @@ package fontset
 
 import (
 	"errors"
-	"unicode/utf8"
+	"fmt"
+	"sync"
+	"unicode"
 
+	"github.com/lrstanley/x/term/still/fonts"
+	"github.com/lrstanley/x/term/still/internal/codepoints"
 	"github.com/lrstanley/x/term/still/internal/config"
+	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/internal/metrics"
 	"github.com/lrstanley/x/term/vt/screen"
 	xfont "golang.org/x/image/font"
@@ -27,7 +32,7 @@ const (
 )
 
 // Set holds concurrently reusable [xfont.Face] values for primary styles and
-// optional per-range overrides.
+// optional per-range overrides, and resolves which face draws each rune.
 type Set struct {
 	regular    xfont.Face
 	bold       xfont.Face
@@ -37,9 +42,32 @@ type Set struct {
 	gridMetrics metrics.FaceMetrics
 	gridFaces   map[xfont.Face]struct{}
 
+	faceOpts *opentype.FaceOptions
+
+	// chain lists the faces tried for each rune, in order: codepoint map
+	// ranges, then the primary family and the bundled symbol fallback, which
+	// both cover every rune. The first whose font has the glyph draws it.
+	chain []codepointRange
+
+	// systemFallback finds an installed font for runes the chain misses. It is
+	// nil when system fonts are disabled.
+	systemFallback func(rune) (*opentype.Font, bool)
+
+	// ascii holds the resolved face for printable ASCII, filled by Build and
+	// read without locking.
+	ascii [4][0x7f]xfont.Face
+
+	// mu guards the maps below. faces and synthetics only grow after Build
+	// when a system font is first used.
+	mu         sync.RWMutex
 	faces      map[*opentype.Font]xfont.Face
 	synthetics map[syntheticFaceKey]xfont.Face
-	codepoints []codepointRange
+	resolved   map[resolveKey]xfont.Face
+}
+
+type resolveKey struct {
+	style fontStyle
+	r     rune
 }
 
 type syntheticFaceKey struct {
@@ -50,53 +78,66 @@ type syntheticFaceKey struct {
 
 // Build loads primary style faces plus codepoint map faces.
 func Build(opts config.Options) (*Set, error) {
-	faceOpts := &opentype.FaceOptions{
-		Size:    float64(opts.FontSize),
-		DPI:     float64(opts.DPI),
-		Hinting: xfont.HintingFull,
+	var system func(rune) (*opentype.Font, bool)
+	if opts.SystemFontFallback {
+		system = fonts.SystemFallback
 	}
+	return build(opts, system)
+}
+
+func build(opts config.Options, system func(rune) (*opentype.Font, bool)) (*Set, error) {
 	fs := &Set{
-		faces:      map[*opentype.Font]xfont.Face{},
-		synthetics: map[syntheticFaceKey]xfont.Face{},
-		gridFaces:  map[xfont.Face]struct{}{},
+		faceOpts: &opentype.FaceOptions{
+			Size:    float64(opts.FontSize),
+			DPI:     float64(opts.DPI),
+			Hinting: xfont.HintingFull,
+		},
+		systemFallback: system,
+		faces:          map[*opentype.Font]xfont.Face{},
+		synthetics:     map[syntheticFaceKey]xfont.Face{},
+		gridFaces:      map[xfont.Face]struct{}{},
+		resolved:       map[resolveKey]xfont.Face{},
 	}
 
 	primaryFamily, err := configuredFontFamily(opts)
 	if err != nil {
 		return nil, err
 	}
-	if fs.regular, err = fs.loadFamilyFace(primaryFamily, fontStyleRegular, faceOpts); err != nil {
-		return nil, err
+	fallbackFamily, err := fonts.DefaultFallbackFamily()
+	if err != nil {
+		return nil, fmt.Errorf("load default fallback font family: %w", err)
 	}
-	fs.gridMetrics = metrics.MeasureFace(fs.regular)
-	if fs.bold, err = fs.loadFamilyFace(primaryFamily, fontStyleBold, faceOpts); err != nil {
-		return nil, err
-	}
-	if fs.italic, err = fs.loadFamilyFace(primaryFamily, fontStyleItalic, faceOpts); err != nil {
-		return nil, err
-	}
-	if fs.boldItalic, err = fs.loadFamilyFace(primaryFamily, fontStyleBoldItalic, faceOpts); err != nil {
-		return nil, err
-	}
-	for _, face := range []xfont.Face{fs.regular, fs.bold, fs.italic, fs.boldItalic} {
-		if face != nil {
-			fs.gridFaces[face] = struct{}{}
-		}
-	}
-
-	ranges, err := parseCodepointMap(opts)
+	chain, err := parseCodepointMap(opts)
 	if err != nil {
 		return nil, err
 	}
-	for i := range ranges {
-		for _, style := range []fontStyle{fontStyleRegular, fontStyleBold, fontStyleItalic, fontStyleBoldItalic} {
-			if ranges[i].faces[style], err = fs.loadFamilyFace(ranges[i].family, style, faceOpts); err != nil {
+	everyRune := codepoints.Range{First: 0, Last: unicode.MaxRune}
+	primaryAt := len(chain)
+	chain = append(chain,
+		codepointRange{Range: everyRune, family: primaryFamily},
+		codepointRange{Range: everyRune, family: fallbackFamily},
+	)
+	for i := range chain {
+		for style := range chain[i].faces {
+			if chain[i].faces[style], err = fs.loadFamilyFace(chain[i].family, fontStyle(style)); err != nil {
 				return nil, err
 			}
 		}
 	}
-	fs.codepoints = ranges
+	fs.chain = chain
 
+	primary := chain[primaryAt].faces
+	fs.regular, fs.bold, fs.italic, fs.boldItalic = primary[0], primary[1], primary[2], primary[3]
+	fs.gridMetrics = metrics.MeasureFace(fs.regular)
+	for _, face := range primary {
+		fs.gridFaces[face] = struct{}{}
+	}
+
+	for style := range fs.ascii {
+		for r := rune(' '); r < 0x7f; r++ {
+			fs.ascii[style][r] = fs.resolveChain(fontStyle(style), r)
+		}
+	}
 	return fs, nil
 }
 
@@ -175,12 +216,27 @@ func (fs *Set) faceForGlyph(style fontStyle, r rune) xfont.Face {
 	if fs == nil {
 		return nil
 	}
-	for _, cp := range fs.codepoints {
-		if r >= cp.First && r <= cp.Last {
-			return cp.faceForStyle(style)
+	if r >= 0 && r < 0x7f {
+		if face := fs.ascii[style][r]; face != nil {
+			return face
 		}
 	}
-	return fs.faceForStyle(style)
+
+	key := resolveKey{style: style, r: r}
+	fs.mu.RLock()
+	face, ok := fs.resolved[key]
+	fs.mu.RUnlock()
+	if ok {
+		return face
+	}
+
+	// Resolve without holding the lock: the first system fallback reads every
+	// installed font. Concurrent misses for the same rune resolve the same face.
+	face = fs.resolve(style, r)
+	fs.mu.Lock()
+	fs.resolved[key] = face
+	fs.mu.Unlock()
+	return face
 }
 
 func (fs *Set) faceForStyle(style fontStyle) xfont.Face {
@@ -217,12 +273,11 @@ func cellStyle(cell *screen.Cell) fontStyle {
 }
 
 func cellGlyphRune(cell *screen.Cell) rune {
-	if cell == nil || cell.Content == "" {
+	if cell == nil {
 		return ' '
 	}
-	r, _ := utf8.DecodeRuneInString(cell.Content)
-	if r == utf8.RuneError {
-		return ' '
+	if r, ok := idraw.FirstRune(cell.Content); ok {
+		return r
 	}
-	return r
+	return ' '
 }

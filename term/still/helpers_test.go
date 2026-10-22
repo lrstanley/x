@@ -93,12 +93,12 @@ func boxStrokeWidthAtRow(img *image.NRGBA, area image.Rectangle, y int, minR uin
 	return right - left + 1
 }
 
-func cellInkSignature(img *image.NRGBA, area image.Rectangle) string {
+// cellInkSignature marks each pixel of area that differs from bg.
+func cellInkSignature(img *image.NRGBA, area image.Rectangle, bg color.NRGBA) string {
 	var out strings.Builder
 	for y := area.Min.Y; y < area.Max.Y; y++ {
 		for x := area.Min.X; x < area.Max.X; x++ {
-			p := img.NRGBAAt(x, y)
-			if p.R != 0 || p.G != 0 || p.B != 0 {
+			if img.NRGBAAt(x, y) != bg {
 				out.WriteByte('#')
 			} else {
 				out.WriteByte('.')

@@ -82,6 +82,13 @@ func DefaultSymbolFamily() (FontFamily, error) {
 	return LoadFamily("Symbols Nerd Font Mono")
 }
 
+// DefaultFallbackFamily loads the bundled symbol fallback family, a subset of
+// DejaVu Sans Mono covering punctuation, letterlike, arrow, math, technical,
+// geometric, and dingbat symbols. Only Regular is set.
+func DefaultFallbackFamily() (FontFamily, error) {
+	return LoadFamily("DejaVu Sans Mono Symbols")
+}
+
 // NewFace creates a drawable face from a parsed font and face options.
 func NewFace(f *opentype.Font, opts *opentype.FaceOptions) (font.Face, error) {
 	if f == nil {

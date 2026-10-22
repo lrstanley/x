@@ -51,6 +51,8 @@ type Options struct {
 	CodepointMap    map[string]fonts.FontFamily
 	CodepointMapSet bool
 
+	SystemFontFallback bool
+
 	Palette types.Palette
 
 	Scrollbar              bool
@@ -78,6 +80,7 @@ func DefaultOptions() Options {
 		CursorBlinkSpeed:      DefaultCursorBlinkSpeed,
 		IconHeightScale:       1,
 		IconHeightSingleScale: 1,
+		SystemFontFallback:    true,
 		Now:                   time.Now,
 	}
 }

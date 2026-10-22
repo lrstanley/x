@@ -158,6 +158,38 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 	assertBenchmarkBudget(b, renderExportBudget)
 }
 
+// BenchmarkDrawSymbolGlyphs draws a screen of symbols from the bundled
+// fallback font and the Symbols Nerd Font, which take the fitted and scaled
+// fallback path rather than the grid path.
+func BenchmarkDrawSymbolGlyphs(b *testing.B) {
+	const cols, rows = 40, 16
+	glyphs := []rune("★✔☀♪⚙◐◢⇄➤☐")
+	scr := newTestScreen(cols, rows)
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	for y := range rows {
+		for x := range cols {
+			scr.SetCell(x, y, &screen.Cell{
+				Content: string(glyphs[(y*cols+x)%len(glyphs)]),
+				Width:   1,
+				Style:   screen.Style{Fg: fg, Bg: bg},
+			})
+		}
+	}
+
+	d := MustNew(WithFontSizePt(benchmarkFontSizePt), WithSystemFontFallback(false))
+	frame := image.NewNRGBA(d.Bounds(scr))
+	for range benchmarkWarmupIters {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+}
+
 // BenchmarkDrawManyGlyphs draws a screen with more unique graphemes than the
 // old 128-entry mask cache could hold, which is the case the atlas budget is
 // sized for.

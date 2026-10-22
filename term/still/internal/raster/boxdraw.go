@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/still/internal/alpha"
 	"github.com/lrstanley/x/term/still/types"
@@ -22,20 +21,14 @@ type boxGlyphMask struct {
 }
 
 // layoutSpriteMask returns the mask for glyphs that are drawn from the cell
-// geometry (box drawing and block elements) instead of straight from the font.
+// geometry (sprites, and box drawing built from the face's glyph) instead of
+// straight from the font.
 func layoutSpriteMask(ctx GlyphContext, layout *Layout) (boxGlyphMask, bool) {
-	if layout.Kind != KindGrid {
-		return boxGlyphMask{}, false
-	}
-	r, n := utf8.DecodeRuneInString(layout.Glyph)
-	if n == 0 || r == utf8.RuneError {
-		return boxGlyphMask{}, false
-	}
 	switch {
-	case IsBlockElementRune(r):
-		return buildBlockGlyphMask(layout.Area, r)
-	case isBoxDrawingRune(r):
-		return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, r, ctx.Metrics())
+	case layout.Kind == KindSprite:
+		return buildSpriteGlyphMask(layout.Area, layout.Rune)
+	case layout.Kind == KindGrid && isBoxDrawingRune(layout.Rune):
+		return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, layout.Rune, ctx.Metrics())
 	}
 	return boxGlyphMask{}, false
 }

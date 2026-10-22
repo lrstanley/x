@@ -23,6 +23,15 @@
 // [Renderer] owns the full draw pipeline: window background, cell backgrounds,
 // cell foregrounds (glyphs and decorations), cursor, scrollbar gutter, unfocused
 // dimming overlay, then an antialiased rounding mask on the terminal window.
+//
+// Each glyph is drawn from the first font that actually has it: a
+// [WithCodepointMap] range (by default, Nerd Font, Powerline, and symbol ranges
+// map to the bundled Symbols Nerd Font), then the primary family
+// ([WithFontFamily]), then a bundled symbol subset of DejaVu Sans Mono, then an
+// installed font ([WithSystemFontFallback]). Block elements, Braille, and the
+// Legacy Computing block mosaics are drawn from the cell geometry instead, so
+// neighboring cells tile exactly.
+//
 // See the Ghostty configuration reference for the closest user-facing
 // knobs: https://ghostty.org/docs/config/reference
 package still

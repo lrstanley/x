@@ -206,7 +206,7 @@ func TestSyntheticNerdIconStylesRenderDifferentlyAndFit(t *testing.T) {
 		if bounds.Dy() > ctx.Metrics().IconHeightSingle.Int() {
 			t.Fatalf("%s icon ink height = %d, want <= IconHeightSingle %d", name, bounds.Dy(), ctx.Metrics().IconHeightSingle)
 		}
-		signatures[name] = cellInkSignature(img, cell)
+		signatures[name] = cellInkSignature(img, cell, bg)
 	}
 	for _, name := range []string{"bold", "italic", "bold italic"} {
 		if signatures[name] == signatures["regular"] {
@@ -291,7 +291,7 @@ func TestRendererBoxDrawingGlyphsHaveDistinctShapes(t *testing.T) {
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 	signatures := map[string]struct{}{}
 	for x := range glyphs {
-		signatures[cellInkSignature(img, ctx.cellBounds(x, 0))] = struct{}{}
+		signatures[cellInkSignature(img, ctx.cellBounds(x, 0), color.NRGBA{A: 0xff})] = struct{}{}
 	}
 	if len(signatures) < 3 {
 		t.Fatalf("box drawing glyphs rendered as only %d distinct shapes, want at least 3", len(signatures))

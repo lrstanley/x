@@ -28,6 +28,16 @@ type face struct {
 	families []string // Typographic family (name ID 16) then family (name ID 1), when they differ.
 	weight   int      // OS/2 usWeightClass, or derived from the style name if OS/2 is absent.
 	italic   bool     // OS/2 fsSelection italic or oblique bit, or derived from the style name.
+	tables   faceTables
+}
+
+// faceTables records what system font fallback needs to know about a face
+// without reading glyph data.
+type faceTables struct {
+	cmapOff, cmapLen uint32
+	outlines         bool // Has glyf, CFF, or CFF2 outlines.
+	color            bool // Has COLR, CBDT, sbix, or SVG glyphs (color emoji fonts).
+	monospace        bool // post.isFixedPitch is set.
 }
 
 // boldWeight is the lightest weight treated as bold when deciding whether a
@@ -123,14 +133,30 @@ func readFace(r io.ReaderAt, base int64) (face, error) {
 		return face{}, err
 	}
 
-	var nameOff, nameLen, os2Off, os2Len uint32
+	var nameOff, nameLen, os2Off, os2Len, postOff, postLen uint32
+	var tables faceTables
 	for i := range numTables {
 		rec := dir[16*i:]
+		off, n := binary.BigEndian.Uint32(rec[8:]), binary.BigEndian.Uint32(rec[12:])
 		switch string(rec[:4]) {
 		case "name":
-			nameOff, nameLen = binary.BigEndian.Uint32(rec[8:]), binary.BigEndian.Uint32(rec[12:])
+			nameOff, nameLen = off, n
 		case "OS/2":
-			os2Off, os2Len = binary.BigEndian.Uint32(rec[8:]), binary.BigEndian.Uint32(rec[12:])
+			os2Off, os2Len = off, n
+		case "post":
+			postOff, postLen = off, n
+		case "cmap":
+			tables.cmapOff, tables.cmapLen = off, n
+		case "glyf", "CFF ", "CFF2":
+			tables.outlines = true
+		case "COLR", "CBDT", "sbix", "SVG ":
+			tables.color = true
+		}
+	}
+	if postLen >= 16 {
+		var post [4]byte
+		if _, err := r.ReadAt(post[:], int64(postOff)+12); err == nil {
+			tables.monospace = binary.BigEndian.Uint32(post[:]) != 0
 		}
 	}
 	if nameLen == 0 || nameLen > 4<<20 {
@@ -142,7 +168,7 @@ func readFace(r io.ReaderAt, base int64) (face, error) {
 		return face{}, err
 	}
 
-	var f face
+	f := face{tables: tables}
 	for _, id := range []uint16{16, 1} {
 		name := nameString(tbl, id)
 		key := normalizeFamily(name)
@@ -281,25 +307,12 @@ func readSourceFaces(src string) ([]face, error) {
 
 // buildIndex reads every source concurrently and indexes the faces in source
 // order, so precedence is deterministic. Sources that fail to read or that are
-// not valid fonts are skipped. More workers than CPUs are used since the work
-// is mostly file latency (network mounts, WSL's /mnt/c).
+// not valid fonts are skipped.
 func buildIndex(srcs []string) *familyIndex {
 	results := make([][]face, len(srcs))
-	next := make(chan int)
-
-	var wg sync.WaitGroup
-	for range 2 * runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for i := range next {
-				results[i], _ = readSourceFaces(srcs[i])
-			}
-		})
-	}
-	for i := range srcs {
-		next <- i
-	}
-	close(next)
-	wg.Wait()
+	parallelFor(len(srcs), func(i int) {
+		results[i], _ = readSourceFaces(srcs[i])
+	})
 
 	ix := &familyIndex{faces: map[string][]face{}, display: map[string]string{}}
 	for _, faces := range results {
@@ -308,6 +321,26 @@ func buildIndex(srcs []string) *familyIndex {
 		}
 	}
 	return ix
+}
+
+// parallelFor calls fn for 0..n-1 from a pool of goroutines. More workers than
+// CPUs are used since font indexing is mostly file latency (network mounts,
+// WSL's /mnt/c).
+func parallelFor(n int, fn func(i int)) {
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range 2 * runtime.GOMAXPROCS(0) {
+		wg.Go(func() {
+			for i := range next {
+				fn(i)
+			}
+		})
+	}
+	for i := range n {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
 }
 
 // embeddedFamilyIndex indexes the bundled fonts. It is built once on first use.

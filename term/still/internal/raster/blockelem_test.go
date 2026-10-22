@@ -18,8 +18,8 @@ func TestBlockSpecCoversRange(t *testing.T) {
 		}
 	}
 	for _, r := range []rune{0x257F, 0x25A0, 'A'} {
-		if IsBlockElementRune(r) {
-			t.Errorf("U+%04X should not be a block element", r)
+		if _, ok := blockSpecFromRune(r); ok {
+			t.Errorf("U+%04X should not have a block spec", r)
 		}
 	}
 }
@@ -31,7 +31,7 @@ func TestBuildBlockGlyphMaskEighths(t *testing.T) {
 	w, h := area.Dx(), area.Dy()
 
 	count := func(r rune) int {
-		m, _ := buildBlockGlyphMask(area, r)
+		m, _ := buildSpriteGlyphMask(area, r)
 		n := 0
 		for _, a := range m.alpha.Pix {
 			if a != 0 {
@@ -67,15 +67,5 @@ func TestBuildBlockGlyphMaskEighths(t *testing.T) {
 	}
 	if a, b := count('▚'), count('▞'); a+b != w*h {
 		t.Errorf("▚+▞ cover %d, want %d", a+b, w*h)
-	}
-}
-
-func TestBuildBlockGlyphMaskCached(t *testing.T) {
-	t.Parallel()
-
-	a, _ := buildBlockGlyphMask(image.Rect(0, 0, 9, 18), '█')
-	b, _ := buildBlockGlyphMask(image.Rect(50, 90, 59, 108), '█')
-	if a.alpha != b.alpha {
-		t.Fatal("same rune and cell size should share one mask")
 	}
 }

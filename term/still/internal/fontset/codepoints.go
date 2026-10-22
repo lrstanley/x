@@ -20,13 +20,6 @@ type codepointRange struct {
 	faces  [4]xfont.Face
 }
 
-func (cp codepointRange) faceForStyle(style fontStyle) xfont.Face {
-	if int(style) < len(cp.faces) && cp.faces[style] != nil {
-		return cp.faces[style]
-	}
-	return cp.faces[fontStyleRegular]
-}
-
 func parseCodepointMap(opts config.Options) ([]codepointRange, error) {
 	if opts.CodepointMapSet && opts.CodepointMap == nil {
 		return nil, nil

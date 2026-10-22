@@ -9,12 +9,12 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/still/internal/alpha"
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/vt/screen"
 	"golang.org/x/image/font"
+	"golang.org/x/image/math/fixed"
 )
 
 const (
@@ -26,9 +26,12 @@ const (
 	glyphMaskCacheBytes   = 32 << 20
 )
 
+// glyphMaskKey identifies a cached mask. Masks are positioned relative to the
+// cell area, which is the same for every cell of a size.
 type glyphMaskKey struct {
 	face  font.Face
 	glyph string
+	size  image.Point
 }
 
 type cachedGlyphMask struct {
@@ -47,10 +50,7 @@ func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
 		drawBoxGlyphMask(img, layout.Fg, mask)
 		return
 	}
-	switch layout.Mode {
-	case rasterScaled:
-		idraw.FallbackGlyphScaled(img, layout.Target, layout.Face, layout.Fg, layout.Glyph, layout.Dot, layout.ScaleMode, layout.AlignEnd)
-	case rasterDirect:
+	if layout.Kind == KindGrid {
 		drawer := font.Drawer{
 			Dst:  img,
 			Src:  image.NewUniform(layout.Fg),
@@ -58,9 +58,17 @@ func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
 			Dot:  layout.Dot,
 		}
 		drawer.DrawString(layout.Glyph)
-	default:
-		panic("invalid glyph layout mode")
+		return
 	}
+	if mask, ok := buildGlyphLayoutMask(layout); ok {
+		drawGlyphLayoutMask(img, layout, mask)
+		alpha.ReleaseGlyphAlpha(mask.alpha)
+	}
+}
+
+func drawGlyphLayoutMask(img draw.Image, layout *Layout, mask cachedGlyphMask) {
+	dr := mask.alpha.Bounds().Add(layout.Area.Min.Add(mask.offset))
+	draw.DrawMask(img, dr, image.NewUniform(layout.Fg), image.Point{}, mask.alpha, image.Point{}, draw.Over)
 }
 
 // DrawGlyph rasterizes the cell's grapheme into area.
@@ -70,11 +78,6 @@ func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *scr
 		return
 	}
 	DrawGlyphLayout(ctx, img, &layout)
-}
-
-// AccumulateGlyphLayout adds layout ink to coverage accumulation.
-func AccumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout) {
-	accumulateGlyphLayout(ctx, cov, layout, nil)
 }
 
 func accumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout, cache *glyphMaskCache) {
@@ -141,6 +144,7 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 	key := glyphMaskKey{
 		face:  layout.Face,
 		glyph: layout.Glyph,
+		size:  layout.Area.Size(),
 	}
 	if cache.items != nil {
 		if mask, ok := cache.items[key]; ok {
@@ -172,12 +176,23 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 	return mask, true
 }
 
+// buildGlyphLayoutMask rasterizes a face glyph. Powerline glyphs are scaled
+// into their target; Nerd Font and fallback glyphs are moved vertically to fit
+// the cell, and scaled down into their target band only when their ink still
+// overflows it.
 func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
-	r, n := utf8.DecodeRuneInString(layout.Glyph)
-	if n == 0 || r == utf8.RuneError {
-		return cachedGlyphMask{}, false
+	dot := layout.Dot
+	switch layout.Kind {
+	case KindGrid, KindSprite:
+	case KindPowerline:
+		return scaledGlyphLayoutMask(layout, dot, layout.ScaleMode)
+	case KindFallback:
+		dot.Y += fixed.I(idraw.GlyphVerticalAdjust(layout.Face, dot, layout.Glyph, layout.Area))
+		if dr, ok := idraw.GlyphRasterBounds(layout.Face, dot, layout.Glyph); ok && idraw.FallbackGlyphNeedsScale(dr, layout.Target) {
+			return scaledGlyphLayoutMask(layout, dot, idraw.ScaleDefault)
+		}
 	}
-	dr, mask, maskp, _, ok := layout.Face.Glyph(layout.Dot, r)
+	dr, mask, maskp, _, ok := layout.Face.Glyph(dot, layout.Rune)
 	if !ok || dr.Empty() || mask == nil {
 		return cachedGlyphMask{}, false
 	}
@@ -185,4 +200,12 @@ func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 		offset: dr.Min.Sub(layout.Area.Min),
 		alpha:  alpha.RasterGlyph(dr, mask, maskp),
 	}, true
+}
+
+func scaledGlyphLayoutMask(layout *Layout, dot fixed.Point26_6, mode idraw.ScaleMode) (cachedGlyphMask, bool) {
+	dr, mask, ok := idraw.ScaledGlyphMask(layout.Target, layout.Face, layout.Glyph, dot, mode, layout.AlignEnd)
+	if !ok {
+		return cachedGlyphMask{}, false
+	}
+	return cachedGlyphMask{offset: dr.Min.Sub(layout.Area.Min), alpha: mask}, true
 }

@@ -82,11 +82,7 @@ func (d *Renderer) drawCellFgColor(dst draw.Image, area image.Rectangle, cell *s
 	}
 	if usePass {
 		if hasLayout {
-			if layout.Kind == raster.KindGrid {
-				d.fgPass.AccumulateGlyphLayout(f, &layout)
-			} else {
-				d.fgPass.AppendGlyph(layout)
-			}
+			d.fgPass.AddGlyph(f, &layout)
 		}
 		if hasDecorations {
 			d.fgPass.AppendDecoration(area, cell, fg)

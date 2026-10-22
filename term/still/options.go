@@ -202,6 +202,18 @@ func WithCodepointMap(cp map[string]fonts.FontFamily) Option {
 	}
 }
 
+// WithSystemFontFallback sets whether runes that no configured or bundled
+// font covers (CJK, emoji, uncommon scripts) may be drawn with an installed
+// font. It is enabled by default. The first such rune makes the renderer read
+// the cmap of every installed font. Disable it for output that must not depend
+// on the fonts installed on the machine.
+func WithSystemFontFallback(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.SystemFontFallback = enabled
+		return nil
+	}
+}
+
 // WithPalette replaces the renderer palette.
 func WithPalette(palette Palette) Option {
 	return func(d *Renderer) error {

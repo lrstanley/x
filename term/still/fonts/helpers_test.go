@@ -10,5 +10,7 @@ import "sync"
 // not run concurrently with lookups.
 func resetFontCachesForTest() {
 	systemFamilyIndex = sync.OnceValue(buildSystemIndex)
+	systemFallbackIndex = sync.OnceValue(buildSystemFallbackIndex)
 	faceCache.Clear()
+	fallbackFonts.Clear()
 }

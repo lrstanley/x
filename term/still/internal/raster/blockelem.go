@@ -4,10 +4,7 @@
 
 package raster
 
-import (
-	"image"
-	"sync"
-)
+import "image"
 
 // Shade alphas for light, medium, and dark shade (U+2591..U+2593): a uniform
 // 25%, 50%, and 75% fill rather than a dither pattern.
@@ -17,7 +14,8 @@ const (
 	shadeDark   uint8 = 191
 )
 
-// blockQuad selects quarter rects of the cell.
+// blockQuad selects quarter rects of the cell. The bits follow the row-major
+// grid order of [blockSpec.cells].
 type blockQuad uint8
 
 const (
@@ -27,44 +25,57 @@ const (
 	quadLR
 )
 
-// blockSpec describes a block element as eighth-cell edges, in the range
-// 0..8, plus an optional alpha for shades.
-type blockSpec struct {
+// blockRect is a rectangle in eighth-cell edges, in the range 0..8, filled
+// with alpha. A zero alpha marks an unused rect.
+type blockRect struct {
 	x0, y0, x1, y1 int
-	quads          blockQuad
 	alpha          uint8
 }
 
-// IsBlockElementRune reports Block Elements (U+2580..U+259F), which are drawn
-// as exact pixel rectangles instead of from the font.
-func IsBlockElementRune(r rune) bool {
-	return r >= 0x2580 && r <= 0x259F
+// solid returns an opaque blockRect.
+func solid(x0, y0, x1, y1 int) blockRect {
+	return blockRect{x0: x0, y0: y0, x1: x1, y1: y1, alpha: 0xff}
+}
+
+// blockSpec describes a sprite as up to four eighth-based rects or, when rows
+// is non-zero, as a two-column grid (quadrants, sextants, octants) whose
+// filled cells are set in row-major order from bit 0 at the top left.
+type blockSpec struct {
+	rects [4]blockRect
+	rows  int
+	cells uint8
+}
+
+func rectSpec(rects ...blockRect) blockSpec {
+	var spec blockSpec
+	copy(spec.rects[:], rects)
+	return spec
 }
 
 func blockSpecFromRune(r rune) (blockSpec, bool) {
 	switch {
 	case r == 0x2580: // ▀
-		return blockSpec{x1: 8, y1: 4, alpha: 0xff}, true
+		return rectSpec(solid(0, 0, 8, 4)), true
 	case r >= 0x2581 && r <= 0x2588: // ▁..█
-		return blockSpec{y0: 8 - int(r-0x2580), x1: 8, y1: 8, alpha: 0xff}, true
+		return rectSpec(solid(0, 8-int(r-0x2580), 8, 8)), true
 	case r >= 0x2589 && r <= 0x258F: // ▉..▏
-		return blockSpec{x1: 8 - int(r-0x2588), y1: 8, alpha: 0xff}, true
+		return rectSpec(solid(0, 0, 8-int(r-0x2588), 8)), true
 	case r == 0x2590: // ▐
-		return blockSpec{x0: 4, x1: 8, y1: 8, alpha: 0xff}, true
+		return rectSpec(solid(4, 0, 8, 8)), true
 	case r == 0x2591:
-		return blockSpec{x1: 8, y1: 8, alpha: shadeLight}, true
+		return rectSpec(blockRect{x1: 8, y1: 8, alpha: shadeLight}), true
 	case r == 0x2592:
-		return blockSpec{x1: 8, y1: 8, alpha: shadeMedium}, true
+		return rectSpec(blockRect{x1: 8, y1: 8, alpha: shadeMedium}), true
 	case r == 0x2593:
-		return blockSpec{x1: 8, y1: 8, alpha: shadeDark}, true
+		return rectSpec(blockRect{x1: 8, y1: 8, alpha: shadeDark}), true
 	case r == 0x2594: // ▔
-		return blockSpec{x1: 8, y1: 1, alpha: 0xff}, true
+		return rectSpec(solid(0, 0, 8, 1)), true
 	case r == 0x2595: // ▕
-		return blockSpec{x0: 7, x1: 8, y1: 8, alpha: 0xff}, true
+		return rectSpec(solid(7, 0, 8, 8)), true
 	case r >= 0x2596 && r <= 0x259F:
-		return blockSpec{quads: blockQuadrants[r-0x2596], alpha: 0xff}, true
+		return blockSpec{rows: 2, cells: uint8(blockQuadrants[r-0x2596])}, true
 	}
-	return blockSpec{}, false
+	return legacySpecFromRune(r)
 }
 
 // blockQuadrants is indexed by rune - U+2596 (▖▗▘▙▚▛▜▝▞▟).
@@ -88,58 +99,34 @@ func blockEdge(n, eighth int) int {
 	return (n*eighth + 4) / 8
 }
 
-type blockMaskKey struct {
-	r    rune
-	w, h int
+// blockRowEdge returns the top edge of grid row i (0..rows) within n pixels.
+// Two and four rows use the eighth edges, so quadrants and octants line up
+// with ▀▄▂▆; three rows use thirds, rounded like blockEdge (an exact half
+// cannot occur).
+func blockRowEdge(n, rows, i int) int {
+	if rows == 3 {
+		return (n*i + 1) / 3
+	}
+	return blockEdge(n, i*8/rows)
 }
 
-// blockMasks caches immutable masks by rune and cell size.
-var blockMasks sync.Map // blockMaskKey -> *image.Alpha
-
-// buildBlockGlyphMask returns the exact-rectangle mask for block element r
-// covering area.
-func buildBlockGlyphMask(area image.Rectangle, r rune) (boxGlyphMask, bool) {
-	spec, ok := blockSpecFromRune(r)
-	if !ok || area.Empty() {
-		return boxGlyphMask{}, false
-	}
-	w, h := area.Dx(), area.Dy()
-	key := blockMaskKey{r: r, w: w, h: h}
-	if v, loaded := blockMasks.Load(key); loaded {
-		if cached, isAlpha := v.(*image.Alpha); isAlpha {
-			return boxGlyphMask{dr: area, alpha: cached}, true
-		}
-	}
-
-	a := image.NewAlpha(image.Rect(0, 0, w, h))
-	fill := func(x0, y0, x1, y1 int) {
-		for y := y0; y < y1; y++ {
-			row := a.Pix[y*a.Stride : y*a.Stride+w]
-			for x := x0; x < x1; x++ {
-				row[x] = spec.alpha
+// drawBlockSpec fills a, which spans one cell, with spec.
+func drawBlockSpec(a *image.Alpha, spec blockSpec) {
+	w, h := a.Rect.Dx(), a.Rect.Dy()
+	if spec.rows == 0 {
+		for _, r := range spec.rects {
+			if r.alpha != 0 {
+				fillAlpha(a, blockEdge(w, r.x0), blockEdge(h, r.y0), blockEdge(w, r.x1), blockEdge(h, r.y1), r.alpha)
 			}
 		}
+		return
 	}
-	if spec.quads == 0 {
-		fill(blockEdge(w, spec.x0), blockEdge(h, spec.y0), blockEdge(w, spec.x1), blockEdge(h, spec.y1))
-	} else {
-		mx, my := blockEdge(w, 4), blockEdge(h, 4)
-		if spec.quads&quadUL != 0 {
-			fill(0, 0, mx, my)
+	cols := [3]int{0, blockEdge(w, 4), w}
+	for i := range 2 * spec.rows {
+		if spec.cells&(1<<i) == 0 {
+			continue
 		}
-		if spec.quads&quadUR != 0 {
-			fill(mx, 0, w, my)
-		}
-		if spec.quads&quadLL != 0 {
-			fill(0, my, mx, h)
-		}
-		if spec.quads&quadLR != 0 {
-			fill(mx, my, w, h)
-		}
+		row, col := i/2, i%2
+		fillAlpha(a, cols[col], blockRowEdge(h, spec.rows, row), cols[col+1], blockRowEdge(h, spec.rows, row+1), 0xff)
 	}
-	v, _ := blockMasks.LoadOrStore(key, a)
-	if shared, isAlpha := v.(*image.Alpha); isAlpha {
-		a = shared
-	}
-	return boxGlyphMask{dr: area, alpha: a}, true
 }

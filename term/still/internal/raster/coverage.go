@@ -202,14 +202,16 @@ type Pass struct {
 	decorations []FgDecoration
 }
 
-// AccumulateGlyphLayout adds layout ink to this pass using its mask cache.
-func (p *Pass) AccumulateGlyphLayout(ctx GlyphContext, layout *Layout) {
-	accumulateGlyphLayout(ctx, &p.cov, layout, &p.glyphMasks)
-}
-
-// AppendGlyph queues a deferred non-grid glyph draw.
-func (p *Pass) AppendGlyph(layout Layout) {
-	p.glyphs = append(p.glyphs, layout)
+// AddGlyph adds layout to this pass: grid glyphs and sprites accumulate into
+// coverage using the pass's mask cache, and other glyphs are deferred to
+// [Pass.DrawPending].
+func (p *Pass) AddGlyph(ctx GlyphContext, layout *Layout) {
+	switch layout.Kind {
+	case KindGrid, KindSprite:
+		accumulateGlyphLayout(ctx, &p.cov, layout, &p.glyphMasks)
+	case KindPowerline, KindFallback:
+		p.glyphs = append(p.glyphs, *layout)
+	}
 }
 
 // AppendDecoration queues decorations to draw after coverage compositing.
@@ -232,7 +234,10 @@ func (p *Pass) Composite(dst *image.NRGBA) {
 // DrawPending renders deferred glyphs and decorations.
 func (p *Pass) DrawPending(ctx GlyphContext, dst draw.Image) {
 	for i := range p.glyphs {
-		DrawGlyphLayout(ctx, dst, &p.glyphs[i])
+		layout := &p.glyphs[i]
+		if mask, ok := glyphLayoutMask(layout, &p.glyphMasks); ok {
+			drawGlyphLayoutMask(dst, layout, mask)
+		}
 	}
 	for i := range p.decorations {
 		dec := &p.decorations[i]

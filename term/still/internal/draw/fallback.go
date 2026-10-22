@@ -9,7 +9,6 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
-	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/still/internal/config"
 	"github.com/lrstanley/x/term/still/units"
@@ -19,7 +18,8 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// FallbackGlyphTarget returns the vertical band for nerd-icon layout.
+// FallbackGlyphTarget returns the vertical band that fallback glyphs (Nerd Font
+// icons, fallback fonts) are fitted into.
 func FallbackGlyphTarget(ctx config.CellFrameSource, area image.Rectangle, cell *screen.Cell) image.Rectangle {
 	if area.Empty() {
 		return area
@@ -40,8 +40,8 @@ func FallbackGlyphTarget(ctx config.CellFrameSource, area image.Rectangle, cell 
 
 // PowerlineFallbackScale selects Ghostty-style stretch/fit_cover1 for Powerline codepoints.
 func PowerlineFallbackScale(glyph string) (ScaleMode, bool) {
-	r, n := utf8.DecodeRuneInString(glyph)
-	if n == 0 || r == utf8.RuneError {
+	r, ok := FirstRune(glyph)
+	if !ok {
 		return ScaleDefault, false
 	}
 	if r >= '\ue0a0' && r <= '\ue0a3' || r == '\ue0cf' {
@@ -71,23 +71,27 @@ func FallbackGlyphNeedsScale(dr, area image.Rectangle) bool {
 
 // FallbackGlyphScaled draws a glyph from a symbol face into target.
 func FallbackGlyphScaled(dst draw.Image, target image.Rectangle, face font.Face, fg color.Color, glyph string, dot fixed.Point26_6, mode ScaleMode, alignEnd bool) {
-	r, n := utf8.DecodeRuneInString(glyph)
-	if n == 0 || r == utf8.RuneError {
-		return
+	if out, mask, ok := ScaledGlyphMask(target, face, glyph, dot, mode, alignEnd); ok {
+		draw.DrawMask(dst, out, image.NewUniform(fg), image.Point{}, mask, image.Point{}, draw.Over)
+	}
+}
+
+// ScaledGlyphMask rasterizes the first rune of glyph from face, scaled into
+// target per mode, and returns the mask and the rectangle it covers.
+func ScaledGlyphMask(target image.Rectangle, face font.Face, glyph string, dot fixed.Point26_6, mode ScaleMode, alignEnd bool) (image.Rectangle, *image.Alpha, bool) {
+	r, ok := FirstRune(glyph)
+	if !ok {
+		return image.Rectangle{}, nil, false
 	}
 	dr, mask, maskp, _, ok := face.Glyph(dot, r)
-	if !ok || dr.Empty() || mask == nil || dr.Dx() <= 0 || dr.Dy() <= 0 || target.Empty() {
-		return
+	if !ok || dr.Empty() || mask == nil || target.Empty() {
+		return image.Rectangle{}, nil, false
 	}
 	srcAlpha := image.NewAlpha(dr)
 	draw.DrawMask(srcAlpha, dr, image.Opaque, image.Point{}, mask, maskp, draw.Src)
 
-	var sx, sy float64
-	var x0, y0 int
+	var out image.Rectangle
 	switch mode {
-	case ScaleDefault:
-		sx = min(1, float64(target.Dx())/float64(dr.Dx()))
-		sy = min(1, float64(target.Dy())/float64(dr.Dy()))
 	case ScaleStretch:
 		const padX = 0.03
 		const padY = 0.005
@@ -101,37 +105,35 @@ func FallbackGlyphScaled(dst draw.Image, target image.Rectangle, face font.Face,
 		bleedY := int(math.Round(float64(target.Dy()) * padY))
 		dw := max(1, target.Dx()+2*bleedX)
 		dh := max(1, target.Dy()+2*bleedY)
-		scaledAlpha := image.NewAlpha(image.Rect(0, 0, dw, dh))
-		xdraw.ApproxBiLinear.Scale(scaledAlpha, scaledAlpha.Bounds(), srcAlpha, dr, draw.Src, nil)
-
-		y0 = target.Min.Y - bleedY
+		x0 := target.Min.X - bleedX
 		if alignEnd {
 			x0 = target.Max.X + bleedX - dw
-		} else {
-			x0 = target.Min.X - bleedX
 		}
-		out := image.Rect(x0, y0, x0+dw, y0+dh)
-		draw.DrawMask(dst, out, image.NewUniform(fg), image.Point{}, scaledAlpha, image.Point{}, draw.Over)
-		return
-	case ScaleFitCover1:
-		sx = min(float64(target.Dx())/float64(dr.Dx()), float64(target.Dy())/float64(dr.Dy()))
-		sy = sx
+		out = image.Rect(x0, target.Min.Y-bleedY, x0+dw, target.Min.Y-bleedY+dh)
+	case ScaleDefault, ScaleFitCover1:
+		var sx, sy float64
+		if mode == ScaleFitCover1 {
+			sx = min(float64(target.Dx())/float64(dr.Dx()), float64(target.Dy())/float64(dr.Dy()))
+			sy = sx
+		} else {
+			sx = min(1, float64(target.Dx())/float64(dr.Dx()))
+			sy = min(1, float64(target.Dy())/float64(dr.Dy()))
+		}
+		dw := max(1, int(math.Round(float64(dr.Dx())*sx)))
+		dh := max(1, int(math.Round(float64(dr.Dy())*sy)))
+		x0 := target.Min.X + (target.Dx()-dw)/2
+		y0 := target.Min.Y + (target.Dy()-dh)/2
+		out = image.Rect(x0, y0, x0+dw, y0+dh)
 	}
-	dw := max(1, int(math.Round(float64(dr.Dx())*sx)))
-	dh := max(1, int(math.Round(float64(dr.Dy())*sy)))
-	scaledAlpha := image.NewAlpha(image.Rect(0, 0, dw, dh))
-	xdraw.ApproxBiLinear.Scale(scaledAlpha, scaledAlpha.Bounds(), srcAlpha, dr, draw.Src, nil)
-
-	x0 = target.Min.X + (target.Dx()-dw)/2
-	y0 = target.Min.Y + (target.Dy()-dh)/2
-	out := image.Rect(x0, y0, x0+dw, y0+dh)
-	draw.DrawMask(dst, out, image.NewUniform(fg), image.Point{}, scaledAlpha, image.Point{}, draw.Over)
+	scaled := image.NewAlpha(image.Rect(0, 0, out.Dx(), out.Dy()))
+	xdraw.ApproxBiLinear.Scale(scaled, scaled.Bounds(), srcAlpha, dr, draw.Src, nil)
+	return out, scaled, true
 }
 
 // GlyphRasterBounds returns the device rectangle for the first rune of glyph at dot.
 func GlyphRasterBounds(face font.Face, dot fixed.Point26_6, glyph string) (image.Rectangle, bool) {
-	r, n := utf8.DecodeRuneInString(glyph)
-	if n == 0 || r == utf8.RuneError {
+	r, ok := FirstRune(glyph)
+	if !ok {
 		return image.Rectangle{}, false
 	}
 	dr, _, _, _, ok := face.Glyph(dot, r)
