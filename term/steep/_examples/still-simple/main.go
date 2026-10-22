@@ -59,7 +59,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() tea.View {
-	styleStrip := lipgloss.JoinHorizontal(lipgloss.Top,
+	styleStrip := lipgloss.JoinHorizontal(
+		lipgloss.Top,
 		lipgloss.NewStyle().Bold(true).Render("bold"),
 		lipgloss.NewStyle().Faint(true).Render(" · "),
 		lipgloss.NewStyle().Italic(true).Underline(true).UnderlineColor(lipgloss.Color("117")).Render("underline"),

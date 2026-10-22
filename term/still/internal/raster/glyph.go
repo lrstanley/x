@@ -43,7 +43,7 @@ type glyphMaskCache struct {
 
 // DrawGlyphLayout rasterizes layout onto img.
 func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
-	if mask, ok := layoutBoxGlyphMask(ctx, layout); ok {
+	if mask, ok := layoutSpriteMask(ctx, layout); ok {
 		drawBoxGlyphMask(img, layout.Fg, mask)
 		return
 	}
@@ -78,7 +78,7 @@ func AccumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout) {
 }
 
 func accumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout, cache *glyphMaskCache) {
-	if mask, ok := layoutBoxGlyphMask(ctx, layout); ok {
+	if mask, ok := layoutSpriteMask(ctx, layout); ok {
 		accumulateGlyphMask(cov, mask.dr, mask.alpha.Pix, mask.alpha.Stride, layout.Fg)
 		return
 	}

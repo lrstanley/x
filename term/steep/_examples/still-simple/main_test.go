@@ -24,7 +24,11 @@ func TestGenerate(t *testing.T) {
 	// 	still.WithCellWidth(-0.1),
 	// }
 
-	h := steep.NewHarness(t, newRankingModel()) // steep.WithWindowSize(120, 30),
+	h := steep.NewHarness(
+		t, newRankingModel(),
+		// steep.WithRenderer(still.WithFontSizePt(still.Pt(15))),
+	)
+	// steep.WithWindowSize(120, 30),
 	// steep.WithRenderer(opts...),
 	// steep.WithExportDir("testdata/"),
 	// steep.WithExport(steep.ExportOn, steep.ExportTypeGIF),

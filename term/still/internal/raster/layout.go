@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/still/internal/config"
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
@@ -122,6 +123,11 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, fg c
 }
 
 func classifyGlyph(ctx GlyphContext, face font.Face, glyph string) (Kind, idraw.ScaleMode, bool) {
+	// Block elements are drawn as cell rectangles, so they never depend on the
+	// face that would have supplied the glyph.
+	if r, n := utf8.DecodeRuneInString(glyph); n > 0 && IsBlockElementRune(r) {
+		return KindGrid, idraw.ScaleDefault, false
+	}
 	if ctx.UsesGridLayout(face) {
 		return KindGrid, idraw.ScaleDefault, false
 	}

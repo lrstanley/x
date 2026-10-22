@@ -21,15 +21,23 @@ type boxGlyphMask struct {
 	alpha *image.Alpha
 }
 
-func layoutBoxGlyphMask(ctx GlyphContext, layout *Layout) (boxGlyphMask, bool) {
+// layoutSpriteMask returns the mask for glyphs that are drawn from the cell
+// geometry (box drawing and block elements) instead of straight from the font.
+func layoutSpriteMask(ctx GlyphContext, layout *Layout) (boxGlyphMask, bool) {
 	if layout.Kind != KindGrid {
 		return boxGlyphMask{}, false
 	}
 	r, n := utf8.DecodeRuneInString(layout.Glyph)
-	if n == 0 || r == utf8.RuneError || !isBoxDrawingRune(r) {
+	if n == 0 || r == utf8.RuneError {
 		return boxGlyphMask{}, false
 	}
-	return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, r, ctx.Metrics())
+	switch {
+	case IsBlockElementRune(r):
+		return buildBlockGlyphMask(layout.Area, r)
+	case isBoxDrawingRune(r):
+		return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, r, ctx.Metrics())
+	}
+	return boxGlyphMask{}, false
 }
 
 func drawBoxGlyphMask(img draw.Image, fg color.NRGBA, m boxGlyphMask) {
