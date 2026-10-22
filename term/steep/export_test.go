@@ -93,6 +93,40 @@ func TestExportGIFCapturesKeysWithoutSlow(t *testing.T) {
 	}
 }
 
+// TestExportGIFSkipsPristineFirstFrame makes sure the recording starts on the
+// program's first paint, not on the emulator before it has written anything
+// (default colors, empty grid, cursor in the corner).
+func TestExportGIFSkipsPristineFirstFrame(t *testing.T) {
+	t.Parallel()
+	h := NewHarness(t, rootTestModel{},
+		WithWindowSize(80, 2),
+		WithExport(ExportOn, ExportTypeGIF),
+		WithExportDir(t.TempDir()),
+		WithIgnoreEnv(true),
+	)
+	h.Wait("size=80x2")
+	g := finishGIF(t, h, false)
+	if len(g.Image) == 0 {
+		t.Fatal("expected gif frames")
+	}
+
+	first := g.Image[0]
+	// The corner opposite the cursor is always background.
+	bg := first.Pix[len(first.Pix)-1]
+	var bounds image.Rectangle
+	for y := first.Rect.Min.Y; y < first.Rect.Max.Y; y++ {
+		for x := first.Rect.Min.X; x < first.Rect.Max.X; x++ {
+			if first.ColorIndexAt(x, y) != bg {
+				bounds = bounds.Union(image.Rect(x, y, x+1, y+1))
+			}
+		}
+	}
+	cell := h.imageRenderer.Metrics().CellSize()
+	if bounds.Dx() <= cell.X {
+		t.Fatalf("first gif frame content is %v, want text wider than one %v cell (pristine frame recorded)", bounds, cell)
+	}
+}
+
 func TestExportGIFDelaysFollowRealTimeOnFPSGrid(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
