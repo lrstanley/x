@@ -88,6 +88,9 @@ type exportManager struct {
 	sent     vt.Snapshot
 	heldSkip bool
 
+	// pristine is the emulator state before the program has written anything.
+	pristine vt.Snapshot
+
 	lastPNG  image.Image
 	lastSnap []byte
 	log      *hookLog
@@ -137,6 +140,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		baseName:   cfg.exportName,
 		exportOpts: exportOpts,
 	}
+	m.pristine = h.emulator.term.Snapshot()
 	m.cards.opts = cfg.imageRendererOpts
 	m.frames = exportPipeline{
 		base:  ExportContext{Mode: cfg.exportMode, Step: time.Second / time.Duration(fps), h: h, cards: &m.cards},
@@ -202,7 +206,7 @@ func (m *exportManager) hook(event HookEvent, stage HookStage, metadata any) err
 	}
 	m.flushCommits()
 	if m.types.has(ExportTypeGIF) {
-		if err := m.captureGIF(); err != nil {
+		if err := m.captureGIF(event); err != nil {
 			return err
 		}
 	}
@@ -249,6 +253,9 @@ func (m *exportManager) noteCommit() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stopped || m.gifCh == nil || m.duplicateCommitLocked(st) {
+		return
+	}
+	if m.beforeFirstFrameLocked() && m.isPristine(st, scr.Text()) {
 		return
 	}
 	// cap matches the GIF channel: the recorder keeps this many frames and
@@ -298,13 +305,16 @@ func (m *exportManager) flushCommits() {
 	}
 }
 
-func (m *exportManager) captureGIF() error {
+func (m *exportManager) captureGIF(event HookEvent) error {
 	if m.h.emulator.term.Held() {
 		m.noteHeldSkip()
 		return nil
 	}
 	src := frameSource{state: m.h.emulator.term.Snapshot()}
 	if m.duplicateCommit(src.state) {
+		return nil
+	}
+	if event == HookReady && m.beforeFirstFrame() && m.isPristine(src.state, m.h.emulator.term.Text()) {
 		return nil
 	}
 	src.cols, src.rows = m.h.Dimensions()
@@ -337,6 +347,42 @@ func (m *exportManager) sendFrame(src frameSource, img image.Image, at time.Time
 	m.sent = src.state
 	m.mu.Unlock()
 	m.frames.record(img, at, src)
+}
+
+func (m *exportManager) beforeFirstFrame() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.beforeFirstFrameLocked()
+}
+
+func (m *exportManager) beforeFirstFrameLocked() bool {
+	return !m.haveSent && len(m.pending) == 0
+}
+
+// isPristine reports whether st and the screen text are indistinguishable from
+// an emulator the program hasn't visibly written to yet. Bubble Tea starts by
+// writing capability queries, which commit without changing anything, and
+// [HookReady] can fire before its first paint. Exporting either as a frame
+// shows a one-frame flicker of the default colors and cursor at 0,0 before the
+// real first frame. This is only consulted until the first frame is recorded.
+//
+// TODO: this assumes the harness only drives Bubble Tea programs, where a
+// pristine screen always means "hasn't rendered yet". If we add full exec
+// support (launching a shell such as bash, typing into it, etc), a program can
+// legitimately sit on a pristine-looking screen, so this should likely be
+// removed or reworked at that point.
+func (m *exportManager) isPristine(st vt.Snapshot, text string) bool {
+	p := m.pristine
+	return strings.TrimSpace(text) == "" &&
+		st.Title == p.Title &&
+		st.AltScreen == p.AltScreen &&
+		st.Foreground == p.Foreground &&
+		st.Background == p.Background &&
+		st.Cursor.X == p.Cursor.X &&
+		st.Cursor.Y == p.Cursor.Y &&
+		st.Cursor.Visible == p.Cursor.Visible &&
+		st.Cursor.Blink == p.Cursor.Blink &&
+		st.Cursor.Shape == p.Cursor.Shape
 }
 
 func sameCommit(a, b vt.Snapshot) bool {
