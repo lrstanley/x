@@ -7,6 +7,7 @@ package still
 import (
 	"errors"
 	"image"
+	"math"
 	"sync"
 
 	"github.com/lrstanley/x/term/still/internal/config"
@@ -42,6 +43,8 @@ type Renderer struct {
 	blinkOn    bool
 
 	fgPass raster.Pass
+	// prev holds the cells d.frame shows, row-major, for drawIncremental.
+	prev []screen.Cell
 }
 
 // New returns a renderer configured with opts.
@@ -116,7 +119,8 @@ func (d *Renderer) Metrics() Metrics {
 }
 
 // Draw rasterizes scr into the renderer's reusable frame buffer and returns it.
-// When the cached frame is already that picture, Draw returns it without painting.
+// When the cached frame is already that picture, Draw returns it without painting,
+// and when only some rows changed it repaints just those rows.
 func (d *Renderer) Draw(scr screen.Screen) image.Image {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -125,13 +129,16 @@ func (d *Renderer) Draw(scr screen.Screen) image.Image {
 	if d.reuseFrame(scr) {
 		return d.frame
 	}
+	if d.drawIncremental(scr) {
+		return d.frame
+	}
 	d.frameReady = false
 	f := d.borrowRenderFrame(image.Point{}, scr)
 	defer releaseRenderFrame(f)
 	bounds := f.imageBounds
 	img := d.ensureFrameLocked(bounds)
 	d.render(img, scr, f)
-	d.rememberFrame(scr)
+	d.rememberFrame(scr, 0, math.MaxInt)
 	return img
 }
 

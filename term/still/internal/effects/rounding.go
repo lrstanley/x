@@ -31,10 +31,7 @@ func ApplyRoundedMask(ctx config.WindowSource, img draw.Image) {
 	}
 
 	outside := icol.NRGBA(ctx.MarginColor())
-	innerL := window.Min.X + radius
-	innerR := window.Max.X - radius
-	innerT := window.Min.Y + radius
-	innerB := window.Max.Y - radius
+	nrgba, _ := img.(*image.NRGBA)
 
 	wf := float64(width)
 	hf := float64(height)
@@ -59,26 +56,21 @@ func ApplyRoundedMask(ctx config.WindowSource, img draw.Image) {
 			}
 		}
 
-		src := icol.NRGBA(img.At(x, y))
-		img.Set(x, y, compositeCovered(src, outside, coverage))
+		if nrgba != nil {
+			nrgba.SetNRGBA(x, y, compositeCovered(nrgba.NRGBAAt(x, y), outside, coverage))
+			return
+		}
+		img.Set(x, y, compositeCovered(icol.NRGBA(img.At(x, y)), outside, coverage))
 	}
 
-	for y := window.Min.Y; y < innerT; y++ {
-		for x := window.Min.X; x < window.Max.X; x++ {
-			apply(x, y)
-		}
-	}
-	for y := innerB; y < window.Max.Y; y++ {
-		for x := window.Min.X; x < window.Max.X; x++ {
-			apply(x, y)
-		}
-	}
-	for y := innerT; y < innerB; y++ {
-		for x := window.Min.X; x < innerL; x++ {
-			apply(x, y)
-		}
-		for x := innerR; x < window.Max.X; x++ {
-			apply(x, y)
+	// Pixels outside the four radius x radius corner squares are never modified.
+	for _, y0 := range [2]int{window.Min.Y, window.Max.Y - radius} {
+		for _, x0 := range [2]int{window.Min.X, window.Max.X - radius} {
+			for y := y0; y < y0+radius; y++ {
+				for x := x0; x < x0+radius; x++ {
+					apply(x, y)
+				}
+			}
 		}
 	}
 }

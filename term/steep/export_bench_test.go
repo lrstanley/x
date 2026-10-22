@@ -53,7 +53,8 @@ var benchmarkModels = []struct {
 }
 
 // BenchmarkExportCapture is the test goroutine's cost per recorded paint:
-// rendering the committed screen and copying it for the encoder.
+// rendering the committed screen into a recycled buffer, which the encoder
+// releases once it has palettized it.
 func BenchmarkExportCapture(b *testing.B) {
 	for _, size := range benchmarkSizes {
 		b.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(b *testing.B) {
@@ -70,7 +71,7 @@ func BenchmarkExportCapture(b *testing.B) {
 			b.ReportAllocs()
 			i := 0
 			for b.Loop() {
-				copyCommitted(h, screens[i%2], states[i%2])
+				releaseNRGBA(copyCommitted(h, screens[i%2], states[i%2]))
 				i++
 			}
 			reportBudget(b)

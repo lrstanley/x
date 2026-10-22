@@ -74,10 +74,21 @@ func (d *Renderer) reuseFrame(scr screen.Screen) bool {
 	return !d.cellsBlink(buf, gen)
 }
 
-func (d *Renderer) rememberFrame(scr screen.Screen) {
+// rememberFrame records scr as what d.frame shows. lo..hi are the cell rows
+// that changed since the previous remembered frame; they are copied to d.prev.
+func (d *Renderer) rememberFrame(scr screen.Screen, lo, hi int) {
 	buf, ok := scr.(*screen.Buffer)
 	if !ok || buf == nil {
 		return
+	}
+	b, w := buf.Bounds(), buf.Width()
+	if len(d.prev) != w*b.Dy() {
+		d.prev, lo, hi = make([]screen.Cell, w*b.Dy()), 0, b.Dy()-1
+	}
+	for y := max(lo, 0); y <= min(hi, b.Dy()-1); y++ {
+		for x := range w {
+			d.prev[y*w+x] = *buf.CellAt(b.Min.X+x, b.Min.Y+y)
+		}
 	}
 	d.frameGen = buf.Generation()
 	d.frameSnap = d.currentSnap(buf.Bounds())
@@ -180,4 +191,88 @@ func indexedKey(m map[int]color.Color) uint64 {
 		h += v * 0xBF58476D1CE4E5B9
 	}
 	return h ^ uint64(len(m))
+}
+
+// drawIncremental repaints only the cell rows that differ from d.prev (plus
+// the cursor's old and new rows) into d.frame, reporting whether it could.
+// The band is repainted from the background up, so the effects that run
+// after the cells (dimming, rounded mask, cursor, scrollbar) apply to fresh
+// pixels, and everything outside the band is untouched.
+func (d *Renderer) drawIncremental(scr screen.Screen) bool {
+	buf, ok := scr.(*screen.Buffer)
+	if !ok || !d.frameReady || d.frame == nil || buf.Generation() == 0 || len(d.prev) != buf.Width()*buf.Height() {
+		return false
+	}
+	now, old := d.currentSnap(buf.Bounds()), d.frameSnap
+	if now.sansCursor() != old.sansCursor() || d.frame.Bounds() != d.drawBounds(now.screen) ||
+		now.hasEmu && now.curOn && now.curBlink && d.opts.CursorBlinkSpeed > 0 ||
+		d.cellsBlink(buf, buf.Generation()) {
+		return false
+	}
+	lo, hi, ok := d.dirtyRows(buf)
+	if !ok {
+		return false
+	}
+	if now.cursor() != old.cursor() {
+		for _, y := range [...]int{now.curY, old.curY} {
+			if y >= 0 && y < buf.Height() {
+				lo, hi = min(lo, y), max(hi, y)
+			}
+		}
+	}
+	if hi < lo {
+		d.rememberFrame(scr, 0, -1)
+		return true
+	}
+	f := d.borrowRenderFrame(image.Point{}, scr)
+	defer releaseRenderFrame(f)
+	band := f.imageBounds
+	if r0 := max(0, lo-1); r0 > 0 {
+		band.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
+	}
+	if r1 := min(buf.Height(), hi+2); r1 < buf.Height() {
+		band.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
+	}
+	d.frameReady = false
+	d.render(d.frame.SubImage(band).(*image.NRGBA), scr, f)
+	d.rememberFrame(scr, lo, hi)
+	return true
+}
+
+// dirtyRows returns the first and last row of buf that differs from d.prev
+// (hi < lo when none). ok is false when cells cannot be compared, which
+// happens for non-comparable color types.
+func (d *Renderer) dirtyRows(buf *screen.Buffer) (lo, hi int, ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	b, w := buf.Bounds(), buf.Width()
+	lo, hi = b.Dy(), -1
+	for y := range b.Dy() {
+		for x := range w {
+			if d.prev[y*w+x] != *buf.CellAt(b.Min.X+x, b.Min.Y+y) {
+				lo, hi = min(lo, y), y
+				break
+			}
+		}
+	}
+	return lo, hi, true
+}
+
+type cursorSnap struct {
+	on, blink bool
+	x, y      int
+	style     screen.CursorShape
+}
+
+func (s frameSnap) cursor() cursorSnap {
+	return cursorSnap{s.curOn, s.curBlink, s.curX, s.curY, s.curStyle}
+}
+
+// sansCursor is s without the cursor fields, which drawIncremental handles by row.
+func (s frameSnap) sansCursor() frameSnap {
+	s.curOn, s.curBlink, s.curX, s.curY, s.curStyle = false, false, 0, 0, 0
+	return s
 }

@@ -6,6 +6,7 @@ package export
 
 import (
 	"cmp"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"slices"
@@ -117,50 +118,74 @@ func (p *adaptivePalette) resetSpans(n int) {
 	}
 }
 
-// pixelKey returns the packed RGB of the pixel at sx, or false when it is
-// fully transparent.
-func pixelKey(pix []uint8, sx int, premultiplied bool) (uint32, bool) {
-	a := pix[sx+3]
-	if a == 0 {
-		return 0, false
-	}
-	r, g, b := pix[sx], pix[sx+1], pix[sx+2]
-	if premultiplied && a != 0xff {
-		r, g, b = unpremultiply(r, a), unpremultiply(g, a), unpremultiply(b, a)
-	}
-	return uint32(r)<<16 | uint32(g)<<8 | uint32(b), true
-}
-
 // writeSpan maps rows minY through maxY of area through the cache, counting
 // colors that have no index yet in spanMisses[span]. Those pixels are left
 // for a second pass once the palette has grown.
+//
+// Terminal frames are mostly flat runs, so each run of identical pixel words
+// is looked up and counted once, weighted by its length. Alpha 0 pixels all
+// map to TransparentPaletteIndex whatever their color, so they form one run.
 func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels, area image.Rectangle, minY, maxY int) {
 	width := area.Dx()
 	misses := p.spanMisses[span]
+	le := binary.LittleEndian
 	for y := minY; y < maxY; y++ {
 		si := (y-px.rect.Min.Y)*px.stride + (area.Min.X-px.rect.Min.X)*4
 		di := (y-dst.Rect.Min.Y)*dst.Stride + (area.Min.X - dst.Rect.Min.X)
 		row := px.pix[si : si+width*4]
 		out := dst.Pix[di : di+width]
 		last, lastIdx, lastOK, haveLast := uint32(0), uint8(0), false, false
-		for x := range out {
-			key, ok := pixelKey(row, x*4, px.premultiplied)
-			if !ok {
-				out[x] = TransparentPaletteIndex
-				continue
+		for x := 0; x < width; {
+			w, mask := le.Uint32(row[x*4:]), ^uint32(0)
+			if w>>24 == 0 {
+				mask = 0xff000000
 			}
-			if !haveLast || key != last {
-				last, haveLast = key, true
-				lastIdx, lastOK = p.cache[key]
+			w &= mask
+			m64, w64 := uint64(mask)*0x100000001, uint64(w)*0x100000001
+			end := x + 1
+			for end < min(x+8, width) && le.Uint32(row[end*4:])&mask == w {
+				end++
 			}
-			if !lastOK {
-				if misses == nil {
-					misses = make(map[uint32]int)
-					p.spanMisses[span] = misses
+			if end-x == 8 {
+				for end+8 <= width {
+					r := row[end*4 : end*4+32]
+					if le.Uint64(r)&m64 != w64 || le.Uint64(r[8:])&m64 != w64 ||
+						le.Uint64(r[16:])&m64 != w64 || le.Uint64(r[24:])&m64 != w64 {
+						break
+					}
+					end += 8
 				}
-				misses[key]++
+				for end < width && le.Uint32(row[end*4:])&mask == w {
+					end++
+				}
 			}
-			out[x] = lastIdx
+
+			idx := TransparentPaletteIndex
+			if w>>24 != 0 {
+				r, g, b := uint8(w), uint8(w>>8), uint8(w>>16)
+				if a := uint8(w >> 24); px.premultiplied && a != 0xff {
+					r, g, b = unpremultiply(r, a), unpremultiply(g, a), unpremultiply(b, a)
+				}
+				key := uint32(r)<<16 | uint32(g)<<8 | uint32(b)
+				if !haveLast || key != last {
+					last, haveLast = key, true
+					lastIdx, lastOK = p.cache[key]
+				}
+				if !lastOK {
+					if misses == nil {
+						misses = make(map[uint32]int)
+						p.spanMisses[span] = misses
+					}
+					misses[key] += end - x
+				}
+				idx = lastIdx
+			}
+			run := out[x:end]
+			run[0] = idx
+			for n := 1; n < len(run); n *= 2 {
+				copy(run[n:], run[:n])
+			}
+			x = end
 		}
 	}
 }

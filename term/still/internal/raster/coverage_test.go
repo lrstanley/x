@@ -5,6 +5,7 @@
 package raster
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"testing"
@@ -16,6 +17,7 @@ func TestCoverageAccumulateAndComposite(t *testing.T) {
 	var pass Pass
 	bounds := image.Rect(0, 0, 4, 4)
 	pass.Reset(bounds)
+	pass.cov.ensure()
 
 	pass.cov.Accumulate(1, 1, 128, color.NRGBA{R: 255, A: 255})
 	pass.cov.Accumulate(1, 1, 64, color.NRGBA{G: 255, A: 255})
@@ -39,6 +41,7 @@ func TestPassAppendAndReset(t *testing.T) {
 
 	var pass Pass
 	pass.Reset(image.Rect(0, 0, 2, 2))
+	pass.cov.ensure()
 	pass.AppendDecoration(image.Rect(0, 0, 1, 1), nil, color.NRGBA{A: 0xff})
 
 	pass.cov.Accumulate(0, 0, 255, color.NRGBA{R: 1, A: 255})
@@ -49,6 +52,7 @@ func TestPassAppendAndReset(t *testing.T) {
 	}
 
 	pass.Reset(image.Rect(0, 0, 3, 3))
+	pass.cov.ensure()
 	pass.cov.Accumulate(2, 2, 255, color.NRGBA{G: 2, A: 255})
 	dst = image.NewNRGBA(image.Rect(0, 0, 3, 3))
 	pass.Composite(dst)
@@ -61,8 +65,103 @@ func TestPassResetReusesCoverageBuffer(t *testing.T) {
 	var pass Pass
 	bounds := image.Rect(0, 0, 500, 300)
 	pass.Reset(bounds)
-	if n := testing.AllocsPerRun(50, func() { pass.Reset(bounds) }); n != 0 {
+	if pass.cov.pixels != nil {
+		t.Fatal("reset allocated the coverage buffer")
+	}
+	pass.cov.ensure()
+	if n := testing.AllocsPerRun(50, func() { pass.Reset(bounds); pass.cov.ensure() }); n != 0 {
 		t.Fatalf("allocs per reset = %v, want 0", n)
+	}
+}
+
+func TestBlendMaskClippedMatchesCoverage(t *testing.T) {
+	t.Parallel()
+
+	pix := []uint8{
+		1, 2, 3, 4, 0,
+		5, 255, 7, 0, 9,
+		10, 11, 12, 13, 14,
+	}
+	fg := color.NRGBA{R: 200, G: 100, B: 50, A: 255}
+	bounds := image.Rect(0, 0, 8, 8)
+	for _, dr := range []image.Rectangle{
+		image.Rect(2, 2, 7, 5),   // inside
+		image.Rect(-2, -1, 3, 2), // clipped top-left
+		image.Rect(5, 6, 10, 9),  // clipped bottom-right
+	} {
+		want := image.NewNRGBA(bounds)
+		got := image.NewNRGBA(bounds)
+		for i := range want.Pix {
+			want.Pix[i] = uint8(i * 7)
+			got.Pix[i] = uint8(i * 7)
+		}
+		// Coverage path reads a clipped mask from its first row and column, so
+		// compare against it using a rect it handles exactly (unclipped).
+		var cov Coverage
+		cov.reset(bounds)
+		cov.ensure()
+		q := queuedGlyph{dr: dr, pix: pix, stride: 5, fg: fg}
+		if dr.In(bounds) {
+			accumulateGlyphMask(&cov, dr, pix, 5, fg)
+			cov.Composite(want)
+			blendMask(got, bounds, &q)
+			if !bytes.Equal(want.Pix, got.Pix) {
+				t.Fatalf("dr=%v: blendMask differs from coverage composite", dr)
+			}
+			continue
+		}
+		blendMask(got, bounds, &q)
+		r := dr.Intersect(bounds)
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				a := pix[(y-dr.Min.Y)*5+x-dr.Min.X]
+				bg := want.NRGBAAt(x, y)
+				wantPx := bg
+				if a == 255 {
+					wantPx = color.NRGBA{R: fg.R, G: fg.G, B: fg.B, A: 255}
+				} else if a != 0 {
+					inv := 255 - int(a)
+					wantPx = color.NRGBA{
+						R: uint8((int(fg.R)*int(a) + int(bg.R)*inv) / 255),
+						G: uint8((int(fg.G)*int(a) + int(bg.G)*inv) / 255),
+						B: uint8((int(fg.B)*int(a) + int(bg.B)*inv) / 255),
+						A: 255,
+					}
+				}
+				want.SetNRGBA(x, y, wantPx)
+			}
+		}
+		if !bytes.Equal(want.Pix, got.Pix) {
+			t.Fatalf("dr=%v: clipped blendMask mismatch", dr)
+		}
+	}
+}
+
+func TestPassCompositeOverlappingOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Two overlapping queued glyphs, the first overflowing its cell: the
+	// higher alpha must win, and the contained glyph elsewhere blends directly.
+	var pass Pass
+	bounds := image.Rect(0, 0, 8, 2)
+	pass.Reset(bounds)
+	red, green := color.NRGBA{R: 255, A: 255}, color.NRGBA{G: 255, A: 255}
+	pass.queue = []queuedGlyph{
+		{dr: image.Rect(0, 0, 4, 1), pix: []uint8{200, 200, 200, 200}, stride: 4, fg: red, over: true},
+		{dr: image.Rect(3, 0, 5, 1), pix: []uint8{100, 255}, stride: 2, fg: green},
+		{dr: image.Rect(6, 0, 8, 1), pix: []uint8{128, 128}, stride: 2, fg: green},
+	}
+	pass.over = []overGlyph{{dr: pass.queue[0].dr}}
+	dst := image.NewNRGBA(bounds)
+	pass.Composite(dst)
+	if got := dst.NRGBAAt(3, 0); got.R != 200 || got.G != 0 {
+		t.Fatalf("overlap pixel = %+v, want red max alpha", got)
+	}
+	if got := dst.NRGBAAt(4, 0); got.G != 255 {
+		t.Fatalf("overlap opaque green = %+v", got)
+	}
+	if got := dst.NRGBAAt(6, 0); got.G != 128 {
+		t.Fatalf("direct blend = %+v, want G=128", got)
 	}
 }
 
@@ -71,6 +170,7 @@ func TestCoverageMaxAlpha(t *testing.T) {
 
 	var pass Pass
 	pass.Reset(image.Rect(0, 0, 2, 2))
+	pass.cov.ensure()
 
 	pass.cov.Accumulate(0, 0, 100, color.NRGBA{R: 1, A: 255})
 	pass.cov.Accumulate(0, 0, 255, color.NRGBA{R: 255, A: 255})
@@ -89,10 +189,12 @@ func TestCoverageResetClearsPreviousInk(t *testing.T) {
 	var pass Pass
 	bounds := image.Rect(1, 2, 6, 5)
 	pass.Reset(bounds)
+	pass.cov.ensure()
 	pass.cov.Accumulate(2, 3, 255, color.NRGBA{R: 255, A: 255})
 	pass.cov.Accumulate(4, 3, 128, color.NRGBA{G: 255, A: 255})
 
 	pass.Reset(bounds)
+	pass.cov.ensure()
 	dst := image.NewNRGBA(bounds)
 	bg := color.NRGBA{R: 1, G: 2, B: 3, A: 255}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
@@ -125,6 +227,7 @@ func TestCompositePartialBlendExact(t *testing.T) {
 			for _, bg := range channels {
 				var cov Coverage
 				cov.reset(image.Rect(0, 0, 1, 1))
+				cov.ensure()
 				cov.Accumulate(0, 0, a, color.NRGBA{R: fg, G: fg, B: fg, A: 255})
 				dst := image.NewNRGBA(image.Rect(0, 0, 1, 1))
 				dst.SetNRGBA(0, 0, color.NRGBA{R: bg, G: bg, B: bg, A: 255})
@@ -145,6 +248,7 @@ func TestCompositeSkipsZeroGaps(t *testing.T) {
 
 	var cov Coverage
 	cov.reset(image.Rect(0, 0, 16, 1))
+	cov.ensure()
 	cov.Accumulate(0, 0, 255, color.NRGBA{R: 255, A: 255})
 	cov.Accumulate(8, 0, 128, color.NRGBA{G: 255, A: 255})
 	dst := image.NewNRGBA(image.Rect(0, 0, 16, 1))
@@ -171,6 +275,7 @@ func TestAccumulateGlyphMaskIndexWalk(t *testing.T) {
 	var cov Coverage
 	bounds := image.Rect(2, 4, 20, 7)
 	cov.reset(bounds)
+	cov.ensure()
 	// Nonzero at columns 0, 7, and 8 of a 10px row, plus a short second row.
 	pix := []uint8{
 		9, 0, 0, 0, 0, 0, 0, 40, 255, 3, 0, 0,
@@ -219,6 +324,7 @@ func TestAccumulateGlyphMaskIndexWalk(t *testing.T) {
 	}
 
 	cov.reset(bounds)
+	cov.ensure()
 	dst.SetNRGBA(10, 4, bg)
 	cov.Composite(dst)
 	if got := dst.NRGBAAt(10, 4); got != bg {

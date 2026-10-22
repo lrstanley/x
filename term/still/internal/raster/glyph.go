@@ -40,8 +40,16 @@ type cachedGlyphMask struct {
 }
 
 type glyphMaskCache struct {
-	items map[glyphMaskKey]cachedGlyphMask
-	bytes int
+	items   map[glyphMaskKey]cachedGlyphMask
+	bytes   int
+	evicted []*image.Alpha // released by releaseEvicted: queued glyphs may still read them.
+}
+
+func (c *glyphMaskCache) releaseEvicted() {
+	for _, a := range c.evicted {
+		alpha.ReleaseGlyphAlpha(a)
+	}
+	c.evicted = c.evicted[:0]
 }
 
 // DrawGlyphLayout rasterizes layout onto img.
@@ -80,17 +88,17 @@ func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *scr
 	DrawGlyphLayout(ctx, img, &layout)
 }
 
-func accumulateGlyphLayout(ctx GlyphContext, cov *Coverage, layout *Layout, cache *glyphMaskCache) {
+// layoutMaskPixels resolves layout to its destination rectangle and alpha mask.
+func layoutMaskPixels(ctx GlyphContext, layout *Layout, cache *glyphMaskCache) (dr image.Rectangle, pix []uint8, stride int, ok bool) {
 	if mask, ok := layoutSpriteMask(ctx, layout); ok {
-		accumulateGlyphMask(cov, mask.dr, mask.alpha.Pix, mask.alpha.Stride, layout.Fg)
-		return
+		return mask.dr, mask.alpha.Pix, mask.alpha.Stride, true
 	}
 	mask, ok := glyphLayoutMask(layout, cache)
 	if !ok {
-		return
+		return dr, nil, 0, false
 	}
-	dr := mask.alpha.Bounds().Add(layout.Area.Min.Add(mask.offset))
-	accumulateGlyphMask(cov, dr, mask.alpha.Pix, mask.alpha.Stride, layout.Fg)
+	dr = mask.alpha.Bounds().Add(layout.Area.Min.Add(mask.offset))
+	return dr, mask.alpha.Pix, mask.alpha.Stride, true
 }
 
 func accumulateGlyphMask(cov *Coverage, dr image.Rectangle, pix []uint8, stride int, fg color.NRGBA) {
@@ -166,7 +174,7 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 	}
 	if len(cache.items) >= glyphMaskCacheEntries || cache.bytes+n > glyphMaskCacheBytes {
 		for _, m := range cache.items {
-			alpha.ReleaseGlyphAlpha(m.alpha)
+			cache.evicted = append(cache.evicted, m.alpha)
 		}
 		clear(cache.items)
 		cache.bytes = 0

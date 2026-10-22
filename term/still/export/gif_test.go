@@ -1135,3 +1135,99 @@ func TestPalettizeRGBAMatchesNRGBA(t *testing.T) {
 		}
 	}
 }
+
+func TestGIFFrameDoneRecyclesImage(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan Frame)
+	rec, err := GIF(WithChannel(ch), WithOptimize(OptimizeNone))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One buffer is reused for every frame: Done poisons it, so a recorder
+	// reading it afterwards would see the poison.
+	const n = 5
+	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	done := make(chan struct{}, 1)
+	for i := range n {
+		solidFrameInto(img, i+1)
+		ch <- Frame{Image: img, Delay: 100 * time.Millisecond, Done: func() {
+			for j := range img.Pix {
+				img.Pix[j] = 0xAA
+			}
+			done <- struct{}{}
+		}}
+		<-done
+	}
+	close(ch)
+
+	path := t.TempDir() + "/done.gif"
+	if err := finishGIF(path, rec); err != nil {
+		t.Fatal(err)
+	}
+	g, err := gifDecodeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) != n {
+		t.Fatalf("got %d frames, want %d", len(g.Image), n)
+	}
+	for i, fr := range g.Image {
+		want := color.NRGBA{R: uint8((i + 1) * 40), A: 0xff}
+		if got := color.NRGBAModel.Convert(fr.At(0, 0)); got != color.Color(want) {
+			t.Errorf("frame %d: got %v, want %v", i, got, want)
+		}
+	}
+}
+
+// TestGIFDeltaRecordingMatchesFullFrames checks that frames stored as bbox
+// deltas rebuild into the same full frames a full-frame recording keeps,
+// including when maxFrames folds old deltas into the base.
+func TestGIFDeltaRecordingMatchesFullFrames(t *testing.T) {
+	t.Parallel()
+
+	const w, h, n = 40, 24, 12
+	pal := defaultGIFPalette()
+	cur := solidFrame(0, w, h)
+	var frames []*image.NRGBA
+	for i := range n {
+		if i%4 != 3 { // every fourth frame repeats the previous one
+			x := (i * 3) % (w - 4)
+			for y := 2; y < 6; y++ {
+				for dx := range 4 {
+					cur.SetNRGBA(x+dx, y, color.NRGBA{R: uint8(30 * i), G: 200, B: 10, A: 255}) //nolint:gosec // small.
+				}
+			}
+		}
+		c := *cur
+		c.Pix = bytes.Clone(cur.Pix)
+		frames = append(frames, &c)
+	}
+
+	for _, maxFrames := range []int{0, 1, 5, n} {
+		var full, delta gifRecording
+		for _, f := range frames {
+			if err := appendRecordingFrame(&full, pal, true, OptimizeFrames, nil, false, f, time.Millisecond, maxFrames); err != nil {
+				t.Fatal(err)
+			}
+			if err := appendRecordingFrame(&delta, pal, true, OptimizeFrames|OptimizeDirtyRects, nil, false, f, time.Millisecond, maxFrames); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := (&gifRecorder{rec: &delta}).Frames()
+		want := (&gifRecorder{rec: &full}).Frames()
+		if len(got) != len(want) {
+			t.Fatalf("maxFrames=%d: got %d frames, want %d", maxFrames, len(got), len(want))
+		}
+		for i := range want {
+			g, wnt := got[i].Image.(*image.Paletted), want[i].Image.(*image.Paletted)
+			if g.Rect != wnt.Rect || !bytes.Equal(g.Pix, wnt.Pix) || got[i].Delay != want[i].Delay {
+				t.Fatalf("maxFrames=%d: frame %d differs from full-frame recording", maxFrames, i)
+			}
+		}
+		if len(delta.images) > 1 && delta.images[1].Rect.Eq(delta.images[0].Rect) && maxFrames == 0 && n > 3 {
+			t.Fatalf("frame 1 stored as full frame, want bbox delta")
+		}
+	}
+}

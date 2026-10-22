@@ -6,11 +6,12 @@ package export
 
 import (
 	"bytes"
+	"cmp"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -98,6 +99,7 @@ func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
 	rec.images = images
 	rec.delays = delays
 	rec.disposal = disposals
+	rec.last, rec.spare = nil, nil
 	rec.backgroundIndex = bgIdx
 }
 
@@ -107,8 +109,19 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 	n := len(rec.images)
 	plans = make([]framePlan, 0, n-1)
 
+	// Delta recordings rebuild each full frame on a rolling clone.
+	var cur *image.Paletted
+	if rec.last != nil {
+		cur = clonePaletted(canvas.view)
+	}
+
 	for i := 1; i < n; i++ {
-		full := frameForDiff(rec.images[i], screen, pal)
+		full := cur
+		if cur == nil {
+			full = frameForDiff(rec.images[i], screen, pal)
+		} else {
+			blitOpaque(rec.images[i], cur)
+		}
 		bbox, diffArea := diffBoundingBox(canvas.view, full, screen)
 		if diffArea == 0 {
 			if len(plans) == 0 {
@@ -540,56 +553,40 @@ func blitTransparent(frame, canvas *image.Paletted) {
 // marked with zero alpha in the palette for replay detection. Frames are
 // updated in place with remapped indices and the new palette.
 func compactPalette(frames []*image.Paletted, oldPal color.Palette) color.Palette {
-	freq := make(map[uint8]int)
-	usesTransparent := false
-
+	var freq [256]int
 	for _, frame := range frames {
 		for _, idx := range frame.Pix {
-			if idx == TransparentPaletteIndex {
-				usesTransparent = true
-				continue
-			}
 			freq[idx]++
 		}
 	}
 
-	type colorFreq struct {
-		idx   uint8
-		count int
-	}
-	used := make([]colorFreq, 0, len(freq))
+	usesTransparent := freq[TransparentPaletteIndex] > 0
+	freq[TransparentPaletteIndex] = 0
+
+	var used []uint8
 	for idx, count := range freq {
-		used = append(used, colorFreq{idx: idx, count: count})
-	}
-	sort.Slice(used, func(i, j int) bool {
-		if used[i].count != used[j].count {
-			return used[i].count > used[j].count
+		if count > 0 {
+			used = append(used, uint8(idx)) //nolint:gosec // idx is 0..255.
 		}
-		return used[i].idx < used[j].idx
+	}
+	slices.SortFunc(used, func(a, b uint8) int {
+		return cmp.Or(cmp.Compare(freq[b], freq[a]), cmp.Compare(a, b))
 	})
 
+	var remap [256]uint8
 	newPal := make(color.Palette, 0, len(used)+1)
-	remap := make(map[uint8]uint8, len(used)+1)
-
-	for i, cf := range used {
-		newPal = append(newPal, oldPal[cf.idx])
-		remap[cf.idx] = uint8(i) //nolint:gosec // i is bounded by palette size.
+	for i, idx := range used {
+		newPal = append(newPal, oldPal[idx])
+		remap[idx] = uint8(i) //nolint:gosec // i is bounded by palette size.
 	}
-
-	newTransparentIdx := uint8(0)
 	if usesTransparent {
-		newTransparentIdx = uint8(len(newPal)) //nolint:gosec // bounded by 256 colors.
+		remap[TransparentPaletteIndex] = uint8(len(newPal)) //nolint:gosec // bounded by 256 colors.
 		newPal = append(newPal, transparentMarkerColor())
-		remap[TransparentPaletteIndex] = newTransparentIdx
 	}
 
 	for _, frame := range frames {
 		frame.Palette = newPal
 		for i, idx := range frame.Pix {
-			if idx == TransparentPaletteIndex {
-				frame.Pix[i] = newTransparentIdx
-				continue
-			}
 			frame.Pix[i] = remap[idx]
 		}
 	}

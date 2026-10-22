@@ -137,7 +137,13 @@ func (p *exportPipeline) push(i int, f sourcedFrame) {
 		return
 	}
 	if i == len(p.stages) {
-		p.out <- export.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step)}
+		out := export.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step)}
+		if len(p.stages) == 0 {
+			// Without mutators nothing else shares the image, so the encoder
+			// may recycle it. Mutators can emit one image for several frames.
+			out.Done = func() { releaseNRGBA(f.Image) }
+		}
+		p.out <- out
 		return
 	}
 	s := &p.stages[i]

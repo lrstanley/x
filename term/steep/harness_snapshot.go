@@ -173,7 +173,39 @@ func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot) image.Image {
 func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState) *image.NRGBA {
 	h.imageRenderer.UpdateEmulatorState(&state)
 	h.imageStateSet = false
-	return cloneNRGBA(h.imageRenderer.Draw(scr))
+	dst := newNRGBA(h.imageRenderer.Bounds(scr))
+	h.imageRenderer.DrawInto(dst, image.Rectangle{}, scr)
+	return dst
+}
+
+// frameBufs holds a few finished frame buffers for [newNRGBA]. It is a small
+// bounded list, not a sync.Pool, which keeps up to two generations of
+// full-size frames alive.
+var frameBufs = make(chan []byte, 3)
+
+// newNRGBA returns an image covering r, reusing a released buffer when one
+// fits. Its pixels are stale: the caller must paint every one.
+func newNRGBA(r image.Rectangle) *image.NRGBA {
+	n := r.Dx() * r.Dy() * 4
+	select {
+	case pix := <-frameBufs:
+		if cap(pix) >= n {
+			return &image.NRGBA{Pix: pix[:n], Stride: r.Dx() * 4, Rect: r}
+		}
+	default:
+	}
+	return image.NewNRGBA(r)
+}
+
+// releaseNRGBA hands img's buffer back to [newNRGBA]. img must not be used
+// again, nor shared with anything that still reads it.
+func releaseNRGBA(img image.Image) {
+	if n, ok := img.(*image.NRGBA); ok {
+		select {
+		case frameBufs <- n.Pix:
+		default:
+		}
+	}
 }
 
 func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.EmulatorState {

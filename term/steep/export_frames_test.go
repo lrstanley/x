@@ -5,9 +5,11 @@
 package steep
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
+	"image/gif"
 	"slices"
 	"testing"
 	"time"
@@ -16,6 +18,8 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/term/still"
 	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/vt"
+	"github.com/lrstanley/x/term/vt/screen"
 )
 
 // labelImage is a 1x1 image whose red channel identifies the frame.
@@ -343,5 +347,111 @@ func TestExportFramesKeepTranslucency(t *testing.T) {
 	}
 	if !slices.Equal(got.Pix, want.Pix) {
 		t.Error("recorded frame differs from the renderer's image; want its exact pixels and alpha")
+	}
+}
+
+// TestExportRecycledFramesMatch records many different screens through a
+// pipeline without mutators, whose frames the encoder recycles, and checks the
+// GIF matches a recording of independent copies. Each recycled buffer is
+// poisoned as the encoder releases it, so a read after release shows up.
+func TestExportRecycledFramesMatch(t *testing.T) {
+	h := NewHarness(t, backgroundModel{rootTestModel{}}, WithWindowSize(20, 4), WithIgnoreEnv(true))
+	var screens []*screen.Buffer
+	var states []vt.Snapshot
+	text := ""
+	for _, c := range "abcdefg" {
+		text += string(c)
+		h.Type(string(c)).Wait("text=" + text)
+		screens = append(screens, h.emulator.term.Screen())
+		states = append(states, h.emulator.term.Snapshot())
+	}
+
+	record := func(recycle bool) *gif.GIF {
+		in, out, relayed := make(chan export.Frame), make(chan export.Frame), make(chan struct{})
+		go func() {
+			defer close(relayed)
+			defer close(out)
+			for f := range in {
+				if !recycle {
+					f.Image, f.Done = cloneNRGBA(f.Image), nil
+				} else if done, img := f.Done, f.Image.(*image.NRGBA); done != nil {
+					f.Done = func() {
+						clear(img.Pix)
+						for i := range img.Pix {
+							img.Pix[i] = 0xAA
+						}
+						done()
+					}
+				}
+				out <- f
+			}
+		}()
+		rec, err := export.GIF(export.WithChannel(out))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := &exportPipeline{base: ExportContext{Step: 10 * time.Millisecond}, speed: 1, out: in}
+		at := time.Now()
+		for i := range 40 {
+			j := (i * 3) % len(screens)
+			p.record(copyCommitted(h, screens[j], states[j]), at, frameSource{})
+			at = at.Add(50 * time.Millisecond)
+		}
+		p.finish(at, false)
+		close(in)
+		<-relayed
+		if err := rec.Close(); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		if err := rec.EncodeAll(&buf); err != nil {
+			t.Fatal(err)
+		}
+		g, err := gif.DecodeAll(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+
+	want, got := record(false), record(true)
+	if len(want.Image) < 10 || len(got.Image) != len(want.Image) {
+		t.Fatalf("got %d frames, want %d (at least 10)", len(got.Image), len(want.Image))
+	}
+	for i := range want.Image {
+		if got.Delay[i] != want.Delay[i] || !slices.Equal(got.Image[i].Pix, want.Image[i].Pix) ||
+			got.Image[i].Bounds() != want.Image[i].Bounds() {
+			t.Errorf("frame %d differs from the non-recycled recording", i)
+		}
+	}
+	if len(frameBufs) == 0 {
+		t.Error("no buffer was recycled")
+	}
+}
+
+// TestNewNRGBAIgnoresStalePixels checks a recycled buffer is fully repainted,
+// matching a fresh draw, and that a buffer too small to reuse is dropped.
+func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
+	h := NewHarness(t, backgroundModel{rootTestModel{}}, WithWindowSize(20, 4), WithIgnoreEnv(true))
+	h.Type("a").Wait("text=a")
+	scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
+
+	h.imageMu.Lock()
+	state := viewportState(h, h.imageState, st)
+	h.imageRenderer.UpdateEmulatorState(&state)
+	want := cloneNRGBA(h.imageRenderer.Draw(scr))
+	h.imageMu.Unlock()
+	for _, size := range []int{1, len(want.Pix), 2 * len(want.Pix)} {
+		pix := slices.Repeat([]byte{0xAA}, size)
+		select {
+		case frameBufs <- pix:
+		default:
+			<-frameBufs
+			frameBufs <- pix
+		}
+		got := copyCommitted(h, scr, st).(*image.NRGBA)
+		if !slices.Equal(got.Pix, want.Pix) || got.Stride != want.Stride || got.Rect != want.Rect {
+			t.Errorf("buffer of %d bytes: recycled draw differs from a fresh one", size)
+		}
 	}
 }

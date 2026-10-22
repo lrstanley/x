@@ -86,8 +86,13 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 		d.fgPass.Reset(f.gridBounds)
 	}
 
+	// Only rows that can reach dst: one extra row each side for glyph spill.
+	db, ch := dst.Bounds(), max(cellH, 1)
+	r0 := max(0, (db.Min.Y-gridMin.Y)/ch-1)
+	r1 := min(view.Dy(), (db.Max.Y-gridMin.Y+ch-1)/ch+1)
+
 	var cell *screen.Cell
-	for y := view.Min.Y; y < view.Max.Y; y++ {
+	for y := view.Min.Y + r0; y < view.Min.Y+r1; y++ {
 		row := y - view.Min.Y
 		rowY0 := gridMin.Y + row*cellH
 		rowY1 := rowY0 + cellH

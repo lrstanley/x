@@ -68,6 +68,11 @@ func (f OptimizeFlags) has(flag OptimizeFlags) bool {
 type Frame struct {
 	Image image.Image
 	Delay time.Duration
+	// Done, when set, is called once the recorder no longer reads Image (it
+	// has been palettized), from the recorder's goroutine. Image is then
+	// handed back to the sender, which may reuse it, so the sender must not
+	// share it with anything else and the recorder never touches it again.
+	Done func()
 }
 
 // Option configures PNG or GIF exports. Options are validated in

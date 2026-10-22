@@ -5,10 +5,12 @@
 package raster
 
 import (
+	"cmp"
 	"encoding/binary"
 	"image"
 	"image/color"
 	"image/draw"
+	"slices"
 
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/vt/screen"
@@ -32,6 +34,8 @@ func packCoveragePixel(alpha uint8, fg color.NRGBA) uint32 {
 	return uint32(alpha) | uint32(fg.R)<<8 | uint32(fg.G)<<16 | uint32(fg.B)<<24
 }
 
+// reset prepares c for bounds. It never allocates: ensure does that on the
+// first overflowing glyph.
 func (c *Coverage) reset(bounds image.Rectangle) {
 	n := bounds.Dx() * bounds.Dy()
 	h := bounds.Dy()
@@ -53,6 +57,18 @@ func (c *Coverage) reset(bounds image.Rectangle) {
 		}
 		return
 	}
+	c.pixels, c.rowLo = c.pixels[:0], c.rowLo[:0]
+	c.bounds = bounds
+	c.hasInk = false
+}
+
+// ensure allocates (or clears) the buffers for the current bounds.
+func (c *Coverage) ensure() {
+	n := c.bounds.Dx() * c.bounds.Dy()
+	h := c.bounds.Dy()
+	if len(c.pixels) == n && len(c.rowLo) == h {
+		return
+	}
 	if cap(c.pixels) < n {
 		c.pixels = make([]uint32, n)
 	} else {
@@ -69,8 +85,6 @@ func (c *Coverage) reset(bounds image.Rectangle) {
 	for i := range c.rowLo {
 		c.rowLo[i] = -1
 	}
-	c.bounds = bounds
-	c.hasInk = false
 }
 
 // div255 returns floor(v/255). It is exact for every v in [0, 65025], the
@@ -194,21 +208,51 @@ type FgDecoration struct {
 	Fg   color.NRGBA
 }
 
-// Pass accumulates grid glyphs during a foreground pass and defers other glyphs.
+// queuedGlyph is a resolved glyph mask awaiting compositing.
+type queuedGlyph struct {
+	dr     image.Rectangle
+	pix    []uint8
+	stride int
+	fg     color.NRGBA
+	over   bool // dr overflows the cell area.
+}
+
+// overGlyph is an overflowing glyph and the top of its cell.
+type overGlyph struct {
+	dr image.Rectangle
+	y  int
+}
+
+// Pass queues grid glyphs during a foreground pass and defers other glyphs.
 type Pass struct {
 	cov         Coverage
 	glyphMasks  glyphMaskCache
+	queue       []queuedGlyph
+	over        []overGlyph // queued glyphs that overflow their cell.
+	reach       int         // furthest any over glyph extends vertically from its cell top.
+	unsorted    bool        // over is not ordered by cell top, so scan it fully.
 	glyphs      []Layout
 	decorations []FgDecoration
 }
 
-// AddGlyph adds layout to this pass: grid glyphs and sprites accumulate into
-// coverage using the pass's mask cache, and other glyphs are deferred to
-// [Pass.DrawPending].
+// AddGlyph adds layout to this pass: grid glyphs and sprites are queued for
+// [Pass.Composite] using the pass's mask cache, and other glyphs are deferred
+// to [Pass.DrawPending].
 func (p *Pass) AddGlyph(ctx GlyphContext, layout *Layout) {
 	switch layout.Kind {
 	case KindGrid, KindSprite:
-		accumulateGlyphLayout(ctx, &p.cov, layout, &p.glyphMasks)
+		dr, pix, stride, ok := layoutMaskPixels(ctx, layout, &p.glyphMasks)
+		if !ok {
+			return
+		}
+		over := !dr.In(layout.Area)
+		if over {
+			y := layout.Area.Min.Y
+			p.unsorted = p.unsorted || (len(p.over) > 0 && y < p.over[len(p.over)-1].y)
+			p.reach = max(p.reach, y-dr.Min.Y, dr.Max.Y-y)
+			p.over = append(p.over, overGlyph{dr, y})
+		}
+		p.queue = append(p.queue, queuedGlyph{dr, pix, stride, layout.Fg, over})
 	case KindPowerline, KindFallback:
 		p.glyphs = append(p.glyphs, *layout)
 	}
@@ -222,13 +266,82 @@ func (p *Pass) AppendDecoration(area image.Rectangle, cell *screen.Cell, fg colo
 // Reset prepares pass for a new foreground draw over bounds.
 func (p *Pass) Reset(bounds image.Rectangle) {
 	p.cov.reset(bounds)
+	p.glyphMasks.releaseEvicted()
+	p.queue = p.queue[:0]
+	p.over = p.over[:0]
+	p.reach, p.unsorted = 0, false
 	p.glyphs = p.glyphs[:0]
 	p.decorations = p.decorations[:0]
 }
 
-// Composite applies accumulated grid glyph coverage.
+// Composite applies queued grid glyphs. Glyphs inside their cell cannot overlap
+// each other, so those that miss every overflowing glyph blend straight into
+// dst. The rest accumulate in queue order into coverage (max-alpha overlaps).
 func (p *Pass) Composite(dst *image.NRGBA) {
+	if dst == nil {
+		return
+	}
+	for i := range p.queue {
+		q := &p.queue[i]
+		if q.over || p.overlapsOver(q.dr) {
+			p.cov.ensure()
+			accumulateGlyphMask(&p.cov, q.dr, q.pix, q.stride, q.fg)
+			continue
+		}
+		blendMask(dst, p.cov.bounds, q)
+	}
 	p.cov.Composite(dst)
+}
+
+// overlapsOver reports whether r overlaps an over glyph. Those are in cell
+// order, so only ones whose cell top is within reach of r can overlap.
+func (p *Pass) overlapsOver(r image.Rectangle) bool {
+	i := 0
+	if !p.unsorted {
+		i, _ = slices.BinarySearchFunc(p.over, r.Min.Y-p.reach, func(o overGlyph, y int) int { return cmp.Compare(o.y, y) })
+	}
+	for ; i < len(p.over) && (p.unsorted || p.over[i].y < r.Max.Y+p.reach); i++ {
+		if p.over[i].dr.Overlaps(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// blendMask blends q over dst, clipped to clip and the bounds of dst.
+func blendMask(dst *image.NRGBA, clip image.Rectangle, q *queuedGlyph) {
+	r := q.dr.Intersect(clip).Intersect(dst.Bounds())
+	if r.Empty() {
+		return
+	}
+	w := r.Dx()
+	fr, fg, fb := int(q.fg.R), int(q.fg.G), int(q.fg.B)
+	opaque := uint32(q.fg.R) | uint32(q.fg.G)<<8 | uint32(q.fg.B)<<16 | 0xff000000
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		i := (y-q.dr.Min.Y)*q.stride + r.Min.X - q.dr.Min.X
+		row := q.pix[i : i+w]
+		off := dst.PixOffset(r.Min.X, y)
+		px := dst.Pix[off : off+4*w]
+		for x := 0; x < w; x++ {
+			// Most mask bytes are 0. A zero uint64 is eight zero alphas.
+			if x&7 == 0 && x+8 <= w && binary.LittleEndian.Uint64(row[x:]) == 0 {
+				x += 7
+				continue
+			}
+			a := int(row[x])
+			switch a {
+			case 0:
+			case 255:
+				binary.LittleEndian.PutUint32(px[x*4:], opaque)
+			default:
+				inv := 255 - a
+				px[x*4] = div255(fr*a + int(px[x*4])*inv)
+				px[x*4+1] = div255(fg*a + int(px[x*4+1])*inv)
+				px[x*4+2] = div255(fb*a + int(px[x*4+2])*inv)
+				px[x*4+3] = 255
+			}
+		}
+	}
 }
 
 // DrawPending renders deferred glyphs and decorations.

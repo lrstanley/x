@@ -221,3 +221,73 @@ func BenchmarkDrawManyGlyphs(b *testing.B) {
 		d.DrawInto(frame, frame.Bounds(), scr)
 	}
 }
+
+// BenchmarkDrawRounded renders a small frame with margin and rounded corners so
+// the rounded-corner mask is a measurable share of the draw.
+func BenchmarkDrawRounded(b *testing.B) {
+	for _, radius := range []int{12, 64} {
+		b.Run(fmt.Sprintf("radius=%d", radius), func(b *testing.B) {
+			scr := newTestScreen(20, 4)
+			d := MustNew(
+				WithBorderRadius(radius),
+				WithMargin(8, color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}),
+			)
+			frame := image.NewNRGBA(d.Bounds(scr))
+			for range benchmarkWarmupIters {
+				d.DrawInto(frame, frame.Bounds(), scr)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				d.DrawInto(frame, frame.Bounds(), scr)
+			}
+		})
+	}
+}
+
+// BenchmarkDrawIncremental redraws a screen through [Renderer.Draw] after one
+// cell changes and the cursor moves to it, like a typed character.
+func BenchmarkDrawIncremental(b *testing.B) {
+	sparse := func(cols, rows int) *screen.Buffer {
+		scr := screen.NewBuffer(cols, rows)
+		for y := 0; y < rows; y += 3 {
+			for x, r := range "user@host:~/src/project$ make test && go vet ./..." {
+				scr.SetCell(x, y, &screen.Cell{Content: string(r), Width: 1})
+			}
+		}
+		return scr
+	}
+	cases := []struct {
+		name string
+		scr  *screen.Buffer
+		opts []Option
+	}{
+		{"dense-120x30-40pt", benchmarkTerminalScreen().Buffer, []Option{WithFontSizePt(benchmarkFontSizePt)}},
+		{"sparse-80x24", sparse(80, 24), nil},
+		{"sparse-240x72", sparse(240, 72), nil},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			d := MustNew(tc.opts...)
+			rows := tc.scr.Height()
+			state := EmulatorState{Focused: true, CursorVisible: true, CursorY: rows / 2}
+			draw := func(i int) {
+				tc.scr.SetCell(i%60, rows/2, &screen.Cell{Content: string(rune('a' + i%26)), Width: 1})
+				state.CursorX = i % 60
+				d.UpdateEmulatorState(&state)
+				d.Draw(tc.scr)
+			}
+			for i := range benchmarkWarmupIters {
+				draw(i)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			i := 0
+			for b.Loop() {
+				draw(i)
+				i++
+			}
+		})
+	}
+}
