@@ -118,7 +118,7 @@ func TestGIFMaxBytesAccounting(t *testing.T) {
 					if i%5 == 0 { // A partial change, so deltas are smaller than a frame.
 						frame.SetNRGBA(1, 1, solidFrame(i+1, 1, 1).NRGBAAt(0, 0))
 					}
-					err := appendRecordingFrame(rec, defaultGIFPalette(), true, optimize, nil, false, frame, time.Millisecond)
+					err := appendRecordingFrame(rec, defaultGIFPalette(), true, optimize, nil, false, false, frame, time.Millisecond)
 					if err != nil {
 						t.Fatal(err)
 					}

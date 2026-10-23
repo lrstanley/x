@@ -103,12 +103,21 @@ type gifRecording struct {
 	// [optimizeDisposals].
 	backgroundIndex uint8
 	// last is the newest full frame and spare a recycled capture buffer. When
-	// last is set, images[0] is the full base and later images are bbox crops
-	// of what changed since the previous frame (see [appendRecordingFrame]).
+	// last is set, images[deltaAt] is the full base of the current segment and
+	// later images are bbox crops of what changed since the previous frame
+	// (see [appendRecordingFrame]). Images before deltaAt are full frames.
 	last, spare *image.Paletted
+	// deltaAt is the index of the current delta base when last is set. It stays
+	// 0 for a recording that never changes palette, which stores one segment
+	// from the first frame.
+	deltaAt int
 	// adaptive grows config.ColorModel from captured colors when no capture
 	// palette was given. Nil uses the palette passed to [appendRecordingFrame].
 	adaptive *adaptivePalette
+	// isolated is the palette of the current run of [Frame.Isolated] frames.
+	// It is nil while the newest frame uses the shared palette, and it never
+	// adds colors to adaptive.
+	isolated *adaptivePalette
 }
 
 // gifRecorder captures palettized frames into a [gifRecording].
@@ -205,8 +214,8 @@ func (r *gifRecorder) EncodeAll(w io.Writer) error {
 			optimizeDisposals(r.rec, r.opts.background, r.opts.backgroundSet)
 		}
 		out := buildGIF(r.rec, r.opts)
-		if r.opts.optimize.has(OptimizeColorQuantization) && !r.opts.paletteSet && len(out.Image) > 0 {
-			optimizePalette(out)
+		if r.opts.optimize.has(OptimizeColorQuantization) && len(out.Image) > 0 {
+			compactPalettes(out, r.opts.paletteSet)
 		}
 		if len(out.Image) > 0 {
 			ensureTransparentPaletteSlot(out)
@@ -328,26 +337,29 @@ func (r *gifRecorder) drainChannel(ch <-chan Frame) {
 
 // captureTick records one WithFrameRate tick.
 func (r *gifRecorder) captureTick() {
-	r.palettizeAndAppend(r.opts.frameRateFn(), r.nextDelay(0))
+	r.palettizeAndAppend(r.opts.frameRateFn(), r.nextDelay(0), false)
 }
 
 // captureChannelFrame records one WithChannel frame.
 func (r *gifRecorder) captureChannelFrame(f Frame) {
-	r.palettizeAndAppend(f.Image, r.nextDelay(f.Delay))
+	r.palettizeAndAppend(f.Image, r.nextDelay(f.Delay), f.Isolated)
 	if f.Done != nil {
 		f.Done()
 	}
 }
 
 // fullFrames returns every recorded frame as a full image. Delta recordings
-// rebuild each frame from the previous one; others return rec.images itself.
+// rebuild the current segment from its base; earlier images are already full.
+// Recordings outside delta mode return rec.images itself.
 func (rec *gifRecording) fullFrames() []*image.Paletted {
 	if rec.last == nil {
 		return rec.images
 	}
 	full := make([]*image.Paletted, len(rec.images))
-	for i, img := range rec.images {
-		if i > 0 {
+	copy(full, rec.images[:rec.deltaAt])
+	for i := rec.deltaAt; i < len(rec.images); i++ {
+		img := rec.images[i]
+		if i > rec.deltaAt {
 			prev := img
 			img = clonePaletted(full[i-1])
 			blitOpaque(prev, img)
@@ -357,21 +369,59 @@ func (rec *gifRecording) fullFrames() []*image.Paletted {
 	return full
 }
 
+// endDeltaSegment materializes the current delta segment into full frames and
+// leaves delta mode. A new segment starts when the next frame is stored as a base.
+func (rec *gifRecording) endDeltaSegment() {
+	if rec.last == nil {
+		return
+	}
+	rec.images = rec.fullFrames()
+	rec.last = nil
+	rec.spare = nil
+	rec.recount()
+}
+
+// activePalette is the palette of the newest stored frame, or nil when the
+// recording is empty.
+func (rec *gifRecording) activePalette() color.Palette {
+	if rec.last != nil {
+		return rec.last.Palette
+	}
+	if n := len(rec.images); n > 0 {
+		return rec.images[n-1].Palette
+	}
+	return nil
+}
+
+// capturePalette returns the palette and, when it is adaptive, the builder
+// for this frame. Isolated frames use a palette of their own, sized with no
+// reserve, and a run of them reuses one builder.
+func (rec *gifRecording) capturePalette(shared color.Palette, isolated bool) (color.Palette, *adaptivePalette) {
+	if !isolated {
+		rec.isolated = nil
+		if rec.adaptive != nil {
+			return rec.adaptive.pal, rec.adaptive
+		}
+		return shared, nil
+	}
+	if rec.isolated == nil {
+		rec.isolated = newAdaptivePalette(false)
+	}
+	return rec.isolated.pal, rec.isolated
+}
+
 // truncateRecording drops the oldest stored frames until the recording fits
 // rec.maxFrames and rec.maxBytes (either may be 0 for no limit). The newest
 // frame is always kept, so a single frame larger than the byte limit stays.
-// Delta frames are folded into the base so images[0] stays full.
+// Delta frames are folded into the segment base so that base stays full.
 func truncateRecording(rec *gifRecording) {
 	n := len(rec.images)
 	if n < 2 || (rec.maxFrames <= 0 && rec.maxBytes <= 0) {
 		return
 	}
-	// first is the oldest frame that can be dropped: the base is never dropped
-	// in delta mode, it absorbs the frames after it.
-	first := 0
-	if rec.last != nil {
-		first = 1
-	}
+	// The base of a delta segment is never dropped; it absorbs the deltas after
+	// it. Full frames before that base are the oldest and drop first. The
+	// newest frame is always kept.
 	excess, freed := 0, int64(0)
 	for excess < n-1 {
 		overFrames := rec.maxFrames > 0 && n-excess > rec.maxFrames
@@ -379,17 +429,30 @@ func truncateRecording(rec *gifRecording) {
 		if !overFrames && !overBytes {
 			break
 		}
-		freed += int64(len(rec.images[first+excess].Pix))
+		idx := excess
+		if rec.last != nil && excess >= rec.deltaAt {
+			idx = excess + 1 // skip the base
+		}
+		freed += int64(len(rec.images[idx].Pix))
 		excess++
 	}
 	if excess == 0 {
 		return
 	}
 	if rec.last != nil {
-		for _, delta := range rec.images[1 : excess+1] {
-			blitOpaque(delta, rec.images[0])
+		pre := min(excess, rec.deltaAt)
+		folded := excess - pre
+		if pre > 0 {
+			rec.images = slices.Delete(rec.images, 0, pre)
+			rec.deltaAt -= pre
 		}
-		rec.images = slices.Delete(rec.images, 1, excess+1)
+		if folded > 0 {
+			base := rec.deltaAt
+			for _, delta := range rec.images[base+1 : base+1+folded] {
+				blitOpaque(delta, rec.images[base])
+			}
+			rec.images = slices.Delete(rec.images, base+1, base+1+folded)
+		}
 	} else {
 		rec.images = rec.images[excess:]
 	}
@@ -412,7 +475,9 @@ func (rec *gifRecording) recount() {
 }
 
 // appendRecordingFrame palettizes frame into owned output storage, optionally
-// deduplicates identical consecutive frames, and appends to rec.
+// deduplicates identical consecutive frames, and appends to rec. An isolated
+// frame is mapped through its own adaptive palette and does not add colors to
+// the shared one. A run of isolated frames shares that palette.
 func appendRecordingFrame(
 	rec *gifRecording,
 	palette color.Palette,
@@ -420,6 +485,7 @@ func appendRecordingFrame(
 	optimize OptimizeFlags,
 	background color.Color,
 	backgroundSet bool,
+	isolated bool,
 	frame image.Image,
 	delay time.Duration,
 ) error {
@@ -439,27 +505,34 @@ func appendRecordingFrame(
 		rec.config.ColorModel = palette
 	}
 
-	if rec.adaptive != nil {
-		palette = rec.adaptive.pal
-	}
+	palette, adaptive := rec.capturePalette(palette, isolated)
 	pm := rec.spare
 	rec.spare = nil
 	if pm == nil || pm.Rect != bounds {
 		pm = image.NewPaletted(bounds, palette)
 	}
 	pm.Palette = palette
-	palettizeCaptureFrame(pm, frame, rec.adaptive, useLUT, background, backgroundSet)
+	palettizeCaptureFrame(pm, frame, adaptive, useLUT, background, backgroundSet)
 
-	// With dedupe and dirty-rect optimization both on, only the first frame is
-	// stored in full; later frames keep the bbox that changed, and a frame with
-	// no changes only adds its delay. pm is recycled for the next capture.
-	// A size change leaves delta mode for good: deltas cannot span canvases.
-	if rec.last != nil && rec.last.Rect != bounds {
-		rec.images, rec.last, rec.spare = rec.fullFrames(), nil, nil
-		rec.recount()
+	// A palette change closes the open segment and this frame starts a new one,
+	// so later diffs never compare indices across palettes. A canvas size change
+	// closes the segment and does not start another: deltas cannot span canvases.
+	startSegment := len(rec.images) == 0
+	if prev := rec.activePalette(); prev != nil && !samePalette(prev, pm.Palette) {
+		rec.endDeltaSegment()
+		startSegment = true
 	}
-	if optimize.has(OptimizeFrames) && optimize.has(OptimizeDirtyRects) && (rec.last != nil || len(rec.images) == 0) {
+	if rec.last != nil && rec.last.Rect != bounds {
+		rec.endDeltaSegment()
+		startSegment = false
+	}
+	// With dedupe and dirty-rect optimization both on, only the first frame of
+	// a segment is stored in full; later frames keep the bbox that changed,
+	// and a frame with no changes only adds its delay. pm is recycled for the
+	// next capture.
+	if optimize.has(OptimizeFrames) && optimize.has(OptimizeDirtyRects) && (rec.last != nil || startSegment) {
 		if rec.last == nil {
+			rec.deltaAt = len(rec.images)
 			rec.push(pm)
 			rec.last = clonePaletted(pm)
 		} else {
@@ -478,7 +551,8 @@ func appendRecordingFrame(
 	}
 
 	if optimize.has(OptimizeFrames) {
-		if n := len(rec.images); n > 0 && bytes.Equal(rec.images[n-1].Pix, pm.Pix) {
+		n := len(rec.images)
+		if n > 0 && samePalette(rec.images[n-1].Palette, pm.Palette) && bytes.Equal(rec.images[n-1].Pix, pm.Pix) {
 			rec.delays[n-1] += delay
 			return nil
 		}
@@ -492,10 +566,10 @@ func appendRecordingFrame(
 
 // palettizeAndAppend converts frame to palettized storage and appends to rec,
 // storing validation errors in closeErr.
-func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration) {
+func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration, isolated bool) {
 	if err := appendRecordingFrame(
 		r.rec, r.palette, false, r.opts.optimize,
-		r.opts.background, r.opts.backgroundSet, frame, delay,
+		r.opts.background, r.opts.backgroundSet, isolated, frame, delay,
 	); err != nil {
 		r.closeErr = err
 	}
@@ -652,9 +726,10 @@ func splitLongDelays(images []*image.Paletted, delays []int, disposals []byte) (
 	return outImages, outDelays, outDisposals
 }
 
-// holdFrame is a 1×1 transparent patch. With DisposalNone it adds delay
-// without changing the canvas. Palettes without a transparent slot repeat
-// the full frame instead.
+// holdFrame is a 1×1 transparent patch on src's own palette. With DisposalNone
+// it adds delay without changing the canvas. Palettes without a transparent
+// slot at [TransparentPaletteIndex] repeat the full frame instead, so an
+// isolated palette only keeps that slot when a later frame on it uses one.
 func holdFrame(src *image.Paletted) *image.Paletted {
 	if src == nil || len(src.Palette) <= int(TransparentPaletteIndex) {
 		return src

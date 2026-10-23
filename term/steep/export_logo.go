@@ -110,7 +110,7 @@ func (ec ExportContext) steepLogo(d time.Duration, emit func(ExportFrame)) bool 
 				dot(at, half, logoSteam[k*len(logoSteam)/height])
 			}
 		}
-		return ExportFrame{Image: img, Delay: delay}
+		return ExportFrame{Image: img, Delay: delay, Isolated: true}
 	}
 
 	emit(frame(logoH, 0, false, logoEmptyHold))

@@ -181,8 +181,18 @@ func TestExportCardsMatchRecording(t *testing.T) {
 		switch {
 		case ec.First:
 			intro = f.Image
+			if !f.Isolated {
+				t.Error("intro card should be palettized on its own")
+			}
 		case ec.Last:
 			outro, outroFailed = f.Image, ec.Failed
+			if !f.Isolated {
+				t.Error("outro card should be palettized on its own")
+			}
+		default:
+			if f.Isolated {
+				t.Error("terminal frame should use the shared palette")
+			}
 		}
 		emit(f)
 	}
@@ -263,6 +273,14 @@ func TestExportIntroLogo(t *testing.T) {
 	h.Type("abc")
 	want := h.Image().Bounds()
 	finishGIF(t, h, false)
+	for _, f := range frames {
+		if f.At.IsZero() {
+			continue
+		}
+		if f.Isolated {
+			t.Error("terminal frame isolated = true, want the shared palette")
+		}
+	}
 	intro := slices.DeleteFunc(frames, func(f ExportFrame) bool { return !f.At.IsZero() })
 
 	// An empty hold, one frame per pixel row of fill, then ten steps of steam.
@@ -271,6 +289,9 @@ func TestExportIntroLogo(t *testing.T) {
 	}
 	var total time.Duration
 	for i, f := range intro {
+		if !f.Isolated {
+			t.Errorf("intro frame %d isolated = false, want the logo on its own palette", i)
+		}
 		if f.Image.Bounds() != want {
 			t.Fatalf("intro frame %d bounds = %v, want %v", i, f.Image.Bounds(), want)
 		}

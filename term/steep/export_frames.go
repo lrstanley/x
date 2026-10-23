@@ -27,6 +27,10 @@ type ExportFrame struct {
 	// The encoder snaps it to the [WithExportFPS] grid, and anything shorter
 	// than one step plays for one step.
 	Delay time.Duration
+	// Isolated palettizes this frame on its own GIF palette (see
+	// [export.Frame.Isolated]). Intro cards, the logo, and the outro set it.
+	// A mutator can set it on frames it inserts. Terminal frames leave it false.
+	Isolated bool
 }
 
 // frameSource is the terminal state a frame was drawn from, so a card drawn
@@ -179,7 +183,7 @@ func (p *exportPipeline) push(i int, f sourcedFrame) {
 		return
 	}
 	if i == len(p.stages) {
-		out := export.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step)}
+		out := export.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step), Isolated: f.Isolated}
 		if len(p.stages) == 0 {
 			// Without mutators nothing else shares the image, so the encoder
 			// may recycle it. Mutators can emit one image for several frames.

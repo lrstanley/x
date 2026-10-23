@@ -236,10 +236,10 @@ func introCard(d time.Duration, lines ...CardLine) ExportMutator {
 		switch {
 		case !ec.First:
 		case len(lines) > 0:
-			emit(ExportFrame{Image: ec.Card(lines...), Delay: d})
+			emit(ExportFrame{Image: ec.Card(lines...), Delay: d, Isolated: true})
 		case !ec.steepLogo(d, emit):
 			title := ec.titleLines(CardLine{Text: "steep", Style: screen.Style{Attrs: screen.AttrBold}})
-			emit(ExportFrame{Image: ec.Card(title...), Delay: d})
+			emit(ExportFrame{Image: ec.Card(title...), Delay: d, Isolated: true})
 		}
 		emit(f)
 	}
@@ -257,7 +257,7 @@ func outroCard(d time.Duration, lines ...CardLine) ExportMutator {
 		if len(card) == 0 {
 			card = ec.resultLines()
 		}
-		emit(ExportFrame{Image: ec.Card(card...), Delay: d})
+		emit(ExportFrame{Image: ec.Card(card...), Delay: d, Isolated: true})
 	}
 }
 

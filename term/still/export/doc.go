@@ -42,6 +42,12 @@
 // [OptimizeColorQuantization] uses the same palette builder on its single
 // image.
 //
+// [Frame.Isolated] builds a separate palette for that frame and leaves the
+// shared one untouched. A run of consecutive isolated frames shares the
+// separate palette. GIF writes it as a local color table, compacted to the
+// colors that run uses. Disposal optimization emits a full keyframe where the
+// palette changes, and never diffs pixels across two palettes.
+//
 // # GIF palette transparency
 //
 // The capture and optimization pipeline reserves palette index 255

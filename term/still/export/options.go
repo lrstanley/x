@@ -68,6 +68,12 @@ func (f OptimizeFlags) has(flag OptimizeFlags) bool {
 type Frame struct {
 	Image image.Image
 	Delay time.Duration
+	// Isolated palettizes this frame on its own palette. It adds no colors to
+	// the shared recording palette, and consecutive isolated frames share one
+	// palette so they stay comparable to each other. GIF stores that palette
+	// as a local color table on each of those frames. Terminal frames leave it
+	// false.
+	Isolated bool
 	// Done, when set, is called once the recorder no longer reads Image (it
 	// has been palettized), from the recorder's goroutine. Image is then
 	// handed back to the sender, which may reuse it, so the sender must not

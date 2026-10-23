@@ -34,6 +34,6 @@ func NewPalettizedRecorder() *PalettizedRecorder {
 func (fr *PalettizedRecorder) AddFrame(frame image.Image, delay time.Duration) error {
 	return appendRecordingFrame(
 		&fr.rec, fr.palette, fr.useLUT,
-		OptimizeFrames, nil, false, frame, delay,
+		OptimizeFrames, nil, false, false, frame, delay,
 	)
 }
