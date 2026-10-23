@@ -83,8 +83,9 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 
 	frame, usePass := dst.(*image.NRGBA)
 	if usePass {
-		d.fgPass.Reset(f.gridBounds)
+		d.fgPass.Reset(f.gridBounds.Union(f.chromeBounds))
 	}
+	d.drawChrome(dst, f, usePass)
 
 	// Only rows that can reach dst: one extra row each side for glyph spill.
 	db, ch := dst.Bounds(), max(cellH, 1)

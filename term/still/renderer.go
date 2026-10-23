@@ -41,6 +41,9 @@ type Renderer struct {
 	blinkGen   uint64
 	blinkOn    bool
 
+	// chromeMask is the window button shape, rebuilt when the diameter changes.
+	chromeMask *image.Alpha
+
 	fgPass raster.Pass
 	// prev holds the cells d.frame shows, row-major, for drawIncremental.
 	prev []screen.Cell

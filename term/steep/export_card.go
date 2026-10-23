@@ -120,6 +120,7 @@ func (c *cardRenderer) draw(tb testing.TB, size still.Pt, state still.EmulatorSt
 			still.WithMargin(0, nil),
 			still.WithBorderRadius(0),
 			still.WithScrollbar(false),
+			still.WithWindowChrome(false),
 		)...)
 		if err != nil {
 			c.failed = true

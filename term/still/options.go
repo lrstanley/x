@@ -230,6 +230,18 @@ func WithScrollbar(enabled bool) Option {
 	}
 }
 
+// WithWindowChrome sets whether to draw a title bar above the terminal grid,
+// with window buttons and the title from [EmulatorState]. The bar is part of
+// the window, so padding, margin, border radius, and focus dimming apply to it,
+// and it grows the image by [Renderer.Metrics] cell height plus half a cell.
+// Disabled by default, so cell-accurate screenshots do not change.
+func WithWindowChrome(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.WindowChrome = enabled
+		return nil
+	}
+}
+
 // WithBorderRadius sets the border radius in pixels.
 func WithBorderRadius(px int) Option {
 	return func(d *Renderer) error {

@@ -76,6 +76,11 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 		{"opacity", []Option{WithBackgroundOpacity(0.5)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
 		{"opacity-cells", []Option{WithBackgroundOpacity(0.5), WithBackgroundOpacityCells(true), WithMargin(4, nil)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
 		{"unfocused", []Option{WithFocusDimming(0.4), WithMargin(5, color.NRGBA{G: 120, A: 255}), WithPadding(4)}, EmulatorState{CursorVisible: true}, 30},
+		{"chrome", []Option{WithWindowChrome(true), WithPadding(3)}, EmulatorState{Title: "vim — main.go", Focused: true, CursorVisible: true}, 30},
+		{"chrome-everything", []Option{
+			WithWindowChrome(true), WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4),
+			WithBorderRadius(12), WithScrollbar(true), WithBackgroundOpacity(0.5), WithFocusDimming(0.35),
+		}, EmulatorState{Title: "漢字  a very long title that has to be truncated to fit", CursorVisible: true, ScrollbackCount: 25}, 30},
 		{"big-font", []Option{WithFontSizePt(26), WithPadding(3)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
 		{"everything", []Option{
 			WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4), WithBorderRadius(12),
@@ -100,7 +105,7 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 			incremental := 0
 
 			for step := range steps {
-				switch step % 8 {
+				switch step % 9 {
 				case 0: // typing: a run of cells on one row
 					y, x := rng.IntN(rows), rng.IntN(cols-6)
 					for i := range 1 + rng.IntN(5) {
@@ -127,6 +132,11 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 					state.CursorVisible = !state.CursorVisible
 				case 7: // a few scattered edits
 					for range 1 + rng.IntN(4) {
+						buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
+					}
+				case 8: // title change, alone or with an edit
+					state.Title = []string{"", "x", "a longer title — ünï ", "漢字", state.Title + "!"}[rng.IntN(5)]
+					if rng.IntN(2) == 0 {
 						buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
 					}
 				}

@@ -194,6 +194,56 @@ func BenchmarkDrawManyGlyphs(b *testing.B) {
 	}
 }
 
+// BenchmarkDrawChrome measures the title bar's share of a full draw.
+func BenchmarkDrawChrome(b *testing.B) {
+	scr := benchmarkTerminalScreen()
+	for _, chrome := range []bool{false, true} {
+		b.Run(fmt.Sprintf("chrome=%t", chrome), func(b *testing.B) {
+			d := MustNew(WithFontSizePt(benchmarkFontSizePt), WithWindowChrome(chrome))
+			d.UpdateEmulatorState(&EmulatorState{Title: "go test ./... — benchmark", Focused: true})
+			frame := image.NewNRGBA(d.Bounds(scr))
+			for range benchmarkWarmupIters {
+				d.DrawInto(frame, frame.Bounds(), scr)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				d.DrawInto(frame, frame.Bounds(), scr)
+			}
+		})
+	}
+}
+
+// BenchmarkDrawTitleChange redraws through [Renderer.Draw] after only the
+// title changes, like a program that updates its title while the screen is
+// idle. Without chrome the title is not painted, so the cached frame is reused.
+func BenchmarkDrawTitleChange(b *testing.B) {
+	for _, chrome := range []bool{false, true} {
+		b.Run(fmt.Sprintf("chrome=%t", chrome), func(b *testing.B) {
+			scr := benchmarkTerminalScreen().Buffer
+			d := MustNew(WithFontSizePt(Pt(14)), WithWindowChrome(chrome))
+			state := EmulatorState{Focused: true}
+			draw := func(i int) {
+				state.Title = fmt.Sprintf("build %d%%", i%100)
+				d.UpdateEmulatorState(&state)
+				d.Draw(scr)
+			}
+			for i := range benchmarkWarmupIters {
+				draw(i)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			i := 0
+			for b.Loop() {
+				draw(i)
+				i++
+			}
+		})
+	}
+}
+
 // BenchmarkDrawRounded renders a small frame with margin and rounded corners so
 // the rounded-corner mask is a measurable share of the draw.
 func BenchmarkDrawRounded(b *testing.B) {

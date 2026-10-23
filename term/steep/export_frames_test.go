@@ -303,6 +303,25 @@ func TestExportCardsAfterMutators(t *testing.T) {
 	}
 }
 
+// TestCardRendererIgnoresWindowChrome checks that cards and key chips, which
+// reuse the harness renderer options, do not get a title bar of their own.
+func TestCardRendererIgnoresWindowChrome(t *testing.T) {
+	t.Parallel()
+	scr := screen.NewBuffer(10, 2)
+	var plain, chrome cardRenderer
+	chrome.opts = []still.Option{still.WithWindowChrome(true)}
+	t.Cleanup(func() { _ = plain.close(); _ = chrome.close() })
+
+	want := plain.draw(t, still.Pt(10), still.EmulatorState{Title: "title"}, scr)
+	got := chrome.draw(t, still.Pt(10), still.EmulatorState{Title: "title"}, scr)
+	if got == nil || want == nil {
+		t.Fatalf("draw returned nil: got %v, want %v", got, want)
+	}
+	if got.Bounds() != want.Bounds() {
+		t.Errorf("card bounds with window chrome = %v, want %v", got.Bounds(), want.Bounds())
+	}
+}
+
 func TestExportCardScale(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

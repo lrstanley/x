@@ -23,6 +23,7 @@ type frameSnap struct {
 	boxThick bool
 
 	scrollbar      bool
+	title          string // only tracked with window chrome, which is the only thing that paints it
 	border         Px
 	margin         Px
 	padding        Px
@@ -122,16 +123,7 @@ func bufferClean(b *screen.Buffer) bool {
 // drawBounds is the origin-zero image rectangle Draw paints. It matches
 // populateRenderFrame with a zero origin.
 func (d *Renderer) drawBounds(screen image.Rectangle) image.Rectangle {
-	cell := d.metrics.CellSize()
-	margin := d.opts.Margin.Int()
-	padding := d.opts.Padding.Int()
-	bar := 0
-	if d.opts.Scrollbar {
-		bar = scrollbarWidthPx
-	}
-	w := screen.Dx()*cell.X + bar + 2*padding + 2*margin
-	h := screen.Dy()*cell.Y + 2*padding + 2*margin
-	return image.Rectangle{Max: image.Pt(w, h)}
+	return image.Rectangle{Max: d.imageSize(screen)}
 }
 
 func (d *Renderer) currentSnap(bounds image.Rectangle) frameSnap {
@@ -159,6 +151,9 @@ func (d *Renderer) currentSnap(bounds image.Rectangle) frameSnap {
 	s.palMargin, s.palMarginSet = colorKey(d.palette.Margin)
 	if st := d.emulatorState; st != nil {
 		s.hasEmu = true
+		if d.opts.WindowChrome {
+			s.title = st.Title
+		}
 		s.focused = st.Focused
 		s.alt = st.AltScreen
 		s.curOn = st.CursorVisible
@@ -206,7 +201,7 @@ func (d *Renderer) drawIncremental(scr screen.Screen) bool {
 		return false
 	}
 	now, old := d.currentSnap(buf.Bounds()), d.frameSnap
-	if now.sansCursor() != old.sansCursor() || d.frame.Bounds() != d.drawBounds(now.screen) ||
+	if now.sansBanded() != old.sansBanded() || d.frame.Bounds() != d.drawBounds(now.screen) ||
 		d.cursorBlinks(now) || d.cellsBlink(buf, buf.Generation()) {
 		return false
 	}
@@ -220,6 +215,10 @@ func (d *Renderer) drawIncremental(scr screen.Screen) bool {
 				lo, hi = min(lo, y), max(hi, y)
 			}
 		}
+	}
+	if now.title != old.title {
+		// The title bar sits above row 0, whose band reaches the window top.
+		lo, hi = 0, max(hi, 0)
 	}
 	if hi < lo {
 		d.rememberFrame(scr, 0, -1)
@@ -272,8 +271,10 @@ func (s frameSnap) cursor() cursorSnap {
 	return cursorSnap{s.curOn, s.curBlink, s.curX, s.curY, s.curStyle}
 }
 
-// sansCursor is s without the cursor fields, which drawIncremental handles by row.
-func (s frameSnap) sansCursor() frameSnap {
+// sansBanded is s without the cursor and title, which drawIncremental
+// repaints as a band instead of rebuilding the frame.
+func (s frameSnap) sansBanded() frameSnap {
 	s.curOn, s.curBlink, s.curX, s.curY, s.curStyle = false, false, 0, 0, 0
+	s.title = ""
 	return s
 }

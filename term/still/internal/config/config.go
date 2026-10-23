@@ -56,6 +56,7 @@ type Options struct {
 	Palette types.Palette
 
 	Scrollbar              bool
+	WindowChrome           bool
 	BorderRadius           units.Px
 	Margin                 units.Px
 	MarginFill             color.Color

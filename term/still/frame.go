@@ -35,6 +35,7 @@ type renderFrame struct {
 	screenBounds    image.Rectangle
 	imageBounds     image.Rectangle
 	windowBounds    image.Rectangle
+	chromeBounds    image.Rectangle
 	gridBounds      image.Rectangle
 	scrollbarBounds image.Rectangle
 	cursorCell      *screen.Cell
@@ -67,6 +68,30 @@ func (d *Renderer) buildFrame(origin image.Point, scr screen.Screen) *renderFram
 	return f
 }
 
+// chromeHeight is the title bar height in pixels, or 0 without window chrome.
+func (d *Renderer) chromeHeight() int {
+	if !d.opts.WindowChrome {
+		return 0
+	}
+	cellH := d.metrics.CellHeight.Int()
+	return cellH + cellH/2
+}
+
+// imageSize is the size of the image that holds a screen of the given bounds:
+// margin, title bar, padding, grid, and scrollbar.
+func (d *Renderer) imageSize(bounds image.Rectangle) image.Point {
+	cell := d.metrics.CellSize()
+	inset := 2 * (d.opts.Margin.Int() + d.opts.Padding.Int())
+	bar := 0
+	if d.opts.Scrollbar {
+		bar = scrollbarWidthPx
+	}
+	return image.Pt(
+		bounds.Dx()*cell.X+bar+inset,
+		bounds.Dy()*cell.Y+d.chromeHeight()+inset,
+	)
+}
+
 func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr screen.Screen) {
 	if scr == nil {
 		panic("nil screen")
@@ -84,26 +109,22 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr s
 	cell := d.metrics.CellSize()
 	margin := d.opts.Margin.Int()
 	padding := d.opts.Padding.Int()
-	scrollbarWidth := 0
-	if d.opts.Scrollbar {
-		scrollbarWidth = scrollbarWidthPx
-	}
+	chrome := d.chromeHeight()
 
-	gridSize := image.Pt(screen.Dx()*cell.X, screen.Dy()*cell.Y)
-	windowSize := image.Pt(gridSize.X+scrollbarWidth+2*padding, gridSize.Y+2*padding)
-	size := image.Pt(windowSize.X+2*margin, windowSize.Y+2*margin)
-	f.imageBounds = image.Rectangle{Min: origin, Max: origin.Add(size)}
+	f.imageBounds = image.Rectangle{Min: origin, Max: origin.Add(d.imageSize(screen))}
 	f.windowBounds = f.imageBounds.Inset(margin)
-	gridOrigin := f.windowBounds.Min.Add(image.Pt(padding, padding))
+	f.chromeBounds = f.windowBounds
+	f.chromeBounds.Max.Y = f.chromeBounds.Min.Y + chrome
+	gridOrigin := f.windowBounds.Min.Add(image.Pt(padding, chrome+padding))
 	f.gridBounds = image.Rectangle{
 		Min: gridOrigin,
-		Max: gridOrigin.Add(gridSize),
+		Max: gridOrigin.Add(image.Pt(screen.Dx()*cell.X, screen.Dy()*cell.Y)),
 	}
 	f.scrollbarBounds = image.Rectangle{}
-	if scrollbarWidth > 0 {
+	if d.opts.Scrollbar {
 		f.scrollbarBounds = image.Rect(
 			f.gridBounds.Max.X, f.gridBounds.Min.Y,
-			f.gridBounds.Max.X+scrollbarWidth, f.gridBounds.Max.Y,
+			f.gridBounds.Max.X+scrollbarWidthPx, f.gridBounds.Max.Y,
 		)
 	}
 
