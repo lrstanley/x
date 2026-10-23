@@ -37,7 +37,7 @@ type CardLine struct {
 func (ec ExportContext) Card(lines ...CardLine) image.Image {
 	state := ec.cardState()
 	ec.h.imageMu.Lock()
-	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state)
+	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state, time.Time{})
 	ec.h.imageMu.Unlock()
 
 	if text := ec.cardText(state, lines); text != nil {
@@ -49,12 +49,13 @@ func (ec ExportContext) Card(lines ...CardLine) image.Image {
 }
 
 // cardState is the renderer state for cards: the frame's window state with
-// default colors, no cursor, and nothing to scroll.
+// default colors, no cursor, no progress, and nothing to scroll.
 func (ec ExportContext) cardState() still.EmulatorState {
 	state := viewportState(ec.h, still.EmulatorState{}, ec.src.state)
 	state.FgColor, state.BgColor = nil, nil
 	state.CursorVisible = false
 	state.ScrollbackCount = 0
+	state.Progress = still.Progress{}
 	return state
 }
 

@@ -242,6 +242,32 @@ func WithWindowChrome(enabled bool) Option {
 	}
 }
 
+// WithProgressBar sets whether to draw the OSC 9;4 progress report from
+// [EmulatorState.Progress] as a thin bar. With [WithWindowChrome] it covers
+// the bottom edge of the title bar, right above the grid; otherwise it covers
+// the top edge of the window. It never moves the grid. Enabled by default; a
+// state with no progress draws nothing.
+func WithProgressBar(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.ProgressBar = enabled
+		return nil
+	}
+}
+
+// WithProgressBarHeight sets the progress bar height in pixels. The default
+// is 2. Colors come from [Palette.Progress], [Palette.ProgressError], and
+// [Palette.ProgressPause].
+func WithProgressBarHeight(px int) Option {
+	return func(d *Renderer) error {
+		v, err := config.ParseRequiredPx(px, "progress bar height")
+		if err != nil {
+			return err
+		}
+		d.opts.ProgressBarHeight = v
+		return nil
+	}
+}
+
 // WithBorderRadius sets the border radius in pixels.
 func WithBorderRadius(px int) Option {
 	return func(d *Renderer) error {
@@ -316,6 +342,19 @@ func WithFocusDimming(factor float64) Option {
 			return fmt.Errorf("still: focus dimming must be between 0 and 1, got %v", factor)
 		}
 		d.opts.FocusDimming = factor
+		return nil
+	}
+}
+
+// WithClock sets the clock Draw reads for time-driven pixels: blinking text,
+// the blinking cursor, and the indeterminate progress sweep. A nil func
+// restores the default, [time.Now].
+func WithClock(now func() time.Time) Option {
+	return func(d *Renderer) error {
+		if now == nil {
+			now = time.Now
+		}
+		d.opts.Now = now
 		return nil
 	}
 }

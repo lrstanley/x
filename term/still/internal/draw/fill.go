@@ -39,16 +39,7 @@ func Fill(img draw.Image, area image.Rectangle, col color.NRGBA) {
 		}
 		return
 	}
-	u, ok := fillUniforms.Load(col)
-	if !ok {
-		u = image.NewUniform(col)
-		fillUniforms.Store(col, u)
-	}
-	uniform, ok := u.(*image.Uniform)
-	if !ok {
-		panic("fillUniforms stored non-Uniform value")
-	}
-	draw.Draw(img, area, uniform, image.Point{}, draw.Src)
+	draw.Draw(img, area, Uniform(col), image.Point{}, draw.Src)
 }
 
 // fillSpan writes pixel across row. row length is a positive multiple of 4.
@@ -66,7 +57,12 @@ func Overlay(img draw.Image, area image.Rectangle, c color.Color) {
 	if area.Empty() {
 		return
 	}
-	col := icol.NRGBA(c)
+	draw.Draw(img, area, Uniform(icol.NRGBA(c)), image.Point{}, draw.Over)
+}
+
+// Uniform returns a shared [image.Uniform] of col, so repeated draws in one
+// color do not allocate a source image each time.
+func Uniform(col color.NRGBA) *image.Uniform {
 	u, ok := fillUniforms.Load(col)
 	if !ok {
 		u = image.NewUniform(col)
@@ -76,5 +72,5 @@ func Overlay(img draw.Image, area image.Rectangle, c color.Color) {
 	if !ok {
 		panic("fillUniforms stored non-Uniform value")
 	}
-	draw.Draw(img, area, uniform, image.Point{}, draw.Over)
+	return uniform
 }

@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/vt"
 )
 
 func TestExportOnFailureWritesArtifacts(t *testing.T) {
@@ -268,5 +269,20 @@ func TestExportFilenameOverwrite(t *testing.T) {
 	}
 	if !strings.HasSuffix(name1, ".png") {
 		t.Fatalf("bad suffix: %q", name1)
+	}
+}
+
+// TestSameCommitTracksProgress checks that a write that only changes OSC 9;4
+// progress still records a GIF frame, since the bar is drawn on the window.
+func TestSameCommitTracksProgress(t *testing.T) {
+	t.Parallel()
+	a := vt.Snapshot{Generation: 3, Title: "t"}
+	b := a
+	b.Progress = vt.Progress{Reported: true, State: vt.ProgressSet, Percent: 10}
+	if !sameCommit(a, a) {
+		t.Fatal("sameCommit(a, a) = false")
+	}
+	if sameCommit(a, b) {
+		t.Fatal("snapshots that differ only in progress are the same commit")
 	}
 }

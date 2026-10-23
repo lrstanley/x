@@ -176,6 +176,8 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 		}
 	}
 
+	d.drawProgress(dst, f)
+
 	if d.opts.Scrollbar && f.hasEmu && !f.emu.AltScreen &&
 		f.emu.ScrollbackCount > view.Dy() &&
 		!f.scrollbarBounds.Empty() {

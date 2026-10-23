@@ -71,7 +71,8 @@ func BenchmarkExportCapture(b *testing.B) {
 			b.ReportAllocs()
 			i := 0
 			for b.Loop() {
-				releaseNRGBA(copyCommitted(h, screens[i%2], states[i%2]))
+				img, _ := copyCommitted(h, screens[i%2], states[i%2], time.Time{})
+				releaseNRGBA(img)
 				i++
 			}
 			reportBudget(b)
@@ -87,7 +88,7 @@ func BenchmarkExportEncode(b *testing.B) {
 			b.Run(fmt.Sprintf("%s/%dx%d", m.name, size[0], size[1]), func(b *testing.B) {
 				h := NewHarness(b, m.model("encode"), WithWindowSize(size[0], size[1]), WithIgnoreEnv(true))
 				h.Wait("text=encode")
-				img := copyCommitted(h, h.emulator.term.Screen(), h.emulator.term.Snapshot())
+				img, _ := copyCommitted(h, h.emulator.term.Screen(), h.emulator.term.Snapshot(), time.Time{})
 				rec := export.NewPalettizedRecorder()
 				b.ReportAllocs()
 				for b.Loop() {

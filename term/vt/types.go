@@ -47,6 +47,8 @@ type Snapshot struct {
 	// ScrollbackLen is the number of scrollback rows. It is zero on the
 	// alternate screen.
 	ScrollbackLen int
+	// Progress is the latest OSC 9;4 report, as [Terminal.Progress] returns.
+	Progress Progress
 	// Generation is the viewport content generation. It does not copy cells.
 	Generation uint64
 }

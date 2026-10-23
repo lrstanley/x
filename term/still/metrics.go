@@ -10,4 +10,15 @@ type (
 	Metrics       = types.Metrics
 	Palette       = types.Palette
 	EmulatorState = types.EmulatorState
+	Progress      = types.Progress
+	ProgressState = types.ProgressState
+)
+
+// Progress states reported by OSC 9;4. See [types.ProgressState].
+const (
+	ProgressRemove        = types.ProgressRemove
+	ProgressSet           = types.ProgressSet
+	ProgressError         = types.ProgressError
+	ProgressIndeterminate = types.ProgressIndeterminate
+	ProgressPause         = types.ProgressPause
 )

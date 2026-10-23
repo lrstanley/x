@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"time"
 
 	"github.com/lrstanley/x/term/steep/snapshot"
 	"github.com/lrstanley/x/term/still"
@@ -88,7 +89,10 @@ func (h *Harness) ImageInto(dst draw.Image) {
 
 func (h *Harness) drawImageInto(dst draw.Image) {
 	h.tb.Helper()
-	h.imageRenderer.DrawInto(dst, image.Rectangle{}, h.imageViewport())
+	scr := h.imageViewport()
+	h.imageMu.Lock()
+	defer h.imageMu.Unlock()
+	h.imageRenderer.DrawInto(dst, image.Rectangle{}, scr)
 }
 
 // Image renders the current terminal screen buffer as an image. Configure the
@@ -107,7 +111,10 @@ func (h *Harness) Image() image.Image {
 }
 
 func (h *Harness) drawImage() image.Image {
-	return h.imageRenderer.Draw(h.imageViewport())
+	scr := h.imageViewport()
+	h.imageMu.Lock()
+	defer h.imageMu.Unlock()
+	return h.imageRenderer.Draw(scr)
 }
 
 // imageViewport copies emulator state into the renderer and returns the
@@ -155,27 +162,60 @@ func syncViewport(h *Harness, st vt.Snapshot) {
 	h.imageStateSet = true
 }
 
-// copyCommitted renders scr as it looked at st and returns an owned image.
-// The harness image cache is invalidated so the next live draw does not
-// reuse metadata from this historical frame. Call it from the test goroutine.
-func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot) image.Image {
+// copyCommitted renders scr as it looked at st, as of time at, and returns an
+// owned image, with a func that repaints its progress bar in a copy of the
+// image as of a later time when the bar moves with the clock (nil otherwise).
+// The harness image cache
+// is invalidated so the next live draw does not reuse metadata from this
+// historical frame. Call it from the test goroutine.
+func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot, at time.Time) (img image.Image, redraw func(*image.NRGBA, time.Time)) {
 	if scr == nil {
-		return nil
+		return nil, nil
 	}
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
-	return copyDrawnLocked(h, scr, viewportState(h, h.imageState, st))
+	img = copyDrawnLocked(h, scr, viewportState(h, h.imageState, st), at)
+	return img, redrawLocked(h, scr)
 }
 
-// copyDrawnLocked renders scr with state and returns an owned image. It
-// invalidates the harness image cache like [copyCommitted]. h.imageMu must be
-// held.
-func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState) *image.NRGBA {
+// redrawLocked returns a func that repaints the progress bar of dst, a copy
+// of the image just drawn for scr, with the state the renderer drew it with, as
+// of a later time. It is nil unless that bar moves with the clock. h.imageMu
+// must be held.
+func redrawLocked(h *Harness, scr *screen.Buffer) func(*image.NRGBA, time.Time) {
+	if scr == nil || !h.imageRenderer.ProgressAnimates() {
+		return nil
+	}
+	state := *h.imageRenderer.GetEmulatorState()
+	return func(dst *image.NRGBA, at time.Time) {
+		h.imageMu.Lock()
+		defer h.imageMu.Unlock()
+		drawStateLocked(h, state, at, func() { h.imageRenderer.RepaintProgress(dst, scr) })
+	}
+}
+
+// copyDrawnLocked renders scr with state, as of time at (zero for now), and
+// returns an owned image. It invalidates the harness image cache like
+// [copyCommitted]. h.imageMu must be held.
+func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState, at time.Time) *image.NRGBA {
+	var dst *image.NRGBA
+	drawStateLocked(h, state, at, func() {
+		dst = newNRGBA(h.imageRenderer.Bounds(scr))
+		h.imageRenderer.DrawInto(dst, image.Rectangle{}, scr)
+	})
+	return dst
+}
+
+// drawStateLocked loads state into the renderer, pins its clock to at (zero
+// for now) while paint runs, and invalidates the harness image cache, since the
+// next live draw would otherwise reuse metadata from this historical state.
+// h.imageMu must be held.
+func drawStateLocked(h *Harness, state still.EmulatorState, at time.Time, paint func()) {
 	h.imageRenderer.UpdateEmulatorState(&state)
 	h.imageStateSet = false
-	dst := newNRGBA(h.imageRenderer.Bounds(scr))
-	h.imageRenderer.DrawInto(dst, image.Rectangle{}, scr)
-	return dst
+	h.imageAt = at
+	defer func() { h.imageAt = time.Time{} }()
+	paint()
 }
 
 // frameBufs holds a few finished frame buffers for [newNRGBA]. It is a small
@@ -223,7 +263,28 @@ func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.E
 		FgColor:         reuseNRGBA(prev.FgColor, st.Foreground),
 		BgColor:         reuseNRGBA(prev.BgColor, st.Background),
 		ScrollbackCount: st.ScrollbackLen,
+		Progress:        stillProgress(st.Progress),
 	}
+}
+
+// stillProgress maps an OSC 9;4 report to the renderer's progress state.
+func stillProgress(p vt.Progress) still.Progress {
+	var state still.ProgressState
+	switch p.State {
+	case vt.ProgressSet:
+		state = still.ProgressSet
+	case vt.ProgressError:
+		state = still.ProgressError
+	case vt.ProgressIndeterminate:
+		state = still.ProgressIndeterminate
+	case vt.ProgressPause:
+		state = still.ProgressPause
+	case vt.ProgressRemove:
+		return still.Progress{}
+	default:
+		return still.Progress{}
+	}
+	return still.Progress{State: state, Percent: p.Percent}
 }
 
 // cloneNRGBA returns an owned copy of src, which must not be nil, to draw on.

@@ -430,6 +430,7 @@ func (t *Terminal) Snapshot() Snapshot {
 		CursorColor:    cc,
 		CursorColorSet: hasCursor,
 		ScrollbackLen:  t.scrollbackLenLocked(),
+		Progress:       t.progress,
 		Generation:     gen,
 	}
 }

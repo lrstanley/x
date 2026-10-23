@@ -399,7 +399,7 @@ func TestGridGenerationMatchesScreen(t *testing.T) {
 func TestSnapshotMatchesAccessors(t *testing.T) {
 	t.Parallel()
 	term := openTest(t, 8, 2)
-	if _, err := term.Write([]byte("A\x1b]0;snap-title\x07")); err != nil {
+	if _, err := term.Write([]byte("A\x1b]0;snap-title\x07\x1b]9;4;1;42\x07")); err != nil {
 		t.Fatal(err)
 	}
 	fg := color.NRGBA{R: 1, G: 2, B: 3, A: 0xff}
@@ -409,6 +409,9 @@ func TestSnapshotMatchesAccessors(t *testing.T) {
 	got := term.Snapshot()
 	if got.Title != "snap-title" || got.Foreground != fg {
 		t.Fatalf("snapshot title/fg = %q %#v", got.Title, got.Foreground)
+	}
+	if want := (Progress{Reported: true, State: ProgressSet, Percent: 42}); got.Progress != want {
+		t.Fatalf("snapshot progress = %+v, want %+v", got.Progress, want)
 	}
 	assertSnapshot(t, term)
 
@@ -449,6 +452,9 @@ func assertSnapshot(t *testing.T, term *Terminal) {
 	}
 	if n := term.ScrollbackLen(); got.ScrollbackLen != n {
 		t.Fatalf("ScrollbackLen = %d, want %d", got.ScrollbackLen, n)
+	}
+	if p := term.Progress(); got.Progress != p {
+		t.Fatalf("Progress = %+v, want %+v", got.Progress, p)
 	}
 	if gen := term.GridGeneration(); got.Generation != gen {
 		t.Fatalf("Generation = %d, want %d", got.Generation, gen)

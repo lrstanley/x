@@ -34,6 +34,9 @@ type ExportFrame struct {
 type frameSource struct {
 	cols, rows int
 	state      vt.Snapshot
+	// redraw repaints the progress bar of dst, a copy of the frame's image,
+	// as of a later time. It is nil unless the bar moves with the clock.
+	redraw func(dst *image.NRGBA, at time.Time)
 }
 
 // ExportContext tells an [ExportMutator] where a frame sits in the recording.
@@ -66,6 +69,9 @@ type ExportContext struct {
 // modified copy to overlay or retime it, or several to insert cards or expand
 // it. Each emitted frame moves on as soon as it is emitted, so a mutator that
 // inserts many need not hold them all. Frames without an Image are dropped.
+//
+// A frame held on screen with an animated progress bar reaches mutators as
+// several frames, each with the bar repainted so it keeps moving.
 //
 // Mutators run on the test goroutine. One built for an option shared by
 // parallel tests must not keep per-recording state; use
@@ -106,6 +112,11 @@ type mutatorStage struct {
 	started bool
 }
 
+// sweepStep is the shortest time between the frames export draws to keep an
+// animated progress bar moving while the screen holds still. 20 fps keeps the
+// sweep smooth without adding many frames, whatever [WithExportFPS] is.
+const sweepStep = 50 * time.Millisecond
+
 // record makes img, painted at at, the newest frame, and sends the previous
 // one into the chain with the time it was on screen.
 func (p *exportPipeline) record(img image.Image, at time.Time, src frameSource) {
@@ -124,7 +135,38 @@ func (p *exportPipeline) release(until time.Time) {
 	}
 	p.newest = sourcedFrame{}
 	f.Delay = max(time.Duration(float64(until.Sub(f.At))/p.speed), p.base.Step)
-	p.push(0, f)
+	base, ok := f.Image.(*image.NRGBA)
+	step := p.base.Step
+	if step > 0 {
+		step = sweepStep + (step-sweepStep%step)%step
+	}
+	if f.src.redraw == nil || !ok || step <= 0 || f.Delay < 2*step {
+		p.push(0, f)
+		return
+	}
+	// The progress sweep moves with the clock, so holding one image would
+	// freeze it. Play the hold as frames sweepStep apart instead, rounded up
+	// to a multiple of the step grid, each a copy of the frame with the bar
+	// repainted as of the real time it stands for. The last frame takes the
+	// remainder. The encoder may recycle f.Image once it is pushed, so the
+	// copies come from a clone.
+	base = cloneNRGBA(base)
+	start, left := f.At, f.Delay
+	for k := 0; left > 0; k++ {
+		if k > 0 {
+			f.At = start.Add(time.Duration(float64(k) * float64(step) * p.speed))
+			next := newNRGBA(base.Rect)
+			copy(next.Pix, base.Pix)
+			f.src.redraw(next, f.At)
+			f.Image = next
+		}
+		f.Delay = step
+		if left < 2*step {
+			f.Delay = left
+		}
+		left -= f.Delay
+		p.push(0, f)
+	}
 }
 
 // push hands f to stage i, or to the encoder past the last stage. The encoder

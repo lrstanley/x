@@ -22,8 +22,10 @@
 //
 // [Renderer] owns the full draw pipeline: window background, optional title bar
 // ([WithWindowChrome], showing [EmulatorState.Title]), cell backgrounds, cell
-// foregrounds (glyphs and decorations), cursor, scrollbar gutter, unfocused
-// dimming overlay, then an antialiased rounding mask on the terminal window.
+// foregrounds (glyphs and decorations), cursor, OSC 9;4 progress bar
+// ([WithProgressBar], from [EmulatorState.Progress]), scrollbar gutter,
+// unfocused dimming overlay, then an antialiased rounding mask on the terminal
+// window.
 //
 // Each glyph is drawn from the first font that actually has it: a
 // [WithCodepointMap] range (by default, Nerd Font, Powerline, and symbol ranges

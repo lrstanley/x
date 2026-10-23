@@ -300,7 +300,9 @@ func (m *exportManager) flushCommits() {
 				continue
 			}
 			src := frameSource{cols: frame.screen.Width(), rows: frame.screen.Height(), state: frame.state}
-			m.sendFrame(src, copyCommitted(m.h, frame.screen, frame.state), frame.at)
+			img, redraw := copyCommitted(m.h, frame.screen, frame.state, frame.at)
+			src.redraw = redraw
+			m.sendFrame(src, img, frame.at)
 		}
 	}
 }
@@ -318,7 +320,11 @@ func (m *exportManager) captureGIF(event HookEvent) error {
 		return nil
 	}
 	src.cols, src.rows = m.h.Dimensions()
-	m.sendFrame(src, m.h.copyImage(), time.Now())
+	img := m.h.copyImage()
+	m.h.imageMu.Lock()
+	src.redraw = redrawLocked(m.h, m.h.imageScreen)
+	m.h.imageMu.Unlock()
+	m.sendFrame(src, img, time.Now())
 	return nil
 }
 
@@ -375,6 +381,7 @@ func (m *exportManager) isPristine(st vt.Snapshot, text string) bool {
 	p := m.pristine
 	return strings.TrimSpace(text) == "" &&
 		st.Title == p.Title &&
+		stillProgress(st.Progress) == stillProgress(p.Progress) &&
 		st.AltScreen == p.AltScreen &&
 		st.Foreground == p.Foreground &&
 		st.Background == p.Background &&
@@ -386,7 +393,8 @@ func (m *exportManager) isPristine(st vt.Snapshot, text string) bool {
 }
 
 func sameCommit(a, b vt.Snapshot) bool {
-	if a.Generation != b.Generation || a.Title != b.Title || a.AltScreen != b.AltScreen {
+	if a.Generation != b.Generation || a.Title != b.Title || a.AltScreen != b.AltScreen ||
+		stillProgress(a.Progress) != stillProgress(b.Progress) {
 		return false
 	}
 	ac, bc := a.Cursor, b.Cursor

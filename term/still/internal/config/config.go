@@ -25,6 +25,8 @@ const (
 	DefaultBgOpacity        = 1.0
 	DefaultFaintFactor      = 0.5
 	DefaultFocusDimming     = 0.16
+
+	DefaultProgressBarHeight = units.Px(2)
 )
 
 // Options is the merged renderer configuration owned by a [Renderer].
@@ -57,6 +59,8 @@ type Options struct {
 
 	Scrollbar              bool
 	WindowChrome           bool
+	ProgressBar            bool
+	ProgressBarHeight      units.Px
 	BorderRadius           units.Px
 	Margin                 units.Px
 	MarginFill             color.Color
@@ -82,6 +86,8 @@ func DefaultOptions() Options {
 		IconHeightScale:       1,
 		IconHeightSingleScale: 1,
 		SystemFontFallback:    true,
+		ProgressBar:           true,
+		ProgressBarHeight:     DefaultProgressBarHeight,
 		Now:                   time.Now,
 	}
 }

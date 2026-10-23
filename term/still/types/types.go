@@ -84,6 +84,13 @@ type Palette struct {
 	// Margin is the color used for padding or gutter areas outside the terminal
 	// grid.
 	Margin color.Color
+	// Progress is the OSC 9;4 progress bar color for set and indeterminate
+	// progress.
+	Progress color.Color
+	// ProgressError is the progress bar color for the error state.
+	ProgressError color.Color
+	// ProgressPause is the progress bar color for the pause state.
+	ProgressPause color.Color
 }
 
 // EmulatorState snapshots host-terminal properties that influence how a session
@@ -115,4 +122,32 @@ type EmulatorState struct {
 	// ScrollbackCount is the number of lines retained above the viewport, if
 	// tracked.
 	ScrollbackCount int
+	// Progress is the latest OSC 9;4 progress report. The zero value draws
+	// nothing.
+	Progress Progress
+}
+
+// ProgressState is an OSC 9;4 progress state.
+type ProgressState uint8
+
+// Progress states reported by OSC 9;4.
+const (
+	// ProgressRemove clears any progress indication. It is the zero value.
+	ProgressRemove ProgressState = iota
+	// ProgressSet shows determinate progress at [Progress.Percent].
+	ProgressSet
+	// ProgressError shows a failed state, at [Progress.Percent] when set.
+	ProgressError
+	// ProgressIndeterminate shows progress with no known percent.
+	ProgressIndeterminate
+	// ProgressPause shows paused progress, at [Progress.Percent] when set.
+	ProgressPause
+)
+
+// Progress is an OSC 9;4 progress report.
+type Progress struct {
+	// State is the reported state.
+	State ProgressState
+	// Percent is 0 through 100. Negative means the report had no percent.
+	Percent int
 }

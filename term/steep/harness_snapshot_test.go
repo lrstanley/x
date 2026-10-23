@@ -115,6 +115,41 @@ func TestHarnessImageTracksEmulatorStateChanges(t *testing.T) {
 	}
 }
 
+// TestHarnessImageTracksProgress checks that an OSC 9;4 sequence the program
+// writes reaches the renderer and the image, and that removing it clears the
+// bar, without the grid changing.
+func TestHarnessImageTracksProgress(t *testing.T) {
+	t.Parallel()
+
+	h := NewHarness(t, rootTestModel{text: "progress"}, WithWindowSize(24, 3), WithRenderer(still.WithWindowChrome(true)))
+	h.Wait("text=progress")
+	before := copyImage(t, h.Image())
+
+	for _, tc := range []struct {
+		seq  string
+		want still.Progress
+	}{
+		{"\x1b]9;4;1;50\x07", still.Progress{State: still.ProgressSet, Percent: 50}},
+		{"\x1b]9;4;2;70\x07", still.Progress{State: still.ProgressError, Percent: 70}},
+		{"\x1b]9;4;3\x07", still.Progress{State: still.ProgressIndeterminate, Percent: -1}},
+		{"\x1b]9;4;4\x07", still.Progress{State: still.ProgressPause, Percent: -1}},
+	} {
+		writeVT(t, h, tc.seq)
+		img := copyImage(t, h.Image())
+		if st := h.imageRenderer.GetEmulatorState(); st == nil || st.Progress != tc.want {
+			t.Fatalf("%q: renderer progress = %+v, want %+v", tc.seq, st, tc.want)
+		}
+		if bytes.Equal(before.Pix, img.Pix) {
+			t.Fatalf("%q: image did not change", tc.seq)
+		}
+	}
+
+	writeVT(t, h, "\x1b]9;4;0\x07")
+	if got := copyImage(t, h.Image()); !bytes.Equal(before.Pix, got.Pix) {
+		t.Fatal("removing progress did not clear the bar")
+	}
+}
+
 func TestHarnessImageFollowsGridGeneration(t *testing.T) {
 	t.Parallel()
 

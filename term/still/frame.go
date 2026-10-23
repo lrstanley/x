@@ -38,6 +38,8 @@ type renderFrame struct {
 	chromeBounds    image.Rectangle
 	gridBounds      image.Rectangle
 	scrollbarBounds image.Rectangle
+	progressBounds  image.Rectangle
+	progress        types.Progress
 	cursorCell      *screen.Cell
 	cellW           int
 	cellH           int
@@ -127,6 +129,7 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr s
 			f.gridBounds.Max.X+scrollbarWidthPx, f.gridBounds.Max.Y,
 		)
 	}
+	d.layoutProgress(f)
 
 	f.screenBounds = screen
 	f.cellW = cell.X

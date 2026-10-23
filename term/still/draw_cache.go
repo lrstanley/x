@@ -9,35 +9,19 @@ import (
 	"image/color"
 
 	icol "github.com/lrstanley/x/term/still/internal/color"
-	"github.com/lrstanley/x/term/still/internal/fontset"
+	"github.com/lrstanley/x/term/still/types"
 	"github.com/lrstanley/x/term/vt/screen"
 )
 
-// frameSnap is everything outside the cell grid that can change pixels,
-// plus the font and metric inputs that paint those cells. Draw skips a
-// repaint only when this still matches the frame it already filled.
+// frameSnap is everything outside the cell grid that can change pixels
+// between draws: the screen bounds and the [EmulatorState]. Draw skips a
+// repaint only when this still matches the frame it already filled. Options,
+// palette, fonts, and metrics are fixed by [New], so they are not tracked.
 type frameSnap struct {
-	screen   image.Rectangle
-	metrics  Metrics
-	fonts    *fontset.Set
-	boxThick bool
+	screen image.Rectangle
 
-	scrollbar      bool
-	title          string // only tracked with window chrome, which is the only thing that paints it
-	border         Px
-	margin         Px
-	padding        Px
-	bgOpacity      float64
-	bgOpacityCells bool
-	faint          float64
-	focusDim       float64
-	blinkSpeed     int64
-	marginFill     color.NRGBA
-	marginFillSet  bool
-
-	palFg, palBg, palCur, palText, palMargin                color.NRGBA
-	palFgSet, palBgSet, palCurSet, palTextSet, palMarginSet bool
-	palIndex                                                uint64
+	title    string         // only tracked with window chrome, which is the only thing that paints it
+	progress types.Progress // zero unless a progress bar is drawn
 
 	hasEmu               bool
 	focused              bool
@@ -69,7 +53,7 @@ func (d *Renderer) reuseFrame(scr screen.Screen) bool {
 	if snap != d.frameSnap || d.frame.Bounds() != d.drawBounds(snap.screen) {
 		return false
 	}
-	return !d.cursorBlinks(snap) && !d.cellsBlink(buf, gen)
+	return !d.cursorBlinks(snap) && !progressAnimates(snap.progress) && !d.cellsBlink(buf, gen)
 }
 
 // cursorBlinks reports whether s shows a cursor that is animating.
@@ -127,28 +111,7 @@ func (d *Renderer) drawBounds(screen image.Rectangle) image.Rectangle {
 }
 
 func (d *Renderer) currentSnap(bounds image.Rectangle) frameSnap {
-	s := frameSnap{
-		screen:         bounds,
-		metrics:        d.metrics,
-		fonts:          d.fonts,
-		boxThick:       d.boxThicknessOverride,
-		scrollbar:      d.opts.Scrollbar,
-		border:         d.opts.BorderRadius,
-		margin:         d.opts.Margin,
-		padding:        d.opts.Padding,
-		bgOpacity:      d.opts.BackgroundOpacity,
-		bgOpacityCells: d.opts.BackgroundOpacityCells,
-		faint:          d.opts.FaintFactor,
-		focusDim:       d.opts.FocusDimming,
-		blinkSpeed:     int64(d.opts.CursorBlinkSpeed),
-		palIndex:       indexedKey(d.palette.Indexed),
-	}
-	s.marginFill, s.marginFillSet = colorKey(d.opts.MarginFill)
-	s.palFg, s.palFgSet = colorKey(d.palette.DefaultForeground)
-	s.palBg, s.palBgSet = colorKey(d.palette.DefaultBackground)
-	s.palCur, s.palCurSet = colorKey(d.palette.Cursor)
-	s.palText, s.palTextSet = colorKey(d.palette.CursorText)
-	s.palMargin, s.palMarginSet = colorKey(d.palette.Margin)
+	s := frameSnap{screen: bounds, progress: d.shownProgress(d.emulatorState)}
 	if st := d.emulatorState; st != nil {
 		s.hasEmu = true
 		if d.opts.WindowChrome {
@@ -174,20 +137,6 @@ func colorKey(c color.Color) (color.NRGBA, bool) {
 		return color.NRGBA{}, false
 	}
 	return icol.NRGBA(c), true
-}
-
-func indexedKey(m map[int]color.Color) uint64 {
-	if len(m) == 0 {
-		return 0
-	}
-	var h uint64
-	for k, c := range m {
-		n, _ := colorKey(c)
-		v := uint64(n.R) | uint64(n.G)<<8 | uint64(n.B)<<16 | uint64(n.A)<<24
-		h += (uint64(k) + 1) * 0x9E3779B97F4A7C15
-		h += v * 0xBF58476D1CE4E5B9
-	}
-	return h ^ uint64(len(m))
 }
 
 // drawIncremental repaints only the cell rows that differ from d.prev (plus
@@ -220,18 +169,25 @@ func (d *Renderer) drawIncremental(scr screen.Screen) bool {
 		// The title bar sits above row 0, whose band reaches the window top.
 		lo, hi = 0, max(hi, 0)
 	}
-	if hi < lo {
+	progress := now.progress != old.progress || progressAnimates(now.progress)
+	if hi < lo && !progress {
 		d.rememberFrame(scr, 0, -1)
 		return true
 	}
 	f := d.borrowRenderFrame(image.Point{}, scr)
 	defer releaseRenderFrame(f)
-	band := f.imageBounds
-	if r0 := max(0, lo-1); r0 > 0 {
-		band.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
+	var band image.Rectangle
+	if hi >= lo {
+		band = f.imageBounds
+		if r0 := max(0, lo-1); r0 > 0 {
+			band.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
+		}
+		if r1 := min(buf.Height(), hi+2); r1 < buf.Height() {
+			band.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
+		}
 	}
-	if r1 := min(buf.Height(), hi+2); r1 < buf.Height() {
-		band.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
+	if progress {
+		band = band.Union(f.progressBand())
 	}
 	d.frameReady = false
 	d.render(d.frame.SubImage(band).(*image.NRGBA), scr, f)
@@ -271,10 +227,11 @@ func (s frameSnap) cursor() cursorSnap {
 	return cursorSnap{s.curOn, s.curBlink, s.curX, s.curY, s.curStyle}
 }
 
-// sansBanded is s without the cursor and title, which drawIncremental
-// repaints as a band instead of rebuilding the frame.
+// sansBanded is s without the cursor, title, and progress, which
+// drawIncremental repaints as a band instead of rebuilding the frame.
 func (s frameSnap) sansBanded() frameSnap {
 	s.curOn, s.curBlink, s.curX, s.curY, s.curStyle = false, false, 0, 0, 0
 	s.title = ""
+	s.progress = types.Progress{}
 	return s
 }

@@ -413,7 +413,8 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 		at := time.Now()
 		for i := range 40 {
 			j := (i * 3) % len(screens)
-			p.record(copyCommitted(h, screens[j], states[j]), at, frameSource{})
+			img, _ := copyCommitted(h, screens[j], states[j], time.Time{})
+			p.record(img, at, frameSource{})
 			at = at.Add(50 * time.Millisecond)
 		}
 		p.finish(at, false)
@@ -468,9 +469,85 @@ func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 			<-frameBufs
 			frameBufs <- pix
 		}
-		got := copyCommitted(h, scr, st).(*image.NRGBA)
+		img, _ := copyCommitted(h, scr, st, time.Time{})
+		got, ok := img.(*image.NRGBA)
+		if !ok {
+			t.Fatalf("copyCommitted image is %T, want *image.NRGBA", img)
+		}
 		if !slices.Equal(got.Pix, want.Pix) || got.Stride != want.Stride || got.Rect != want.Rect {
 			t.Errorf("buffer of %d bytes: recycled draw differs from a fresh one", size)
+		}
+	}
+}
+
+// TestExportAnimatesIndeterminateProgress checks that a frame held on screen
+// with an animated progress bar plays as redrawn frames sweepStep apart, even
+// on a finer step grid, so the sweep moves in the GIF, while a static bar
+// stays one frame.
+func TestExportAnimatesIndeterminateProgress(t *testing.T) {
+	t.Parallel()
+
+	h := NewHarness(t, rootTestModel{text: "busy"}, WithWindowSize(20, 3), WithRenderer(still.WithWindowChrome(true)))
+	h.Wait("text=busy")
+
+	for _, tc := range []struct {
+		seq    string
+		frames int
+	}{
+		{"\x1b]9;4;3\x07", 20},
+		{"\x1b]9;4;2\x07", 20},
+		{"\x1b]9;4;1;50\x07", 1},
+	} {
+		writeVT(t, h, tc.seq)
+		scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
+
+		ch := make(chan export.Frame, 64)
+		p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: ch}
+		at := time.Unix(1000, 0)
+		img, redraw := copyCommitted(h, scr, st, at)
+		if (redraw != nil) != (tc.frames > 1) {
+			t.Fatalf("%q: redraw set = %v, want %v", tc.seq, redraw != nil, tc.frames > 1)
+		}
+		if redraw != nil {
+			// A redraw paints the frame as it was captured, not the harness now.
+			later := at.Add(100 * time.Millisecond)
+			want := cloneNRGBA(img)
+			redraw(want, later)
+			got := cloneNRGBA(img)
+			h.Blur()
+			redraw(got, later)
+			h.Focus()
+			if !bytes.Equal(want.Pix, got.Pix) {
+				t.Fatalf("%q: redraw changed with the harness focus", tc.seq)
+			}
+		}
+		p.record(img, at, frameSource{state: st, redraw: redraw})
+		p.finish(at.Add(time.Second+20*time.Millisecond), false)
+		close(ch)
+
+		var total time.Duration
+		var frames []*image.NRGBA
+		for f := range ch {
+			img, ok := f.Image.(*image.NRGBA)
+			if !ok {
+				t.Fatalf("frame image is %T, want *image.NRGBA", f.Image)
+			}
+			total += f.Delay
+			frames = append(frames, img)
+		}
+		if len(frames) != tc.frames || total != time.Second+20*time.Millisecond {
+			t.Fatalf("%q: %d frames over %v, want %d over 1.02s", tc.seq, len(frames), total, tc.frames)
+		}
+		if tc.frames > 1 && bytes.Equal(frames[0].Pix, frames[5].Pix) {
+			t.Fatalf("%q: the redrawn frames do not move the sweep", tc.seq)
+		}
+		// Repainting the bar must give the pixels of drawing everything again
+		// as of that frame's time, sweepStep apart.
+		for k, got := range frames {
+			full, _ := copyCommitted(h, scr, st, at.Add(time.Duration(k)*sweepStep))
+			if want, ok := full.(*image.NRGBA); !ok || !bytes.Equal(got.Pix, want.Pix) {
+				t.Fatalf("%q: frame %d differs from a full redraw at its time", tc.seq, k)
+			}
 		}
 	}
 }

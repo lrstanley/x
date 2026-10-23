@@ -43,6 +43,8 @@ type Renderer struct {
 
 	// chromeMask is the window button shape, rebuilt when the diameter changes.
 	chromeMask *image.Alpha
+	// progressRow is the progress bar coverage of one row of its strip.
+	progressRow []uint8
 
 	fgPass raster.Pass
 	// prev holds the cells d.frame shows, row-major, for drawIncremental.

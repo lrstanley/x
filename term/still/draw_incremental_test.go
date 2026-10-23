@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/lrstanley/x/term/vt/screen"
@@ -81,6 +82,8 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 			WithWindowChrome(true), WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4),
 			WithBorderRadius(12), WithScrollbar(true), WithBackgroundOpacity(0.5), WithFocusDimming(0.35),
 		}, EmulatorState{Title: "漢字  a very long title that has to be truncated to fit", CursorVisible: true, ScrollbackCount: 25}, 30},
+		{"progress", []Option{WithPadding(3), WithBorderRadius(8)}, EmulatorState{Progress: Progress{State: ProgressIndeterminate, Percent: -1}, Focused: true, CursorVisible: true}, 30},
+		{"chrome-progress", []Option{WithWindowChrome(true), WithMargin(4, nil), WithBackgroundOpacity(0.5), WithProgressBarHeight(3)}, EmulatorState{Title: "build", Progress: Progress{State: ProgressSet, Percent: 30}, CursorVisible: true}, 30},
 		{"big-font", []Option{WithFontSizePt(26), WithPadding(3)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
 		{"everything", []Option{
 			WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4), WithBorderRadius(12),
@@ -93,83 +96,93 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 	for _, tc := range configs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			// A time bubble, so the full repaint draws at the same moment as
+			// the incremental one, and the progress sweep and blinks move
+			// only when the test sleeps.
+			synctest.Test(t, func(t *testing.T) {
+				opts := append([]Option{WithFontSizePt(9)}, tc.opts...)
+				inc, ref := MustNew(opts...), MustNew(opts...)
+				t.Cleanup(func() { _ = inc.Close(); _ = ref.Close() })
 
-			opts := append([]Option{WithFontSizePt(9)}, tc.opts...)
-			inc, ref := MustNew(opts...), MustNew(opts...)
-			t.Cleanup(func() { _ = inc.Close(); _ = ref.Close() })
+				rng := rand.New(rand.NewPCG(7, uint64(len(tc.name))))
+				buf := screen.NewBuffer(cols, rows)
+				state := tc.state
+				state.CursorStyle = screen.CursorBlock
+				incremental := 0
 
-			rng := rand.New(rand.NewPCG(7, uint64(len(tc.name))))
-			buf := screen.NewBuffer(cols, rows)
-			state := tc.state
-			state.CursorStyle = screen.CursorBlock
-			incremental := 0
-
-			for step := range steps {
-				switch step % 9 {
-				case 0: // typing: a run of cells on one row
-					y, x := rng.IntN(rows), rng.IntN(cols-6)
-					for i := range 1 + rng.IntN(5) {
-						buf.SetCell(x+i, y, randCell(rng))
-					}
-					state.CursorX, state.CursorY = x+5, y
-				case 1: // delete a cell
-					buf.SetCell(rng.IntN(cols), rng.IntN(rows), nil)
-				case 2: // cursor-only move (sometimes off the grid) and style change
-					state.CursorX, state.CursorY = rng.IntN(cols), rng.IntN(rows)
-					if rng.IntN(4) == 0 {
-						state.CursorY = []int{-3, rows + 5, math.MaxInt}[rng.IntN(3)]
-					}
-					state.CursorStyle = screen.CursorShape(rng.IntN(4))
-				case 3: // colour change on one cell
-					buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
-				case 4: // edits at the first and last rows (margin, padding, corners)
-					buf.SetCell(rng.IntN(cols), 0, randCell(rng))
-					if rng.IntN(2) == 0 {
-						buf.SetCell(rng.IntN(cols), rows-1, randCell(rng))
-					}
-				case 5: // nothing changes
-				case 6: // cursor visibility toggle
-					state.CursorVisible = !state.CursorVisible
-				case 7: // a few scattered edits
-					for range 1 + rng.IntN(4) {
+				for step := range steps {
+					synctest.Sleep(37 * time.Millisecond)
+					switch step % 10 {
+					case 0: // typing: a run of cells on one row
+						y, x := rng.IntN(rows), rng.IntN(cols-6)
+						for i := range 1 + rng.IntN(5) {
+							buf.SetCell(x+i, y, randCell(rng))
+						}
+						state.CursorX, state.CursorY = x+5, y
+					case 1: // delete a cell
+						buf.SetCell(rng.IntN(cols), rng.IntN(rows), nil)
+					case 2: // cursor-only move (sometimes off the grid) and style change
+						state.CursorX, state.CursorY = rng.IntN(cols), rng.IntN(rows)
+						if rng.IntN(4) == 0 {
+							state.CursorY = []int{-3, rows + 5, math.MaxInt}[rng.IntN(3)]
+						}
+						state.CursorStyle = screen.CursorShape(rng.IntN(4))
+					case 3: // colour change on one cell
 						buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
-					}
-				case 8: // title change, alone or with an edit
-					state.Title = []string{"", "x", "a longer title — ünï ", "漢字", state.Title + "!"}[rng.IntN(5)]
-					if rng.IntN(2) == 0 {
-						buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
-					}
-				}
-				inc.UpdateEmulatorState(&state)
-				ref.UpdateEmulatorState(&state)
-
-				inc.mu.Lock()
-				used := inc.drawIncremental(buf)
-				inc.mu.Unlock()
-				if used {
-					incremental++
-				}
-				got := drawNRGBA(t, inc, buf)
-
-				ref.mu.Lock()
-				ref.frameReady = false
-				ref.mu.Unlock()
-				want := image.NewNRGBA(ref.Bounds(buf))
-				ref.DrawInto(want, want.Bounds(), buf)
-
-				if got.Rect != want.Rect || !bytes.Equal(got.Pix, want.Pix) {
-					diff := 0
-					for i := range want.Pix {
-						if i >= len(got.Pix) || got.Pix[i] != want.Pix[i] {
-							diff++
+					case 4: // edits at the first and last rows (margin, padding, corners)
+						buf.SetCell(rng.IntN(cols), 0, randCell(rng))
+						if rng.IntN(2) == 0 {
+							buf.SetCell(rng.IntN(cols), rows-1, randCell(rng))
+						}
+					case 5: // nothing changes
+					case 6: // cursor visibility toggle
+						state.CursorVisible = !state.CursorVisible
+					case 7: // a few scattered edits
+						for range 1 + rng.IntN(4) {
+							buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
+						}
+					case 8: // title change, alone or with an edit
+						state.Title = []string{"", "x", "a longer title — ünï ", "漢字", state.Title + "!"}[rng.IntN(5)]
+						if rng.IntN(2) == 0 {
+							buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
+						}
+					case 9: // progress change, alone or with an edit
+						state.Progress = Progress{State: ProgressState(rng.IntN(5)), Percent: rng.IntN(102) - 1}
+						if rng.IntN(2) == 0 {
+							buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
 						}
 					}
-					t.Fatalf("step %d: incremental draw differs from full repaint in %d bytes", step, diff)
+					inc.UpdateEmulatorState(&state)
+					ref.UpdateEmulatorState(&state)
+
+					inc.mu.Lock()
+					used := inc.drawIncremental(buf)
+					inc.mu.Unlock()
+					if used {
+						incremental++
+					}
+					got := drawNRGBA(t, inc, buf)
+
+					ref.mu.Lock()
+					ref.frameReady = false
+					ref.mu.Unlock()
+					want := image.NewNRGBA(ref.Bounds(buf))
+					ref.DrawInto(want, want.Bounds(), buf)
+
+					if got.Rect != want.Rect || !bytes.Equal(got.Pix, want.Pix) {
+						diff := 0
+						for i := range want.Pix {
+							if i >= len(got.Pix) || got.Pix[i] != want.Pix[i] {
+								diff++
+							}
+						}
+						t.Fatalf("step %d: incremental draw differs from full repaint in %d bytes", step, diff)
+					}
 				}
-			}
-			if incremental < tc.minIncr {
-				t.Fatalf("only %d of %d draws were incremental, want at least %d", incremental, steps, tc.minIncr)
-			}
+				if incremental < tc.minIncr {
+					t.Fatalf("only %d of %d draws were incremental, want at least %d", incremental, steps, tc.minIncr)
+				}
+			})
 		})
 	}
 }

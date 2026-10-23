@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"cmp"
 	"context"
 	"iter"
 	"os"
@@ -53,6 +54,11 @@ type Harness struct {
 	hooks         []Hook
 	logHook       *hookLog
 	readyHooked   bool
+
+	// imageAt pins the renderer clock while a frame is drawn as of when it
+	// was on screen. Zero is the wall clock. It is read and written under
+	// imageMu, which every renderer draw holds.
+	imageAt time.Time
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -72,12 +78,18 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		cfg = collectOptions(tb, opts...)
 	}
 
-	imageRenderer, err := still.New(cfg.imageRendererOpts...)
+	// The renderer is built before the emulator, which holds a pool slot, so
+	// its clock reads h once h exists. It comes before the caller's options,
+	// so a [still.WithClock] in [WithRenderer] replaces it, and export can no
+	// longer redraw a held frame's progress bar as of a later time.
+	var h *Harness
+	clock := still.WithClock(func() time.Time { return cmp.Or(h.imageAt, time.Now()) })
+	imageRenderer, err := still.New(append([]still.Option{clock}, cfg.imageRendererOpts...)...)
 	if err != nil {
 		tb.Fatal(err)
 	}
 
-	h := &Harness{
+	h = &Harness{
 		tb:            tb,
 		failures:      failures,
 		emulator:      newEmulator(tb, cfg.width, cfg.height),
