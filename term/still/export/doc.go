@@ -13,9 +13,12 @@
 // last capture attempt (including deduped ticks). Non-strict [WithFrameRate]
 // snaps accumulated delays to the nearest nominal FPS grid at finalize.
 //
-// [WithMaxFrames] limits in-memory GIF capture to the last n palettized frames
-// (after dedup when [OptimizeFrames] is enabled). Dropped frame delays are not
-// carried forward; disposal optimization runs on the retained window only.
+// GIF capture keeps every frame by default. [WithMaxFrames] limits it to the
+// last n palettized frames (after dedup when [OptimizeFrames] is enabled), and
+// [WithMaxBytes] limits the pixel memory those frames hold, which suits long
+// recordings better because a frame costs only what changed on screen. Dropped
+// frame delays are not carried forward; disposal optimization runs on the
+// retained window only.
 //
 // [WithLoopCount] sets how many times a GIF animation repeats. The default,
 // [LoopForever], loops until the viewer stops. [LoopOnce] plays the animation

@@ -57,9 +57,14 @@ func applyEnv(tb testing.TB, cfg *options) {
 	}
 
 	if v := os.Getenv("STEEP_EXPORT_MAX_FRAMES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.gifMaxFrames = n
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 {
 			cfg.exportOpts = append(cfg.exportOpts, export.WithMaxFrames(n))
+		}
+	}
+
+	if v := os.Getenv("STEEP_EXPORT_MAX_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && n >= 0 {
+			cfg.exportOpts = append(cfg.exportOpts, export.WithMaxBytes(n))
 		}
 	}
 

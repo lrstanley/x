@@ -115,6 +115,9 @@ type options struct {
 	channelSet bool
 	// maxFrames caps stored palettized frames during GIF capture; 0 is unlimited.
 	maxFrames int
+	// maxBytes caps pixel storage of retained frames during GIF capture; 0 is
+	// unlimited.
+	maxBytes int64
 	// loopCount is copied into GIF output. [LoopForever] (0) loops forever,
 	// [LoopOnce] (-1) plays once, and n > 0 plays n+1 times. PNG ignores it.
 	loopCount int
@@ -176,6 +179,9 @@ func (o options) validate(format string) error {
 		}
 		if o.maxFrames > 0 {
 			return errors.New("export: WithMaxFrames applies to GIF only")
+		}
+		if o.maxBytes > 0 {
+			return errors.New("export: WithMaxBytes applies to GIF only")
 		}
 	}
 	if format == formatGIF {
@@ -287,10 +293,26 @@ func WithLoopCount(n int) Option {
 // WithMaxFrames keeps only the last n palettized frames in memory during GIF
 // capture. When [OptimizeFrames] is enabled, duplicate consecutive frames merged
 // during dedup do not consume cap slots. Oldest frames are dropped without
-// carrying their delays forward. n == 0 disables the cap (same as omitting this
-// option). GIF only.
+// carrying their delays forward. n <= 0 disables the cap (same as omitting this
+// option), which is the default. Combine with [WithMaxBytes], whichever limit
+// is reached first drops frames. GIF only.
 func WithMaxFrames(n int) Option {
 	return func(cfg *options) {
 		cfg.maxFrames = max(0, n)
+	}
+}
+
+// WithMaxBytes limits the pixel memory held by retained GIF frames to about n
+// bytes, dropping the oldest frames (without carrying their delays forward)
+// once the total goes over. Frames are stored as the region that changed since
+// the previous one, so a small change costs little and a full repaint costs a
+// whole frame (one byte per pixel). The newest frame is always kept, even if
+// it alone is larger than n, and the buffers used to diff frames are not
+// counted. Finalizing temporarily needs up to about as much memory again. n <=
+// 0 disables the limit (same as omitting this option), which is the default.
+// GIF only.
+func WithMaxBytes(n int64) Option {
+	return func(cfg *options) {
+		cfg.maxBytes = max(0, n)
 	}
 }

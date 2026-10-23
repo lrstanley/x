@@ -87,6 +87,9 @@ type exportManager struct {
 	haveSent bool
 	sent     vt.Snapshot
 	heldSkip bool
+	// droppedPending records that the pending queue overflowed, so it is only
+	// reported once.
+	droppedPending bool
 
 	// pristine is the emulator state before the program has written anything.
 	pristine vt.Snapshot
@@ -104,6 +107,18 @@ type commitFrame struct {
 	state  vt.Snapshot
 	at     time.Time
 }
+
+const (
+	// exportQueueSize sizes the channel to the encoder. Each queued frame is a
+	// full-size RGBA image, so this only smooths over jitter between the test and
+	// the encoder; a slower encoder blocks the test instead of piling up frames.
+	// It does not limit how many frames the recording keeps.
+	exportQueueSize = 4
+	// maxPendingCommits bounds the commits queued between test hooks. Each holds
+	// a clone of the screen, and the queue is drained at every hook, so reaching
+	// this means the program painted far faster than the test looked at it.
+	maxPendingCommits = 100
+)
 
 func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 	if cfg.exportMode == ExportOff && cfg.exportTypes == 0 {
@@ -125,10 +140,6 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		speed = defaultExportSpeed
 	}
 
-	maxFrames := cfg.gifMaxFrames
-	if maxFrames == 0 {
-		maxFrames = 100
-	}
 	exportOpts := append([]export.Option(nil), cfg.exportOpts...)
 
 	m := &exportManager{
@@ -163,7 +174,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 	}
 
 	if gif {
-		m.gifCh = make(chan export.Frame, maxFrames)
+		m.gifCh = make(chan export.Frame, exportQueueSize)
 		switch cfg.exportMode { //nolint:exhaustive
 		case ExportOn:
 			m.gifPath = filepath.Join(dir, m.stem()+".gif")
@@ -173,7 +184,6 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		rec, err := export.GIF(
 			append(
 				m.exportOpts,
-				export.WithMaxFrames(maxFrames),
 				export.WithChannel(m.gifCh),
 				export.WithDelayGrid(fps),
 			)...,
@@ -258,11 +268,13 @@ func (m *exportManager) noteCommit() {
 	if m.beforeFirstFrameLocked() && m.isPristine(st, scr.Text()) {
 		return
 	}
-	// cap matches the GIF channel: the recorder keeps this many frames and
-	// drops the oldest, so the queue does too.
-	if max := cap(m.gifCh); max > 0 && len(m.pending) >= max {
+	if len(m.pending) >= maxPendingCommits {
 		m.pending[0] = commitFrame{}
 		m.pending = m.pending[1:]
+		if !m.droppedPending {
+			m.droppedPending = true
+			m.tb.Log("export dropped frames: the program painted faster than the test looked at it")
+		}
 	}
 	m.pending = append(m.pending, commitFrame{screen: scr, state: st, at: time.Now()})
 }

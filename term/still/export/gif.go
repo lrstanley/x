@@ -90,6 +90,13 @@ type gifRecording struct {
 	images []*image.Paletted
 	// delays are per-frame durations accumulated before centisecond conversion.
 	delays []time.Duration
+	// bytes is the pixel storage held by images. It is what maxBytes limits, and
+	// counts neither last nor spare.
+	bytes int64
+	// maxFrames and maxBytes cap len(images) and bytes during capture; 0 is
+	// unlimited for each.
+	maxFrames int
+	maxBytes  int64
 	// disposal is per-frame disposal metadata; set by [optimizeDisposals].
 	disposal []byte
 	// backgroundIndex is the disposal background palette index; set by
@@ -153,7 +160,9 @@ func newGIFRecorder(cfg options) *gifRecorder {
 			config: image.Config{
 				ColorModel: pal,
 			},
-			adaptive: adaptive,
+			adaptive:  adaptive,
+			maxFrames: cfg.maxFrames,
+			maxBytes:  cfg.maxBytes,
 		},
 		done: make(chan struct{}),
 	}
@@ -348,22 +357,57 @@ func (rec *gifRecording) fullFrames() []*image.Paletted {
 	return full
 }
 
-// truncateRecording drops the oldest stored frames when len(rec.images) exceeds
-// maxFrames. Delta frames are folded into the base so images[0] stays full.
-func truncateRecording(rec *gifRecording, maxFrames int) {
-	if maxFrames <= 0 {
+// truncateRecording drops the oldest stored frames until the recording fits
+// rec.maxFrames and rec.maxBytes (either may be 0 for no limit). The newest
+// frame is always kept, so a single frame larger than the byte limit stays.
+// Delta frames are folded into the base so images[0] stays full.
+func truncateRecording(rec *gifRecording) {
+	n := len(rec.images)
+	if n < 2 || (rec.maxFrames <= 0 && rec.maxBytes <= 0) {
 		return
 	}
-	if excess := len(rec.images) - maxFrames; excess > 0 {
-		if rec.last != nil {
-			for _, delta := range rec.images[1 : excess+1] {
-				blitOpaque(delta, rec.images[0])
-			}
-			rec.images = slices.Delete(rec.images, 1, excess+1)
-		} else {
-			rec.images = rec.images[excess:]
+	// first is the oldest frame that can be dropped: the base is never dropped
+	// in delta mode, it absorbs the frames after it.
+	first := 0
+	if rec.last != nil {
+		first = 1
+	}
+	excess, freed := 0, int64(0)
+	for excess < n-1 {
+		overFrames := rec.maxFrames > 0 && n-excess > rec.maxFrames
+		overBytes := rec.maxBytes > 0 && rec.bytes-freed > rec.maxBytes
+		if !overFrames && !overBytes {
+			break
 		}
-		rec.delays = rec.delays[excess:]
+		freed += int64(len(rec.images[first+excess].Pix))
+		excess++
+	}
+	if excess == 0 {
+		return
+	}
+	if rec.last != nil {
+		for _, delta := range rec.images[1 : excess+1] {
+			blitOpaque(delta, rec.images[0])
+		}
+		rec.images = slices.Delete(rec.images, 1, excess+1)
+	} else {
+		rec.images = rec.images[excess:]
+	}
+	rec.delays = rec.delays[excess:]
+	rec.bytes -= freed
+}
+
+// push stores img as the newest frame.
+func (rec *gifRecording) push(img *image.Paletted) {
+	rec.images = append(rec.images, img)
+	rec.bytes += int64(len(img.Pix))
+}
+
+// recount recomputes rec.bytes from rec.images.
+func (rec *gifRecording) recount() {
+	rec.bytes = 0
+	for _, img := range rec.images {
+		rec.bytes += int64(len(img.Pix))
 	}
 }
 
@@ -378,7 +422,6 @@ func appendRecordingFrame(
 	backgroundSet bool,
 	frame image.Image,
 	delay time.Duration,
-	maxFrames int,
 ) error {
 	if frame == nil {
 		return errNilFrame
@@ -413,10 +456,11 @@ func appendRecordingFrame(
 	// A size change leaves delta mode for good: deltas cannot span canvases.
 	if rec.last != nil && rec.last.Rect != bounds {
 		rec.images, rec.last, rec.spare = rec.fullFrames(), nil, nil
+		rec.recount()
 	}
 	if optimize.has(OptimizeFrames) && optimize.has(OptimizeDirtyRects) && (rec.last != nil || len(rec.images) == 0) {
 		if rec.last == nil {
-			rec.images = append(rec.images, pm)
+			rec.push(pm)
 			rec.last = clonePaletted(pm)
 		} else {
 			bbox, diff := diffBoundingBox(rec.last, pm, bounds)
@@ -425,11 +469,11 @@ func appendRecordingFrame(
 				rec.spare = pm
 				return nil
 			}
-			rec.images = append(rec.images, cropPaletted(pm, bbox))
+			rec.push(cropPaletted(pm, bbox))
 			rec.last, rec.spare = pm, rec.last
 		}
 		rec.delays = append(rec.delays, delay)
-		truncateRecording(rec, maxFrames)
+		truncateRecording(rec)
 		return nil
 	}
 
@@ -440,9 +484,9 @@ func appendRecordingFrame(
 		}
 	}
 
-	rec.images = append(rec.images, pm)
+	rec.push(pm)
 	rec.delays = append(rec.delays, delay)
-	truncateRecording(rec, maxFrames)
+	truncateRecording(rec)
 	return nil
 }
 
@@ -451,7 +495,7 @@ func appendRecordingFrame(
 func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration) {
 	if err := appendRecordingFrame(
 		r.rec, r.palette, false, r.opts.optimize,
-		r.opts.background, r.opts.backgroundSet, frame, delay, r.opts.maxFrames,
+		r.opts.background, r.opts.backgroundSet, frame, delay,
 	); err != nil {
 		r.closeErr = err
 	}

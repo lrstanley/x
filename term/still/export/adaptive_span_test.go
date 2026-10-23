@@ -192,7 +192,7 @@ func BenchmarkGIFAddFrameDense(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}

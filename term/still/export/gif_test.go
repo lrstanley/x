@@ -552,14 +552,14 @@ func TestGIFArenaFrameRetention(t *testing.T) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frame, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frame, time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 		snapshots[i] = bytes.Clone(rec.images[i].Pix)
 	}
 
 	for range 4 {
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frameA, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, frameA, time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1140,12 +1140,12 @@ func TestGIFDeltaRecordingMatchesFullFrames(t *testing.T) {
 	}
 
 	for _, maxFrames := range []int{0, 1, 5, n} {
-		var full, delta gifRecording
+		full, delta := gifRecording{maxFrames: maxFrames}, gifRecording{maxFrames: maxFrames}
 		for _, f := range frames {
-			if err := appendRecordingFrame(&full, pal, true, OptimizeFrames, nil, false, f, time.Millisecond, maxFrames); err != nil {
+			if err := appendRecordingFrame(&full, pal, true, OptimizeFrames, nil, false, f, time.Millisecond); err != nil {
 				t.Fatal(err)
 			}
-			if err := appendRecordingFrame(&delta, pal, true, OptimizeFrames|OptimizeDirtyRects, nil, false, f, time.Millisecond, maxFrames); err != nil {
+			if err := appendRecordingFrame(&delta, pal, true, OptimizeFrames|OptimizeDirtyRects, nil, false, f, time.Millisecond); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1180,7 +1180,7 @@ func TestGIFDeltaFramesSizeChange(t *testing.T) {
 	sizes := []image.Point{{20, 10}, {20, 10}, {30, 16}, {30, 16}}
 	for i, s := range sizes {
 		c := color.NRGBA{R: uint8(i * 60), G: 50, B: 90, A: 255}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeAll, nil, false, solid(s.X, s.Y, c), time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeAll, nil, false, solid(s.X, s.Y, c), time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 	}

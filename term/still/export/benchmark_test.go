@@ -67,7 +67,7 @@ func BenchmarkGIFAddFrame(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -86,7 +86,7 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -99,7 +99,7 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -120,7 +120,7 @@ func BenchmarkGIFAddFrameAdaptive(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, frame, time.Millisecond, 0); err != nil {
+		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -240,7 +240,7 @@ func BenchmarkGIFAddFrameSource(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				rec := &gifRecording{}
-				if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, src.img, time.Millisecond, 0); err != nil {
+				if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeFrames, nil, false, src.img, time.Millisecond); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -258,10 +258,51 @@ func BenchmarkGIFAddFrameCustomPalette(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				rec := &gifRecording{}
-				if err := appendRecordingFrame(rec, pal, false, OptimizeFrames, nil, false, src.img, time.Millisecond, 0); err != nil {
+				if err := appendRecordingFrame(rec, pal, false, OptimizeFrames, nil, false, src.img, time.Millisecond); err != nil {
 					b.Fatal(err)
 				}
 			}
+		})
+	}
+}
+
+// BenchmarkGIFAddFrameLimited is steady-state delta capture of a terminal that
+// changes a small block per frame, without a limit and with each kind, so the
+// cost of dropping the oldest frame on every append shows.
+func BenchmarkGIFAddFrameLimited(b *testing.B) {
+	const variants = 64
+	frames := make([]*image.NRGBA, variants)
+	for i := range frames {
+		f := terminalBenchmarkFrame(0)
+		draw.Draw(f, image.Rect(100+i*8, 100, 108+i*8, 140), image.NewUniform(color.NRGBA{R: uint8(i * 3), G: 0x20, B: 0xc0, A: 0xff}), image.Point{}, draw.Src) //nolint:gosec // bounded.
+		frames[i] = f
+	}
+	cases := []struct {
+		name     string
+		maxFrame int
+		maxBytes int64
+	}{
+		{"unlimited", 0, 0},
+		{"frames", 100, 0},
+		{"bytes", 0, 4 << 20},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			rec := &gifRecording{adaptive: newAdaptivePalette(true), maxFrames: tc.maxFrame, maxBytes: tc.maxBytes}
+			add := func(i int) {
+				if err := appendRecordingFrame(rec, nil, false, OptimizeFrames|OptimizeDirtyRects, nil, false, frames[i%variants], time.Millisecond); err != nil {
+					b.Fatal(err)
+				}
+			}
+			for i := range 300 { // Reach the limit before timing.
+				add(i)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 300; b.Loop(); i++ {
+				add(i)
+			}
+			b.ReportMetric(float64(len(rec.images)), "kept")
 		})
 	}
 }

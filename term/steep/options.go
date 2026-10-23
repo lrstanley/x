@@ -90,7 +90,6 @@ type options struct {
 	slow           time.Duration
 	exportFPS      int
 	exportSpeed    float64
-	gifMaxFrames   int
 	snapshotDir    string
 }
 
@@ -327,7 +326,14 @@ func WithIgnoreEnv(ignore bool) Option {
 // Environment (each overrides this option unless [WithIgnoreEnv] is set):
 // STEEP_EXPORT_MODE (on, off, failure), STEEP_EXPORT_TYPE (comma-separated png,
 // gif, log, snapshot, or all), STEEP_EXPORT_OPTIMIZE, STEEP_EXPORT_MAX_FRAMES,
+// STEEP_EXPORT_MAX_BYTES,
 // STEEP_EXPORT_DIR.
+//
+// GIF recordings keep every frame unless [export.WithMaxFrames] or
+// [export.WithMaxBytes] (or their environment variables) set a limit. Frames
+// are stored as the part of the screen that changed, so a long recording of an
+// ordinary terminal UI is small, but one that repaints most of the screen on
+// every frame (a scrolling log, say) costs a whole frame each.
 func WithExport(mode ExportMode, types ExportType, opts ...export.Option) Option {
 	return func(cfg *options) {
 		cfg.exportMode = mode
@@ -368,8 +374,9 @@ func WithExportName(name string) Option {
 // emitted. A later mutator draws on top of an earlier one and sees any cards
 // it inserted, so list overlays that should not cover a card before it.
 //
-// Inserted frames count toward the GIF frame cap (STEEP_EXPORT_MAX_FRAMES),
-// which keeps the newest frames, so a long recording can drop an intro card.
+// Inserted frames count toward any GIF frame or byte limit
+// (STEEP_EXPORT_MAX_FRAMES, STEEP_EXPORT_MAX_BYTES), which keep the newest
+// frames, so a limited recording can drop an intro card.
 // An overlay that changes pixels on otherwise identical frames defeats
 // duplicate frame merging and grows the GIF. Mutators apply to [ExportOn] and
 // [ExportOnFailure] recordings alike; see [ExportContext.Mode]. There is no
@@ -388,7 +395,7 @@ func WithExportMutators(mutators ...ExportMutator) Option {
 // overlay.
 //
 // The overlay splits frames wherever it changes, which adds a few frames per
-// burst of keys toward the frame cap (see [WithExportMutators]).
+// burst of keys toward any GIF frame or byte limit (see [WithExportMutators]).
 func WithExportKeys(d time.Duration) Option {
 	return func(cfg *options) {
 		cfg.exportKeys = d
@@ -400,8 +407,8 @@ func WithExportKeys(d time.Duration) Option {
 // none, it is an animated steep logo: a teacup and wordmark fill with tea, then
 // steam rises for d while the test name appears. Terminals too small for the
 // logo get "steep" and the test name as text instead. The animation's frames
-// count toward the frame cap (see [WithExportMutators]). A d of zero or less
-// removes the intro.
+// count toward any GIF frame or byte limit (see [WithExportMutators]). A d of
+// zero or less removes the intro.
 func WithExportIntro(d time.Duration, lines ...CardLine) Option {
 	return func(cfg *options) {
 		cfg.exportIntro = nil
