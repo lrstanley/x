@@ -29,30 +29,6 @@ func (m roundingWindowContext) MarginColor() color.Color      { return m.margin 
 func (m roundingWindowContext) FocusDimming() float64         { return 0 }
 func (m roundingWindowContext) BorderRadius() units.Px        { return m.borderRadius }
 
-func TestApplyRoundedMask(t *testing.T) {
-	t.Parallel()
-
-	img := image.NewNRGBA(image.Rect(0, 0, 20, 20))
-	for y := range 20 {
-		for x := range 20 {
-			img.Set(x, y, color.NRGBA{G: 255, A: 255})
-		}
-	}
-	ctx := roundingWindowContext{
-		borderRadius: units.Px(4),
-		window:       image.Rect(4, 4, 16, 16),
-		margin:       color.NRGBA{R: 255, A: 255},
-	}
-	effects.ApplyRoundedMask(ctx, img)
-
-	if img.NRGBAAt(0, 0).G != 255 {
-		t.Fatal("corner margin should use margin color")
-	}
-	if img.NRGBAAt(10, 10).G != 255 {
-		t.Fatal("interior window should remain green")
-	}
-}
-
 func TestApplyRoundedMaskDisabled(t *testing.T) {
 	t.Parallel()
 

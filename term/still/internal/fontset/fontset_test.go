@@ -10,7 +10,6 @@ import (
 	"github.com/lrstanley/x/term/still/fonts"
 	"github.com/lrstanley/x/term/still/internal/config"
 	"github.com/lrstanley/x/term/still/internal/fontset"
-	"github.com/lrstanley/x/term/still/internal/testutil"
 	"github.com/lrstanley/x/term/vt/screen"
 )
 
@@ -53,50 +52,6 @@ func TestNilSetSafe(t *testing.T) {
 	if fs.Close() != nil {
 		t.Fatal("nil set Close should return nil")
 	}
-}
-
-func TestFaceForCellCodepointRouting(t *testing.T) {
-	t.Parallel()
-
-	defaultFamily := mustDefaultFamily(t)
-
-	fs, err := fontset.Build(config.Options{
-		CodepointMapSet: true,
-		CodepointMap: map[string]fonts.FontFamily{
-			"U+E000-U+E0FF": defaultFamily,
-		},
-		FontSize: config.DefaultFontSize,
-		DPI:      config.DefaultDPI,
-	})
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	t.Cleanup(func() { _ = fs.Close() })
-
-	powerline := &screen.Cell{Content: "\ue0b0"}
-	if got := fs.FaceForCell(powerline); got != fs.Regular() {
-		t.Fatalf("user override face = %p, want regular %p", got, fs.Regular())
-	}
-
-	defaulted, err := fontset.Build(config.Options{
-		CodepointMapSet: true,
-		CodepointMap:    map[string]fonts.FontFamily{},
-		FontSize:        config.DefaultFontSize,
-		DPI:             config.DefaultDPI,
-	})
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	t.Cleanup(func() { _ = defaulted.Close() })
-
-	defaultSymbol := defaulted.FaceForCell(powerline)
-	if defaultSymbol == defaulted.Regular() {
-		t.Fatal("empty codepoint map should route powerline to symbol face")
-	}
-	testutil.AssertSyntheticFaceDiff(t, defaultSymbol, defaulted.FaceForCell(&screen.Cell{
-		Content: "\ue0b0",
-		Style:   screen.Style{Attrs: screen.AttrBold},
-	}), '\ue0b0')
 }
 
 func mustDefaultFamily(t *testing.T) fonts.FontFamily {

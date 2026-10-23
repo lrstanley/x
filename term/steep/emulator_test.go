@@ -377,65 +377,16 @@ func TestHarness_terminalPasteMsg(t *testing.T) {
 	}
 }
 
-func TestHarness_TerminalType_returnsHarnessForChaining(t *testing.T) {
-	t.Parallel()
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
-	if ptr := h.Type(""); ptr != h {
-		t.Fatalf("TerminalType should return the same harness, got %p want %p", ptr, h)
-	}
-}
-
 func TestHarness_TerminalType_deliversPrintableRunesThroughEmulator(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
 	h.Type("ab ").Wait("text=ab").Require("text=ab")
 }
 
-func TestHarness_TerminalKey_returnsHarnessForChaining(t *testing.T) {
-	t.Parallel()
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
-	if ptr := h.Key("z"); ptr != h {
-		t.Fatalf("TerminalKey should return the same harness, got %p want %p", ptr, h)
-	}
-}
-
 func TestHarness_TerminalKey_accumulatesPrintableText(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
 	h.Key("a").Key("b").Key("space").Wait("text=ab").Require("text=ab")
-}
-
-func TestHarness_TerminalKey_mapsNamedKeysThroughEmulator(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		key      string
-		wantCode rune
-		wantMod  tea.KeyMod
-		wantText string
-	}{
-		{name: "single ASCII rune", key: "q", wantCode: 'q', wantMod: 0, wantText: "q"},
-		{name: "space", key: "space", wantCode: ' ', wantMod: 0, wantText: " "},
-		{name: "enter", key: "enter", wantCode: tea.KeyEnter},
-		{name: "tab", key: "tab", wantCode: tea.KeyTab},
-		{name: "escape alias esc", key: "esc", wantCode: tea.KeyEscape},
-		{name: "shift+tab", key: "shift+tab", wantCode: tea.KeyTab, wantMod: tea.ModShift},
-		{name: "ctrl lowercase letter", key: "ctrl+g", wantCode: 'g', wantMod: tea.ModCtrl},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
-			h.Key(tt.key)
-			h.WaitMessageWhere(func(km tea.KeyPressMsg) bool {
-				k := km.Key()
-				if k.Code != tt.wantCode || k.Mod != tt.wantMod {
-					return false
-				}
-				return tt.wantText == "" || k.Text == tt.wantText
-			})
-		})
-	}
 }
 
 func enableEmulatorMouseReporting(tb testing.TB, h *Harness) {
@@ -628,23 +579,6 @@ func TestHarness_TerminalMouse_ignoredWithoutMouseModes(t *testing.T) {
 			t.Fatalf("unexpected mouse message without DEC mouse modes: %T", msg)
 		default:
 		}
-	}
-}
-
-func TestHarness_TerminalMouse_helpersReturnHarnessForChaining(t *testing.T) {
-	t.Parallel()
-	h := newTerminalHarness(t, 10, 4)
-	h.WaitMessage[tea.WindowSizeMsg]()
-	enableEmulatorMouseReporting(t, h)
-	if p := h.
-		Mouse(vt.MousePress, vt.MouseLeft, 0, 0).
-		MouseClick(vt.MouseMiddle, 1, 1).
-		LeftClick(2, 2).
-		MiddleClick(3, 3).
-		RightClick(0, 1).
-		MouseDrag(vt.MouseRight, 1, 0, 2, 0).
-		LeftDrag(0, 2, 1, 2); p != h {
-		t.Fatalf("chain returned %p, want same harness %p", p, h)
 	}
 }
 

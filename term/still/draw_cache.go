@@ -68,10 +68,12 @@ func (d *Renderer) reuseFrame(scr screen.Screen) bool {
 	if snap != d.frameSnap || d.frame.Bounds() != d.drawBounds(snap.screen) {
 		return false
 	}
-	if snap.hasEmu && snap.curOn && snap.curBlink && d.opts.CursorBlinkSpeed > 0 {
-		return false
-	}
-	return !d.cellsBlink(buf, gen)
+	return !d.cursorBlinks(snap) && !d.cellsBlink(buf, gen)
+}
+
+// cursorBlinks reports whether s shows a cursor that is animating.
+func (d *Renderer) cursorBlinks(s frameSnap) bool {
+	return s.hasEmu && s.curOn && s.curBlink && d.opts.CursorBlinkSpeed > 0
 }
 
 // rememberFrame records scr as what d.frame shows. lo..hi are the cell rows
@@ -205,8 +207,7 @@ func (d *Renderer) drawIncremental(scr screen.Screen) bool {
 	}
 	now, old := d.currentSnap(buf.Bounds()), d.frameSnap
 	if now.sansCursor() != old.sansCursor() || d.frame.Bounds() != d.drawBounds(now.screen) ||
-		now.hasEmu && now.curOn && now.curBlink && d.opts.CursorBlinkSpeed > 0 ||
-		d.cellsBlink(buf, buf.Generation()) {
+		d.cursorBlinks(now) || d.cellsBlink(buf, buf.Generation()) {
 		return false
 	}
 	lo, hi, ok := d.dirtyRows(buf)

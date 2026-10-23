@@ -44,3 +44,19 @@ func TestBuildCodepointMapMalformed(t *testing.T) {
 		t.Fatal("Build() error = nil, want malformed error")
 	}
 }
+
+func TestBuildCodepointMapNilRegular(t *testing.T) {
+	t.Parallel()
+
+	_, err := fontset.Build(config.Options{
+		CodepointMapSet: true,
+		CodepointMap: map[string]fonts.FontFamily{
+			"U+E000": {},
+		},
+		FontSize: config.DefaultFontSize,
+		DPI:      config.DefaultDPI,
+	})
+	if err == nil {
+		t.Fatal("Build() error = nil, want error for a codepoint family with no regular face")
+	}
+}

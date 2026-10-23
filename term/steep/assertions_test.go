@@ -359,15 +359,6 @@ func TestAssertHasMessage_found_andMissing(t *testing.T) {
 	}
 }
 
-func TestWaitMessage_generic(t *testing.T) {
-	t.Parallel()
-	h := NewComponentHarness(t, &mutableViewModel{}, WithWindowSize(80, 1))
-	h.SendProgram(appendMsg("solo"))
-	if got := h.WaitMessage[appendMsg](); got != "solo" {
-		t.Fatalf("message = %q", got)
-	}
-}
-
 func TestWaitNewMessageWhere(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &delayedPingModel{}, WithWindowSize(80, 1))
@@ -376,14 +367,6 @@ func TestWaitNewMessageWhere(t *testing.T) {
 	}, WithTimeout(2*time.Second))
 	if got != "ping" {
 		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestWaitNewMessage_generic(t *testing.T) {
-	t.Parallel()
-	h := NewComponentHarness(t, &delayedPingModel{}, WithWindowSize(80, 1))
-	if got := h.WaitLiveMessage[appendMsg](); got != "ping" {
-		t.Fatalf("message = %q", got)
 	}
 }
 

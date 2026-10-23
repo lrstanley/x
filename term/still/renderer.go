@@ -7,7 +7,6 @@ package still
 import (
 	"errors"
 	"image"
-	"math"
 	"sync"
 
 	"github.com/lrstanley/x/term/still/internal/config"
@@ -138,7 +137,7 @@ func (d *Renderer) Draw(scr screen.Screen) image.Image {
 	bounds := f.imageBounds
 	img := d.ensureFrameLocked(bounds)
 	d.render(img, scr, f)
-	d.rememberFrame(scr, 0, math.MaxInt)
+	d.rememberFrame(scr, 0, scr.Bounds().Dy()-1)
 	return img
 }
 

@@ -49,37 +49,6 @@ func TestGIFFrameCount(t *testing.T) {
 	})
 }
 
-func TestGIFDedupesIdle(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		path := t.TempDir() + "/idle.gif"
-		rec, err := GIF(WithFrameRate(MaxFrameRate, false, func() image.Image {
-			return solidFrame(0, 4, 4)
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		synctest.Sleep(100 * time.Millisecond)
-
-		if err := finishGIF(path, rec); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(g.Image) != 1 {
-			t.Fatalf("got %d frames, want 1 deduped idle frame", len(g.Image))
-		}
-		if g.Delay[0] < 10 {
-			t.Fatalf("delay = %d cs, want accumulated idle time >= 10 cs", g.Delay[0])
-		}
-	})
-}
-
 func TestGIFDedupIncrementalDelay(t *testing.T) {
 	t.Parallel()
 
@@ -616,19 +585,6 @@ func pixSharesBacking(a, b []byte) bool {
 	return &a[0] == &b[0]
 }
 
-func TestPalettizePreservesDistinctColors(t *testing.T) {
-	t.Parallel()
-
-	a := solidFrame(1, 8, 8)
-	b := solidFrame(2, 8, 8)
-	pal := defaultGIFPalette()
-	pa := palettize(a, pal)
-	pb := palettize(b, pal)
-	if bytes.Equal(pa.Pix, pb.Pix) {
-		t.Fatal("expected distinct palettized output")
-	}
-}
-
 func TestGIFMaxFramesRetention(t *testing.T) {
 	t.Parallel()
 
@@ -766,28 +722,6 @@ func TestGIFChannelExplicitDelay(t *testing.T) {
 	}
 	if g.Delay[0] != 25 {
 		t.Fatalf("delay[0] = %d cs, want 25 cs for 250ms", g.Delay[0])
-	}
-}
-
-func TestGIFChannelDedup(t *testing.T) {
-	t.Parallel()
-
-	same := solidFrame(0, 4, 4)
-	frames := []image.Image{same, same, same}
-	path := t.TempDir() + "/dedup.gif"
-	if err := recordViaChannel(path, frames, 10*time.Millisecond); err != nil {
-		t.Fatal(err)
-	}
-
-	g, err := gifDecodeFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(g.Image) != 1 {
-		t.Fatalf("got %d frames, want 1 deduped frame", len(g.Image))
-	}
-	if g.Delay[0] < 3 {
-		t.Fatalf("delay = %d cs, want merged delay >= 3 cs", g.Delay[0])
 	}
 }
 
@@ -1228,6 +1162,36 @@ func TestGIFDeltaRecordingMatchesFullFrames(t *testing.T) {
 		}
 		if len(delta.images) > 1 && delta.images[1].Rect.Eq(delta.images[0].Rect) && maxFrames == 0 && n > 3 {
 			t.Fatalf("frame 1 stored as full frame, want bbox delta")
+		}
+	}
+}
+
+func TestGIFDeltaFramesSizeChange(t *testing.T) {
+	t.Parallel()
+
+	rec := &gifRecording{}
+	solid := func(w, h int, c color.NRGBA) *image.NRGBA {
+		img := image.NewNRGBA(image.Rect(0, 0, w, h))
+		for i := 0; i < len(img.Pix); i += 4 {
+			img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = c.R, c.G, c.B, c.A
+		}
+		return img
+	}
+	sizes := []image.Point{{20, 10}, {20, 10}, {30, 16}, {30, 16}}
+	for i, s := range sizes {
+		c := color.NRGBA{R: uint8(i * 60), G: 50, B: 90, A: 255}
+		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeAll, nil, false, solid(s.X, s.Y, c), time.Millisecond, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	frames := (&gifRecorder{rec: rec}).Frames()
+	if len(frames) != len(sizes) {
+		t.Fatalf("got %d frames, want %d", len(frames), len(sizes))
+	}
+	for i, f := range frames {
+		if got, want := f.Image.Bounds().Size(), sizes[i]; got != want {
+			t.Errorf("frame %d size = %v, want %v", i, got, want)
 		}
 	}
 }

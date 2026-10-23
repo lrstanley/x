@@ -141,24 +141,7 @@ func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels
 				mask = 0xff000000
 			}
 			w &= mask
-			m64, w64 := uint64(mask)*0x100000001, uint64(w)*0x100000001
-			end := x + 1
-			for end < min(x+8, width) && le.Uint32(row[end*4:])&mask == w {
-				end++
-			}
-			if end-x == 8 {
-				for end+8 <= width {
-					r := row[end*4 : end*4+32]
-					if le.Uint64(r)&m64 != w64 || le.Uint64(r[8:])&m64 != w64 ||
-						le.Uint64(r[16:])&m64 != w64 || le.Uint64(r[24:])&m64 != w64 {
-						break
-					}
-					end += 8
-				}
-				for end < width && le.Uint32(row[end*4:])&mask == w {
-					end++
-				}
-			}
+			end := runEnd(row, x, w, mask)
 
 			idx := TransparentPaletteIndex
 			if w>>24 != 0 {
@@ -188,6 +171,34 @@ func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels
 			x = end
 		}
 	}
+}
+
+// runEnd returns the end of the run of pixel words in row, starting at pixel x,
+// that equal w once masked. It checks a few words first so short runs stay
+// cheap, then eight pixels at a time.
+func runEnd(row []byte, x int, w, mask uint32) int {
+	le := binary.LittleEndian
+	width := len(row) / 4
+	end := x + 1
+	for end < min(x+8, width) && le.Uint32(row[end*4:])&mask == w {
+		end++
+	}
+	if end-x < 8 {
+		return end
+	}
+	m64, w64 := uint64(mask)*0x100000001, uint64(w)*0x100000001
+	for end+8 <= width {
+		r := row[end*4 : end*4+32]
+		if le.Uint64(r)&m64 != w64 || le.Uint64(r[8:])&m64 != w64 ||
+			le.Uint64(r[16:])&m64 != w64 || le.Uint64(r[24:])&m64 != w64 {
+			break
+		}
+		end += 8
+	}
+	for end < width && le.Uint32(row[end*4:])&mask == w {
+		end++
+	}
+	return end
 }
 
 // grow adds palette entries for colors in hist that no entry already covers.

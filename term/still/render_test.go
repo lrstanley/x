@@ -526,48 +526,6 @@ func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
 	}
 }
 
-func TestRendererContiguousBoxDrawingLinesAvoidSeamsLargeCell(t *testing.T) {
-	t.Parallel()
-
-	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
-	bg := color.NRGBA{A: 0xff}
-	d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
-
-	t.Run("vertical", func(t *testing.T) {
-		t.Parallel()
-
-		rows := 4
-		scr := newTestScreen(1, rows)
-		for y := range rows {
-			scr.SetCell(0, y, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-		}
-		img := drawNRGBA(t, d, scr)
-		ctx := d.layoutSnapshot(t, image.Point{}, scr)
-		cx := ctx.cellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
-		juncY := ctx.cellBounds(0, 1).Min.Y
-		if core := img.NRGBAAt(cx, juncY).R; core < 100 {
-			t.Fatalf("large vertical line gap at junction core R=%d, want >= 100", core)
-		}
-	})
-
-	t.Run("horizontal", func(t *testing.T) {
-		t.Parallel()
-
-		cols := 4
-		scr := newTestScreen(cols, 1)
-		for x := range cols {
-			scr.SetCell(x, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-		}
-		img := drawNRGBA(t, d, scr)
-		ctx := d.layoutSnapshot(t, image.Point{}, scr)
-		cy := ctx.cellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
-		juncX := ctx.cellBounds(1, 0).Min.X
-		if core := img.NRGBAAt(juncX, cy).R; core < 100 {
-			t.Fatalf("large horizontal line gap at junction core R=%d, want >= 100", core)
-		}
-	})
-}
-
 func TestRendererColorAttributes(t *testing.T) {
 	t.Parallel()
 

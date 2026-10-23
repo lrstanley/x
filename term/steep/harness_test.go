@@ -91,14 +91,6 @@ func TestHarnessMutateRootModel(t *testing.T) {
 	}
 }
 
-func TestHarness_Send_returnsHarnessForChaining(t *testing.T) {
-	t.Parallel()
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
-	if ptr := h.SendProgram(setTextMsg("x")); ptr != h {
-		t.Fatalf("Send should return the same harness, got %p want %p", ptr, h)
-	}
-}
-
 func TestHarness_QuitProgram_returnsHarnessForChaining(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))

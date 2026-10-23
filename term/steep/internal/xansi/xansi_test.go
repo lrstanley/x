@@ -89,17 +89,6 @@ func TestIsPrivateUse(t *testing.T) {
 	}
 }
 
-func TestInRanges(t *testing.T) {
-	t.Parallel()
-	ranges := [][2]rune{{'a', 'c'}}
-	if !InRanges('b', ranges...) {
-		t.Fatal("InRanges: expected 'b' in [a,c]")
-	}
-	if InRanges('d', ranges...) {
-		t.Fatal("InRanges: expected 'd' not in [a,c]")
-	}
-}
-
 func TestNormalizeCRLF(t *testing.T) {
 	t.Parallel()
 	if got := NormalizeCRLF("a\r\nb\nc"); got != "a\nb\nc" {

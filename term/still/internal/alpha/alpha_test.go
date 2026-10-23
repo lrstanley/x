@@ -102,13 +102,3 @@ func TestRasterGlyph(t *testing.T) {
 		t.Fatalf("alpha at origin = %d, want 255", out.AlphaAt(0, 0).A)
 	}
 }
-
-func TestAt(t *testing.T) {
-	t.Parallel()
-
-	nrgba := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	nrgba.SetNRGBA(0, 0, color.NRGBA{R: 10, G: 20, B: 30, A: 128})
-	if got := alpha.At(nrgba, image.Pt(0, 0)); got != 128 {
-		t.Fatalf("At() = %d, want 128", got)
-	}
-}

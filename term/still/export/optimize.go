@@ -564,7 +564,7 @@ func compactPalette(frames []*image.Paletted, oldPal color.Palette) color.Palett
 	freq[TransparentPaletteIndex] = 0
 
 	var used []uint8
-	for idx, count := range freq {
+	for idx, count := range &freq {
 		if count > 0 {
 			used = append(used, uint8(idx)) //nolint:gosec // idx is 0..255.
 		}

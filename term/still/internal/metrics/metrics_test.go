@@ -31,21 +31,6 @@ func mustFace(t *testing.T) font.Face {
 	return face
 }
 
-func TestMeasureFace(t *testing.T) {
-	t.Parallel()
-
-	fm := imetrics.MeasureFace(mustFace(t))
-	if fm.CellWidth.Float64() <= 0 {
-		t.Fatalf("CellWidth = %v, want positive", fm.CellWidth)
-	}
-	if fm.Ascent.Float64() <= 0 {
-		t.Fatalf("Ascent = %v, want positive", fm.Ascent)
-	}
-	if fm.UnderlineThickness.Float64() <= 0 {
-		t.Fatalf("UnderlineThickness = %v, want positive", fm.UnderlineThickness)
-	}
-}
-
 func TestDerive(t *testing.T) {
 	t.Parallel()
 

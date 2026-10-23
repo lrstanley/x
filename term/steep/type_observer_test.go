@@ -50,18 +50,6 @@ func TestTypeObserver_Observe_CountsAndLastReceived(t *testing.T) {
 	}
 }
 
-func TestTypeObserver_Observe_Chaining(t *testing.T) {
-	t.Parallel()
-	o := newTypeObserver[typeObsA]()
-	_ = o.observe(typeObsA{n: 1}).observe(typeObsA{n: 2})
-	if len(o.types) != 1 {
-		t.Fatalf("types = %d, want 1", len(o.types))
-	}
-	if o.types["steep.typeObsA"].count != 2 {
-		t.Fatalf("count = %d, want 2", o.types["steep.typeObsA"].count)
-	}
-}
-
 func TestTypeObserver_Observe_MultipleConcreteTypes(t *testing.T) {
 	t.Parallel()
 	o := newTypeObserver[any]()

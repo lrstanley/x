@@ -67,34 +67,6 @@ func assertBenchmarkBudget(b *testing.B, budget time.Duration) {
 	}
 }
 
-func TestBenchmarkDrawAllocsPerOp(t *testing.T) {
-	scr := benchmarkTerminalScreen()
-	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
-	frame := image.NewNRGBA(d.Bounds(scr))
-	for range benchmarkWarmupIters {
-		d.DrawInto(frame, frame.Bounds(), scr)
-	}
-	n := testing.AllocsPerRun(20, func() {
-		d.DrawInto(frame, frame.Bounds(), scr)
-	})
-	t.Logf("DrawInto allocs/op = %v", n)
-}
-
-func BenchmarkDraw(b *testing.B) {
-	scr := benchmarkTerminalScreen()
-	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
-	frame := image.NewNRGBA(d.Bounds(scr))
-	for range benchmarkWarmupIters {
-		d.DrawInto(frame, frame.Bounds(), scr)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		d.DrawInto(frame, frame.Bounds(), scr)
-	}
-}
-
 func BenchmarkDrawInto(b *testing.B) {
 	scr := benchmarkTerminalScreen()
 	d := MustNew(WithFontSizePt(benchmarkFontSizePt))

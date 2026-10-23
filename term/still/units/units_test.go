@@ -10,13 +10,6 @@ import (
 	"github.com/lrstanley/x/term/still/units"
 )
 
-func TestPxInt(t *testing.T) {
-	t.Parallel()
-	if got := units.Px(12).Int(); got != 12 {
-		t.Fatalf("Int() = %d, want 12", got)
-	}
-}
-
 func TestPtPixels(t *testing.T) {
 	t.Parallel()
 
@@ -33,20 +26,6 @@ func TestPtPixels(t *testing.T) {
 		if got := tt.pt.Pixels(tt.dpi).Int(); got != tt.want {
 			t.Fatalf("Pt(%v).Pixels(%v) = %d, want %d", tt.pt, tt.dpi, got, tt.want)
 		}
-	}
-}
-
-func TestPercentFloat64(t *testing.T) {
-	t.Parallel()
-	if got := units.Percent(0.2).Float64(); got != 0.2 {
-		t.Fatalf("Float64() = %v, want 0.2", got)
-	}
-}
-
-func TestFractionalPxFloat64(t *testing.T) {
-	t.Parallel()
-	if got := units.FractionalPx(10.5).Float64(); got != 10.5 {
-		t.Fatalf("Float64() = %v, want 10.5", got)
 	}
 }
 

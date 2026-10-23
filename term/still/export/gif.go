@@ -172,12 +172,9 @@ func (r *gifRecorder) start() {
 // Frames returns captured frames and their duration delays. Frames stored as
 // deltas are rebuilt into full frames on each call.
 func (r *gifRecorder) Frames() []Frame {
-	frames := make([]Frame, len(r.rec.images))
-	for i, img := range r.rec.images {
-		if r.rec.last != nil && i > 0 {
-			img = clonePaletted(frames[i-1].Image.(*image.Paletted))
-			blitOpaque(r.rec.images[i], img)
-		}
+	images := r.rec.fullFrames()
+	frames := make([]Frame, len(images))
+	for i, img := range images {
 		var delay time.Duration
 		if i < len(r.rec.delays) {
 			delay = r.rec.delays[i]
@@ -333,6 +330,24 @@ func (r *gifRecorder) captureChannelFrame(f Frame) {
 	}
 }
 
+// fullFrames returns every recorded frame as a full image. Delta recordings
+// rebuild each frame from the previous one; others return rec.images itself.
+func (rec *gifRecording) fullFrames() []*image.Paletted {
+	if rec.last == nil {
+		return rec.images
+	}
+	full := make([]*image.Paletted, len(rec.images))
+	for i, img := range rec.images {
+		if i > 0 {
+			prev := img
+			img = clonePaletted(full[i-1])
+			blitOpaque(prev, img)
+		}
+		full[i] = img
+	}
+	return full
+}
+
 // truncateRecording drops the oldest stored frames when len(rec.images) exceeds
 // maxFrames. Delta frames are folded into the base so images[0] stays full.
 func truncateRecording(rec *gifRecording, maxFrames int) {
@@ -395,8 +410,15 @@ func appendRecordingFrame(
 	// With dedupe and dirty-rect optimization both on, only the first frame is
 	// stored in full; later frames keep the bbox that changed, and a frame with
 	// no changes only adds its delay. pm is recycled for the next capture.
-	if optimize.has(OptimizeFrames) && optimize.has(OptimizeDirtyRects) {
-		if rec.last != nil && rec.last.Rect == bounds {
+	// A size change leaves delta mode for good: deltas cannot span canvases.
+	if rec.last != nil && rec.last.Rect != bounds {
+		rec.images, rec.last, rec.spare = rec.fullFrames(), nil, nil
+	}
+	if optimize.has(OptimizeFrames) && optimize.has(OptimizeDirtyRects) && (rec.last != nil || len(rec.images) == 0) {
+		if rec.last == nil {
+			rec.images = append(rec.images, pm)
+			rec.last = clonePaletted(pm)
+		} else {
 			bbox, diff := diffBoundingBox(rec.last, pm, bounds)
 			if diff == 0 {
 				rec.delays[len(rec.delays)-1] += delay
@@ -405,9 +427,6 @@ func appendRecordingFrame(
 			}
 			rec.images = append(rec.images, cropPaletted(pm, bbox))
 			rec.last, rec.spare = pm, rec.last
-		} else {
-			rec.images = append(rec.images, pm)
-			rec.last = clonePaletted(pm)
 		}
 		rec.delays = append(rec.delays, delay)
 		truncateRecording(rec, maxFrames)

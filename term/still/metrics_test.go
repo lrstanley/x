@@ -180,35 +180,6 @@ func TestDefaultCodepointMapKeepsBoxDrawingOnRegularFace(t *testing.T) {
 	}
 }
 
-func TestCodepointMapOverlapAndMalformedError(t *testing.T) {
-	t.Parallel()
-
-	defaultFamily := mustDefaultFamily(t)
-	symbolFamily := mustDefaultSymbolFamily(t)
-
-	tests := map[string]Option{
-		"overlap": WithCodepointMap(map[string]fonts.FontFamily{
-			"U+E000-U+E010": defaultFamily,
-			"U+E010-U+E020": symbolFamily,
-		}),
-		"malformed": WithCodepointMap(map[string]fonts.FontFamily{
-			"E000": defaultFamily,
-		}),
-		"nil regular": WithCodepointMap(map[string]fonts.FontFamily{
-			"U+E000": {},
-		}),
-	}
-
-	for name, opt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			if _, err := New(opt); err == nil {
-				t.Fatalf("%s: New() error = nil, want error", name)
-			}
-		})
-	}
-}
-
 func TestStyleFaceSelectionDefaultsFallbackAndError(t *testing.T) {
 	t.Parallel()
 

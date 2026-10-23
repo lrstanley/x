@@ -6,7 +6,6 @@ package config_test
 
 import (
 	"image/color"
-	"strings"
 	"testing"
 
 	"github.com/lrstanley/x/term/still/internal/config"
@@ -112,17 +111,5 @@ func TestBoxThicknessOverride(t *testing.T) {
 	}
 	if !(config.Options{BoxThickness: units.Px(2)}).BoxThicknessOverride() {
 		t.Fatal("positive BoxThickness should override")
-	}
-}
-
-func TestParsePositivePxErrorPrefix(t *testing.T) {
-	t.Parallel()
-
-	_, err := config.ParsePositivePx(-1, "margin")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.HasPrefix(err.Error(), "still:") {
-		t.Fatalf("error = %q, want still: prefix", err)
 	}
 }

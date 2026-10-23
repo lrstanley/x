@@ -5,7 +5,6 @@
 package steep
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -74,14 +73,7 @@ func TestNormalizeTestName(t *testing.T) {
 	if got := normalizeTestName("TestFoo/bar"); got != "TestFoo_bar" {
 		t.Fatalf("got %q", got)
 	}
-}
-
-func TestArtifactDirUsesTB(t *testing.T) {
-	dir := artifactDir(t)
-	if dir == "" {
-		t.Fatal("empty artifact dir")
-	}
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatal(err)
+	if got := normalizeTestName("///"); got != "test" {
+		t.Fatalf("got %q", got)
 	}
 }

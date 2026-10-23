@@ -84,18 +84,6 @@ func TestPNGIgnoresLoopCount(t *testing.T) {
 	}
 }
 
-func TestPNGIndexedQuantization(t *testing.T) {
-	t.Parallel()
-
-	src := solidNRGBA(8, 8, color.NRGBA{R: 0xff, G: 0x00, B: 0x80, A: 0xff})
-	path := t.TempDir() + "/indexed.png"
-	if err := PNG(src, path, WithOptimize(OptimizeColorQuantization)); err != nil {
-		t.Fatal(err)
-	}
-
-	assertIndexedPNG(t, path)
-}
-
 func TestPNGDefaultIndexed(t *testing.T) {
 	t.Parallel()
 

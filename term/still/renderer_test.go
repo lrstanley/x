@@ -130,9 +130,6 @@ func TestNewJoinsOptionErrors(t *testing.T) {
 	if d != nil {
 		t.Fatal("New() renderer = non-nil, want nil on option failure")
 	}
-	if !errors.Is(err, err) {
-		t.Fatalf("New() error = %v", err)
-	}
 	var joined interface{ Unwrap() []error }
 	if !errors.As(err, &joined) || len(joined.Unwrap()) < 3 {
 		t.Fatalf("New() error = %v, want errors.Join with multiple failures", err)
