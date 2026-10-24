@@ -27,9 +27,9 @@ func applyEnv(tb testing.TB, cfg *options) {
 		}
 	}
 
-	if v := os.Getenv("STEEP_RENDERER_FONT_SIZE"); v != "" {
-		if pt, err := strconv.ParseFloat(v, 64); err == nil {
-			cfg.imageRendererOpts = append(cfg.imageRendererOpts, still.WithFontSizePt(still.Pt(pt)))
+	if v := os.Getenv("STEEP_RENDERER_SCALE"); v != "" {
+		if scale, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.imageRendererOpts = append(cfg.imageRendererOpts, still.WithScale(scale))
 		}
 	}
 

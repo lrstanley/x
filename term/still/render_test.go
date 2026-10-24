@@ -31,7 +31,7 @@ func TestPowerlineIconRendering(t *testing.T) {
 
 		scr := newTestScreen(1, 1)
 		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-		d := MustNew(WithFontSizePt(20), palette)
+		d := MustNew(WithScale(scaleFor(20)), palette)
 		img := drawNRGBA(t, d, scr)
 		cell := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 		ink, ok := inkBounds(img, cell, bg)
@@ -80,7 +80,7 @@ func TestIconHeightRendering(t *testing.T) {
 	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
 	palette := WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg})
-	fontOpts := []Option{WithFontSizePt(20), palette}
+	fontOpts := []Option{WithScale(scaleFor(20)), palette}
 
 	t.Run("scales single cell nerd icon", func(t *testing.T) {
 		t.Parallel()
@@ -220,7 +220,7 @@ func TestSyntheticNerdIconStylesRenderDifferentlyAndFit(t *testing.T) {
 		scr := newTestScreen(1, 1)
 		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: style})
 		d := MustNew(
-			WithFontSizePt(20),
+			WithScale(scaleFor(20)),
 			WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}),
 		)
 		img := drawNRGBA(t, d, scr)
@@ -330,7 +330,7 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
 
 	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
-	d := MustNew(WithFontSizePt(14))
+	d := MustNew(WithScale(scaleFor(14)))
 
 	t.Run("vertical", func(t *testing.T) {
 		t.Parallel()
@@ -384,7 +384,7 @@ func TestRendererRoundedCornerBoxDrawingAvoidsOutsideArtifacts(t *testing.T) {
 
 	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
-	d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
+	d := MustNew(WithScale(scaleFor(40)), WithCellWidth(-0.1))
 
 	scr := newTestScreen(2, 2)
 	scr.SetCell(0, 0, &screen.Cell{Content: "╭", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
@@ -454,7 +454,7 @@ func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			d := MustNew(WithFontSizePt(40), WithCellWidth(-0.1))
+			d := MustNew(WithScale(scaleFor(40)), WithCellWidth(-0.1))
 
 			scr := newTestScreen(2, 2)
 			scr.SetCell(tc.cornerPos.X, tc.cornerPos.Y, &screen.Cell{Content: tc.glyph, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
@@ -510,7 +510,7 @@ func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
 	margin := color.NRGBA{R: 0x81, G: 0x2c, B: 0xd1, A: 0xff}
 	d := MustNew(
 		WithFontFamily(family),
-		WithFontSizePt(Pt(40)),
+		WithScale(scaleFor(40)),
 		WithCellWidth(-0.1),
 		WithBorderRadius(10),
 		WithMargin(40, margin),
@@ -866,8 +866,8 @@ func TestBoxThicknessOverrideThickensHorizontalLine(t *testing.T) {
 		Style:   screen.Style{Fg: fg, Bg: bg},
 	})
 
-	base := MustNew(WithFontSizePt(14))
-	thick := MustNew(WithFontSizePt(14), WithBoxThickness(4))
+	base := MustNew(WithScale(scaleFor(14)))
+	thick := MustNew(WithScale(scaleFor(14)), WithBoxThickness(4))
 
 	baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 	thickCell := thick.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)

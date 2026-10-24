@@ -10,12 +10,6 @@ import (
 	"math"
 )
 
-const (
-	// DefaultPPI is the typographic definition of a point (72 points per inch),
-	// used when converting [Pt] to pixels: px = pt * dpi / DefaultPPI.
-	DefaultPPI = 72.0
-)
-
 func clamp[T cmp.Ordered](v, vmin, vmax T) T {
 	if v < vmin {
 		return vmin
@@ -26,28 +20,14 @@ func clamp[T cmp.Ordered](v, vmin, vmax T) T {
 	return v
 }
 
-// Px is a whole device-pixel count along one axis (canvas pixels after DPI
-// scaling), as used for final raster sizes and integer layout.
+// Px is a whole device-pixel count along one axis, as used for final raster
+// sizes and integer layout.
 type Px int
 
 // Int returns px as an int.
 func (px Px) Int() int {
 	return int(px)
 }
-
-// Pt is a typographic point (1/72 inch). May be fractional and is converted to
-// pixels using DPI.
-type Pt float64
-
-// Pixels converts pt to whole pixels at DPI using [math.Round], with a minimum
-// of one pixel. Picks the nearest integer pixel size from a (possibly fractional)
-// point size at a given dots-per-inch relationship.
-func (pt Pt) Pixels(dpi DPI) Px {
-	return Px(max(1, int(math.Round(float64(pt)*float64(dpi)/DefaultPPI))))
-}
-
-// DPI is dots per inch for converting [Pt] to [Px].
-type DPI float64
 
 // Percent is a fractional percentage scalar (for example 0.2 means +20%).
 type Percent float64

@@ -20,7 +20,6 @@ import (
 	imetrics "github.com/lrstanley/x/term/still/internal/metrics"
 	"github.com/lrstanley/x/term/still/internal/raster"
 	"github.com/lrstanley/x/term/still/types"
-	"github.com/lrstanley/x/term/still/units"
 	"github.com/lrstanley/x/term/vt/screen"
 	xfont "golang.org/x/image/font"
 )
@@ -62,7 +61,7 @@ func (d *Renderer) buildChromeFonts() error {
 		return nil
 	}
 	opts := d.opts
-	opts.FontSize = units.Pt(float64(opts.FontSize) * chromeTextScale)
+	opts.Scale *= chromeTextScale
 	fonts, err := fontset.Build(opts)
 	if err != nil {
 		return err

@@ -48,7 +48,7 @@ func TestBrailleAlignsAcrossCells(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	const cols, rows = 6, 2
 	for _, size := range []int{10, 11, 13, 16, 20, 24} {
-		d := MustNew(WithFontSizePt(Pt(size)), palette)
+		d := MustNew(WithScale(scaleFor(size)), palette)
 		scr := newTestScreen(cols, rows)
 		for y := range rows {
 			for x := range cols {
@@ -109,7 +109,7 @@ func TestLegacyBlocksTileWithBlockElements(t *testing.T) {
 	for _, size := range []int{11, 13, 17} {
 		// A left sextant column and a right octant column next to ▌▐ and
 		// quadrants: each pair splits the cell at the same column.
-		d := MustNew(WithFontSizePt(Pt(size)), palette)
+		d := MustNew(WithScale(scaleFor(size)), palette)
 		glyphs := []string{"▌", "\U0001FB28", "▐", "\U0001CDE5", "▘", "\U0001FB00"} // ▌ 🬨 ▐ octant-2345678 ▘ 🬀
 		scr := newTestScreen(len(glyphs), 1)
 		for x, g := range glyphs {

@@ -88,8 +88,8 @@ func Build(opts config.Options) (*Set, error) {
 func build(opts config.Options, system func(rune) (*opentype.Font, bool)) (*Set, error) {
 	fs := &Set{
 		faceOpts: &opentype.FaceOptions{
-			Size:    float64(opts.FontSize),
-			DPI:     float64(opts.DPI),
+			Size:    opts.FontSizePx(),
+			DPI:     72, // 1pt per px, so Size is in pixels.
 			Hinting: xfont.HintingFull,
 		},
 		systemFallback: system,

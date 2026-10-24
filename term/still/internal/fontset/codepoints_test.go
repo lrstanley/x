@@ -21,8 +21,7 @@ func TestBuildCodepointMapOverlap(t *testing.T) {
 			"U+E000-U+E010": mustDefaultFamily(t),
 			"U+E010-U+E020": mustDefaultSymbolFamily(t),
 		},
-		FontSize: config.DefaultFontSize,
-		DPI:      config.DefaultDPI,
+		Scale: config.DefaultScale,
 	})
 	if err == nil {
 		t.Fatal("Build() error = nil, want overlap error")
@@ -37,8 +36,7 @@ func TestBuildCodepointMapMalformed(t *testing.T) {
 		CodepointMap: map[string]fonts.FontFamily{
 			"E000": mustDefaultFamily(t),
 		},
-		FontSize: config.DefaultFontSize,
-		DPI:      config.DefaultDPI,
+		Scale: config.DefaultScale,
 	})
 	if err == nil {
 		t.Fatal("Build() error = nil, want malformed error")
@@ -53,8 +51,7 @@ func TestBuildCodepointMapNilRegular(t *testing.T) {
 		CodepointMap: map[string]fonts.FontFamily{
 			"U+E000": {},
 		},
-		FontSize: config.DefaultFontSize,
-		DPI:      config.DefaultDPI,
+		Scale: config.DefaultScale,
 	})
 	if err == nil {
 		t.Fatal("Build() error = nil, want error for a codepoint family with no regular face")

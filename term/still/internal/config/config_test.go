@@ -16,11 +16,8 @@ func TestDefaultOptions(t *testing.T) {
 	t.Parallel()
 
 	opts := config.DefaultOptions()
-	if opts.DPI != config.DefaultDPI {
-		t.Fatalf("DPI = %v, want %v", opts.DPI, config.DefaultDPI)
-	}
-	if opts.FontSize != config.DefaultFontSize {
-		t.Fatalf("FontSize = %v, want %v", opts.FontSize, config.DefaultFontSize)
+	if opts.Scale != config.DefaultScale {
+		t.Fatalf("Scale = %v, want %v", opts.Scale, config.DefaultScale)
 	}
 	if opts.CursorThickness != 1 {
 		t.Fatalf("CursorThickness = %v, want 1", opts.CursorThickness)

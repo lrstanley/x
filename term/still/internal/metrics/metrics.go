@@ -85,8 +85,7 @@ func calcMetrics(opts config.Options, face FaceMetrics) types.Metrics {
 	iconHeightSingle := int(math.Round((2*face.CapHeight.Float64() + faceHeight) / 3))
 
 	return types.Metrics{
-		DPI:                    opts.DPI,
-		FontSize:               opts.FontSize,
+		Scale:                  opts.Scale,
 		CellWidth:              units.Px(cellWidth),
 		CellHeight:             units.Px(cellHeight),
 		FontBaseline:           units.Px(max(0, int(cellBaseline))),

@@ -22,8 +22,8 @@ func mustFace(t *testing.T) font.Face {
 		t.Fatalf("load font: %v", err)
 	}
 	face, err := fonts.NewFace(tf, &opentype.FaceOptions{
-		Size: float64(config.DefaultFontSize),
-		DPI:  float64(config.DefaultDPI),
+		Size: config.BaseFontSizePx,
+		DPI:  72,
 	})
 	if err != nil {
 		t.Fatalf("new face: %v", err)

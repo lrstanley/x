@@ -5,15 +5,52 @@
 package still
 
 import (
+	"image"
 	"math"
 	"testing"
 
 	"github.com/lrstanley/x/term/still/fonts"
 	imetrics "github.com/lrstanley/x/term/still/internal/metrics"
 	"github.com/lrstanley/x/term/still/internal/testutil"
-	"github.com/lrstanley/x/term/still/units"
 	"github.com/lrstanley/x/term/vt/screen"
 )
+
+func TestWithScale(t *testing.T) {
+	t.Parallel()
+
+	// The default scale is 11pt at 96 DPI, which gives 9x20 cells.
+	base := MustNew()
+	if got, want := base.CellSize(), (image.Point{X: 9, Y: 20}); got != want {
+		t.Fatalf("default CellSize() = %v, want %v", got, want)
+	}
+
+	for _, scale := range []float64{0.5, 1.5, 2, 3} {
+		d := MustNew(WithScale(scale))
+		if got := d.Metrics().Scale; got != scale {
+			t.Fatalf("Metrics().Scale = %v, want %v", got, scale)
+		}
+		// Cells snap to whole pixels, so allow a pixel of rounding.
+		got, want := d.CellSize(), base.CellSize()
+		if math.Abs(float64(got.X)-float64(want.X)*scale) > 1 || math.Abs(float64(got.Y)-float64(want.Y)*scale) > 1 {
+			t.Fatalf("scale %v: CellSize() = %v, want ~%v x %v", scale, got, scale*float64(want.X), scale*float64(want.Y))
+		}
+	}
+
+	// Fixed pixel lengths do not scale, only the grid does.
+	scr := screen.NewBuffer(10, 2)
+	extra := func(d *Renderer) image.Point {
+		return d.Size(scr).Sub(image.Pt(10*d.CellSize().X, 2*d.CellSize().Y))
+	}
+	if a, b := extra(MustNew(WithPadding(8))), extra(MustNew(WithPadding(8), WithScale(2))); a != b {
+		t.Fatalf("padding changed with scale: %v vs %v", a, b)
+	}
+
+	for _, scale := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+		if _, err := New(WithScale(scale)); err == nil {
+			t.Fatalf("New(WithScale(%v)) error = nil, want error", scale)
+		}
+	}
+}
 
 func TestDefaultMetricsUseBundledFonts(t *testing.T) {
 	t.Parallel()
@@ -21,11 +58,8 @@ func TestDefaultMetricsUseBundledFonts(t *testing.T) {
 	d := MustNew()
 	m := d.Metrics()
 
-	if m.DPI != units.DPI(96) {
-		t.Fatalf("DPI = %v, want %v", m.DPI, units.DPI(96))
-	}
-	if m.FontSize != units.Pt(11) {
-		t.Fatalf("FontSize = %v, want %v", m.FontSize, units.Pt(11))
+	if m.Scale != 1 {
+		t.Fatalf("Scale = %v, want 1", m.Scale)
 	}
 	if m.CellWidth < 1 || m.CellHeight < 1 {
 		t.Fatalf("cell size = %dx%d, want positive", m.CellWidth, m.CellHeight)

@@ -31,7 +31,7 @@ func TestBlockElementsFullBlockHasNoSeams(t *testing.T) {
 
 	fg, bg, palette := blockTestPalette()
 	for _, size := range []int{10, 12, 14, 16, 20, 24} {
-		d := MustNew(WithFontSizePt(Pt(size)), palette)
+		d := MustNew(WithScale(scaleFor(size)), palette)
 		scr := blockRow("█", 8, fg, bg)
 		img := drawNRGBA(t, d, scr)
 		snap := d.layoutSnapshot(t, image.Point{}, scr)
@@ -53,7 +53,7 @@ func TestBlockElementsHalfBlocksTile(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	for _, size := range []int{10, 11, 13, 17, 20} {
 		// Separate renderers: Draw reuses its image between calls.
-		dUp, dLo := MustNew(WithFontSizePt(Pt(size)), palette), MustNew(WithFontSizePt(Pt(size)), palette)
+		dUp, dLo := MustNew(WithScale(scaleFor(size)), palette), MustNew(WithScale(scaleFor(size)), palette)
 		upper, lower := blockRow("▀", 4, fg, bg), blockRow("▄", 4, fg, bg)
 		upImg, loImg := drawNRGBA(t, dUp, upper), drawNRGBA(t, dLo, lower)
 		d := dUp
@@ -95,7 +95,7 @@ func TestBlockElementsComplementaryHalvesTile(t *testing.T) {
 	t.Parallel()
 
 	fg, bg, palette := blockTestPalette()
-	d := MustNew(WithFontSizePt(13), palette)
+	d := MustNew(WithScale(scaleFor(13)), palette)
 
 	scr := newTestScreen(2, 1)
 	scr.SetCell(0, 0, &screen.Cell{Content: "▌", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
@@ -130,7 +130,7 @@ func TestBlockElementsQuadrantsAndShades(t *testing.T) {
 
 	// Draw reuses its image between calls, so each glyph gets its own renderer.
 	cellImg := func(glyph string) (*image.NRGBA, image.Rectangle) {
-		d := MustNew(WithFontSizePt(14), palette)
+		d := MustNew(WithScale(scaleFor(14)), palette)
 		scr := blockRow(glyph, 1, fg, bg)
 		return drawNRGBA(t, d, scr), d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
 	}

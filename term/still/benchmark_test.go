@@ -19,7 +19,7 @@ import (
 const (
 	benchmarkTermCols    = 120
 	benchmarkTermRows    = 30
-	benchmarkFontSizePt  = Pt(40)
+	benchmarkFontSizePt  = 40.0
 	renderExportBudget   = 10 * time.Millisecond
 	benchmarkCursorCol   = benchmarkTermCols / 2
 	benchmarkCursorRow   = benchmarkTermRows / 2
@@ -70,7 +70,7 @@ func assertBenchmarkBudget(b *testing.B, budget time.Duration) {
 
 func BenchmarkDrawInto(b *testing.B) {
 	scr := benchmarkTerminalScreen()
-	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)))
 	frame := image.NewNRGBA(d.Bounds(scr))
 	area := frame.Bounds()
 	for range benchmarkWarmupIters {
@@ -86,7 +86,7 @@ func BenchmarkDrawInto(b *testing.B) {
 
 func BenchmarkRenderAndExportFrame(b *testing.B) {
 	scr := benchmarkTerminalScreen()
-	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)))
 	rec := export.NewPalettizedRecorder()
 	cursorVisible := false
 	cursor := screen.Cell{
@@ -150,7 +150,7 @@ func BenchmarkDrawSymbolGlyphs(b *testing.B) {
 		}
 	}
 
-	d := MustNew(WithFontSizePt(benchmarkFontSizePt), WithSystemFontFallback(false))
+	d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)), WithSystemFontFallback(false))
 	frame := image.NewNRGBA(d.Bounds(scr))
 	for range benchmarkWarmupIters {
 		d.DrawInto(frame, frame.Bounds(), scr)
@@ -182,7 +182,7 @@ func BenchmarkDrawManyGlyphs(b *testing.B) {
 		}
 	}
 
-	d := MustNew(WithFontSizePt(benchmarkFontSizePt))
+	d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)))
 	frame := image.NewNRGBA(d.Bounds(scr))
 	for range benchmarkWarmupIters {
 		d.DrawInto(frame, frame.Bounds(), scr)
@@ -200,7 +200,7 @@ func BenchmarkDrawChrome(b *testing.B) {
 	scr := benchmarkTerminalScreen()
 	for _, chrome := range []bool{false, true} {
 		b.Run(fmt.Sprintf("chrome=%t", chrome), func(b *testing.B) {
-			d := MustNew(WithFontSizePt(benchmarkFontSizePt), WithWindowChrome(chrome))
+			d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)), WithWindowChrome(chrome))
 			d.UpdateEmulatorState(&EmulatorState{Title: "go test ./... — benchmark", Focused: true})
 			frame := image.NewNRGBA(d.Bounds(scr))
 			for range benchmarkWarmupIters {
@@ -223,7 +223,7 @@ func BenchmarkDrawTitleChange(b *testing.B) {
 	for _, chrome := range []bool{false, true} {
 		b.Run(fmt.Sprintf("chrome=%t", chrome), func(b *testing.B) {
 			scr := benchmarkTerminalScreen().Buffer
-			d := MustNew(WithFontSizePt(Pt(14)), WithWindowChrome(chrome))
+			d := MustNew(WithScale(scaleFor(14)), WithWindowChrome(chrome))
 			state := EmulatorState{Focused: true}
 			draw := func(i int) {
 				state.Title = fmt.Sprintf("build %d%%", i%100)
@@ -247,9 +247,9 @@ func BenchmarkDrawTitleChange(b *testing.B) {
 
 // benchmarkStatusOpts are the options of a renderer that draws program
 // status with an outline in the margin, at clock *at.
-func benchmarkStatusOpts(size Pt, at *time.Time) []Option {
+func benchmarkStatusOpts(size float64, at *time.Time) []Option {
 	return []Option{
-		WithFontSizePt(size), WithWindowChrome(true),
+		WithScale(scaleFor(size)), WithWindowChrome(true),
 		WithMargin(36, color.NRGBA{R: 0x15, G: 0x16, B: 0x1c, A: 0xff}), WithBorderRadius(8),
 		WithClock(func() time.Time { return *at }),
 	}
@@ -419,7 +419,7 @@ func BenchmarkDrawIncremental(b *testing.B) {
 		scr  *screen.Buffer
 		opts []Option
 	}{
-		{"dense-120x30-40pt", benchmarkTerminalScreen().Buffer, []Option{WithFontSizePt(benchmarkFontSizePt)}},
+		{"dense-120x30-40pt", benchmarkTerminalScreen().Buffer, []Option{WithScale(scaleFor(benchmarkFontSizePt))}},
 		{"sparse-80x24", sparse(80, 24), nil},
 		{"sparse-240x72", sparse(240, 72), nil},
 	}

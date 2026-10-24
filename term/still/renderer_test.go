@@ -120,7 +120,7 @@ func TestNewJoinsOptionErrors(t *testing.T) {
 	t.Parallel()
 
 	d, err := New(
-		WithFontSizePt(0),
+		WithScale(0),
 		WithBackgroundOpacity(2),
 		WithCursorBlinkSpeed(0),
 	)

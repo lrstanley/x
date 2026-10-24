@@ -10,25 +10,6 @@ import (
 	"github.com/lrstanley/x/term/still/units"
 )
 
-func TestPtPixels(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		pt   units.Pt
-		dpi  units.DPI
-		want int
-	}{
-		{11, 96, 15},
-		{12, 96, 16},
-		{0.5, 96, 1},
-	}
-	for _, tt := range tests {
-		if got := tt.pt.Pixels(tt.dpi).Int(); got != tt.want {
-			t.Fatalf("Pt(%v).Pixels(%v) = %d, want %d", tt.pt, tt.dpi, got, tt.want)
-		}
-	}
-}
-
 func TestNewAdjustment_clamps(t *testing.T) {
 	t.Parallel()
 

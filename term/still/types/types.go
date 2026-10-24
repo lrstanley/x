@@ -16,11 +16,9 @@ import (
 
 // Metrics describes the terminal grid geometry used for a draw.
 type Metrics struct {
-	// DPI is the display resolution used when converting points and fonts to
-	// pixels.
-	DPI units.DPI
-	// FontSize is the primary font body size in typographic points.
-	FontSize units.Pt
+	// Scale is the font scale the metrics were derived at, where 1 is the
+	// default font size.
+	Scale float64
 	// CellWidth is the horizontal size of one character cell in pixels.
 	CellWidth units.Px
 	// CellHeight is the vertical size of one character cell in pixels.

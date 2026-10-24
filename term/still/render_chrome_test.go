@@ -17,7 +17,7 @@ import (
 
 func newRenderer(t *testing.T, opts ...Option) *Renderer {
 	t.Helper()
-	d := MustNew(append([]Option{WithFontSizePt(10)}, opts...)...)
+	d := MustNew(append([]Option{WithScale(scaleFor(10))}, opts...)...)
 	t.Cleanup(func() { _ = d.Close() })
 	return d
 }
@@ -152,7 +152,7 @@ func TestWindowChromeFonts(t *testing.T) {
 	if d := newRenderer(t); d.chromeCtx.fonts != nil {
 		t.Fatal("chrome fonts loaded without window chrome")
 	}
-	d := MustNew(WithFontSizePt(10), WithWindowChrome(true))
+	d := MustNew(WithScale(scaleFor(10)), WithWindowChrome(true))
 	if d.chromeCtx.fonts == nil {
 		t.Fatal("chrome fonts not loaded with window chrome")
 	}
@@ -174,7 +174,7 @@ func TestWindowChromeTitleCentered(t *testing.T) {
 
 	scr := newTestScreen(30, 2)
 	scr.SetCell(0, 0, &screen.Cell{Content: "H", Width: 1})
-	d := newRenderer(t, WithWindowChrome(true), WithFontSizePt(16))
+	d := newRenderer(t, WithWindowChrome(true), WithScale(scaleFor(16)))
 	d.UpdateEmulatorState(&EmulatorState{})
 	empty := bytes.Clone(drawNRGBA(t, d, scr).Pix)
 	d.UpdateEmulatorState(&EmulatorState{Title: "HHHH"})

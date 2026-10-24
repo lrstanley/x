@@ -146,18 +146,19 @@ func WithIconHeightSingle(scale float64) Option {
 	}
 }
 
-// WithFontSize sets the font size in points. Defaults to 11 (min: 1).
-func WithFontSize(size int) Option {
-	return WithFontSizePt(Pt(size))
-}
-
-// WithFontSizePt sets the font size in points. Defaults to 11pt (min: 1pt).
-func WithFontSizePt(size Pt) Option {
+// WithScale sets the size of everything drawn from the font: glyphs, and so
+// the cell size and the image size with them. Defaults to 1, which is 11pt at
+// 96 DPI (about 14.7px). Use 2 for twice the pixels in each direction.
+//
+// Fixed pixel lengths ([WithPadding], [WithMargin], [WithBorderRadius],
+// [WithProgressBarHeight], and so on) do not scale with it. Must be > 0.
+func WithScale(scale float64) Option {
 	return func(d *Renderer) error {
-		if size < 1 {
-			return fmt.Errorf("still: font size must be >= 1pt, got %v", size)
+		v, err := config.ParseScale(scale)
+		if err != nil {
+			return err
 		}
-		d.opts.FontSize = size
+		d.opts.Scale = v
 		return nil
 	}
 }

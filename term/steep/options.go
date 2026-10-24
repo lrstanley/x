@@ -281,7 +281,7 @@ func WithANSI(enable bool) Option {
 // construction; per-draw emulator state is synchronized automatically. Calls
 // accumulate.
 //
-// Environment: STEEP_RENDERER_FONT_SIZE maps to [still.WithFontSizePt] and
+// Environment: STEEP_RENDERER_SCALE maps to [still.WithScale] and
 // STEEP_RENDERER_FONT_FAMILY maps to [still.WithFontFamilyName]. Both are
 // appended after these options, so they win, unless [WithIgnoreEnv] is set.
 func WithRenderer(opts ...still.Option) Option {

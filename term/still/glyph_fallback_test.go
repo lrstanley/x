@@ -22,7 +22,7 @@ func TestSymbolGlyphsRenderFromFonts(t *testing.T) {
 		"★", "✔", "☀", "♪", "⚙", "◐", "◢", "⇄", "➤", "☐", // Bundled fallback.
 		"\ufffd",
 	}
-	d := MustNew(WithFontSizePt(Pt(16)), WithSystemFontFallback(false), palette)
+	d := MustNew(WithScale(scaleFor(16)), WithSystemFontFallback(false), palette)
 	seen := map[string]string{}
 	for _, glyph := range glyphs {
 		scr := blockRow(glyph, 1, fg, bg)
@@ -44,7 +44,7 @@ func TestFilledSquareIsSolid(t *testing.T) {
 	t.Parallel()
 
 	fg, bg, palette := blockTestPalette()
-	d := MustNew(WithFontSizePt(Pt(16)), WithSystemFontFallback(false), palette)
+	d := MustNew(WithScale(scaleFor(16)), WithSystemFontFallback(false), palette)
 	scr := blockRow("■", 1, fg, bg)
 	img := drawNRGBA(t, d, scr)
 	cell := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)

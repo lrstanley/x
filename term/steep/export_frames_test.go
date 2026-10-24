@@ -334,8 +334,8 @@ func TestCardRendererIgnoresWindowChrome(t *testing.T) {
 	chrome.opts = []still.Option{still.WithWindowChrome(true)}
 	t.Cleanup(func() { _ = plain.close(); _ = chrome.close() })
 
-	want := plain.draw(t, still.Pt(10), still.EmulatorState{Title: "title"}, scr)
-	got := chrome.draw(t, still.Pt(10), still.EmulatorState{Title: "title"}, scr)
+	want := plain.draw(t, 1, still.EmulatorState{Title: "title"}, scr)
+	got := chrome.draw(t, 1, still.EmulatorState{Title: "title"}, scr)
 	if got == nil || want == nil {
 		t.Fatalf("draw returned nil: got %v, want %v", got, want)
 	}

@@ -10,8 +10,6 @@ import (
 
 type (
 	Px           = units.Px
-	Pt           = units.Pt
-	DPI          = units.DPI
 	Percent      = units.Percent
 	FractionalPx = units.FractionalPx
 	Adjustment   = units.Adjustment

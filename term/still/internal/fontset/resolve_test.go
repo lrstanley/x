@@ -18,8 +18,7 @@ import (
 // buildTestSet builds a set with the given system fallback (nil disables it).
 func buildTestSet(tb testing.TB, opts config.Options, system func(rune) (*opentype.Font, bool)) *Set {
 	tb.Helper()
-	opts.FontSize = config.DefaultFontSize
-	opts.DPI = config.DefaultDPI
+	opts.Scale = config.DefaultScale
 	fs, err := build(opts, system)
 	if err != nil {
 		tb.Fatalf("build() error = %v", err)

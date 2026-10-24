@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image/color"
 	"maps"
+	"math"
 	"time"
 
 	"github.com/lrstanley/x/term/still/fonts"
@@ -19,8 +20,12 @@ import (
 )
 
 const (
-	DefaultDPI              = units.DPI(96)
-	DefaultFontSize         = units.Pt(11)
+	// BaseFontSizePx is the font size in pixels at a scale of 1 (11pt at 96
+	// DPI). Scale is the only font sizing knob; there is no physical display, so
+	// points and DPI carry no extra meaning.
+	BaseFontSizePx = 11.0 * 96.0 / 72.0
+
+	DefaultScale            = 1.0
 	DefaultCursorBlinkSpeed = 600 * time.Millisecond
 	DefaultBgOpacity        = 1.0
 	DefaultFaintFactor      = 0.5
@@ -31,8 +36,9 @@ const (
 
 // Options is the merged renderer configuration owned by a [Renderer].
 type Options struct {
-	DPI      units.DPI
-	FontSize units.Pt
+	// Scale multiplies the base font size, and therefore every cell metric
+	// derived from it. See [BaseFontSizePx].
+	Scale float64
 
 	CellWidth              units.Adjustment
 	CellHeight             units.Adjustment
@@ -77,8 +83,7 @@ type Options struct {
 // DefaultOptions returns baseline renderer options.
 func DefaultOptions() Options {
 	return Options{
-		DPI:                   DefaultDPI,
-		FontSize:              DefaultFontSize,
+		Scale:                 DefaultScale,
 		CursorThickness:       1,
 		BackgroundOpacity:     DefaultBgOpacity,
 		FaintFactor:           DefaultFaintFactor,
@@ -108,6 +113,19 @@ func ParseRequiredPx(px int, name string) (units.Px, error) {
 		return 0, fmt.Errorf("still: %s must be > 0", name)
 	}
 	return units.Px(px), nil
+}
+
+// ParseScale validates a font scale, which must be positive and finite.
+func ParseScale(scale float64) (float64, error) {
+	if scale <= 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
+		return 0, fmt.Errorf("still: scale must be > 0, got %v", scale)
+	}
+	return scale, nil
+}
+
+// FontSizePx is the primary font size in pixels at the configured scale.
+func (o Options) FontSizePx() float64 {
+	return BaseFontSizePx * o.Scale
 }
 
 // ParseIconHeightScale validates icon height scale.

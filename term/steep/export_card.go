@@ -94,31 +94,31 @@ func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) im
 		writeCentered(buf, i, line)
 	}
 
-	return ec.cards.draw(ec.h.tb, ec.h.imageRenderer.Metrics().FontSize*still.Pt(ec.cardScale()), state, buf)
+	return ec.cards.draw(ec.h.tb, ec.h.imageRenderer.Metrics().Scale*ec.cardScale(), state, buf)
 }
 
 // cardRenderer draws card text with the harness renderer's options, without
-// window chrome, at a font size that follows the card scale. A recording owns
+// window chrome, at a scale that follows the card scale. A recording owns
 // one; it is built on first use, rebuilt when the size changes, and closed
 // when the recording finishes.
 type cardRenderer struct {
-	opts []still.Option
-	r    *still.Renderer
-	size still.Pt
+	opts  []still.Option
+	r     *still.Renderer
+	scale float64
 	// failed is set when building the renderer fails, so the error is logged
 	// once and later cards are drawn without text.
 	failed bool
 }
 
-// draw renders scr at size with state and returns an owned image, or nil when
+// draw renders scr at scale with state and returns an owned image, or nil when
 // the renderer cannot be built.
-func (c *cardRenderer) draw(tb testing.TB, size still.Pt, state still.EmulatorState, scr screen.Screen) image.Image {
+func (c *cardRenderer) draw(tb testing.TB, scale float64, state still.EmulatorState, scr screen.Screen) image.Image {
 	if c.failed {
 		return nil
 	}
-	if c.r == nil || c.size != size {
+	if c.r == nil || c.scale != scale {
 		r, err := still.New(append(slices.Clip(c.opts),
-			still.WithFontSizePt(size),
+			still.WithScale(scale),
 			still.WithPadding(0),
 			still.WithMargin(0, nil),
 			still.WithBorderRadius(0),
@@ -133,7 +133,7 @@ func (c *cardRenderer) draw(tb testing.TB, size still.Pt, state still.EmulatorSt
 		if cerr := c.close(); cerr != nil {
 			tb.Logf("export: closing card renderer: %v", cerr)
 		}
-		c.r, c.size = r, size
+		c.r, c.scale = r, scale
 	}
 	c.r.UpdateEmulatorState(&state)
 	return cloneNRGBA(c.r.Draw(scr))

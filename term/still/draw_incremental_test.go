@@ -96,7 +96,7 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 		{"chrome-progress", []Option{WithWindowChrome(true), WithMargin(4, nil), WithBackgroundOpacity(0.5), WithProgressBarHeight(3)}, EmulatorState{Title: "build", Progress: Progress{State: ProgressSet, Percent: 30}, CursorVisible: true}, 30},
 		{"chrome-status", []Option{WithWindowChrome(true), WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), WithBorderRadius(8)}, EmulatorState{Title: "agent", ProgramStatuses: diffStatuses[1], Focused: true, CursorVisible: true}, 30},
 		{"chrome-status-inset", []Option{WithWindowChrome(true), WithBorderRadius(12), WithBackgroundOpacity(0.5), WithFocusDimming(0.35)}, EmulatorState{Title: "agent", ProgramStatuses: diffStatuses[2], CursorVisible: true}, 30},
-		{"big-font", []Option{WithFontSizePt(26), WithPadding(3)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
+		{"big-font", []Option{WithScale(scaleFor(26)), WithPadding(3)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
 		{"everything", []Option{
 			WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4), WithBorderRadius(12),
 			WithScrollbar(true), WithBackgroundOpacity(0.5), WithFocusDimming(0.35), WithFaintFactor(0.4),
@@ -112,7 +112,7 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 			// the incremental one, and the progress sweep and blinks move
 			// only when the test sleeps.
 			synctest.Test(t, func(t *testing.T) {
-				opts := append([]Option{WithFontSizePt(9)}, tc.opts...)
+				opts := append([]Option{WithScale(scaleFor(9))}, tc.opts...)
 				inc, ref := MustNew(opts...), MustNew(opts...)
 				t.Cleanup(func() { _ = inc.Close(); _ = ref.Close() })
 
@@ -208,7 +208,7 @@ func TestDrawIncrementalOnlyBand(t *testing.T) {
 	t.Parallel()
 
 	const cols, rows = 20, 12
-	d := MustNew(WithFontSizePt(9))
+	d := MustNew(WithScale(scaleFor(9)))
 	t.Cleanup(func() { _ = d.Close() })
 	buf := screen.NewBuffer(cols, rows)
 	d.UpdateEmulatorState(&EmulatorState{Focused: true})
@@ -249,7 +249,7 @@ func TestDrawIncrementalOnlyBand(t *testing.T) {
 func TestDrawIncrementalNonComparableColor(t *testing.T) {
 	t.Parallel()
 
-	d, ref := MustNew(WithFontSizePt(9)), MustNew(WithFontSizePt(9))
+	d, ref := MustNew(WithScale(scaleFor(9))), MustNew(WithScale(scaleFor(9)))
 	t.Cleanup(func() { _ = d.Close(); _ = ref.Close() })
 	buf := screen.NewBuffer(10, 4)
 	buf.SetCell(1, 1, &screen.Cell{Content: "a", Width: 1, Style: screen.Style{Fg: sliceColor{200}}})
@@ -279,7 +279,7 @@ func TestDrawIncrementalFallsBack(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			d := MustNew(append([]Option{WithFontSizePt(9)}, tc.opts...)...)
+			d := MustNew(append([]Option{WithScale(scaleFor(9))}, tc.opts...)...)
 			t.Cleanup(func() { _ = d.Close() })
 			buf := screen.NewBuffer(10, 4)
 			d.UpdateEmulatorState(&tc.state)

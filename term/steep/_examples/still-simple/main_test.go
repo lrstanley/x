@@ -19,7 +19,7 @@ func TestGenerate(t *testing.T) {
 		steep.WithRenderer(
 			still.WithWindowChrome(true),
 			still.WithPadding(5),
-			// still.WithFontSize(20),
+			// still.WithScale(1.5),
 		),
 		// steep.WithWindowSize(160, 40),
 	)

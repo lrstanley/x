@@ -10,7 +10,7 @@
 // through steep, prefer [github.com/lrstanley/x/term/steep.Harness.Image].
 //
 //	d, err := still.New(
-//		still.WithFontSizePt(still.Pt(14)),
+//		still.WithScale(1.25),
 //		still.WithPadding(8),
 //	)
 //	d.UpdateEmulatorState(&still.EmulatorState{Focused: true})
