@@ -38,8 +38,9 @@ type ExportFrame struct {
 type frameSource struct {
 	cols, rows int
 	state      vt.Snapshot
-	// redraw repaints the progress bar of dst, a copy of the frame's image,
-	// as of a later time. It is nil unless the bar moves with the clock.
+	// redraw repaints the indicators (the progress bar and program status)
+	// of dst, a copy of the frame's image, as of a later time. It is nil
+	// unless they move with the clock.
 	redraw func(dst *image.NRGBA, at time.Time)
 }
 
@@ -74,8 +75,9 @@ type ExportContext struct {
 // it. Each emitted frame moves on as soon as it is emitted, so a mutator that
 // inserts many need not hold them all. Frames without an Image are dropped.
 //
-// A frame held on screen with an animated progress bar reaches mutators as
-// several frames, each with the bar repainted so it keeps moving.
+// A frame held on screen with an animated progress bar or program status
+// reaches mutators as several frames, each with those repainted so they keep
+// moving.
 //
 // Mutators run on the test goroutine. One built for an option shared by
 // parallel tests must not keep per-recording state; use
@@ -117,8 +119,10 @@ type mutatorStage struct {
 }
 
 // sweepStep is the shortest time between the frames export draws to keep an
-// animated progress bar moving while the screen holds still. 20 fps keeps the
-// sweep smooth without adding many frames, whatever [WithExportFPS] is.
+// animated progress bar or program status moving while the screen holds
+// still. 20 fps keeps them smooth without adding many frames, whatever
+// [WithExportFPS] is. Frames that come out the same, as a blocked status
+// does between its breathing steps, merge in the GIF.
 const sweepStep = 50 * time.Millisecond
 
 // record makes img, painted at at, the newest frame, and sends the previous
@@ -148,9 +152,9 @@ func (p *exportPipeline) release(until time.Time) {
 		p.push(0, f)
 		return
 	}
-	// The progress sweep moves with the clock, so holding one image would
-	// freeze it. Play the hold as frames sweepStep apart instead, rounded up
-	// to a multiple of the step grid, each a copy of the frame with the bar
+	// The indicators move with the clock, so holding one image would freeze
+	// them. Play the hold as frames sweepStep apart instead, rounded up to a
+	// multiple of the step grid, each a copy of the frame with the indicators
 	// repainted as of the real time it stands for. The last frame takes the
 	// remainder. The encoder may recycle f.Image once it is pushed, so the
 	// copies come from a clone.

@@ -393,7 +393,8 @@ func (m *exportManager) isPristine(st vt.Snapshot, text string) bool {
 	p := m.pristine
 	return strings.TrimSpace(text) == "" &&
 		st.Title == p.Title &&
-		stillProgress(st.Progress) == stillProgress(p.Progress) &&
+		snapshotProgress(st) == snapshotProgress(p) &&
+		st.ProgramStatusGeneration == p.ProgramStatusGeneration &&
 		st.AltScreen == p.AltScreen &&
 		st.Foreground == p.Foreground &&
 		st.Background == p.Background &&
@@ -406,7 +407,7 @@ func (m *exportManager) isPristine(st vt.Snapshot, text string) bool {
 
 func sameCommit(a, b vt.Snapshot) bool {
 	if a.Generation != b.Generation || a.Title != b.Title || a.AltScreen != b.AltScreen ||
-		stillProgress(a.Progress) != stillProgress(b.Progress) {
+		snapshotProgress(a) != snapshotProgress(b) || a.ProgramStatusGeneration != b.ProgramStatusGeneration {
 		return false
 	}
 	ac, bc := a.Cursor, b.Cursor

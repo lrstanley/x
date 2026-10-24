@@ -7,6 +7,9 @@ package vt
 import (
 	"context"
 	"image/color"
+	"math/rand/v2"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -353,6 +356,146 @@ func TestProgramStatusAndPrompt(t *testing.T) {
 	}
 }
 
+// TestSnapshotProgramStatuses checks that a snapshot keeps the records it
+// was taken with, that the generation changes exactly when the records do,
+// and that OSC 133 A and RIS drop records.
+func TestSnapshotProgramStatuses(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 8, 2)
+	write := func(seq string) Snapshot {
+		t.Helper()
+		if _, err := term.Write([]byte(seq)); err != nil {
+			t.Fatal(err)
+		}
+		return term.Snapshot()
+	}
+	osc := func(body string) string { return "\x1b]7501;" + body + "\x1b\\" }
+
+	start := term.Snapshot()
+	if start.ProgramStatuses != nil || start.ProgramStatusReported {
+		t.Fatalf("fresh terminal: %+v reported=%v", start.ProgramStatuses, start.ProgramStatusReported)
+	}
+
+	// A clear with nothing to clear is still a report, but changes no
+	// records.
+	cleared := write(osc("state=clear"))
+	if !cleared.ProgramStatusReported || cleared.ProgramStatusGeneration != start.ProgramStatusGeneration {
+		t.Fatalf("clear: reported=%v gen %d -> %d", cleared.ProgramStatusReported, start.ProgramStatusGeneration, cleared.ProgramStatusGeneration)
+	}
+
+	working := write(osc("state=working:id=job:app=x"))
+	if len(working.ProgramStatuses) != 1 || working.ProgramStatusGeneration == cleared.ProgramStatusGeneration {
+		t.Fatalf("working: %+v gen %d", working.ProgramStatuses, working.ProgramStatusGeneration)
+	}
+	if again := write(osc("state=working:id=job:app=x")); again.ProgramStatusGeneration != working.ProgramStatusGeneration {
+		t.Fatal("an identical report changed the generation")
+	}
+
+	done := write(osc("state=done:id=job"))
+	if working.ProgramStatuses[0].State != ProgramWorking || done.ProgramStatuses[0].State != ProgramDone {
+		t.Fatalf("an earlier snapshot changed: %+v, now %+v", working.ProgramStatuses, done.ProgramStatuses)
+	}
+
+	// A new prompt drops working and blocked records only, and changes
+	// nothing when there are none.
+	prompt := write("\x1b]133;A\x1b\\")
+	if prompt.ProgramStatusGeneration != done.ProgramStatusGeneration {
+		t.Fatal("a prompt that dropped nothing changed the generation")
+	}
+	write(osc("state=blocked:id=ask"))
+	prompt = write("\x1b]133;A\x1b\\")
+	if len(prompt.ProgramStatuses) != 1 || prompt.ProgramStatuses[0].ID != "job" {
+		t.Fatalf("after OSC 133 A: %+v", prompt.ProgramStatuses)
+	}
+
+	reset := write("\x1bc")
+	if reset.ProgramStatuses != nil || reset.ProgramStatusReported || reset.ProgramStatusGeneration <= prompt.ProgramStatusGeneration {
+		t.Fatalf("after RIS: %+v reported=%v gen %d", reset.ProgramStatuses, reset.ProgramStatusReported, reset.ProgramStatusGeneration)
+	}
+}
+
+// TestProgramStatusView checks the sorted view against a direct reading of
+// its rule, each record taking App from its nearest ancestor that set one,
+// for trees with missing levels, and that unchanged updates return the
+// records as they were.
+func TestProgramStatusView(t *testing.T) {
+	t.Parallel()
+
+	// want walks up each id through the records as given.
+	want := func(in []ProgramStatus) []ProgramStatus {
+		out := slices.Clone(in)
+		for i := range out {
+			for id := out[i].ID; out[i].App == "" && id != ""; {
+				prefix, _, found := strings.CutLast(id, "/")
+				if !found {
+					prefix = ""
+				}
+				id = prefix
+				if j := slices.IndexFunc(in, func(p ProgramStatus) bool { return p.ID == id }); j >= 0 {
+					out[i].App = in[j].App
+				}
+			}
+		}
+		slices.SortFunc(out, func(a, b ProgramStatus) int { return strings.Compare(a.ID, b.ID) })
+		return out
+	}
+	ids := []string{"", "a", "a/b", "a/b/c", "a/b/c/d", "a/x", "a/x/y", "a-b", "a-b/c", "b/c", "b/c/d", "b", "c/d/e", "a/b/c2"}
+	rng := rand.New(rand.NewPCG(1, 2))
+	for range 500 {
+		var in []ProgramStatus
+		for _, i := range rng.Perm(len(ids))[:rng.IntN(len(ids)+1)] {
+			rec := ProgramStatus{ID: ids[i], State: ProgramWorking}
+			if rng.IntN(3) == 0 {
+				rec.App = "app-" + ids[i]
+			}
+			in = append(in, rec)
+		}
+		if got, want := programStatusView(in), want(in); !slices.Equal(got, want) {
+			t.Fatalf("programStatusView(%+v)\n got %+v\nwant %+v", in, got, want)
+		}
+	}
+
+	in := []ProgramStatus{{ID: "a", State: ProgramDone}, {ID: "b", State: ProgramWorking}}
+	same := func(a, b []ProgramStatus) bool { return len(a) == len(b) && &a[0] == &b[0] }
+	if !same(putProgramStatus(in, in[1]), in) {
+		t.Error("putProgramStatus copied the records for an update that changes nothing")
+	}
+	if got := putProgramStatus(in, in[0]); same(got, in) || got[1] != in[0] {
+		t.Errorf("putProgramStatus(%+v, %+v) = %+v, want it moved to the end", in, in[0], got)
+	}
+	if !same(deleteProgramStatus(in, "c"), in) || !same(deleteWorking(in[:1]), in[:1]) {
+		t.Error("deleting nothing copied the records")
+	}
+	if got := deleteWorking(in); len(got) != 1 || got[0] != in[0] {
+		t.Errorf("deleteWorking(%+v) = %+v", in, got)
+	}
+}
+
+// BenchmarkProgramStatusView builds the sorted view of a full set of
+// records three levels deep, newest first, where only one root sets an app,
+// so most records look for one all the way up.
+func BenchmarkProgramStatusView(b *testing.B) {
+	in := make([]ProgramStatus, programStatusMax)
+	for i := range in {
+		tree := "t" + strconv.Itoa(i%16)
+		rec := ProgramStatus{ID: tree, State: ProgramWorking}
+		switch {
+		case i == 0:
+			rec.App = "app"
+		case i < 16:
+		case i%2 == 1:
+			rec = ProgramStatus{ID: tree + "/c" + strconv.Itoa(i), State: ProgramWorking}
+		default:
+			rec = ProgramStatus{ID: "t" + strconv.Itoa((i-1)%16) + "/c" + strconv.Itoa(i-1) + "/g" + strconv.Itoa(i), State: ProgramDone}
+		}
+		in[len(in)-1-i] = rec
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		programStatusView(in)
+	}
+}
+
 // testRuntime is this package's pool. Tests do not use a process-wide one.
 var testRuntime = NewRuntime(0)
 
@@ -399,7 +542,7 @@ func TestGridGenerationMatchesScreen(t *testing.T) {
 func TestSnapshotMatchesAccessors(t *testing.T) {
 	t.Parallel()
 	term := openTest(t, 8, 2)
-	if _, err := term.Write([]byte("A\x1b]0;snap-title\x07\x1b]9;4;1;42\x07")); err != nil {
+	if _, err := term.Write([]byte("A\x1b]0;snap-title\x07\x1b]9;4;1;42\x07\x1b]7501;state=working:id=b\x1b\\\x1b]7501;state=idle:app=a\x1b\\")); err != nil {
 		t.Fatal(err)
 	}
 	fg := color.NRGBA{R: 1, G: 2, B: 3, A: 0xff}
@@ -412,6 +555,9 @@ func TestSnapshotMatchesAccessors(t *testing.T) {
 	}
 	if want := (Progress{Reported: true, State: ProgressSet, Percent: 42}); got.Progress != want {
 		t.Fatalf("snapshot progress = %+v, want %+v", got.Progress, want)
+	}
+	if recs := got.ProgramStatuses; len(recs) != 2 || recs[0].ID != "" || recs[1].App != "a" || !got.ProgramStatusReported {
+		t.Fatalf("snapshot program statuses = %+v reported=%v", recs, got.ProgramStatusReported)
 	}
 	assertSnapshot(t, term)
 
@@ -455,6 +601,9 @@ func assertSnapshot(t *testing.T, term *Terminal) {
 	}
 	if p := term.Progress(); got.Progress != p {
 		t.Fatalf("Progress = %+v, want %+v", got.Progress, p)
+	}
+	if recs := term.ProgramStatuses(); !slices.Equal(got.ProgramStatuses, recs) {
+		t.Fatalf("ProgramStatuses = %+v, want %+v", got.ProgramStatuses, recs)
 	}
 	if gen := term.GridGeneration(); got.Generation != gen {
 		t.Fatalf("Generation = %d, want %d", got.Generation, gen)

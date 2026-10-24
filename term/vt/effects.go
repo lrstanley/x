@@ -5,6 +5,7 @@
 package vt
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -172,13 +173,14 @@ func (t *Terminal) onProgress(_, _, req int32) {
 
 // onProgramStatus reads a GhosttyTerminalProgramStatus (OSC 7501).
 // String fields are copied immediately. A clear state deletes the id.
+// Ghostty only calls it for valid reports, so any call counts as one.
 func (t *Terminal) onProgramStatus(_, _, req int32) {
 	state := t.mod.I32(req, wasmvt.TerminalProgramStatusStateOff)
 	kind := t.mod.I32(req, wasmvt.TerminalProgramStatusKindOff)
 	progress := int(int8(t.mod.U8(req, wasmvt.TerminalProgramStatusProgressOff)))
 	id := t.mod.String(req, wasmvt.TerminalProgramStatusIdOff)
 	if programName(state) == ProgramClear {
-		t.statuses = deleteProgramStatus(t.statuses, id)
+		t.setProgramStatusesLocked(deleteProgramStatus(t.statuses, id), true)
 		return
 	}
 	rec := ProgramStatus{
@@ -193,7 +195,26 @@ func (t *Terminal) onProgramStatus(_, _, req int32) {
 		rec.Progress = progress
 		rec.HasProgress = true
 	}
-	t.statuses = putProgramStatus(t.statuses, rec)
+	t.setProgramStatusesLocked(putProgramStatus(t.statuses, rec), true)
+}
+
+// setProgramStatusesLocked replaces the records with next, which the caller
+// must not change afterwards, and sets whether any OSC 7501 report has
+// arrived since the last full reset. When next is not the current records,
+// it rebuilds the sorted view, and when that differs, replaces it and bumps
+// the generation. The old view is left alone, since snapshots may share it.
+func (t *Terminal) setProgramStatusesLocked(next []ProgramStatus, reported bool) {
+	t.statusReported = reported
+	if len(next) == len(t.statuses) && (len(next) == 0 || &next[0] == &t.statuses[0]) {
+		return
+	}
+	t.statuses = next
+	view := programStatusView(next)
+	if slices.Equal(view, t.statusView) {
+		return
+	}
+	t.statusView = view
+	t.statusGen++
 }
 
 // onPrompt reads a GhosttyTerminalSemanticPrompt (OSC 133).
@@ -210,7 +231,7 @@ func (t *Terminal) onPrompt(_, _, req int32) {
 		t.prompt.ExitCode = 0
 	}
 	if t.prompt.Kind == PromptStart {
-		t.statuses = deleteWorking(t.statuses)
+		t.setProgramStatusesLocked(deleteWorking(t.statuses), t.statusReported)
 	}
 }
 
@@ -425,7 +446,14 @@ func promptName(v int32) PromptKind {
 
 const programStatusMax = 256
 
+// putProgramStatus returns in with rec replacing the record of its id, as
+// the most recently updated, evicting the least recently updated record when
+// that would make more than programStatusMax. It returns in itself when rec
+// is already its most recent record.
 func putProgramStatus(in []ProgramStatus, rec ProgramStatus) []ProgramStatus {
+	if len(in) > 0 && in[len(in)-1] == rec {
+		return in
+	}
 	out := make([]ProgramStatus, 0, len(in)+1)
 	for _, old := range in {
 		if old.ID != rec.ID {
@@ -438,24 +466,67 @@ func putProgramStatus(in []ProgramStatus, rec ProgramStatus) []ProgramStatus {
 	return append(out, rec)
 }
 
+// deleteProgramStatus returns in without the record id and every record
+// beneath it, or without any record for the root id. It returns in itself
+// when that removes nothing.
 func deleteProgramStatus(in []ProgramStatus, id string) []ProgramStatus {
-	out := make([]ProgramStatus, 0, len(in))
-	for _, old := range in {
-		if id == "" || old.ID == id || strings.HasPrefix(old.ID, id+"/") {
-			continue
+	return deleteProgramStatusFunc(in, func(rec ProgramStatus) bool {
+		return id == "" || rec.ID == id || strings.HasPrefix(rec.ID, id+"/")
+	})
+}
+
+// deleteWorking returns in without its working and blocked records, which a
+// new shell prompt ends. It returns in itself when there are none.
+func deleteWorking(in []ProgramStatus) []ProgramStatus {
+	return deleteProgramStatusFunc(in, func(rec ProgramStatus) bool {
+		return rec.State == ProgramWorking || rec.State == ProgramBlocked
+	})
+}
+
+// deleteProgramStatusFunc returns in without the records del reports, as a
+// new slice, or in itself when del reports none.
+func deleteProgramStatusFunc(in []ProgramStatus, del func(ProgramStatus) bool) []ProgramStatus {
+	first := slices.IndexFunc(in, del)
+	if first < 0 {
+		return in
+	}
+	out := make([]ProgramStatus, first, len(in))
+	copy(out, in[:first])
+	for _, rec := range in[first+1:] {
+		if !del(rec) {
+			out = append(out, rec)
 		}
-		out = append(out, old)
 	}
 	return out
 }
 
-func deleteWorking(in []ProgramStatus) []ProgramStatus {
-	out := make([]ProgramStatus, 0, len(in))
-	for _, old := range in {
-		if old.State == ProgramWorking || old.State == ProgramBlocked {
-			continue
+// programStatusView returns in sorted by id, each record with App filled from
+// its nearest ancestor that set one. It is nil when in is empty. Ids are
+// unique, and an ancestor sorts before its descendants, so each record takes
+// App from its nearest ancestor in the view, which already has its own.
+func programStatusView(in []ProgramStatus) []ProgramStatus {
+	if len(in) == 0 {
+		return nil
+	}
+	out := slices.Clone(in)
+	slices.SortFunc(out, func(a, b ProgramStatus) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	for i := range out {
+		id := out[i].ID
+		for out[i].App == "" && id != "" {
+			prefix, _, found := strings.CutLast(id, "/")
+			if !found {
+				prefix = ""
+			}
+			id = prefix
+			if j, ok := slices.BinarySearchFunc(out[:i], id, func(rec ProgramStatus, id string) int {
+				return strings.Compare(rec.ID, id)
+			}); ok {
+				out[i].App = out[j].App
+				break
+			}
 		}
-		out = append(out, old)
 	}
 	return out
 }

@@ -30,6 +30,16 @@ var diffGlyphs = []string{
 	"★", "✔", "☀", "\ue0b0", "\ue0b2", "\uf015", // fallback, powerline, nerd icons
 }
 
+// diffStatuses are program status record sets the incremental test moves
+// between: none, still and animated drivers, and trees with dots.
+var diffStatuses = [][]ProgramStatus{
+	nil,
+	{{State: ProgramWorking, Title: "build", Message: "compiling", Progress: -1}},
+	{{State: ProgramBlocked, Kind: ProgramKindPermission, Title: "Edit?", Progress: -1}, {ID: "a", State: ProgramDone, Progress: -1}},
+	{{State: ProgramWorking, Title: "tests", Progress: 42}},
+	{{State: ProgramDone, Title: "done", Progress: -1}, {ID: "a", State: ProgramError, Title: "lint", Progress: -1}, {ID: "b", State: ProgramIdle, Progress: -1}},
+}
+
 func randColor(r *rand.Rand) color.Color {
 	switch r.IntN(4) {
 	case 0:
@@ -84,6 +94,8 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 		}, EmulatorState{Title: "漢字  a very long title that has to be truncated to fit", CursorVisible: true, ScrollbackCount: 25}, 30},
 		{"progress", []Option{WithPadding(3), WithBorderRadius(8)}, EmulatorState{Progress: Progress{State: ProgressIndeterminate, Percent: -1}, Focused: true, CursorVisible: true}, 30},
 		{"chrome-progress", []Option{WithWindowChrome(true), WithMargin(4, nil), WithBackgroundOpacity(0.5), WithProgressBarHeight(3)}, EmulatorState{Title: "build", Progress: Progress{State: ProgressSet, Percent: 30}, CursorVisible: true}, 30},
+		{"chrome-status", []Option{WithWindowChrome(true), WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), WithBorderRadius(8)}, EmulatorState{Title: "agent", ProgramStatuses: diffStatuses[1], Focused: true, CursorVisible: true}, 30},
+		{"chrome-status-inset", []Option{WithWindowChrome(true), WithBorderRadius(12), WithBackgroundOpacity(0.5), WithFocusDimming(0.35)}, EmulatorState{Title: "agent", ProgramStatuses: diffStatuses[2], CursorVisible: true}, 30},
 		{"big-font", []Option{WithFontSizePt(26), WithPadding(3)}, EmulatorState{Focused: true, CursorVisible: true}, 30},
 		{"everything", []Option{
 			WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4), WithBorderRadius(12),
@@ -146,8 +158,12 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 						if rng.IntN(2) == 0 {
 							buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
 						}
-					case 9: // progress change, alone or with an edit
-						state.Progress = Progress{State: ProgressState(rng.IntN(5)), Percent: rng.IntN(102) - 1}
+					case 9: // progress or program status change, alone or with an edit
+						if rng.IntN(2) == 0 {
+							state.Progress = Progress{State: ProgressState(rng.IntN(5)), Percent: rng.IntN(102) - 1}
+						} else {
+							state.ProgramStatuses = diffStatuses[rng.IntN(len(diffStatuses))]
+						}
 						if rng.IntN(2) == 0 {
 							buf.SetCell(rng.IntN(cols), rng.IntN(rows), randCell(rng))
 						}
@@ -156,7 +172,7 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 					ref.UpdateEmulatorState(&state)
 
 					inc.mu.Lock()
-					used := inc.drawIncremental(buf)
+					used := inc.drawIncremental(buf, inc.opts.Now())
 					inc.mu.Unlock()
 					if used {
 						incremental++
@@ -166,8 +182,7 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 					ref.mu.Lock()
 					ref.frameReady = false
 					ref.mu.Unlock()
-					want := image.NewNRGBA(ref.Bounds(buf))
-					ref.DrawInto(want, want.Bounds(), buf)
+					want := drawIntoNRGBA(ref, buf)
 
 					if got.Rect != want.Rect || !bytes.Equal(got.Pix, want.Pix) {
 						diff := 0
@@ -242,8 +257,7 @@ func TestDrawIncrementalNonComparableColor(t *testing.T) {
 	buf.SetCell(5, 2, &screen.Cell{Content: "b", Width: 1})
 
 	got := drawNRGBA(t, d, buf)
-	want := image.NewNRGBA(ref.Bounds(buf))
-	ref.DrawInto(want, want.Bounds(), buf)
+	want := drawIntoNRGBA(ref, buf)
 	if !bytes.Equal(got.Pix, want.Pix) {
 		t.Fatal("draw with non-comparable colors differs from full repaint")
 	}
@@ -274,7 +288,7 @@ func TestDrawIncrementalFallsBack(t *testing.T) {
 
 			d.mu.Lock()
 			defer d.mu.Unlock()
-			if d.drawIncremental(buf) {
+			if d.drawIncremental(buf, d.opts.Now()) {
 				t.Fatal("drawIncremental should refuse")
 			}
 		})

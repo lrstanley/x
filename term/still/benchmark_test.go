@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"testing"
 	"time"
 
@@ -239,6 +240,139 @@ func BenchmarkDrawTitleChange(b *testing.B) {
 			for b.Loop() {
 				draw(i)
 				i++
+			}
+		})
+	}
+}
+
+// benchmarkStatusOpts are the options of a renderer that draws program
+// status with an outline in the margin, at clock *at.
+func benchmarkStatusOpts(size Pt, at *time.Time) []Option {
+	return []Option{
+		WithFontSizePt(size), WithWindowChrome(true),
+		WithMargin(36, color.NRGBA{R: 0x15, G: 0x16, B: 0x1c, A: 0xff}), WithBorderRadius(8),
+		WithClock(func() time.Time { return *at }),
+	}
+}
+
+// benchmarkIndicatorStates are the indicator states the status benchmarks
+// draw: each program status look, and an OSC 9;4 bar with no status.
+var benchmarkIndicatorStates = []struct {
+	name  string
+	state EmulatorState
+}{
+	{"spinner", EmulatorState{Focused: true, ProgramStatuses: []ProgramStatus{
+		{State: ProgramWorking, Title: "Refactoring renderer", Message: "Reading render.go", Progress: -1},
+		{ID: "build", State: ProgramDone, Progress: -1},
+	}}},
+	{"blocked", EmulatorState{Focused: true, ProgramStatuses: []ProgramStatus{
+		{State: ProgramBlocked, Kind: ProgramKindPermission, Title: "Edit render.go?", Message: "Apply 3 changes", Progress: -1},
+	}}},
+	{"progress", EmulatorState{Focused: true, ProgramStatuses: []ProgramStatus{
+		{State: ProgramWorking, Title: "Running tests", Message: "42 of 100 packages", Progress: 42},
+	}}},
+	{"done", EmulatorState{Focused: true, ProgramStatuses: []ProgramStatus{
+		{State: ProgramDone, Title: "Refactor complete", Message: "12 files changed", Progress: -1},
+	}}},
+	{"bar-only", EmulatorState{Focused: true, Title: "build", Progress: Progress{State: ProgressIndeterminate, Percent: -1}}},
+}
+
+// BenchmarkRepaintIndicators compares drawing a whole frame with repainting
+// only the indicators, as a recording does to keep an animated indicator
+// moving while the screen holds still. The clock moves 50ms per frame.
+func BenchmarkRepaintIndicators(b *testing.B) {
+	scr := benchmarkTerminalScreen()
+	for _, tc := range benchmarkIndicatorStates {
+		if tc.name == "done" {
+			continue
+		}
+		for _, mode := range []string{"draw", "repaint"} {
+			b.Run(tc.name+"/"+mode, func(b *testing.B) {
+				at := time.Unix(1_000_000, 0)
+				d := MustNew(benchmarkStatusOpts(benchmarkFontSizePt, &at)...)
+				d.UpdateEmulatorState(&tc.state)
+				frame := image.NewNRGBA(d.Bounds(scr))
+				d.DrawInto(frame, frame.Bounds(), scr)
+				step := func() {
+					at = at.Add(50 * time.Millisecond)
+					if mode == "draw" {
+						d.DrawInto(frame, frame.Bounds(), scr)
+					} else {
+						d.RepaintIndicators(frame, scr)
+					}
+				}
+				for range benchmarkWarmupIters {
+					step()
+				}
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for b.Loop() {
+					step()
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkDrawIncrementalStatus redraws an 80x24 screen through
+// [Renderer.Draw] after one cell changes, with the clock moving 50ms per
+// frame, for program status that is steady, that fills to a percent, and that
+// breathes.
+func BenchmarkDrawIncrementalStatus(b *testing.B) {
+	for _, tc := range benchmarkIndicatorStates {
+		if tc.name != "done" && tc.name != "blocked" && tc.name != "progress" {
+			continue
+		}
+		b.Run(tc.name, func(b *testing.B) {
+			at := time.Unix(1_000_000, 0)
+			d := MustNew(benchmarkStatusOpts(14, &at)...)
+			d.UpdateEmulatorState(&tc.state)
+			scr := screen.NewBuffer(80, 24)
+			step := func(i int) {
+				at = at.Add(50 * time.Millisecond)
+				scr.SetCell(i%60, 12, &screen.Cell{Content: string(rune('a' + i%26)), Width: 1})
+				d.Draw(scr)
+			}
+			for i := range benchmarkWarmupIters {
+				step(i)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			i := 0
+			for b.Loop() {
+				step(i)
+				i++
+			}
+		})
+	}
+}
+
+// BenchmarkDrawIntoStatus draws a whole frame with an animated program
+// status into an NRGBA image, and into an RGBA image, which takes the
+// generic pixel paths.
+func BenchmarkDrawIntoStatus(b *testing.B) {
+	scr := benchmarkTerminalScreen()
+	for _, kind := range []string{"nrgba", "rgba"} {
+		b.Run(kind, func(b *testing.B) {
+			at := time.Unix(1_000_000, 0)
+			d := MustNew(benchmarkStatusOpts(benchmarkFontSizePt, &at)...)
+			d.UpdateEmulatorState(&benchmarkIndicatorStates[0].state)
+			var frame draw.Image = image.NewNRGBA(d.Bounds(scr))
+			if kind == "rgba" {
+				frame = image.NewRGBA(d.Bounds(scr))
+			}
+			step := func() {
+				at = at.Add(50 * time.Millisecond)
+				d.DrawInto(frame, frame.Bounds(), scr)
+			}
+			for range benchmarkWarmupIters {
+				step()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				step()
 			}
 		})
 	}

@@ -24,8 +24,19 @@
 // ([WithWindowChrome], showing [EmulatorState.Title]), cell backgrounds, cell
 // foregrounds (glyphs and decorations), cursor, OSC 9;4 progress bar
 // ([WithProgressBar], from [EmulatorState.Progress]), scrollbar gutter,
-// unfocused dimming overlay, then an antialiased rounding mask on the terminal
-// window.
+// unfocused dimming overlay, an antialiased rounding mask on the terminal
+// window, then the OSC 7501 program status outline around it.
+//
+// OSC 7501 program status ([WithProgramStatus], from
+// [EmulatorState.ProgramStatuses]) is drawn only with window chrome. The most
+// urgent record (see [ProgramState]) replaces the title with its icon,
+// spinner, or percent, title, and message, and colors a thin outline just
+// outside the window edge. The other records show as dots after the title.
+// Title bar text, the window title included, is drawn as plain text with
+// controls, bidi overrides, and invisible characters removed.
+// [Renderer.IndicatorsAnimate] and [Renderer.RepaintIndicators] let a recorder
+// keep an animated progress bar or program status moving while the screen
+// holds still.
 //
 // Each glyph is drawn from the first font that actually has it: a
 // [WithCodepointMap] range (by default, Nerd Font, Powerline, and symbol ranges

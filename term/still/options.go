@@ -235,6 +235,12 @@ func WithScrollbar(enabled bool) Option {
 // the window, so padding, margin, border radius, and focus dimming apply to it,
 // and it grows the image by [Renderer.Metrics] cell height plus half a cell.
 // Disabled by default, so cell-accurate screenshots do not change.
+//
+// Title bar text is drawn a little smaller than the grid, in the same family,
+// and is optically centered on the buttons. It is drawn as plain text: the
+// title is untrusted, so controls become spaces, and bidi overrides and
+// invisible characters are dropped. Program status ([WithProgramStatus]) is
+// only drawn with window chrome.
 func WithWindowChrome(enabled bool) Option {
 	return func(d *Renderer) error {
 		d.opts.WindowChrome = enabled
@@ -250,6 +256,30 @@ func WithWindowChrome(enabled bool) Option {
 func WithProgressBar(enabled bool) Option {
 	return func(d *Renderer) error {
 		d.opts.ProgressBar = enabled
+		return nil
+	}
+}
+
+// WithProgramStatus sets whether to draw the OSC 7501 program status records
+// from [EmulatorState.ProgramStatuses]. They are drawn only with
+// [WithWindowChrome]; without it nothing is drawn. The most urgent record
+// (see [ProgramState]), with the earlier record winning ties (the root sorts
+// first), replaces the window title with its state icon (or a spinner, or the
+// percent while working at a known progress), title, and message, and draws a
+// thin state-colored outline just outside the window edge. Each other record adds a dot in its own state color
+// after the title, most urgent first, up to six. With no records the normal
+// title is drawn. Enabled by default.
+//
+// The outline sits in the margin ([WithMargin]) and follows
+// [WithBorderRadius]. With less than 4px of margin it covers the window's
+// outermost pixels instead. Working records move comets around it, or fill it
+// clockwise from the top center to their progress; blocked records breathe;
+// done, error, and idle records are steady. Movement follows the [WithClock]
+// time and loops. Colors come from [Palette.Progress], [Palette.ProgressPause],
+// [Palette.ProgressError], and [Palette.ProgramDone].
+func WithProgramStatus(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.ProgramStatus = enabled
 		return nil
 	}
 }
@@ -347,8 +377,8 @@ func WithFocusDimming(factor float64) Option {
 }
 
 // WithClock sets the clock Draw reads for time-driven pixels: blinking text,
-// the blinking cursor, and the indeterminate progress sweep. A nil func
-// restores the default, [time.Now].
+// the blinking cursor, the indeterminate progress sweep, and the program
+// status spinner and outline. A nil func restores the default, [time.Now].
 func WithClock(now func() time.Time) Option {
 	return func(d *Renderer) error {
 		if now == nil {

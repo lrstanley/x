@@ -16,6 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/still"
 	"github.com/lrstanley/x/term/still/export"
 	"github.com/lrstanley/x/term/vt"
@@ -501,74 +502,90 @@ func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 	}
 }
 
-// TestExportAnimatesIndeterminateProgress checks that a frame held on screen
-// with an animated progress bar plays as redrawn frames sweepStep apart, even
-// on a finer step grid, so the sweep moves in the GIF, while a static bar
-// stays one frame.
-func TestExportAnimatesIndeterminateProgress(t *testing.T) {
+// TestExportAnimatesIndicators checks that a frame held on screen with an
+// animated progress bar or program status plays as redrawn frames sweepStep
+// apart, even on a finer step grid, so they move in the GIF, while a still
+// one stays one frame.
+func TestExportAnimatesIndicators(t *testing.T) {
 	t.Parallel()
 
-	h := NewHarness(t, rootTestModel{text: "busy"}, WithWindowSize(20, 3), WithRenderer(still.WithWindowChrome(true)))
-	h.Wait("text=busy")
-
+	progress := NewHarness(t, rootTestModel{text: "busy"}, WithWindowSize(20, 3), WithRenderer(still.WithWindowChrome(true)))
+	progress.Wait("text=busy")
+	status := statusHarness(t, "held")
+	set := ansi.SetProgramStatus
 	for _, tc := range []struct {
+		h      *Harness
 		seq    string
 		frames int
 	}{
-		{"\x1b]9;4;3\x07", 20},
-		{"\x1b]9;4;2\x07", 20},
-		{"\x1b]9;4;1;50\x07", 1},
+		{progress, "\x1b]9;4;3\x07", 20},
+		{progress, "\x1b]9;4;2\x07", 20},
+		{progress, "\x1b]9;4;1;50\x07", 1},
+		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateWorking, Title: "build"}), 20},
+		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateBlocked, Kind: ansi.ProgramStatusKindQuestion, Title: "which?"}), 20},
+		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateWorking, Progress: 40, HasProgress: true, Title: "build"}), 1},
+		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateDone, Title: "done"}), 1},
 	} {
-		writeVT(t, h, tc.seq)
-		scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
+		assertHeldFrames(t, tc.h, tc.seq, tc.frames)
+	}
+}
 
-		ch := make(chan export.Frame, 64)
-		p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: ch}
-		at := time.Unix(1000, 0)
-		img, redraw := copyCommitted(h, scr, st, at)
-		if (redraw != nil) != (tc.frames > 1) {
-			t.Fatalf("%q: redraw set = %v, want %v", tc.seq, redraw != nil, tc.frames > 1)
-		}
-		if redraw != nil {
-			// A redraw paints the frame as it was captured, not the harness now.
-			later := at.Add(100 * time.Millisecond)
-			want := cloneNRGBA(img)
-			redraw(want, later)
-			got := cloneNRGBA(img)
-			h.Blur()
-			redraw(got, later)
-			h.Focus()
-			if !bytes.Equal(want.Pix, got.Pix) {
-				t.Fatalf("%q: redraw changed with the harness focus", tc.seq)
-			}
-		}
-		p.record(img, at, frameSource{state: st, redraw: redraw})
-		p.finish(at.Add(time.Second+20*time.Millisecond), false)
-		close(ch)
+// assertHeldFrames writes seq to h and holds the frame for a little over a
+// second, and checks that it plays as frames frames, each the pixels of a
+// full redraw at its time, that move when there is more than one.
+func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
+	t.Helper()
+	writeVT(t, h, seq)
+	scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
 
-		var total time.Duration
-		var frames []*image.NRGBA
-		for f := range ch {
-			img, ok := f.Image.(*image.NRGBA)
-			if !ok {
-				t.Fatalf("frame image is %T, want *image.NRGBA", f.Image)
-			}
-			total += f.Delay
-			frames = append(frames, img)
+	ch := make(chan export.Frame, 64)
+	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: ch}
+	at := time.Unix(1000, 0)
+	img, redraw := copyCommitted(h, scr, st, at)
+	if (redraw != nil) != (frames > 1) {
+		t.Fatalf("%q: redraw set = %v, want %v", seq, redraw != nil, frames > 1)
+	}
+	if redraw != nil {
+		// A redraw paints the frame as it was captured, not the harness now.
+		later := at.Add(100 * time.Millisecond)
+		want := cloneNRGBA(img)
+		redraw(want, later)
+		got := cloneNRGBA(img)
+		h.Blur()
+		redraw(got, later)
+		h.Focus()
+		if !bytes.Equal(want.Pix, got.Pix) {
+			t.Fatalf("%q: redraw changed with the harness focus", seq)
 		}
-		if len(frames) != tc.frames || total != time.Second+20*time.Millisecond {
-			t.Fatalf("%q: %d frames over %v, want %d over 1.02s", tc.seq, len(frames), total, tc.frames)
+	}
+	p.record(img, at, frameSource{state: st, redraw: redraw})
+	p.finish(at.Add(time.Second+20*time.Millisecond), false)
+	close(ch)
+
+	var total time.Duration
+	var got []*image.NRGBA
+	for f := range ch {
+		img, ok := f.Image.(*image.NRGBA)
+		if !ok {
+			t.Fatalf("frame image is %T, want *image.NRGBA", f.Image)
 		}
-		if tc.frames > 1 && bytes.Equal(frames[0].Pix, frames[5].Pix) {
-			t.Fatalf("%q: the redrawn frames do not move the sweep", tc.seq)
+		total += f.Delay
+		got = append(got, img)
+	}
+	if len(got) != frames || total != time.Second+20*time.Millisecond {
+		t.Fatalf("%q: %d frames over %v, want %d over 1.02s", seq, len(got), total, frames)
+	}
+	// Repainting the indicators must give the pixels of drawing everything
+	// again as of that frame's time, sweepStep apart.
+	moved := false
+	for k, img := range got {
+		full, _ := copyCommitted(h, scr, st, at.Add(time.Duration(k)*sweepStep))
+		if want, ok := full.(*image.NRGBA); !ok || !bytes.Equal(img.Pix, want.Pix) {
+			t.Fatalf("%q: frame %d differs from a full redraw at its time", seq, k)
 		}
-		// Repainting the bar must give the pixels of drawing everything again
-		// as of that frame's time, sweepStep apart.
-		for k, got := range frames {
-			full, _ := copyCommitted(h, scr, st, at.Add(time.Duration(k)*sweepStep))
-			if want, ok := full.(*image.NRGBA); !ok || !bytes.Equal(got.Pix, want.Pix) {
-				t.Fatalf("%q: frame %d differs from a full redraw at its time", tc.seq, k)
-			}
-		}
+		moved = moved || !bytes.Equal(img.Pix, got[0].Pix)
+	}
+	if frames > 1 && !moved {
+		t.Fatalf("%q: the redrawn frames do not move", seq)
 	}
 }

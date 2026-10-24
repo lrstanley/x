@@ -40,6 +40,14 @@ func drawNRGBA(t *testing.T, d *Renderer, scr screen.Screen) *image.NRGBA {
 	return img
 }
 
+// drawIntoNRGBA draws scr with [Renderer.DrawInto] into a new image, so the
+// frame cache plays no part.
+func drawIntoNRGBA(d *Renderer, scr screen.Screen) *image.NRGBA {
+	img := image.NewNRGBA(d.Bounds(scr))
+	d.DrawInto(img, img.Bounds(), scr)
+	return img
+}
+
 func sample(img *image.NRGBA, area image.Rectangle) color.NRGBA {
 	p := area.Min.Add(image.Pt(max(0, area.Dx()/2), max(0, area.Dy()/2)))
 	if !p.In(area) {

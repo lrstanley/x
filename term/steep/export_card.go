@@ -49,13 +49,15 @@ func (ec ExportContext) Card(lines ...CardLine) image.Image {
 }
 
 // cardState is the renderer state for cards: the frame's window state with
-// default colors, no cursor, no progress, and nothing to scroll.
+// default colors, no cursor, no progress or program status, and nothing to
+// scroll.
 func (ec ExportContext) cardState() still.EmulatorState {
 	state := viewportState(ec.h, still.EmulatorState{}, ec.src.state)
 	state.FgColor, state.BgColor = nil, nil
 	state.CursorVisible = false
 	state.ScrollbackCount = 0
 	state.Progress = still.Progress{}
+	state.ProgramStatuses = nil
 	return state
 }
 

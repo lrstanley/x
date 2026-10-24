@@ -150,8 +150,8 @@ func TestProgressIndeterminateAnimates(t *testing.T) {
 		sleepToPhase(0.25)
 		d := newRenderer(t)
 		d.UpdateEmulatorState(&EmulatorState{Progress: Progress{State: ProgressIndeterminate, Percent: -1}})
-		if !d.ProgressAnimates() {
-			t.Fatal("ProgressAnimates() = false for indeterminate progress")
+		if !d.IndicatorsAnimate() {
+			t.Fatal("IndicatorsAnimate() = false for indeterminate progress")
 		}
 		first := bytes.Clone(drawNRGBA(t, d, scr).Pix)
 
@@ -193,10 +193,10 @@ func TestProgressRepaintsOnlyStrip(t *testing.T) {
 	}
 }
 
-// TestRepaintProgressMatchesFullDraw checks that repainting the bar's rows of
+// TestRepaintIndicatorsProgressMatchesFullDraw checks that repainting the bar's rows of
 // a copy of an earlier image gives exactly the pixels of drawing everything
 // again at the later time, and that the rest of the image is untouched.
-func TestRepaintProgressMatchesFullDraw(t *testing.T) {
+func TestRepaintIndicatorsProgressMatchesFullDraw(t *testing.T) {
 	t.Parallel()
 
 	for name, opts := range map[string][]Option{
@@ -214,20 +214,15 @@ func TestRepaintProgressMatchesFullDraw(t *testing.T) {
 				}
 				d := newRenderer(t, opts...)
 				d.UpdateEmulatorState(&EmulatorState{Title: "t", Progress: Progress{State: ProgressIndeterminate, Percent: -1}})
-				draw := func() *image.NRGBA {
-					img := image.NewNRGBA(d.Bounds(scr))
-					d.DrawInto(img, image.Rectangle{}, scr)
-					return img
-				}
 
 				sleepToPhase(0.2)
-				base := draw()
+				base := drawIntoNRGBA(d, scr)
 				synctest.Sleep(progressSweep / 4)
-				want := draw()
+				want := drawIntoNRGBA(d, scr)
 
 				got := image.NewNRGBA(base.Rect)
 				copy(got.Pix, base.Pix)
-				d.RepaintProgress(got, scr)
+				d.RepaintIndicators(got, scr)
 				if bytes.Equal(got.Pix, base.Pix) {
 					t.Fatal("repainting at a later time did not move the bar")
 				}
@@ -280,8 +275,8 @@ func TestProgressBarDisabled(t *testing.T) {
 	if !bytes.Equal(drawNRGBA(t, a, scr).Pix, drawNRGBA(t, b, scr).Pix) {
 		t.Fatal("WithProgressBar(false) still drew the bar")
 	}
-	if b.ProgressAnimates() {
-		t.Error("ProgressAnimates() = true with the bar disabled")
+	if b.IndicatorsAnimate() {
+		t.Error("IndicatorsAnimate() = true with the bar disabled")
 	}
 	if _, err := New(WithProgressBarHeight(0)); err == nil {
 		t.Fatal("WithProgressBarHeight(0) did not fail")

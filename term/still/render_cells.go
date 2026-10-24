@@ -133,8 +133,8 @@ func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *render
 
 	fg := f.foregroundNRGBA(nil)
 	bg := f.backgroundNRGBA(nil)
-	track := icol.NRGBA(icol.Blend(bg, fg, 0.12))
-	thumb := icol.NRGBA(icol.Blend(bg, fg, 0.35))
+	track := icol.BlendNRGBA(bg, fg, 0.12)
+	thumb := icol.BlendNRGBA(bg, fg, 0.35)
 	idraw.Fill(dst, area, track)
 
 	thumbHeight := max(1, area.Dy()*screenRows/totalRows)

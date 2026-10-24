@@ -61,6 +61,7 @@ type Options struct {
 	WindowChrome           bool
 	ProgressBar            bool
 	ProgressBarHeight      units.Px
+	ProgramStatus          bool
 	BorderRadius           units.Px
 	Margin                 units.Px
 	MarginFill             color.Color
@@ -88,6 +89,7 @@ func DefaultOptions() Options {
 		SystemFontFallback:    true,
 		ProgressBar:           true,
 		ProgressBarHeight:     DefaultProgressBarHeight,
+		ProgramStatus:         true,
 		Now:                   time.Now,
 	}
 }

@@ -34,7 +34,7 @@ func resolveCellColors(src config.ColorSource, cell *screen.Cell) (fg, bg color.
 		fg, bg = bg, fg
 	}
 	if style != nil && style.Attrs&screen.AttrFaint != 0 {
-		fg = NRGBA(Blend(fg, bg, src.FaintFactor()))
+		fg = BlendNRGBA(fg, bg, src.FaintFactor())
 	}
 	if style != nil && style.Attrs&screen.AttrConceal != 0 {
 		fg = bg
@@ -150,15 +150,17 @@ func ApplyAlpha(c color.Color, opacity float64) color.Color {
 
 // Blend linearly interpolates each NRGBA channel of from toward to by factor.
 func Blend(from, to color.Color, factor float64) color.Color {
-	a := NRGBA(from)
-	b := NRGBA(to)
-	factor = units.Clamp(factor, 0.0, 1.0)
-	return color.NRGBA{
-		R: uint8(math.Round(float64(a.R) + (float64(b.R)-float64(a.R))*factor)),
-		G: uint8(math.Round(float64(a.G) + (float64(b.G)-float64(a.G))*factor)),
-		B: uint8(math.Round(float64(a.B) + (float64(b.B)-float64(a.B))*factor)),
-		A: uint8(math.Round(float64(a.A) + (float64(b.A)-float64(a.A))*factor)),
+	return BlendNRGBA(NRGBA(from), NRGBA(to), factor)
+}
+
+// BlendNRGBA linearly interpolates each channel of a toward b by k, clamped
+// to 0 through 1, without boxing.
+func BlendNRGBA(a, b color.NRGBA, k float64) color.NRGBA {
+	k = units.Clamp(k, 0.0, 1.0)
+	lerp := func(x, y uint8) uint8 {
+		return uint8(math.Round(float64(x) + (float64(y)-float64(x))*k))
 	}
+	return color.NRGBA{R: lerp(a.R, b.R), G: lerp(a.G, b.G), B: lerp(a.B, b.B), A: lerp(a.A, b.A)}
 }
 
 // NRGBA converts c to [color.NRGBA], accepting nil as transparent zero.

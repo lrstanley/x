@@ -153,9 +153,23 @@ func syncViewport(h *Harness, st vt.Snapshot) {
 	defer h.imageMu.Unlock()
 
 	prev := h.imageState
+	// Records of the generation prev was built from are the ones it holds,
+	// so they are neither mapped nor compared again.
+	sameStatus := h.imageStateSet && st.ProgramStatusGeneration == h.imageStatusGen
+	if sameStatus {
+		st.ProgramStatuses = nil
+	}
 	next := viewportState(h, prev, st)
-	if h.imageStateSet && prev == next {
+	old := prev
+	if sameStatus {
+		old.ProgramStatuses = nil
+	}
+	h.imageStatusGen = st.ProgramStatusGeneration
+	if h.imageStateSet && old.Equal(next) {
 		return
+	}
+	if sameStatus {
+		next.ProgramStatuses = prev.ProgramStatuses
 	}
 	h.imageRenderer.UpdateEmulatorState(&next)
 	h.imageState = next
@@ -163,11 +177,11 @@ func syncViewport(h *Harness, st vt.Snapshot) {
 }
 
 // copyCommitted renders scr as it looked at st, as of time at, and returns an
-// owned image, with a func that repaints its progress bar in a copy of the
-// image as of a later time when the bar moves with the clock (nil otherwise).
-// The harness image cache
-// is invalidated so the next live draw does not reuse metadata from this
-// historical frame. Call it from the test goroutine.
+// owned image, with a func that repaints its indicators (the progress bar and
+// program status) in a copy of the image as of a later time when they move
+// with the clock (nil otherwise). The harness image cache is invalidated so
+// the next live draw does not reuse metadata from this historical frame. Call
+// it from the test goroutine.
 func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot, at time.Time) (img image.Image, redraw func(*image.NRGBA, time.Time)) {
 	if scr == nil {
 		return nil, nil
@@ -178,19 +192,19 @@ func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot, at time.Time)
 	return img, redrawLocked(h, scr)
 }
 
-// redrawLocked returns a func that repaints the progress bar of dst, a copy
-// of the image just drawn for scr, with the state the renderer drew it with, as
-// of a later time. It is nil unless that bar moves with the clock. h.imageMu
-// must be held.
+// redrawLocked returns a func that repaints the indicators of dst, a copy of
+// the image just drawn for scr, with the state the renderer drew it with, as
+// of a later time. It is nil unless they move with the clock. h.imageMu must
+// be held.
 func redrawLocked(h *Harness, scr *screen.Buffer) func(*image.NRGBA, time.Time) {
-	if scr == nil || !h.imageRenderer.ProgressAnimates() {
+	if scr == nil || !h.imageRenderer.IndicatorsAnimate() {
 		return nil
 	}
 	state := *h.imageRenderer.GetEmulatorState()
 	return func(dst *image.NRGBA, at time.Time) {
 		h.imageMu.Lock()
 		defer h.imageMu.Unlock()
-		drawStateLocked(h, state, at, func() { h.imageRenderer.RepaintProgress(dst, scr) })
+		drawStateLocked(h, state, at, func() { h.imageRenderer.RepaintIndicators(dst, scr) })
 	}
 }
 
@@ -263,8 +277,74 @@ func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.E
 		FgColor:         reuseNRGBA(prev.FgColor, st.Foreground),
 		BgColor:         reuseNRGBA(prev.BgColor, st.Background),
 		ScrollbackCount: st.ScrollbackLen,
-		Progress:        stillProgress(st.Progress),
+		Progress:        snapshotProgress(st),
+		ProgramStatuses: stillStatuses(prev.ProgramStatuses, st.ProgramStatuses),
 	}
+}
+
+// snapshotProgress is the OSC 9;4 progress to draw for st. As the OSC 7501
+// spec asks, it is none once any OSC 7501 report has arrived, until the next
+// full reset, so the program status is the only progress shown.
+func snapshotProgress(st vt.Snapshot) still.Progress {
+	if st.ProgramStatusReported {
+		return still.Progress{}
+	}
+	return stillProgress(st.Progress)
+}
+
+// stillStatuses maps OSC 7501 records to the renderer's, returning prev when
+// it already holds them, so an unchanged state does not allocate. Each record
+// is mapped once.
+func stillStatuses(prev []still.ProgramStatus, in []vt.ProgramStatus) []still.ProgramStatus {
+	if len(in) == 0 {
+		return nil
+	}
+	var out []still.ProgramStatus
+	for i, s := range in {
+		rec := stillStatus(s)
+		if out == nil {
+			if len(prev) == len(in) && prev[i] == rec {
+				continue
+			}
+			out = make([]still.ProgramStatus, len(in))
+			copy(out, prev[:i])
+		}
+		out[i] = rec
+	}
+	if out == nil {
+		return prev
+	}
+	return out
+}
+
+// stillStatus maps one OSC 7501 record to the renderer's.
+func stillStatus(s vt.ProgramStatus) still.ProgramStatus {
+	out := still.ProgramStatus{ID: s.ID, App: s.App, Title: s.Title, Message: s.Message, Progress: -1}
+	if s.HasProgress {
+		out.Progress = s.Progress
+	}
+	switch s.State {
+	case vt.ProgramWorking:
+		out.State = still.ProgramWorking
+	case vt.ProgramDone:
+		out.State = still.ProgramDone
+	case vt.ProgramBlocked:
+		out.State = still.ProgramBlocked
+	case vt.ProgramError:
+		out.State = still.ProgramError
+	case vt.ProgramIdle, vt.ProgramClear:
+		out.State = still.ProgramIdle
+	}
+	switch s.Kind {
+	case vt.ProgramKindPermission:
+		out.Kind = still.ProgramKindPermission
+	case vt.ProgramKindQuestion:
+		out.Kind = still.ProgramKindQuestion
+	case vt.ProgramKindAuth:
+		out.Kind = still.ProgramKindAuth
+	case vt.ProgramKindNone:
+	}
+	return out
 }
 
 // stillProgress maps an OSC 9;4 report to the renderer's progress state.

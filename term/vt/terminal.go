@@ -112,8 +112,18 @@ type Terminal struct {
 	clipWrote string
 	// prompt is the latest OSC 133 semantic-prompt step.
 	prompt Prompt
-	// statuses are OSC 7501 program-status records, sorted by id.
+	// statuses are OSC 7501 program-status records in update order, least
+	// recently updated first, which is the eviction order.
 	statuses []ProgramStatus
+	// statusView is statuses as [Terminal.ProgramStatuses] returns them:
+	// sorted by id, with App inherited. It is replaced, never changed in
+	// place, so a [Snapshot] can share it. statusGen counts changes to it,
+	// and is never reset, so equal generations mean the same records.
+	statusView []ProgramStatus
+	statusGen  uint64
+	// statusReported is true once any OSC 7501 report has arrived since the
+	// last full reset.
+	statusReported bool
 	// resizeCols and resizeRows are the last CSI 8 t window-resize
 	// request. resizeOK is false until the program asks. The terminal
 	// does not apply the request.
@@ -299,7 +309,7 @@ func (t *Terminal) resetStateLocked() {
 	t.notifications = nil
 	t.clipWrote = ""
 	t.prompt = Prompt{}
-	t.statuses = nil
+	t.setProgramStatusesLocked(nil, false)
 	t.resizeOK = false
 	t.grid = nil
 	t.invalidateRowWords()
@@ -432,6 +442,10 @@ func (t *Terminal) Snapshot() Snapshot {
 		ScrollbackLen:  t.scrollbackLenLocked(),
 		Progress:       t.progress,
 		Generation:     gen,
+
+		ProgramStatuses:         t.statusView,
+		ProgramStatusGeneration: t.statusGen,
+		ProgramStatusReported:   t.statusReported,
 	}
 }
 

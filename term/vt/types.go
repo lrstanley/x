@@ -29,6 +29,9 @@ type Cursor struct {
 // Snapshot is the host metadata around the cell grid, read together.
 // Generation is the content generation [Terminal.Screen] would copy.
 // Zero means there is no grid. The grid itself is not copied.
+//
+// Snapshot holds a slice, so it is not comparable with ==. Compare
+// ProgramStatusGeneration instead of the records.
 type Snapshot struct {
 	// Title is the last OSC 0 / OSC 2 title.
 	Title string
@@ -51,6 +54,21 @@ type Snapshot struct {
 	Progress Progress
 	// Generation is the viewport content generation. It does not copy cells.
 	Generation uint64
+
+	// ProgramStatuses are the OSC 7501 records, as [Terminal.ProgramStatuses]
+	// returns them. The slice is shared with the terminal and later
+	// snapshots and must not be modified. The terminal replaces it rather
+	// than changing it, so it stays as it was when the snapshot was taken.
+	ProgramStatuses []ProgramStatus
+	// ProgramStatusGeneration changes whenever ProgramStatuses do, and never
+	// repeats for a terminal, so two snapshots with the same generation hold
+	// the same records.
+	ProgramStatusGeneration uint64
+	// ProgramStatusReported is true once any OSC 7501 report, including a
+	// clear, has arrived since the last full reset (RIS). The OSC 7501 spec
+	// asks a terminal that shows OSC 9;4 progress as program status to stop
+	// doing so from then on, until the next full reset.
+	ProgramStatusReported bool
 }
 
 // Progress is the latest OSC 9;4 report. The zero value means the program

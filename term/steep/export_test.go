@@ -286,3 +286,32 @@ func TestSameCommitTracksProgress(t *testing.T) {
 		t.Fatal("snapshots that differ only in progress are the same commit")
 	}
 }
+
+// TestSameCommitTracksProgramStatus checks that a write that only changes
+// OSC 7501 records records a GIF frame, as does one that only marks that a
+// report arrived when that hides OSC 9;4 progress, and that a report that
+// changes nothing drawn does not.
+func TestSameCommitTracksProgramStatus(t *testing.T) {
+	t.Parallel()
+	a := vt.Snapshot{Generation: 3, Progress: vt.Progress{Reported: true, State: vt.ProgressSet, Percent: 10}}
+	b := a
+	b.ProgramStatusGeneration = 1
+	b.ProgramStatuses = []vt.ProgramStatus{{State: vt.ProgramWorking}}
+	if sameCommit(a, b) {
+		t.Fatal("snapshots that differ only in program status are the same commit")
+	}
+	c := a
+	c.ProgramStatusReported = true
+	if sameCommit(a, c) {
+		t.Fatal("snapshots that differ only in whether OSC 7501 arrived, which hides progress, are the same commit")
+	}
+	if !sameCommit(b, b) {
+		t.Fatal("sameCommit(b, b) = false")
+	}
+	quiet := vt.Snapshot{Generation: 3}
+	cleared := quiet
+	cleared.ProgramStatusReported = true
+	if !sameCommit(quiet, cleared) {
+		t.Fatal("a bare clear with no records and no progress is a new commit")
+	}
+}

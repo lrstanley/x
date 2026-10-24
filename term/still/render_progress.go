@@ -16,7 +16,6 @@ import (
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/types"
 	"github.com/lrstanley/x/term/still/units"
-	"github.com/lrstanley/x/term/vt/screen"
 )
 
 // Progress bar colors when the palette does not set them.
@@ -58,16 +57,6 @@ func progressAnimates(p types.Progress) bool {
 	return p.State == types.ProgressIndeterminate || (p.State == types.ProgressError && p.Percent < 0)
 }
 
-// ProgressAnimates reports whether the progress bar for the current
-// [EmulatorState] moves with the [WithClock] time, as indeterminate progress
-// and an error with no percent do. Draw then repaints the bar on every call,
-// and a recorder that holds a frame can redraw it to keep the bar moving.
-func (d *Renderer) ProgressAnimates() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return progressAnimates(d.shownProgress(d.emulatorState))
-}
-
 // layoutProgress sets the progress f draws and the strip it is drawn in: the
 // bottom of the title bar over its hairline, or the top edge of the window
 // without chrome. Either way it overlays existing pixels instead of moving the
@@ -89,37 +78,13 @@ func (d *Renderer) layoutProgress(f *renderFrame) {
 }
 
 // progressBand is the full-width rows of the image the bar's strip covers:
-// what a repaint of the bar has to redraw, since the strip can overlay the
-// margin fill, the window background, the title bar, or the top of row 0. It
-// is empty when the bar is disabled.
+// what a repaint of the bar has to redraw (see [Renderer.RepaintIndicators]),
+// since the strip can overlay the margin fill, the window background, the
+// title bar, or the top of row 0. It is empty when the bar is disabled.
 func (f *renderFrame) progressBand() image.Rectangle {
 	band := f.imageBounds
 	band.Min.Y, band.Max.Y = f.progressBounds.Min.Y, f.progressBounds.Max.Y
 	return band
-}
-
-// RepaintProgress redraws only the progress bar's rows of dst, an image of scr
-// that [Renderer.DrawInto] painted with the renderer's current options, for
-// the current [EmulatorState] and [WithClock] time. Every other pixel is left
-// alone. It costs a fraction of drawing the whole image, so a recorder that
-// holds a frame can copy it and keep an animated bar moving, see
-// [Renderer.ProgressAnimates]. It does nothing when the bar is disabled.
-//
-// The rows are drawn as of the same clock as the bar, so a blinking cursor or
-// blinking text that reaches into them, which can only be the top pixels of
-// row 0 when there is no window chrome, may differ from the rest of the cell.
-func (d *Renderer) RepaintProgress(dst *image.NRGBA, scr screen.Screen) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.ensureOpen()
-	f := d.borrowRenderFrame(image.Point{}, scr)
-	defer releaseRenderFrame(f)
-	if band := f.progressBand(); !band.Empty() {
-		if sub, ok := dst.SubImage(band).(*image.NRGBA); ok {
-			d.render(sub, scr, f)
-		}
-	}
 }
 
 func (f *renderFrame) progressColor(state types.ProgressState) color.NRGBA {
@@ -131,6 +96,12 @@ func (f *renderFrame) progressColor(state types.ProgressState) color.NRGBA {
 		c, def = f.palette.ProgressPause, defaultProgressPause
 	case types.ProgressRemove, types.ProgressSet, types.ProgressIndeterminate:
 	}
+	return paletteNRGBA(c, def)
+}
+
+// paletteNRGBA is the palette color c, or def when the palette leaves it
+// unset.
+func paletteNRGBA(c color.Color, def color.NRGBA) color.NRGBA {
 	if c == nil {
 		return def
 	}

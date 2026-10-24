@@ -43,12 +43,26 @@ type Renderer struct {
 
 	// chromeMask is the window button shape, rebuilt when the diameter changes.
 	chromeMask *image.Alpha
+	// chromeCtx lays title bar text out with its own faces. It is zero
+	// without window chrome.
+	chromeCtx chromeText
+	// status holds what program status drawing keeps between frames.
+	status rendererStatus
 	// progressRow is the progress bar coverage of one row of its strip.
 	progressRow []uint8
 
 	fgPass raster.Pass
 	// prev holds the cells d.frame shows, row-major, for drawIncremental.
 	prev []screen.Cell
+}
+
+// rendererStatus is what program status drawing keeps between frames: the
+// record dot, rebuilt when its size changes, and the last outline look along
+// the window edge, with what it was built for.
+type rendererStatus struct {
+	dot *image.Alpha
+	lut []statusPaint
+	key statusLUTKey
 }
 
 // New returns a renderer configured with opts.
@@ -130,19 +144,20 @@ func (d *Renderer) Draw(scr screen.Screen) image.Image {
 	defer d.mu.Unlock()
 
 	d.ensureOpen()
-	if d.reuseFrame(scr) {
+	now := d.opts.Now()
+	if d.reuseFrame(scr, now) {
 		return d.frame
 	}
-	if d.drawIncremental(scr) {
+	if d.drawIncremental(scr, now) {
 		return d.frame
 	}
 	d.frameReady = false
-	f := d.borrowRenderFrame(image.Point{}, scr)
+	f := d.borrowRenderFrame(image.Point{}, scr, now)
 	defer releaseRenderFrame(f)
 	bounds := f.imageBounds
 	img := d.ensureFrameLocked(bounds)
 	d.render(img, scr, f)
-	d.rememberFrame(scr, 0, scr.Bounds().Dy()-1)
+	d.rememberFrame(scr, 0, scr.Bounds().Dy()-1, now)
 	return img
 }
 
@@ -151,8 +166,9 @@ func (d *Renderer) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	err := d.fonts.Close()
+	err := errors.Join(d.fonts.Close(), d.chromeCtx.fonts.Close())
 	d.fonts = nil
+	d.chromeCtx = chromeText{}
 	d.frame = nil
 	d.frameReady = false
 	d.closed = true
@@ -189,6 +205,13 @@ func (d *Renderer) buildRenderer() error {
 		panic("fonts are not loaded")
 	}
 	d.metrics = imetrics.Derive(d.opts, d.fonts.GridMetrics())
+	if chromeErr := d.buildChromeFonts(); chromeErr != nil {
+		// New returns no renderer on error, so nothing else would close
+		// the grid fonts.
+		err = errors.Join(chromeErr, d.fonts.Close())
+		d.fonts = nil
+		return err
+	}
 	d.palette = config.ClonePalette(d.opts.Palette)
 	d.boxThicknessOverride = d.opts.BoxThicknessOverride()
 	return nil

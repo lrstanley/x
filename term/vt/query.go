@@ -7,7 +7,6 @@ package vt
 import (
 	"image/color"
 	"slices"
-	"strings"
 
 	"github.com/lrstanley/x/term/vt/internal/wasmvt"
 	"github.com/lrstanley/x/term/vt/screen"
@@ -188,26 +187,5 @@ func (t *Terminal) scrollRow(row int) {
 func (t *Terminal) ProgramStatuses() []ProgramStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	out := append([]ProgramStatus(nil), t.statuses...)
-	for i := range out {
-		id := out[i].ID
-		for out[i].App == "" && id != "" {
-			prefix, _, found := strings.CutLast(id, "/")
-			if !found {
-				id = ""
-			} else {
-				id = prefix
-			}
-			for _, parent := range t.statuses {
-				if parent.ID == id {
-					out[i].App = parent.App
-					break
-				}
-			}
-		}
-	}
-	slices.SortFunc(out, func(a, b ProgramStatus) int {
-		return strings.Compare(a.ID, b.ID)
-	})
-	return out
+	return slices.Clone(t.statusView)
 }

@@ -8,6 +8,7 @@ package types //nolint:revive // shared terminal rendering data types
 import (
 	"image"
 	"image/color"
+	"slices"
 
 	"github.com/lrstanley/x/term/still/units"
 	"github.com/lrstanley/x/term/vt/screen"
@@ -91,11 +92,19 @@ type Palette struct {
 	ProgressError color.Color
 	// ProgressPause is the progress bar color for the pause state.
 	ProgressPause color.Color
+	// ProgramDone is the OSC 7501 program status color for done records.
+	// Working, blocked, and error records use Progress, ProgressPause, and
+	// ProgressError, so both reports read as one, and idle records a blend
+	// of the default foreground into the default background.
+	ProgramDone color.Color
 }
 
 // EmulatorState snapshots host-terminal properties that influence how a session
 // is drawn but are not represented on [screen.Screen], such as title, focus, cursor
 // mode, and scrollback metadata.
+//
+// EmulatorState holds a slice, so it is not comparable with ==; use
+// [EmulatorState.Equal].
 type EmulatorState struct {
 	// Title is the window or tab title reported by the terminal.
 	Title string
@@ -123,8 +132,91 @@ type EmulatorState struct {
 	// tracked.
 	ScrollbackCount int
 	// Progress is the latest OSC 9;4 progress report. The zero value draws
-	// nothing.
+	// nothing. The OSC 7501 spec has a terminal stop showing OSC 9;4 as
+	// program status once any OSC 7501 report arrives, until the next full
+	// reset.
 	Progress Progress
+	// ProgramStatuses are the OSC 7501 program status records, sorted by id,
+	// so the root record (empty id) comes first. Nil draws nothing. They are
+	// drawn only with window chrome: the most urgent record (see
+	// [ProgramState]; the earlier record on ties) replaces the title and
+	// colors an outline around the window, and each other record adds a dot
+	// after the title. The renderer does not modify the slice.
+	ProgramStatuses []ProgramStatus
+}
+
+// Equal reports whether s and o are the same state. Fields compare as with
+// ==, colors as interface values, and ProgramStatuses element by element.
+func (s EmulatorState) Equal(o EmulatorState) bool {
+	return s.Title == o.Title &&
+		s.Focused == o.Focused &&
+		s.AltScreen == o.AltScreen &&
+		s.CursorVisible == o.CursorVisible &&
+		s.CursorX == o.CursorX &&
+		s.CursorY == o.CursorY &&
+		s.CursorColor == o.CursorColor &&
+		s.CursorStyle == o.CursorStyle &&
+		s.CursorBlink == o.CursorBlink &&
+		s.FgColor == o.FgColor &&
+		s.BgColor == o.BgColor &&
+		s.ScrollbackCount == o.ScrollbackCount &&
+		s.Progress == o.Progress &&
+		slices.Equal(s.ProgramStatuses, o.ProgramStatuses)
+}
+
+// ProgramState is an OSC 7501 program state. States are ordered by urgency,
+// how much they need the user, least first, so the larger of two states is
+// the more urgent.
+type ProgramState uint8
+
+// Program states reported by OSC 7501, least urgent first. A clear report
+// removes records instead of setting a state, so it has no value here.
+const (
+	// ProgramIdle means the program is at rest. It is the zero value.
+	ProgramIdle ProgramState = iota
+	// ProgramDone means the program finished and the result is ready.
+	ProgramDone
+	// ProgramWorking means the program is running, at
+	// [ProgramStatus.Progress] when set.
+	ProgramWorking
+	// ProgramBlocked means the program waits on the user, for
+	// [ProgramStatus.Kind].
+	ProgramBlocked
+	// ProgramError means the program failed and stopped.
+	ProgramError
+)
+
+// ProgramKind is what a blocked program waits for.
+type ProgramKind uint8
+
+// Program kinds reported by OSC 7501. They only apply to [ProgramBlocked].
+const (
+	// ProgramKindNone means the program did not say. It is the zero value.
+	ProgramKindNone ProgramKind = iota
+	// ProgramKindPermission means the program wants approval to do something.
+	ProgramKindPermission
+	// ProgramKindQuestion means the program waits for an answer.
+	ProgramKindQuestion
+	// ProgramKindAuth means the program waits for a credential.
+	ProgramKindAuth
+)
+
+// ProgramStatus is one OSC 7501 program status record.
+type ProgramStatus struct {
+	// ID is the slash-separated record id. Empty is the root record.
+	ID string
+	// State is the record's state.
+	State ProgramState
+	// Kind is what a blocked record waits for.
+	Kind ProgramKind
+	// App, Title, and Message are untrusted text from the program. They are
+	// drawn as plain text, with controls, bidi overrides, and invisible
+	// formatting characters removed. App is shown when Title is empty.
+	App     string
+	Title   string
+	Message string
+	// Progress is 0 through 100. Negative means the report had none.
+	Progress int
 }
 
 // ProgressState is an OSC 9;4 progress state.

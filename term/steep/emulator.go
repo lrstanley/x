@@ -506,7 +506,13 @@ const programStatusMaxRecords = 256
 // record; at most 256 records are kept. The returned slice is a copy.
 //
 // Working and blocked records are removed when a shell prompt starts (OSC 133
-// A). A full reset (RIS) removes every record. Status is not drawn.
+// A). A full reset (RIS) removes every record.
+//
+// With [still.WithWindowChrome] in [WithRenderer], [Harness.Image] and GIF
+// exports draw the records in the title bar and as an outline around the
+// window (see [still.WithProgramStatus]). Once any record has been reported,
+// OSC 9;4 progress is no longer drawn, until a full reset, as the OSC 7501
+// spec asks.
 func (h *Harness) ProgramStatuses() []ansi.ProgramStatus {
 	return h.emulator.programStatuses()
 }

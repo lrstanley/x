@@ -40,9 +40,24 @@ type renderFrame struct {
 	scrollbarBounds image.Rectangle
 	progressBounds  image.Rectangle
 	progress        types.Progress
+	status          frameStatus
 	cursorCell      *screen.Cell
 	cellW           int
 	cellH           int
+}
+
+// frameStatus is the OSC 7501 program status a frame draws.
+type frameStatus struct {
+	view statusView
+	ring statusRing
+	// lut is the outline look, built on first use by
+	// [Renderer.statusPaints], so repainting several bands builds it once.
+	lut []statusPaint
+}
+
+// indicators are the indicators f draws.
+func (f *renderFrame) indicators() indicators {
+	return indicators{progress: f.progress, status: f.status.view}
 }
 
 // renderFramePool recycles per-draw frames on the Draw/DrawInto hot path.
@@ -54,9 +69,10 @@ var renderFramePool = pool.Pool[*renderFrame]{
 	},
 }
 
-func (d *Renderer) borrowRenderFrame(origin image.Point, scr screen.Screen) *renderFrame {
+// borrowRenderFrame lays out a frame for scr at origin, as of now.
+func (d *Renderer) borrowRenderFrame(origin image.Point, scr screen.Screen, now time.Time) *renderFrame {
 	f := renderFramePool.Get()
-	d.populateRenderFrame(f, origin, scr)
+	d.populateRenderFrame(f, origin, scr, now)
 	return f
 }
 
@@ -66,7 +82,7 @@ func releaseRenderFrame(f *renderFrame) {
 
 func (d *Renderer) buildFrame(origin image.Point, scr screen.Screen) *renderFrame {
 	f := &renderFrame{r: d}
-	d.populateRenderFrame(f, origin, scr)
+	d.populateRenderFrame(f, origin, scr, d.opts.Now())
 	return f
 }
 
@@ -94,13 +110,13 @@ func (d *Renderer) imageSize(bounds image.Rectangle) image.Point {
 	)
 }
 
-func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr screen.Screen) {
+func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr screen.Screen, now time.Time) {
 	if scr == nil {
 		panic("nil screen")
 	}
 
 	f.r = d
-	f.now = d.opts.Now()
+	f.now = now
 	f.hasEmu = false
 	if d.emulatorState != nil {
 		f.emu = *d.emulatorState
@@ -130,6 +146,7 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr s
 		)
 	}
 	d.layoutProgress(f)
+	d.layoutStatus(f)
 
 	f.screenBounds = screen
 	f.cellW = cell.X

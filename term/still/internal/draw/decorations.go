@@ -26,7 +26,7 @@ func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangl
 		decoration = icol.NRGBA(ctx.ResolvePaletteColor(style.UnderlineColor))
 		if style.Attrs&screen.AttrFaint != 0 {
 			_, bg := ctx.CellColorsNRGBA(cell)
-			decoration = icol.NRGBA(icol.Blend(decoration, bg, ctx.FaintFactor()))
+			decoration = icol.BlendNRGBA(decoration, bg, ctx.FaintFactor())
 		}
 	}
 

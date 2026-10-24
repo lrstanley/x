@@ -150,6 +150,122 @@ func TestHarnessImageTracksProgress(t *testing.T) {
 	}
 }
 
+// statusHarness is a harness whose renderer draws program status: window
+// chrome, and a margin for the outline.
+func statusHarness(t *testing.T, text string) *Harness {
+	t.Helper()
+	h := NewHarness(t, rootTestModel{text: text}, WithWindowSize(30, 3), WithRenderer(
+		still.WithWindowChrome(true), still.WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), still.WithBorderRadius(8),
+	))
+	h.Wait("text=" + text)
+	return h
+}
+
+// TestHarnessImageTracksProgramStatus checks that OSC 7501 records the
+// program writes reach the renderer and the image, and that clearing a record
+// by id, clearing them all, a new prompt (OSC 133 A), and a full reset (RIS)
+// each stop drawing what they drop.
+func TestHarnessImageTracksProgramStatus(t *testing.T) {
+	t.Parallel()
+
+	h := statusHarness(t, "status")
+	agentDone := ansi.ProgramStatus{State: ansi.ProgramStateDone, App: "agent", Title: "Refactor complete"}
+	before := copyImage(t, h.Image())
+	records := func() []still.ProgramStatus {
+		t.Helper()
+		_ = h.Image()
+		return h.imageRenderer.GetEmulatorState().ProgramStatuses
+	}
+
+	writeVT(t, h, ansi.SetProgramStatus(agentDone))
+	rootOnly := copyImage(t, h.Image())
+	if bytes.Equal(before.Pix, rootOnly.Pix) {
+		t.Fatal("a done record did not change the image")
+	}
+	want := still.ProgramStatus{State: still.ProgramDone, App: "agent", Title: "Refactor complete", Progress: -1}
+	if got := records(); len(got) != 1 || got[0] != want {
+		t.Fatalf("renderer records = %+v, want %+v", got, want)
+	}
+
+	writeVT(t, h, ansi.SetProgramStatus(ansi.ProgramStatus{State: ansi.ProgramStateWorking, ID: "job", Progress: 40, HasProgress: true, Title: "build"}))
+	if got := records(); len(got) != 2 || got[1].ID != "job" || got[1].App != "agent" || got[1].Progress != 40 {
+		t.Fatalf("renderer records = %+v, want the root and job, which inherits its app", got)
+	}
+	if bytes.Equal(rootOnly.Pix, copyImage(t, h.Image()).Pix) {
+		t.Fatal("a child record did not change the image")
+	}
+	writeVT(t, h, ansi.ClearProgramStatusID("job"))
+	if got := copyImage(t, h.Image()); !bytes.Equal(rootOnly.Pix, got.Pix) {
+		t.Fatal("clearing the child by id did not restore the root-only image")
+	}
+	writeVT(t, h, ansi.ClearProgramStatus)
+	if got := copyImage(t, h.Image()); !bytes.Equal(before.Pix, got.Pix) || records() != nil {
+		t.Fatal("clearing every record did not restore the image")
+	}
+
+	writeVT(t, h, ansi.SetProgramStatus(ansi.ProgramStatus{State: ansi.ProgramStateWorking, ID: "w"})+
+		ansi.SetProgramStatus(ansi.ProgramStatus{State: ansi.ProgramStateBlocked, ID: "b"})+
+		ansi.SetProgramStatus(agentDone))
+	writeVT(t, h, "\x1b]133;A\x1b\\")
+	if got := records(); len(got) != 1 || got[0] != want {
+		t.Fatalf("after OSC 133 A, renderer records = %+v, want only the done record", got)
+	}
+	if got := copyImage(t, h.Image()); !bytes.Equal(rootOnly.Pix, got.Pix) {
+		t.Fatal("records dropped by OSC 133 A are still drawn")
+	}
+
+	writeVT(t, h, "\x1bc")
+	if got := records(); got != nil {
+		t.Fatalf("after RIS, renderer records = %+v", got)
+	}
+}
+
+// TestHarnessImageProgramStatusHostileText checks that a title and message
+// with bidi overrides and invisible characters draw like the visible text.
+func TestHarnessImageProgramStatusHostileText(t *testing.T) {
+	t.Parallel()
+
+	h := statusHarness(t, "hostile")
+	writeVT(t, h, ansi.SetProgramStatus(ansi.ProgramStatus{State: ansi.ProgramStateError, Title: "Run \u202egnp.exe\u202c now?\u200b", Message: "Open \u2066invoice\u2069\u200d.pdf\u00ad"}))
+	hostile := copyImage(t, h.Image())
+	writeVT(t, h, ansi.SetProgramStatus(ansi.ProgramStatus{State: ansi.ProgramStateError, Title: "Run gnp.exe now?", Message: "Open invoice.pdf"}))
+	if clean := copyImage(t, h.Image()); !bytes.Equal(hostile.Pix, clean.Pix) {
+		t.Fatal("hostile text draws differently from the visible text")
+	}
+}
+
+// TestHarnessProgramStatusStopsProgress checks the OSC 7501 rule for OSC 9;4:
+// once any program status report arrives, even a clear, progress is no longer
+// drawn, until a full reset.
+func TestHarnessProgramStatusStopsProgress(t *testing.T) {
+	t.Parallel()
+
+	h := statusHarness(t, "rule")
+	progress := func() still.Progress {
+		t.Helper()
+		_ = h.Image()
+		return h.imageRenderer.GetEmulatorState().Progress
+	}
+	set := func(pct int) still.Progress { return still.Progress{State: still.ProgressSet, Percent: pct} }
+
+	writeVT(t, h, "\x1b]9;4;1;50\x07")
+	if got := progress(); got != set(50) {
+		t.Fatalf("before OSC 7501, progress = %+v", got)
+	}
+	writeVT(t, h, ansi.ClearProgramStatus)
+	if got := progress(); got != (still.Progress{}) {
+		t.Fatalf("after an OSC 7501 report, progress = %+v, want none", got)
+	}
+	writeVT(t, h, "\x1b]9;4;1;70\x07")
+	if got := progress(); got != (still.Progress{}) {
+		t.Fatalf("OSC 9;4 after OSC 7501 drew progress %+v", got)
+	}
+	writeVT(t, h, "\x1bc\x1b]9;4;1;30\x07")
+	if got := progress(); got != set(30) {
+		t.Fatalf("after a full reset, progress = %+v, want %+v", got, set(30))
+	}
+}
+
 func TestHarnessImageFollowsGridGeneration(t *testing.T) {
 	t.Parallel()
 

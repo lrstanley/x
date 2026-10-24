@@ -91,32 +91,39 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, fg c
 		return false
 	}
 
-	metrics := ctx.Metrics()
-	dot := fixed.Point26_6{
-		X: GridGlyphDotX(area, metrics),
-		Y: fixed.I(area.Max.Y - metrics.FontBaseline.Int()),
-	}
-
 	kind, scaleMode, alignEnd := classifyGlyph(ctx, face, glyph)
 	*out = Layout{
 		Kind:      kind,
 		Face:      face,
-		Dot:       dot,
-		Area:      area,
 		Glyph:     glyph,
 		Rune:      r,
 		Fg:        fg,
 		ScaleMode: scaleMode,
 		AlignEnd:  alignEnd,
 	}
-	switch kind {
+	out.SetArea(ctx, area, cell)
+	return true
+}
+
+// SetArea moves l, laid out by [LayoutGlyph] for cell, into area, without
+// looking up its face or classifying it again.
+func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Cell) {
+	l.Area = area
+	if l.Kind == KindSprite {
+		return
+	}
+	metrics := ctx.Metrics()
+	l.Dot = fixed.Point26_6{
+		X: GridGlyphDotX(area, metrics),
+		Y: fixed.I(area.Max.Y - metrics.FontBaseline.Int()),
+	}
+	switch l.Kind {
 	case KindGrid, KindSprite:
 	case KindPowerline:
-		out.Target = area
+		l.Target = area
 	case KindFallback:
-		out.Target = idraw.FallbackGlyphTarget(ctx, area, cell)
+		l.Target = idraw.FallbackGlyphTarget(ctx, area, cell)
 	}
-	return true
 }
 
 func classifyGlyph(ctx GlyphContext, face font.Face, glyph string) (Kind, idraw.ScaleMode, bool) {

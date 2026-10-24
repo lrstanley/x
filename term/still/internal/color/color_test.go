@@ -179,3 +179,26 @@ func TestCellHasExplicitBackground(t *testing.T) {
 		t.Fatal("reverse with fg should count as explicit background")
 	}
 }
+
+func TestBlendNRGBA(t *testing.T) {
+	t.Parallel()
+
+	a, b := color.NRGBA{R: 0, G: 100, B: 200, A: 255}, color.NRGBA{R: 100, G: 0, B: 200, A: 55}
+	for _, tc := range []struct {
+		k    float64
+		want color.NRGBA
+	}{
+		{0, a},
+		{1, b},
+		{0.5, color.NRGBA{R: 50, G: 50, B: 200, A: 155}},
+		{-1, a},
+		{2, b},
+	} {
+		if got := icol.BlendNRGBA(a, b, tc.k); got != tc.want {
+			t.Errorf("BlendNRGBA(%v, %v, %v) = %v, want %v", a, b, tc.k, got, tc.want)
+		}
+		if got := icol.NRGBA(icol.Blend(a, b, tc.k)); got != icol.BlendNRGBA(a, b, tc.k) {
+			t.Errorf("Blend and BlendNRGBA differ at %v", tc.k)
+		}
+	}
+}

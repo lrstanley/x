@@ -7,7 +7,12 @@ package still
 import (
 	"bytes"
 	"image"
+	"strings"
 	"testing"
+	"unicode"
+	"unsafe"
+
+	"github.com/lrstanley/x/term/vt/screen"
 )
 
 func newRenderer(t *testing.T, opts ...Option) *Renderer {
@@ -136,5 +141,134 @@ func TestWindowChromeNoTitle(t *testing.T) {
 				t.Errorf("hairline %v matches bar fill %v", hairline, fill)
 			}
 		})
+	}
+}
+
+// TestWindowChromeFonts checks that the smaller title bar faces are loaded
+// only with window chrome, and closed with the renderer.
+func TestWindowChromeFonts(t *testing.T) {
+	t.Parallel()
+
+	if d := newRenderer(t); d.chromeCtx.fonts != nil {
+		t.Fatal("chrome fonts loaded without window chrome")
+	}
+	d := MustNew(WithFontSizePt(10), WithWindowChrome(true))
+	if d.chromeCtx.fonts == nil {
+		t.Fatal("chrome fonts not loaded with window chrome")
+	}
+	if cw, _ := d.chromeCtx.cell(); cw >= d.CellSize().X {
+		t.Errorf("chrome cell width %d, want narrower than the grid's %d", cw, d.CellSize().X)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d.chromeCtx.fonts != nil {
+		t.Fatal("Close kept the chrome fonts")
+	}
+}
+
+// TestWindowChromeTitleCentered checks that the title is smaller than grid
+// text and that its cap height is centered on the window buttons.
+func TestWindowChromeTitleCentered(t *testing.T) {
+	t.Parallel()
+
+	scr := newTestScreen(30, 2)
+	scr.SetCell(0, 0, &screen.Cell{Content: "H", Width: 1})
+	d := newRenderer(t, WithWindowChrome(true), WithFontSizePt(16))
+	d.UpdateEmulatorState(&EmulatorState{})
+	empty := bytes.Clone(drawNRGBA(t, d, scr).Pix)
+	d.UpdateEmulatorState(&EmulatorState{Title: "HHHH"})
+	img := drawNRGBA(t, d, scr)
+	f := d.layoutSnapshot(t, image.Point{}, scr)
+
+	bar := f.chromeBounds
+	ink := image.Rectangle{Min: bar.Max, Max: bar.Min}
+	for y := bar.Min.Y; y < bar.Max.Y-1; y++ {
+		for x := bar.Min.X + bar.Dx()/4; x < bar.Max.X-bar.Dx()/4; x++ {
+			if i := img.PixOffset(x, y); !bytes.Equal(img.Pix[i:i+4], empty[i:i+4]) {
+				ink = ink.Union(image.Rect(x, y, x+1, y+1))
+			}
+		}
+	}
+	if ink.Empty() {
+		t.Fatal("title drew nothing")
+	}
+	body := bar.Dy() - 1
+	diameter := body / 3
+	mid := 2*(bar.Min.Y+(body-diameter)/2) + diameter // twice the button centerline
+	if got := ink.Min.Y + ink.Max.Y; got < mid-2 || got > mid+2 {
+		t.Errorf("title ink rows %d..%d, want centered on the buttons at %.1f", ink.Min.Y, ink.Max.Y, float64(mid)/2)
+	}
+	grid, ok := inkBounds(img, f.cellBounds(0, 0), sample(img, f.cellBounds(1, 1)))
+	if !ok {
+		t.Fatal("grid H drew nothing")
+	}
+	if ink.Dy() >= grid.Dy() {
+		t.Errorf("title cap height %d, want smaller than the grid's %d", ink.Dy(), grid.Dy())
+	}
+}
+
+func TestPlainText(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ in, want string }{
+		{"", ""},
+		{"plain title", "plain title"},
+		{"漢字 ✔ ok", "漢字 ✔ ok"},
+		{"\u202egnp.exe\u202c", "gnp.exe"},                         // RLO, PDF
+		{"a\u202ab\u202bc\u202dd", "abcd"},                         // LRE, RLE, LRO
+		{"\u2066invoice\u2069\u2067x\u2068y", "invoicexy"},         // isolates
+		{"zero\u200bwidth\u200c\u200d\u200e\u200f!", "zerowidth!"}, // ZWSP, ZWNJ, ZWJ, LRM, RLM
+		{"word\u2060joiner\u2061\u2062\u2063\u2064", "wordjoiner"}, // word joiner, invisible operators
+		{"\ufeffbom\u00adsoft\u061calm\u180e", "bomsoftalm"},       // BOM, soft hyphen, ALM, MVS
+		{"tag\U000e0041\U000e007f", "tag"},                         // tag characters
+		{"cgj\u034fhf\u115f\u1160\u3164\uffa0", "cgjhf"},           // CGJ, Hangul fillers
+		{"kv\u17b4\u17b5x\u2065y\ufff0z\U000e0fff", "kvxyz"},       // Khmer vowels, reserved ignorables
+		{"a\x00b\x07c\x1bd\x7fe\u0085f\u009bg", "a b c d e f g"},   // C0, DEL, C1
+		{"\x1b[31mred\x1b[0m", "[31mred [0m"},                      // escapes are not interpreted
+		{"line\nbreak\r\nand\ttab\u2028sep\u2029para", "line break and tab sep para"},
+		{"  lead  and   trail  ", "lead and trail"},
+		{"trail ", "trail"},
+		{"\u00a0nbsp\u3000ideographic\u2003em", "nbsp ideographic em"},
+		{"a \u200b b", "a b"},
+		{"a\u200b b", "a b"},
+		{"bad\xffutf8\xc3", "badutf8"},
+		{"non\ufffechar\U0001ffff\ufdd0", "nonchar"},
+		{"<b>markup</b> &amp;", "<b>markup</b> &amp;"},
+		{"\u202e\u200b\x00 \t", ""},
+		{strings.Repeat("ab ", chromeTextMax), strings.TrimSpace(strings.Repeat("ab ", chromeTextMax)[:chromeTextMax])},
+		{strings.Repeat("\u200b", 2*chromeTextMax) + "x", ""},
+	} {
+		got := plainText(tc.in)
+		if got != tc.want {
+			t.Errorf("plainText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		for _, r := range got {
+			if unicode.Is(unicode.Cf, r) || unicode.IsControl(r) || (r != ' ' && unicode.IsSpace(r)) {
+				t.Errorf("plainText(%q) kept %U", tc.in, r)
+			}
+		}
+		if strings.Contains(got, "  ") || strings.TrimSpace(got) != got {
+			t.Errorf("plainText(%q) = %q has stray spaces", tc.in, got)
+		}
+		if got == tc.in && got != "" && unsafe.StringData(got) != unsafe.StringData(tc.in) {
+			t.Errorf("plainText(%q) copied text it returns as is", tc.in)
+		}
+	}
+}
+
+// TestWindowChromeTitlePlain checks that the window title, which is as
+// untrusted as program status text, draws like its visible text.
+func TestWindowChromeTitlePlain(t *testing.T) {
+	t.Parallel()
+
+	scr := newTestScreen(30, 2)
+	d := newRenderer(t, WithWindowChrome(true))
+	draw := func(title string) []byte {
+		d.UpdateEmulatorState(&EmulatorState{Title: title})
+		return drawIntoNRGBA(d, scr).Pix
+	}
+	if !bytes.Equal(draw("Run \u202egnp.exe\u202c\x1b[0m now"), draw("Run gnp.exe [0m now")) {
+		t.Fatal("a hostile window title draws differently from its visible text")
 	}
 }

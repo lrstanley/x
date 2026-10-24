@@ -12,6 +12,24 @@ type (
 	EmulatorState = types.EmulatorState
 	Progress      = types.Progress
 	ProgressState = types.ProgressState
+	ProgramStatus = types.ProgramStatus
+	ProgramState  = types.ProgramState
+	ProgramKind   = types.ProgramKind
+)
+
+// Program states and kinds reported by OSC 7501. See [types.ProgramState]
+// and [types.ProgramKind].
+const (
+	ProgramIdle    = types.ProgramIdle
+	ProgramWorking = types.ProgramWorking
+	ProgramDone    = types.ProgramDone
+	ProgramBlocked = types.ProgramBlocked
+	ProgramError   = types.ProgramError
+
+	ProgramKindNone       = types.ProgramKindNone
+	ProgramKindPermission = types.ProgramKindPermission
+	ProgramKindQuestion   = types.ProgramKindQuestion
+	ProgramKindAuth       = types.ProgramKindAuth
 )
 
 // Progress states reported by OSC 9;4. See [types.ProgressState].
