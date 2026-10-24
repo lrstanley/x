@@ -617,3 +617,57 @@ func TestProgramStatusBlockedReusesFrame(t *testing.T) {
 		t.Fatal("a new breath step did not repaint the outline")
 	}
 }
+
+// TestIndicatorsChange checks that the indicators report a change between two
+// times exactly when a draw at each could differ: always while they animate,
+// on a new breath step for a blocked status, and never when they hold still.
+// Where they report none, full draws at both times are the same.
+func TestIndicatorsChange(t *testing.T) {
+	t.Parallel()
+
+	start := time.Unix(1000, 0)
+	same := start.Add(time.Millisecond)
+	for breathStep(same) != breathStep(start) {
+		start = start.Add(10 * time.Millisecond)
+		same = start.Add(time.Millisecond)
+	}
+	next := same
+	for breathStep(next) == breathStep(start) {
+		next = next.Add(10 * time.Millisecond)
+	}
+
+	scr := screen.NewBuffer(20, 3)
+	for _, tc := range []struct {
+		name       string
+		state      EmulatorState
+		same, next bool
+	}{
+		{"blocked", EmulatorState{ProgramStatuses: []ProgramStatus{{State: ProgramBlocked, Title: "ask", Progress: -1}}}, false, true},
+		{"working", EmulatorState{ProgramStatuses: []ProgramStatus{{State: ProgramWorking, Title: "w", Progress: -1}}}, true, true},
+		{"working 50%", EmulatorState{ProgramStatuses: []ProgramStatus{{State: ProgramWorking, Title: "p", Progress: 50}}}, false, false},
+		{"done", EmulatorState{ProgramStatuses: []ProgramStatus{{State: ProgramDone, Title: "d", Progress: -1}}}, false, false},
+		{"indeterminate progress", EmulatorState{Progress: Progress{State: ProgressIndeterminate, Percent: -1}}, true, true},
+		{"nothing", EmulatorState{}, false, false},
+	} {
+		at := start
+		d := statusRenderer(t, &at)
+		tc.state.Focused = true
+		d.UpdateEmulatorState(&tc.state)
+		if got := d.IndicatorsChange(start, same); got != tc.same {
+			t.Errorf("%s: IndicatorsChange within a breath step = %v, want %v", tc.name, got, tc.same)
+		}
+		if got := d.IndicatorsChange(start, next); got != tc.next {
+			t.Errorf("%s: IndicatorsChange across breath steps = %v, want %v", tc.name, got, tc.next)
+		}
+		first := bytes.Clone(drawIntoNRGBA(d, scr).Pix)
+		for _, to := range []struct {
+			at      time.Time
+			changes bool
+		}{{same, tc.same}, {next, tc.next}} {
+			at = to.at
+			if !to.changes && !bytes.Equal(first, drawIntoNRGBA(d, scr).Pix) {
+				t.Errorf("%s: drew differently at %v with no change reported", tc.name, to.at.Sub(start))
+			}
+		}
+	}
+}

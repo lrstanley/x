@@ -312,8 +312,8 @@ func (m *exportManager) flushCommits() {
 				continue
 			}
 			src := frameSource{cols: frame.screen.Width(), rows: frame.screen.Height(), state: frame.state}
-			img, redraw := copyCommitted(m.h, frame.screen, frame.state, frame.at)
-			src.redraw = redraw
+			var img image.Image
+			img, src.held = copyCommitted(m.h, frame.screen, frame.state, frame.at)
 			m.sendFrame(src, img, frame.at)
 		}
 	}
@@ -334,7 +334,7 @@ func (m *exportManager) captureGIF(event HookEvent) error {
 	src.cols, src.rows = m.h.Dimensions()
 	img := m.h.copyImage()
 	m.h.imageMu.Lock()
-	src.redraw = redrawLocked(m.h, m.h.imageScreen)
+	src.held = heldIndicatorsLocked(m.h, m.h.imageScreen)
 	m.h.imageMu.Unlock()
 	m.sendFrame(src, img, time.Now())
 	return nil

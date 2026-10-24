@@ -177,35 +177,52 @@ func syncViewport(h *Harness, st vt.Snapshot) {
 }
 
 // copyCommitted renders scr as it looked at st, as of time at, and returns an
-// owned image, with a func that repaints its indicators (the progress bar and
-// program status) in a copy of the image as of a later time when they move
-// with the clock (nil otherwise). The harness image cache is invalidated so
-// the next live draw does not reuse metadata from this historical frame. Call
-// it from the test goroutine.
-func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot, at time.Time) (img image.Image, redraw func(*image.NRGBA, time.Time)) {
+// owned image, with what keeps its indicators (the progress bar and program
+// status) moving in copies of the image as of later times when they move with
+// the clock (nil otherwise). The harness image cache is invalidated so the
+// next live draw does not reuse metadata from this historical frame. Call it
+// from the test goroutine.
+func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot, at time.Time) (img image.Image, held *heldIndicators) {
 	if scr == nil {
 		return nil, nil
 	}
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
 	img = copyDrawnLocked(h, scr, viewportState(h, h.imageState, st), at)
-	return img, redrawLocked(h, scr)
+	return img, heldIndicatorsLocked(h, scr)
 }
 
-// redrawLocked returns a func that repaints the indicators of dst, a copy of
-// the image just drawn for scr, with the state the renderer drew it with, as
-// of a later time. It is nil unless they move with the clock. h.imageMu must
-// be held.
-func redrawLocked(h *Harness, scr *screen.Buffer) func(*image.NRGBA, time.Time) {
+// heldIndicators keeps the indicators of a held frame moving: the image just
+// drawn for scr, with the state the renderer drew it with.
+type heldIndicators struct {
+	h     *Harness
+	scr   *screen.Buffer
+	state still.EmulatorState
+}
+
+// heldIndicatorsLocked returns the [heldIndicators] of the image just drawn
+// for scr. It is nil unless they move with the clock. h.imageMu must be held.
+func heldIndicatorsLocked(h *Harness, scr *screen.Buffer) *heldIndicators {
 	if scr == nil || !h.imageRenderer.IndicatorsAnimate() {
 		return nil
 	}
-	state := *h.imageRenderer.GetEmulatorState()
-	return func(dst *image.NRGBA, at time.Time) {
-		h.imageMu.Lock()
-		defer h.imageMu.Unlock()
-		drawStateLocked(h, state, at, func() { h.imageRenderer.RepaintIndicators(dst, scr) })
-	}
+	return &heldIndicators{h: h, scr: scr, state: *h.imageRenderer.GetEmulatorState()}
+}
+
+// change reports whether the indicators may look different at to than at
+// from, see [still.Renderer.IndicatorsChange].
+func (r *heldIndicators) change(from, to time.Time) (changed bool) {
+	r.h.imageMu.Lock()
+	defer r.h.imageMu.Unlock()
+	drawStateLocked(r.h, r.state, time.Time{}, func() { changed = r.h.imageRenderer.IndicatorsChange(from, to) })
+	return changed
+}
+
+// repaint repaints the indicators of dst, a copy of the image, as of at.
+func (r *heldIndicators) repaint(dst *image.NRGBA, at time.Time) {
+	r.h.imageMu.Lock()
+	defer r.h.imageMu.Unlock()
+	drawStateLocked(r.h, r.state, at, func() { r.h.imageRenderer.RepaintIndicators(dst, r.scr) })
 }
 
 // copyDrawnLocked renders scr with state, as of time at (zero for now), and

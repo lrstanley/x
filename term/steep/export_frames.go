@@ -38,10 +38,10 @@ type ExportFrame struct {
 type frameSource struct {
 	cols, rows int
 	state      vt.Snapshot
-	// redraw repaints the indicators (the progress bar and program status)
-	// of dst, a copy of the frame's image, as of a later time. It is nil
-	// unless they move with the clock.
-	redraw func(dst *image.NRGBA, at time.Time)
+	// held keeps the frame's indicators (the progress bar and program
+	// status) moving while it is held. It is nil unless they move with the
+	// clock.
+	held *heldIndicators
 }
 
 // ExportContext tells an [ExportMutator] where a frame sits in the recording.
@@ -121,8 +121,7 @@ type mutatorStage struct {
 // sweepStep is the shortest time between the frames export draws to keep an
 // animated progress bar or program status moving while the screen holds
 // still. 20 fps keeps them smooth without adding many frames, whatever
-// [WithExportFPS] is. Frames that come out the same, as a blocked status
-// does between its breathing steps, merge in the GIF.
+// [WithExportFPS] is.
 const sweepStep = 50 * time.Millisecond
 
 // record makes img, painted at at, the newest frame, and sends the previous
@@ -148,33 +147,43 @@ func (p *exportPipeline) release(until time.Time) {
 	if step > 0 {
 		step = sweepStep + (step-sweepStep%step)%step
 	}
-	if f.src.redraw == nil || !ok || step <= 0 || f.Delay < 2*step {
+	if f.src.held == nil || !ok || step <= 0 || f.Delay < 2*step {
 		p.push(0, f)
 		return
 	}
 	// The indicators move with the clock, so holding one image would freeze
 	// them. Play the hold as frames sweepStep apart instead, rounded up to a
 	// multiple of the step grid, each a copy of the frame with the indicators
-	// repainted as of the real time it stands for. The last frame takes the
-	// remainder. The encoder may recycle f.Image once it is pushed, so the
-	// copies come from a clone.
+	// repainted as of the real time it stands for. A step that would look like
+	// the one before, as a blocked status does between its breathing steps,
+	// extends it instead of being drawn. The last frame takes the remainder.
+	// The encoder may recycle f.Image once it is pushed, so the copies come
+	// from a clone.
 	base = cloneNRGBA(base)
 	start, left := f.At, f.Delay
+	var shown sourcedFrame
 	for k := 0; left > 0; k++ {
+		cur := f
+		cur.At = start.Add(time.Duration(float64(k) * float64(step) * p.speed))
+		cur.Delay = step
+		if left < 2*step {
+			cur.Delay = left
+		}
+		left -= cur.Delay
+		if k > 0 && !f.src.held.change(shown.At, cur.At) {
+			shown.Delay += cur.Delay
+			continue
+		}
 		if k > 0 {
-			f.At = start.Add(time.Duration(float64(k) * float64(step) * p.speed))
 			next := newNRGBA(base.Rect)
 			copy(next.Pix, base.Pix)
-			f.src.redraw(next, f.At)
-			f.Image = next
+			f.src.held.repaint(next, cur.At)
+			cur.Image = next
 		}
-		f.Delay = step
-		if left < 2*step {
-			f.Delay = left
-		}
-		left -= f.Delay
-		p.push(0, f)
+		p.push(0, shown)
+		shown = cur
 	}
+	p.push(0, shown)
 }
 
 // push hands f to stage i, or to the encoder past the last stage. The encoder

@@ -97,6 +97,19 @@ func (d *Renderer) RepaintIndicators(dst *image.NRGBA, scr screen.Screen) {
 	d.renderBands(dst, scr, f, bands[:]...)
 }
 
+// IndicatorsChange reports whether the indicators drawn for the current
+// [EmulatorState] may look different at to than at from. It is always true
+// while they animate, and for a blocked program status only when its
+// breathing step differs, so a recorder that holds a frame can keep the image
+// it repainted at from instead of calling [Renderer.RepaintIndicators] again.
+// It is false for indicators that do not move with the clock.
+func (d *Renderer) IndicatorsChange(from, to time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	was := d.shownIndicators(d.emulatorState, from)
+	return was.animates() || was != d.shownIndicators(d.emulatorState, to)
+}
+
 // indicators are what the OSC 9;4 progress bar and the OSC 7501 program
 // status draw. The value is comparable, so the frame cache can tell when they
 // change.

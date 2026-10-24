@@ -505,7 +505,8 @@ func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 // TestExportAnimatesIndicators checks that a frame held on screen with an
 // animated progress bar or program status plays as redrawn frames sweepStep
 // apart, even on a finer step grid, so they move in the GIF, while a still
-// one stays one frame.
+// one stays one frame. A step that would look like the one before extends it,
+// so a blocked status plays one frame per breathing step.
 func TestExportAnimatesIndicators(t *testing.T) {
 	t.Parallel()
 
@@ -522,7 +523,7 @@ func TestExportAnimatesIndicators(t *testing.T) {
 		{progress, "\x1b]9;4;2\x07", 20},
 		{progress, "\x1b]9;4;1;50\x07", 1},
 		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateWorking, Title: "build"}), 20},
-		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateBlocked, Kind: ansi.ProgramStatusKindQuestion, Title: "which?"}), 20},
+		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateBlocked, Kind: ansi.ProgramStatusKindQuestion, Title: "which?"}), 7},
 		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateWorking, Progress: 40, HasProgress: true, Title: "build"}), 1},
 		{status, set(ansi.ProgramStatus{State: ansi.ProgramStateDone, Title: "done"}), 1},
 	} {
@@ -531,8 +532,9 @@ func TestExportAnimatesIndicators(t *testing.T) {
 }
 
 // assertHeldFrames writes seq to h and holds the frame for a little over a
-// second, and checks that it plays as frames frames, each the pixels of a
-// full redraw at its time, that move when there is more than one.
+// second, and checks that it plays as frames frames, that every step of the
+// hold shows the pixels of a full redraw at its time, and that they move when
+// there is more than one frame.
 func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
 	t.Helper()
 	writeVT(t, h, seq)
@@ -541,29 +543,30 @@ func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
 	ch := make(chan export.Frame, 64)
 	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: ch}
 	at := time.Unix(1000, 0)
-	img, redraw := copyCommitted(h, scr, st, at)
-	if (redraw != nil) != (frames > 1) {
-		t.Fatalf("%q: redraw set = %v, want %v", seq, redraw != nil, frames > 1)
+	img, held := copyCommitted(h, scr, st, at)
+	if (held != nil) != (frames > 1) {
+		t.Fatalf("%q: held indicators set = %v, want %v", seq, held != nil, frames > 1)
 	}
-	if redraw != nil {
-		// A redraw paints the frame as it was captured, not the harness now.
+	if held != nil {
+		// A repaint paints the frame as it was captured, not the harness now.
 		later := at.Add(100 * time.Millisecond)
 		want := cloneNRGBA(img)
-		redraw(want, later)
+		held.repaint(want, later)
 		got := cloneNRGBA(img)
 		h.Blur()
-		redraw(got, later)
+		held.repaint(got, later)
 		h.Focus()
 		if !bytes.Equal(want.Pix, got.Pix) {
-			t.Fatalf("%q: redraw changed with the harness focus", seq)
+			t.Fatalf("%q: repaint changed with the harness focus", seq)
 		}
 	}
-	p.record(img, at, frameSource{state: st, redraw: redraw})
+	p.record(img, at, frameSource{state: st, held: held})
 	p.finish(at.Add(time.Second+20*time.Millisecond), false)
 	close(ch)
 
 	var total time.Duration
 	var got []*image.NRGBA
+	var ends []time.Duration
 	for f := range ch {
 		img, ok := f.Image.(*image.NRGBA)
 		if !ok {
@@ -571,19 +574,24 @@ func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
 		}
 		total += f.Delay
 		got = append(got, img)
+		ends = append(ends, total)
 	}
 	if len(got) != frames || total != time.Second+20*time.Millisecond {
 		t.Fatalf("%q: %d frames over %v, want %d over 1.02s", seq, len(got), total, frames)
 	}
-	// Repainting the indicators must give the pixels of drawing everything
-	// again as of that frame's time, sweepStep apart.
+	// Every sweepStep of the hold must show the pixels of drawing everything
+	// again as of that time, whether it got a frame of its own or extends the
+	// one before.
 	moved := false
-	for k, img := range got {
-		full, _ := copyCommitted(h, scr, st, at.Add(time.Duration(k)*sweepStep))
-		if want, ok := full.(*image.NRGBA); !ok || !bytes.Equal(img.Pix, want.Pix) {
-			t.Fatalf("%q: frame %d differs from a full redraw at its time", seq, k)
+	for k, step := 0, time.Duration(0); step < time.Second; step += sweepStep {
+		for ends[k] <= step {
+			k++
 		}
-		moved = moved || !bytes.Equal(img.Pix, got[0].Pix)
+		full, _ := copyCommitted(h, scr, st, at.Add(step))
+		if want, ok := full.(*image.NRGBA); !ok || !bytes.Equal(got[k].Pix, want.Pix) {
+			t.Fatalf("%q: frame %d differs from a full redraw at %v", seq, k, step)
+		}
+		moved = moved || !bytes.Equal(got[k].Pix, got[0].Pix)
 	}
 	if frames > 1 && !moved {
 		t.Fatalf("%q: the redrawn frames do not move", seq)
