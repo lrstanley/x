@@ -10,6 +10,7 @@ import (
 
 	"github.com/lrstanley/x/term/still/fonts"
 	"github.com/lrstanley/x/term/still/internal/config"
+	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/vt/screen"
 	xfont "golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -47,7 +48,12 @@ func recordingFallback(font *opentype.Font) (fallback func(rune) (*opentype.Font
 }
 
 func faceFor(fs *Set, content string, attrs screen.Attr) xfont.Face {
-	return fs.FaceForCell(&screen.Cell{Content: content, Style: screen.Style{Attrs: attrs}})
+	return faceForCell(fs, &screen.Cell{Content: content, Style: screen.Style{Attrs: attrs}})
+}
+
+func faceForCell(fs *Set, cell *screen.Cell) xfont.Face {
+	cluster, _ := idraw.NewCluster(cell.Content)
+	return fs.FaceForCell(cell, cluster)
 }
 
 func TestResolvePrimaryBeforeEmptySymbolRange(t *testing.T) {
@@ -148,11 +154,8 @@ func TestResolveReplacementCharacter(t *testing.T) {
 	if got := faceFor(fs, "\ufffd", 0); got != fs.Regular() {
 		t.Fatalf("U+FFFD: face = %p, want primary regular %p", got, fs.Regular())
 	}
-	if got := cellGlyphRune(&screen.Cell{Content: "\ufffd"}); got != '\ufffd' {
-		t.Fatalf("cellGlyphRune(U+FFFD) = %q, want U+FFFD", got)
-	}
-	if got := cellGlyphRune(&screen.Cell{Content: "\xff"}); got != ' ' {
-		t.Fatalf("cellGlyphRune(invalid UTF-8) = %q, want space", got)
+	if c, ok := idraw.NewCluster("\ufffd"); !ok || c.Base != '\ufffd' {
+		t.Fatalf("NewCluster(U+FFFD) = %+v, %v, want base U+FFFD", c, ok)
 	}
 }
 
@@ -185,12 +188,12 @@ func BenchmarkFaceForCell(b *testing.B) {
 		)
 	}
 	for _, c := range cells {
-		fs.FaceForCell(c)
+		faceForCell(fs, c)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; b.Loop(); i++ {
-		fs.FaceForCell(cells[i%len(cells)])
+		faceForCell(fs, cells[i%len(cells)])
 	}
 }

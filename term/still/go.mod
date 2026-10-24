@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/lrstanley/x/term/vt v0.0.0
 	golang.org/x/image v0.47.0
+	golang.org/x/text v0.43.0
 )
 
 replace github.com/lrstanley/x/term/vt => ../vt
@@ -16,5 +17,4 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.31 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
 )

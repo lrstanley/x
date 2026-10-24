@@ -68,6 +68,10 @@ type Set struct {
 type resolveKey struct {
 	style fontStyle
 	r     rune
+
+	// marks holds the combining marks drawn over r, so a face is picked for the
+	// whole cluster. It is empty for single rune cells.
+	marks string
 }
 
 type syntheticFaceKey struct {
@@ -135,7 +139,7 @@ func build(opts config.Options, system func(rune) (*opentype.Font, bool)) (*Set,
 
 	for style := range fs.ascii {
 		for r := rune(' '); r < 0x7f; r++ {
-			fs.ascii[style][r] = fs.resolveChain(fontStyle(style), r)
+			fs.ascii[style][r] = fs.resolveChain(fontStyle(style), r, "")
 		}
 	}
 	return fs, nil
@@ -204,25 +208,27 @@ func (fs *Set) Close() error {
 	return err
 }
 
-// FaceForCell combines cell attributes and grapheme routing for glyphs.
-func (fs *Set) FaceForCell(cell *screen.Cell) xfont.Face {
+// FaceForCell returns the face that draws cluster, the cluster of cell, in the
+// style of cell.
+func (fs *Set) FaceForCell(cell *screen.Cell, cluster idraw.Cluster) xfont.Face {
 	if fs == nil {
 		return nil
 	}
-	return fs.faceForGlyph(cellStyle(cell), cellGlyphRune(cell))
+	return fs.faceForGlyph(cellStyle(cell), cluster.Base, cluster.Marks)
 }
 
-func (fs *Set) faceForGlyph(style fontStyle, r rune) xfont.Face {
+// faceForGlyph returns the face that draws r with the combining marks over it.
+func (fs *Set) faceForGlyph(style fontStyle, r rune, marks string) xfont.Face {
 	if fs == nil {
 		return nil
 	}
-	if r >= 0 && r < 0x7f {
+	if marks == "" && r >= 0 && r < 0x7f {
 		if face := fs.ascii[style][r]; face != nil {
 			return face
 		}
 	}
 
-	key := resolveKey{style: style, r: r}
+	key := resolveKey{style: style, r: r, marks: marks}
 	fs.mu.RLock()
 	face, ok := fs.resolved[key]
 	fs.mu.RUnlock()
@@ -232,7 +238,7 @@ func (fs *Set) faceForGlyph(style fontStyle, r rune) xfont.Face {
 
 	// Resolve without holding the lock: the first system fallback reads every
 	// installed font. Concurrent misses for the same rune resolve the same face.
-	face = fs.resolve(style, r)
+	face = fs.resolve(style, r, marks)
 	fs.mu.Lock()
 	fs.resolved[key] = face
 	fs.mu.Unlock()
@@ -270,14 +276,4 @@ func cellStyle(cell *screen.Cell) fontStyle {
 	default:
 		return fontStyleRegular
 	}
-}
-
-func cellGlyphRune(cell *screen.Cell) rune {
-	if cell == nil {
-		return ' '
-	}
-	if r, ok := idraw.FirstRune(cell.Content); ok {
-		return r
-	}
-	return ' '
 }

@@ -11,6 +11,7 @@ import (
 
 	icol "github.com/lrstanley/x/term/still/internal/color"
 	"github.com/lrstanley/x/term/still/internal/config"
+	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/internal/pool"
 	"github.com/lrstanley/x/term/still/types"
 	"github.com/lrstanley/x/term/still/units"
@@ -233,11 +234,11 @@ func (f *renderFrame) ScrollbarBounds() image.Rectangle { return f.scrollbarBoun
 
 func (f *renderFrame) BoxThicknessOverride() bool { return f.boxThicknessOverride }
 
-func (f *renderFrame) FontFace(cell *screen.Cell) font.Face {
+func (f *renderFrame) FontFace(cell *screen.Cell, cluster idraw.Cluster) font.Face {
 	if f.r.fonts == nil {
 		return nil
 	}
-	return f.r.fonts.FaceForCell(cell)
+	return f.r.fonts.FaceForCell(cell, cluster)
 }
 
 func (f *renderFrame) UsesGridLayout(face font.Face) bool {
@@ -248,13 +249,6 @@ func (f *renderFrame) UsesGridLayout(face font.Face) bool {
 }
 
 func (f *renderFrame) CursorCell() *screen.Cell { return f.cursorCell }
-
-func (f *renderFrame) Glyph(cell *screen.Cell) string {
-	if cell == nil || cell.Content == "" {
-		return " "
-	}
-	return cell.Content
-}
 
 func (f *renderFrame) CellColorsNRGBA(cell *screen.Cell) (fg, bg color.NRGBA) {
 	return icol.ResolveCellColorsNRGBA(f, cell)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/lrstanley/x/term/still/fonts"
 	"github.com/lrstanley/x/term/still/internal/config"
+	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/internal/fontset"
 	"github.com/lrstanley/x/term/vt/screen"
 )
@@ -43,7 +44,7 @@ func TestNilSetSafe(t *testing.T) {
 	if fs.Regular() != nil || fs.Bold() != nil || fs.Italic() != nil || fs.BoldItalic() != nil {
 		t.Fatal("nil set accessors should return nil faces")
 	}
-	if fs.FaceForCell(&screen.Cell{Content: "A"}) != nil {
+	if fs.FaceForCell(&screen.Cell{Content: "A"}, idraw.Cluster{Text: "A", Base: 'A'}) != nil {
 		t.Fatal("nil set FaceForCell should return nil")
 	}
 	if fs.UsesGridLayout(nil) {

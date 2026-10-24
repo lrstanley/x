@@ -145,12 +145,12 @@ func TestCodepointMapDefaultsNilEmptyAndOverride(t *testing.T) {
 	symbolFamily := mustDefaultSymbolFamily(t)
 
 	disabled := MustNew(WithCodepointMap(nil))
-	if got := disabled.fonts.FaceForCell(powerline); got != disabled.fonts.Regular() {
+	if got := faceForCell(disabled.fonts, powerline); got != disabled.fonts.Regular() {
 		t.Fatalf("nil codepoint map face = %p, want regular %p", got, disabled.fonts.Regular())
 	}
 
 	defaulted := MustNew(WithCodepointMap(map[string]fonts.FontFamily{}))
-	defaultedRegular := defaulted.fonts.FaceForCell(powerline)
+	defaultedRegular := faceForCell(defaulted.fonts, powerline)
 	if defaultedRegular == defaulted.fonts.Regular() {
 		t.Fatalf("empty codepoint map resolved to primary regular face, want default symbol face")
 	}
@@ -159,7 +159,7 @@ func TestCodepointMapDefaultsNilEmptyAndOverride(t *testing.T) {
 		"italic":      {Attrs: screen.AttrItalic},
 		"bold italic": {Attrs: screen.AttrBold | screen.AttrItalic},
 	} {
-		got := defaulted.fonts.FaceForCell(&screen.Cell{Content: "\ue0b0", Style: style})
+		got := faceForCell(defaulted.fonts, &screen.Cell{Content: "\ue0b0", Style: style})
 		if got == defaultedRegular {
 			t.Fatalf("default symbol %s face = regular symbol face %p, want synthetic", name, defaultedRegular)
 		}
@@ -169,18 +169,18 @@ func TestCodepointMapDefaultsNilEmptyAndOverride(t *testing.T) {
 	overridden := MustNew(WithCodepointMap(map[string]fonts.FontFamily{
 		"U+E000-U+E0FF": defaultFamily,
 	}))
-	if got := overridden.fonts.FaceForCell(powerline); got != overridden.fonts.Regular() {
+	if got := faceForCell(overridden.fonts, powerline); got != overridden.fonts.Regular() {
 		t.Fatalf("user override face = %p, want regular %p", got, overridden.fonts.Regular())
 	}
-	if got := overridden.fonts.FaceForCell(&screen.Cell{Content: "\ue0b0", Style: screen.Style{Attrs: screen.AttrBold}}); got != overridden.fonts.Bold() {
+	if got := faceForCell(overridden.fonts, &screen.Cell{Content: "\ue0b0", Style: screen.Style{Attrs: screen.AttrBold}}); got != overridden.fonts.Bold() {
 		t.Fatalf("user override bold face = %p, want primary bold %p", got, overridden.fonts.Bold())
 	}
 
 	regularOnly := MustNew(WithCodepointMap(map[string]fonts.FontFamily{
 		"U+E000-U+E0FF": {Regular: symbolFamily.Regular},
 	}))
-	regularOnlyFace := regularOnly.fonts.FaceForCell(powerline)
-	regularOnlyItalic := regularOnly.fonts.FaceForCell(&screen.Cell{Content: "\ue0b0", Style: screen.Style{Attrs: screen.AttrItalic}})
+	regularOnlyFace := faceForCell(regularOnly.fonts, powerline)
+	regularOnlyItalic := faceForCell(regularOnly.fonts, &screen.Cell{Content: "\ue0b0", Style: screen.Style{Attrs: screen.AttrItalic}})
 	if regularOnlyItalic == regularOnlyFace {
 		t.Fatalf("regular-only codepoint italic face = regular face %p, want synthetic", regularOnlyFace)
 	}
@@ -189,8 +189,8 @@ func TestCodepointMapDefaultsNilEmptyAndOverride(t *testing.T) {
 	syntheticDisabled := MustNew(WithCodepointMap(map[string]fonts.FontFamily{
 		"U+E000-U+E0FF": {Regular: symbolFamily.Regular, DisableSynthetic: true},
 	}))
-	disabledFace := syntheticDisabled.fonts.FaceForCell(powerline)
-	if got := syntheticDisabled.fonts.FaceForCell(&screen.Cell{Content: "\ue0b0", Style: screen.Style{Attrs: screen.AttrItalic}}); got != disabledFace {
+	disabledFace := faceForCell(syntheticDisabled.fonts, powerline)
+	if got := faceForCell(syntheticDisabled.fonts, &screen.Cell{Content: "\ue0b0", Style: screen.Style{Attrs: screen.AttrItalic}}); got != disabledFace {
 		t.Fatalf("synthetic-disabled codepoint italic face = %p, want regular face %p", got, disabledFace)
 	}
 }
@@ -200,7 +200,7 @@ func TestDefaultCodepointMapKeepsBoxDrawingOnRegularFace(t *testing.T) {
 
 	d := MustNew()
 	for _, glyph := range []string{"┌", "─", "┐", "│", "└", "┘", "█"} {
-		if got := d.fonts.FaceForCell(&screen.Cell{Content: glyph}); got != d.fonts.Regular() {
+		if got := faceForCell(d.fonts, &screen.Cell{Content: glyph}); got != d.fonts.Regular() {
 			t.Fatalf("glyph %q face = %p, want regular %p", glyph, got, d.fonts.Regular())
 		}
 		for _, r := range glyph {
@@ -218,13 +218,13 @@ func TestStyleFaceSelectionDefaultsFallbackAndError(t *testing.T) {
 	t.Parallel()
 
 	defaults := MustNew()
-	if got := defaults.fonts.FaceForCell(&screen.Cell{Style: screen.Style{Attrs: screen.AttrBold}}); got == defaults.fonts.Regular() {
+	if got := faceForCell(defaults.fonts, &screen.Cell{Style: screen.Style{Attrs: screen.AttrBold}}); got == defaults.fonts.Regular() {
 		t.Fatalf("default bold face resolved to regular")
 	}
-	if got := defaults.fonts.FaceForCell(&screen.Cell{Style: screen.Style{Attrs: screen.AttrItalic}}); got == defaults.fonts.Regular() {
+	if got := faceForCell(defaults.fonts, &screen.Cell{Style: screen.Style{Attrs: screen.AttrItalic}}); got == defaults.fonts.Regular() {
 		t.Fatalf("default italic face resolved to regular")
 	}
-	if got := defaults.fonts.FaceForCell(&screen.Cell{Style: screen.Style{Attrs: screen.AttrBold | screen.AttrItalic}}); got == defaults.fonts.Regular() {
+	if got := faceForCell(defaults.fonts, &screen.Cell{Style: screen.Style{Attrs: screen.AttrBold | screen.AttrItalic}}); got == defaults.fonts.Regular() {
 		t.Fatalf("default bold italic face resolved to regular")
 	}
 

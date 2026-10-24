@@ -26,9 +26,9 @@ type boxGlyphMask struct {
 func layoutSpriteMask(ctx GlyphContext, layout *Layout) (boxGlyphMask, bool) {
 	switch {
 	case layout.Kind == KindSprite:
-		return buildSpriteGlyphMask(layout.Area, layout.Rune)
-	case layout.Kind == KindGrid && isBoxDrawingRune(layout.Rune):
-		return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, layout.Rune, ctx.Metrics())
+		return buildSpriteGlyphMask(layout.Area, layout.Cluster.Base)
+	case layout.Kind == KindGrid && isBoxDrawingRune(layout.Cluster.Base):
+		return buildBoxGlyphMask(layout.Face, layout.Dot, layout.Area, layout.Cluster.Base, ctx.Metrics())
 	}
 	return boxGlyphMask{}, false
 }

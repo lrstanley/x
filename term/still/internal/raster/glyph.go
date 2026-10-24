@@ -30,7 +30,8 @@ const (
 // cell area, which is the same for every cell of a size.
 type glyphMaskKey struct {
 	face  font.Face
-	glyph string
+	base  rune
+	marks string
 	size  image.Point
 
 	// target tells apart a glyph that may grow into the next cell.
@@ -61,14 +62,15 @@ func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
 		drawBoxGlyphMask(img, layout.Fg, mask)
 		return
 	}
-	if layout.Kind == KindGrid {
+	if layout.Kind == KindGrid && layout.Cluster.Marks == "" {
 		drawer := font.Drawer{
 			Dst:  img,
 			Src:  image.NewUniform(layout.Fg),
 			Face: layout.Face,
 			Dot:  layout.Dot,
 		}
-		drawer.DrawString(layout.Glyph)
+		// Only the base rune: selectors and joiners have no glyph to draw.
+		drawer.DrawString(string(layout.Cluster.Base))
 		return
 	}
 	if mask, ok := buildGlyphLayoutMask(layout); ok {
@@ -154,7 +156,8 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 	}
 	key := glyphMaskKey{
 		face:   layout.Face,
-		glyph:  layout.Glyph,
+		base:   layout.Cluster.Base,
+		marks:  layout.Cluster.Marks,
 		size:   layout.Area.Size(),
 		target: layout.Target.Size(),
 	}
@@ -199,8 +202,8 @@ func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 	case KindPowerline:
 		return scaledGlyphLayoutMask(layout, dot, layout.ScaleMode)
 	case KindFallback:
-		dot.Y += fixed.I(idraw.GlyphVerticalAdjust(layout.Face, dot, layout.Glyph, layout.Area))
-		if dr, ok := idraw.GlyphRasterBounds(layout.Face, dot, layout.Glyph); ok {
+		dot.Y += fixed.I(idraw.GlyphVerticalAdjust(layout.Face, dot, layout.Cluster.Text, layout.Area))
+		if dr, ok := idraw.GlyphRasterBounds(layout.Face, dot, layout.Cluster.Text); ok {
 			if idraw.FallbackGlyphNeedsScale(dr, layout.Target) {
 				return scaledGlyphLayoutMask(layout, dot, idraw.ScaleDefault)
 			}
@@ -208,7 +211,10 @@ func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 			dot = dot.Add(fixed.P(shift.X, shift.Y))
 		}
 	}
-	dr, mask, maskp, _, ok := layout.Face.Glyph(dot, layout.Rune)
+	if layout.Cluster.Marks != "" {
+		return markedGlyphMask(layout, dot)
+	}
+	dr, mask, maskp, _, ok := layout.Face.Glyph(dot, layout.Cluster.Base)
 	if !ok || dr.Empty() || mask == nil {
 		return cachedGlyphMask{}, false
 	}
@@ -218,8 +224,59 @@ func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 	}, true
 }
 
+// markedGlyphMask rasterizes the base rune of layout together with its
+// combining marks. Marks the face has no glyph for are skipped. A base without
+// ink (a space) still draws its marks.
+func markedGlyphMask(layout *Layout, dot fixed.Point26_6) (cachedGlyphMask, bool) {
+	// A face reuses its glyph mask between calls, so each part is copied before
+	// the next glyph is requested.
+	type part struct {
+		dr    image.Rectangle
+		alpha *image.Alpha
+	}
+	parts := make([]part, 0, 1+len(layout.Cluster.Marks))
+	var bounds image.Rectangle
+	add := func(dr image.Rectangle, mask image.Image, maskp image.Point) {
+		if dr.Empty() || mask == nil {
+			return
+		}
+		parts = append(parts, part{dr, alpha.RasterGlyph(dr, mask, maskp)})
+		bounds = bounds.Union(dr)
+	}
+
+	dr, mask, maskp, baseAdvance, ok := layout.Face.Glyph(dot, layout.Cluster.Base)
+	if ok {
+		add(dr, mask, maskp)
+	}
+	for _, m := range layout.Cluster.Marks {
+		advance, has := layout.Face.GlyphAdvance(m)
+		if !has {
+			continue
+		}
+		// A zero-width mark is positioned relative to the pen after its base,
+		// so its ink lies left of its own origin. A mark with an advance of
+		// its own is drawn over the base cell.
+		markDot := dot
+		if advance == 0 {
+			markDot.X += baseAdvance
+		}
+		if dr, mask, maskp, _, ok = layout.Face.Glyph(markDot, m); ok {
+			add(dr, mask, maskp)
+		}
+	}
+	if len(parts) == 0 {
+		return cachedGlyphMask{}, false
+	}
+	out := image.NewAlpha(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	for _, p := range parts {
+		draw.Draw(out, p.dr.Sub(bounds.Min), p.alpha, image.Point{}, draw.Over)
+		alpha.ReleaseGlyphAlpha(p.alpha)
+	}
+	return cachedGlyphMask{offset: bounds.Min.Sub(layout.Area.Min), alpha: out}, true
+}
+
 func scaledGlyphLayoutMask(layout *Layout, dot fixed.Point26_6, mode idraw.ScaleMode) (cachedGlyphMask, bool) {
-	dr, mask, ok := idraw.ScaledGlyphMask(layout.Target, layout.Face, layout.Glyph, dot, mode, layout.AlignEnd)
+	dr, mask, ok := idraw.ScaledGlyphMask(layout.Target, layout.Face, layout.Cluster.Text, dot, mode, layout.AlignEnd)
 	if !ok {
 		return cachedGlyphMask{}, false
 	}

@@ -23,9 +23,8 @@ import (
 // GlyphContext exposes glyph layout and rasterization inputs.
 type GlyphContext interface {
 	config.CellFrameSource
-	FontFace(cell *screen.Cell) font.Face
+	FontFace(cell *screen.Cell, cluster idraw.Cluster) font.Face
 	UsesGridLayout(face font.Face) bool
-	Glyph(cell *screen.Cell) string
 	BoxThicknessOverride() bool
 }
 
@@ -55,8 +54,7 @@ type Layout struct {
 	Area      image.Rectangle
 	Target    image.Rectangle // Band that Powerline and Nerd Font glyphs scale into.
 	SpansNext bool            // Target covers the next cell too: a one-cell icon with room to grow.
-	Glyph     string
-	Rune      rune // First rune of Glyph.
+	Cluster   idraw.Cluster   // Marks are drawn over the base by markedGlyphMask.
 	Fg        color.NRGBA
 	ScaleMode idraw.ScaleMode
 	AlignEnd  bool
@@ -81,27 +79,25 @@ func GridGlyphDotX(area image.Rectangle, metrics types.Metrics) fixed.Int26_6 {
 // spansNext lets a one-cell icon grow into the cell after it, as decided by
 // [IsSpanIcon] and [IconRoom]. Only fallback glyphs use the room.
 func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, spansNext bool, fg color.NRGBA, out *Layout) bool {
-	glyph := ctx.Glyph(cell)
-	r, ok := idraw.FirstRune(glyph)
+	cluster, ok := idraw.NewCluster(cell.Content)
 	if !ok {
 		return false
 	}
-	if IsSpriteRune(r) {
-		*out = Layout{Kind: KindSprite, Area: area, Glyph: glyph, Rune: r, Fg: fg}
+	if IsSpriteRune(cluster.Base) {
+		*out = Layout{Kind: KindSprite, Area: area, Cluster: cluster, Fg: fg}
 		return true
 	}
 
-	face := ctx.FontFace(cell)
+	face := ctx.FontFace(cell, cluster)
 	if face == nil {
 		return false
 	}
 
-	kind, scaleMode, alignEnd := classifyGlyph(ctx, face, glyph)
+	kind, scaleMode, alignEnd := classifyGlyph(ctx, face, cluster.Text)
 	*out = Layout{
 		Kind:      kind,
 		Face:      face,
-		Glyph:     glyph,
-		Rune:      r,
+		Cluster:   cluster,
 		Fg:        fg,
 		ScaleMode: scaleMode,
 		AlignEnd:  alignEnd,

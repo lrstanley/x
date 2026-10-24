@@ -86,7 +86,9 @@ type chromeText struct {
 
 func (c *chromeText) Metrics() types.Metrics { return c.metrics }
 
-func (c *chromeText) FontFace(cell *screen.Cell) xfont.Face { return c.fonts.FaceForCell(cell) }
+func (c *chromeText) FontFace(cell *screen.Cell, cluster idraw.Cluster) xfont.Face {
+	return c.fonts.FaceForCell(cell, cluster)
+}
 
 func (c *chromeText) UsesGridLayout(face xfont.Face) bool { return c.fonts.UsesGridLayout(face) }
 

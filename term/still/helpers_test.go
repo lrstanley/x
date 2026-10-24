@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	idraw "github.com/lrstanley/x/term/still/internal/draw"
+	"github.com/lrstanley/x/term/still/internal/fontset"
 	"github.com/lrstanley/x/term/vt/screen"
+	"golang.org/x/image/font"
 )
 
 // scaleFor returns the scale at which the font is size points at 96 DPI, so
@@ -146,4 +149,10 @@ func (s offsetScreen) SetCell(x, y int, cell *screen.Cell) {
 		s.cells = map[image.Point]*screen.Cell{}
 	}
 	s.cells[image.Pt(x, y)] = cell
+}
+
+// faceForCell resolves the face for cell's own content.
+func faceForCell(fs *fontset.Set, cell *screen.Cell) font.Face {
+	cluster, _ := idraw.NewCluster(cell.Content)
+	return fs.FaceForCell(cell, cluster)
 }
