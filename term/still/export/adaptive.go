@@ -30,6 +30,17 @@ const (
 	// solid colors only, so fills that first appear late stay exact after
 	// blends have used up the rest.
 	adaptiveSolidReserve = 16
+
+	// adaptiveFlatWidth is the width of a block of identical pixels, two rows
+	// tall, at which a color is also treated as solid, however few pixels it
+	// covers in all. Antialiasing blends come in rows or columns a pixel
+	// wide, so this picks out small flat shapes, such as window buttons,
+	// that adaptiveSolidCount misses.
+	adaptiveFlatWidth = 3
+
+	// adaptivePoorDist is the squared RGB distance past which a color mapped
+	// to the nearest entry counts as poorly matched (about 10 per channel).
+	adaptivePoorDist = 300
 )
 
 // adaptivePalette builds a palette from the colors a recording actually
@@ -48,34 +59,83 @@ type adaptivePalette struct {
 	// reserve keeps a share of free slots for colors that first appear in
 	// later frames. Single images should use every slot.
 	reserve bool
+	// rollover starts a fresh palette when a frame arrives with no room
+	// left for blends and maps poorly onto the entries there are (a theme
+	// change, a gradient sweeping through new hues). See [palettize].
+	rollover bool
 
 	// cache maps packed RGB to the palette index assigned to it. Spans only
 	// read it while a frame is being written.
 	cache map[uint32]uint8
-	hist  map[uint32]int
+	hist  map[uint32]colorUse
 	// spanMisses counts uncached colors per row span of the frame being
 	// written. Each span writes only its own entry.
-	spanMisses []map[uint32]int
+	spanMisses []map[uint32]colorUse
+}
+
+// colorUse is how a color not yet in the palette is used by a frame: how
+// many pixels it covers, and whether any of them form a flat block.
+type colorUse struct {
+	count int32
+	flat  bool
+}
+
+func (u colorUse) add(o colorUse) colorUse {
+	return colorUse{count: u.count + o.count, flat: u.flat || o.flat}
+}
+
+// solid reports whether the color is a fill or glyph body rather than an
+// antialiasing blend.
+func (u colorUse) solid() bool {
+	return u.count >= adaptiveSolidCount || u.flat
 }
 
 func newAdaptivePalette(reserve bool) *adaptivePalette {
-	pal := make(color.Palette, adaptiveSlots+1)
-	for i := range adaptiveSlots {
-		pal[i] = color.RGBA{A: 0xff}
-	}
-	pal[TransparentPaletteIndex] = transparentMarkerColor()
-	return &adaptivePalette{
-		pal:     pal,
+	p := &adaptivePalette{
 		reserve: reserve,
 		cache:   make(map[uint32]uint8),
-		hist:    make(map[uint32]int),
+		hist:    make(map[uint32]colorUse),
 	}
+	p.reset()
+	return p
+}
+
+// reset empties the palette into a new slice, leaving the old one to the
+// frames already mapped through it.
+func (p *adaptivePalette) reset() {
+	p.pal = make(color.Palette, adaptiveSlots+1)
+	for i := range adaptiveSlots {
+		p.pal[i] = color.RGBA{A: 0xff}
+	}
+	p.pal[TransparentPaletteIndex] = transparentMarkerColor()
+	p.n = 0
+	clear(p.cache)
+}
+
+// blendRoom is how many more blends the palette may add.
+func (p *adaptivePalette) blendRoom() int {
+	if p.reserve {
+		return adaptiveSlots - adaptiveSolidReserve - p.n
+	}
+	return adaptiveSlots - p.n
+}
+
+// rolloverPixels is how many pixels of a frame of area may map poorly before
+// a palette with rollover starts over: about one glyph cell's worth, or 0.05%
+// of a large frame.
+func rolloverPixels(area image.Rectangle) int {
+	return max(adaptiveSolidCount, area.Dx()*area.Dy()/2000)
 }
 
 // palettize maps src into dst, first growing the palette with colors src
 // introduces. dst.Palette must be p.pal. Alpha 0 writes
 // TransparentPaletteIndex; other pixels map by their color alone, matching
 // [palettizeInto].
+//
+// With rollover, a palette that has no room left for blends when src arrives
+// starts over if src maps poorly onto it, and dst.Palette is replaced with the
+// new palette. A palette with room left never rolls over, though median cut
+// can leave some of a busy frame's blends far from every entry.
 func (p *adaptivePalette) palettize(dst *image.Paletted, src image.Image) {
 	var px rgbaPixels
 	switch s := src.(type) {
@@ -91,21 +151,34 @@ func (p *adaptivePalette) palettize(dst *image.Paletted, src image.Image) {
 	if area.Empty() {
 		return
 	}
+	full := p.rollover && p.blendRoom() <= 0
 
 	runPalettizeSpans(dst, px, area, p)
 	for _, misses := range p.spanMisses {
-		for key, count := range misses {
-			p.hist[key] += count
+		for key, use := range misses {
+			p.hist[key] = p.hist[key].add(use)
 		}
 	}
 	if len(p.hist) == 0 {
 		return
 	}
 	p.grow()
-	for key := range p.hist {
-		p.cache[key] = p.nearest(key)
+	poor := 0
+	for key, use := range p.hist {
+		idx, dist := p.nearestDist(key)
+		p.cache[key] = idx
+		if dist > adaptivePoorDist {
+			poor += int(use.count)
+		}
 	}
 	clear(p.hist)
+	if full && poor > rolloverPixels(area) {
+		// The fresh palette has room, so this does not roll over again.
+		p.reset()
+		dst.Palette = p.pal
+		p.palettize(dst, src)
+		return
+	}
 	runPalettizeSpans(dst, px, area, p)
 }
 
@@ -114,7 +187,7 @@ func (p *adaptivePalette) resetSpans(n int) {
 		clear(p.spanMisses[i])
 	}
 	if len(p.spanMisses) < n {
-		p.spanMisses = append(p.spanMisses, make([]map[uint32]int, n-len(p.spanMisses))...)
+		p.spanMisses = append(p.spanMisses, make([]map[uint32]colorUse, n-len(p.spanMisses))...)
 	}
 }
 
@@ -156,10 +229,14 @@ func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels
 				}
 				if !lastOK {
 					if misses == nil {
-						misses = make(map[uint32]int)
+						misses = make(map[uint32]colorUse)
 						p.spanMisses[span] = misses
 					}
-					misses[key] += end - x
+					use := colorUse{count: int32(end - x)} //nolint:gosec // a run is at most a row.
+					if end-x >= adaptiveFlatWidth && y > area.Min.Y {
+						use.flat = flatAbove(px.pix[si-px.stride:], x, end, w, mask)
+					}
+					misses[key] = misses[key].add(use)
 				}
 				idx = lastIdx
 			}
@@ -171,6 +248,24 @@ func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels
 			x = end
 		}
 	}
+}
+
+// flatAbove reports whether the row above, from pixel x to end, repeats the
+// masked pixel word w across adaptiveFlatWidth consecutive pixels.
+func flatAbove(above []byte, x, end int, w, mask uint32) bool {
+	le := binary.LittleEndian
+	n := 0
+	for ; x < end; x++ {
+		if le.Uint32(above[x*4:])&mask != w {
+			n = 0
+			continue
+		}
+		n++
+		if n == adaptiveFlatWidth {
+			return true
+		}
+	}
+	return false
 }
 
 // runEnd returns the end of the run of pixel words in row, starting at pixel x,
@@ -209,14 +304,14 @@ func (p *adaptivePalette) grow() {
 		return
 	}
 	var solid, blends []histColor
-	for key, count := range p.hist {
+	for key, use := range p.hist {
 		if p.n > 0 {
 			if _, d := p.nearestDist(key); d <= adaptiveMatchDist {
 				continue
 			}
 		}
-		c := histColor{key: key, count: count}
-		if count >= adaptiveSolidCount {
+		c := histColor{key: key, count: int(use.count)}
+		if use.solid() {
 			solid = append(solid, c)
 		} else {
 			blends = append(blends, c)
@@ -233,10 +328,7 @@ func (p *adaptivePalette) grow() {
 		p.add(c.key)
 	}
 
-	remaining := adaptiveSlots - p.n
-	if p.reserve {
-		remaining -= adaptiveSolidReserve
-	}
+	remaining := p.blendRoom()
 	if remaining <= 0 || len(blends) == 0 {
 		return
 	}
@@ -263,11 +355,6 @@ func (p *adaptivePalette) add(key uint32) {
 	p.pal[p.n] = color.RGBA{R: r, G: g, B: b, A: 0xff}
 	p.rgb[p.n] = [3]int32{int32(r), int32(g), int32(b)}
 	p.n++
-}
-
-func (p *adaptivePalette) nearest(key uint32) uint8 {
-	idx, _ := p.nearestDist(key)
-	return idx
 }
 
 // nearestDist returns the closest used entry to key and its squared RGB

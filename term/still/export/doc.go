@@ -35,18 +35,25 @@
 // Without [WithPalette], GIF capture builds its palette from the colors the
 // recording uses. Each color keeps the index it was first given, so earlier
 // frames stay valid as the palette grows. Colors covering many pixels (fills
-// and glyph bodies) get exact entries first. Antialiased glyph edges get exact
+// and glyph bodies) or forming a flat block, however small (window buttons,
+// status dots), get exact entries first. Antialiased glyph edges get exact
 // entries while slots remain, otherwise median cut picks representatives along
 // each blend, which keeps edges on the foreground's hue. Once every slot is
-// used, new colors map to the nearest existing entry. PNG with
+// used, new colors map to the nearest existing entry. When a frame brings
+// more than a few cells' worth of colors that map poorly that way (a theme
+// change, a gradient sweeping through new hues), the recording starts a fresh
+// shared palette from that frame. Frames before it keep the old one. PNG with
 // [OptimizeColorQuantization] uses the same palette builder on its single
 // image.
 //
 // [Frame.Isolated] builds a separate palette for that frame and leaves the
 // shared one untouched. A run of consecutive isolated frames shares the
-// separate palette. GIF writes it as a local color table, compacted to the
-// colors that run uses. Disposal optimization emits a full keyframe where the
-// palette changes, and never diffs pixels across two palettes.
+// separate palette. GIF writes the palette the most frames use as the global
+// color table, and every other palette as a local color table compacted to
+// the colors its frames use. Where the palette changes, disposal optimization
+// compares the colors indices name rather than the indices, and writes only
+// what changed color (nothing, when no color did), or a full keyframe when
+// most of the screen did.
 //
 // # GIF palette transparency
 //

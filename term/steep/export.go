@@ -115,8 +115,9 @@ const (
 	// It does not limit how many frames the recording keeps.
 	exportQueueSize = 4
 	// maxPendingCommits bounds the commits queued between test hooks. Each holds
-	// a clone of the screen, and the queue is drained at every hook, so reaching
-	// this means the program painted far faster than the test looked at it.
+	// a clone of the screen, and the queue is drained at every hook and while
+	// harness waits and [Harness.Sleep] poll, so reaching this means the
+	// program painted far faster than the test looked at it.
 	maxPendingCommits = 100
 )
 

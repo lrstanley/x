@@ -114,8 +114,9 @@ func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
 
 // planDisposalFrames walks input captures: diff and decide each output frame,
 // build its image, then apply it to the simulated canvas for subsequent diffs.
-// Frames are only diffed against the canvas when both use the same palette.
-// A palette change writes a full keyframe.
+// Frames are only diffed by index against the canvas when both use the same
+// palette. A palette change diffs by color instead and writes what changed
+// color, or a full keyframe when most of the screen did.
 func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.Rectangle, canvasArea int) (plans []framePlan, firstDelayExtra time.Duration) {
 	n := len(rec.images)
 	plans = make([]framePlan, 0, n-1)
@@ -137,19 +138,19 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 			full = frameForDiff(rec.images[i], screen, rec.images[i].Palette)
 		}
 		framePal := full.Palette
-		if !samePalette(canvas.view.Palette, framePal) {
-			plan := framePlan{
-				kind:     planFullKeyframe,
-				delay:    rec.delays[i],
-				disposal: gif.DisposalNone,
-				image:    clonePaletted(full),
-			}
-			plans = append(plans, plan)
-			applyPlanToCanvas(canvas, plan)
-			continue
+		// Indices on two palettes name different colors, so a palette change
+		// diffs by color. Pixels outside what changed color already show what
+		// full has, so afterwards the screen is full, on its palette.
+		switched := !samePalette(canvas.view.Palette, framePal)
+		diff := diffBoundingBox
+		if switched {
+			diff = diffColorBoundingBox
 		}
-		bbox, diffArea := diffBoundingBox(canvas.view, full, screen)
+		bbox, diffArea := diff(canvas.view, full, screen)
 		if diffArea == 0 {
+			if switched {
+				canvas.view, canvas.owned = clonePaletted(full), true
+			}
 			if len(plans) == 0 {
 				firstDelayExtra += rec.delays[i]
 				continue
@@ -159,14 +160,24 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 		}
 
 		var plan framePlan
-		if float64(diffArea)/float64(canvasArea) >= dirtyRectThreshold {
+		switch {
+		case float64(diffArea)/float64(canvasArea) >= dirtyRectThreshold:
 			plan = framePlan{
 				kind:     planFullKeyframe,
 				delay:    rec.delays[i],
 				disposal: gif.DisposalNone,
 				image:    clonePaletted(full),
 			}
-		} else {
+		case switched:
+			// An opaque crop: subRectFrame finds the holes by comparing
+			// indices, which name different colors on the two palettes.
+			plan = framePlan{
+				kind:     planSubRect,
+				delay:    rec.delays[i],
+				disposal: gif.DisposalNone,
+				image:    cropPaletted(full, bbox),
+			}
+		default:
 			disposal := byte(gif.DisposalNone)
 			if overlayEligible(bbox, diffArea, canvasArea) {
 				disposal = gif.DisposalPrevious
@@ -197,6 +208,10 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 		}
 
 		plans = append(plans, plan)
+		if switched && plan.kind == planSubRect {
+			canvas.view, canvas.owned = clonePaletted(full), true
+			continue
+		}
 		applyPlanToCanvas(canvas, plan)
 	}
 
@@ -211,6 +226,8 @@ func applyPlanToCanvas(canvas *disposalCanvas, plan framePlan) {
 	case planFullKeyframe:
 		canvas.view = plan.image
 		canvas.owned = false
+	case planReveal:
+		// Only triggers the previous frame's disposal.
 	case planSubRect:
 		if plan.disposal != gif.DisposalPrevious {
 			blitTransparent(plan.image, canvas.mutable())
@@ -443,33 +460,23 @@ func diffBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox
 			return fast, n
 		}
 	}
-	minX, minY := screen.Max.X, screen.Max.Y
-	maxX, maxY := screen.Min.X-1, screen.Min.Y-1
-	diff = 0
+	return diffBoundingBoxFunc(screen, func(x, y int) bool {
+		return paletteIndexAt(canvas, x, y) == paletteIndexAt(full, x, y)
+	})
+}
+
+// diffBoundingBoxFunc returns the smallest rectangle enclosing the pixels of
+// screen that same reports differ, and how many there are.
+func diffBoundingBoxFunc(screen image.Rectangle, same func(x, y int) bool) (bbox image.Rectangle, diff int) {
 	for y := screen.Min.Y; y < screen.Max.Y; y++ {
 		for x := screen.Min.X; x < screen.Max.X; x++ {
-			if paletteIndexAt(canvas, x, y) == paletteIndexAt(full, x, y) {
-				continue
-			}
-			diff++
-			if x < minX {
-				minX = x
-			}
-			if y < minY {
-				minY = y
-			}
-			if x > maxX {
-				maxX = x
-			}
-			if y > maxY {
-				maxY = y
+			if !same(x, y) {
+				diff++
+				bbox = bbox.Union(image.Rect(x, y, x+1, y+1))
 			}
 		}
 	}
-	if diff == 0 {
-		return image.Rectangle{}, 0
-	}
-	return image.Rect(minX, minY, maxX+1, maxY+1), diff
+	return bbox, diff
 }
 
 // diffBoundingBoxRows compares full-canvas frames by row. Identical rows are
@@ -525,6 +532,25 @@ func diffBoundingBoxRows(canvas, full *image.Paletted, screen image.Rectangle) (
 		return image.Rectangle{}, 0, true
 	}
 	return image.Rect(screen.Min.X+minX, screen.Min.Y+minY, screen.Min.X+maxX+1, screen.Min.Y+maxY+1), diff, true
+}
+
+// diffColorBoundingBox is [diffBoundingBox] for frames on different
+// palettes: a pixel differs when the colors its indices name differ.
+func diffColorBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
+	var cc, fc [256]uint32
+	pack := func(dst *[256]uint32, pal color.Palette) {
+		for i := range dst {
+			if i < len(pal) && pal[i] != nil {
+				r, g, b, a := pal[i].RGBA()
+				dst[i] = r>>8<<24 | g>>8<<16 | b>>8<<8 | a>>8
+			}
+		}
+	}
+	pack(&cc, canvas.Palette)
+	pack(&fc, full.Palette)
+	return diffBoundingBoxFunc(screen, func(x, y int) bool {
+		return cc[paletteIndexAt(canvas, x, y)] == fc[paletteIndexAt(full, x, y)]
+	})
 }
 
 func paletteIndexAt(pm *image.Paletted, x, y int) uint8 {

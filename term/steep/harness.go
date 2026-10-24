@@ -117,11 +117,16 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		h.emulator.setWriteNotify(h.export.noteCommit)
 	}
 
+	env, programOpts := cfg.envVars, cfg.programOpts
+	if cfg.color != 0 {
+		env = cfg.color.env(env)
+		programOpts = append([]tea.ProgramOption{tea.WithColorProfile(cfg.color.teaProfile())}, programOpts...)
+	}
 	h.program = tea.NewProgram(
 		h.observer,
 		append(
-			cfg.programOpts,
-			tea.WithEnvironment(cfg.envVars),
+			programOpts,
+			tea.WithEnvironment(env),
 			tea.WithContext(cfg.ctx),
 			tea.WithInput(h.emulator),
 			tea.WithOutput(h.emulator),

@@ -48,6 +48,12 @@ func IsBoxJunctionRune(r rune) bool {
 	return ok
 }
 
+// isBoxDashRune reports dashed lines, whose gaps would close if their ink
+// were stretched to the cell edges.
+func isBoxDashRune(r rune) bool {
+	return r >= 0x2504 && r <= 0x250B || r >= 0x254C && r <= 0x254F
+}
+
 // BoxStrokeAxis classifies box-drawing ink orientation for dilation.
 type BoxStrokeAxis uint8
 
@@ -98,6 +104,28 @@ func BoxStrokeExtentsFromRune(r rune) (BoxStrokeExtents, bool) {
 	default:
 		return BoxStrokeExtents{}, false
 	}
+}
+
+// boxHalfLine returns the edges a half line (U+2574 through U+257F) reaches
+// and the axis it runs along. A half line stops at the cell center, so ink
+// alone cannot tell which edge it points to. The light and heavy pairs reach
+// both edges.
+func boxHalfLine(r rune) (BoxStrokeExtents, BoxStrokeAxis, bool) {
+	switch r {
+	case '╴', '╸':
+		return BoxStrokeExtents{Left: true}, BoxStrokeHorizontal, true
+	case '╶', '╺':
+		return BoxStrokeExtents{Right: true}, BoxStrokeHorizontal, true
+	case '╵', '╹':
+		return BoxStrokeExtents{Up: true}, BoxStrokeVertical, true
+	case '╷', '╻':
+		return BoxStrokeExtents{Down: true}, BoxStrokeVertical, true
+	case '╼', '╾':
+		return BoxStrokeExtents{Left: true, Right: true}, BoxStrokeHorizontal, true
+	case '╽', '╿':
+		return BoxStrokeExtents{Up: true, Down: true}, BoxStrokeVertical, true
+	}
+	return BoxStrokeExtents{}, 0, false
 }
 
 func boxStrokeExtentsFromInk(ref, ink image.Rectangle) BoxStrokeExtents {
@@ -206,8 +234,8 @@ func buildBoxGlyphMask(face font.Face, dot fixed.Point26_6, area image.Rectangle
 	axis := boxStrokeAxisFromInk(ink)
 
 	// Junction glyphs render the font shape only; adjacent straight strokes
-	// extend into this cell for continuity.
-	if IsBoxJunctionRune(r) {
+	// extend into this cell for continuity. Dashed lines keep their gaps.
+	if IsBoxJunctionRune(r) || isBoxDashRune(r) {
 		rx, ry := boxGlyphDilateRadius(axis, ink, thickness)
 		var out boxGlyphMask
 		if rx == 0 && ry == 0 {
@@ -223,8 +251,19 @@ func buildBoxGlyphMask(face font.Face, dot fixed.Point26_6, area image.Rectangle
 	}
 
 	absInk := ink.Add(dr.Min)
-	extendedInk := ExtendBoxInkToEdges(area, absInk, axis, r, dr)
-	extendedAlpha := extendBoxAlphaToEdges(area, dr, alphaImg, ink, axis, extendedInk)
+	var extendedInk image.Rectangle
+	var extendedAlpha *image.Alpha
+	if ext, lineAxis, half := boxHalfLine(r); half {
+		// A heavy half line can be about as wide as it is tall, so take the
+		// axis from the rune. It also keeps dilation to the stroke's width.
+		axis = lineAxis
+		extendedInk = extendBoxBothInk(area, absInk, ext)
+		out := image.NewAlpha(image.Rect(0, 0, extendedInk.Dx(), extendedInk.Dy()))
+		extendedAlpha = extendBoxAlphaTowards(out, area, dr, alphaImg, ink, ext, extendedInk)
+	} else {
+		extendedInk = ExtendBoxInkToEdges(area, absInk, axis, r, dr)
+		extendedAlpha = extendBoxAlphaToEdges(area, dr, alphaImg, ink, axis, extendedInk)
+	}
 
 	localInk := extendedInk.Sub(extendedInk.Min)
 	rx, ry := boxGlyphDilateRadius(axis, localInk, thickness)
@@ -242,10 +281,12 @@ func buildBoxGlyphMask(face font.Face, dot fixed.Point26_6, area image.Rectangle
 }
 
 func extendBoxAlphaToEdges(area, dr image.Rectangle, alphaImg *image.Alpha, ink image.Rectangle, axis BoxStrokeAxis, extendedInk image.Rectangle) *image.Alpha {
-	out := image.NewAlpha(image.Rect(0, 0, extendedInk.Dx(), extendedInk.Dy()))
 	absInk := ink.Add(dr.Min)
+	out := image.NewAlpha(image.Rect(0, 0, extendedInk.Dx(), extendedInk.Dy()))
 
 	switch axis {
+	case BoxStrokeBoth:
+		return extendBoxAlphaTowards(out, area, dr, alphaImg, ink, boxStrokeExtentsFromInk(dr, absInk), extendedInk)
 	case BoxStrokeVertical:
 		for x := absInk.Min.X; x < absInk.Max.X; x++ {
 			a := boxColumnMaxAlpha(alphaImg, ink, x-dr.Min.X)
@@ -260,43 +301,48 @@ func extendBoxAlphaToEdges(area, dr image.Rectangle, alphaImg *image.Alpha, ink 
 				boxSetAlpha(out, extendedInk, x, y, a)
 			}
 		}
-	case BoxStrokeBoth:
-		for y := ink.Min.Y; y < ink.Max.Y; y++ {
-			for x := ink.Min.X; x < ink.Max.X; x++ {
-				boxSetAlpha(out, extendedInk, x+dr.Min.X, y+dr.Min.Y, alphaImg.AlphaAt(x, y).A)
+	}
+	return out
+}
+
+// extendBoxAlphaTowards copies the glyph's ink into out, which covers
+// extendedInk, and extends its strokes to the cell edges ext names.
+func extendBoxAlphaTowards(out *image.Alpha, area, dr image.Rectangle, alphaImg *image.Alpha, ink image.Rectangle, ext BoxStrokeExtents, extendedInk image.Rectangle) *image.Alpha {
+	absInk := ink.Add(dr.Min)
+	for y := ink.Min.Y; y < ink.Max.Y; y++ {
+		for x := ink.Min.X; x < ink.Max.X; x++ {
+			boxSetAlpha(out, extendedInk, x+dr.Min.X, y+dr.Min.Y, alphaImg.AlphaAt(x, y).A)
+		}
+	}
+	if ext.Right {
+		for y := absInk.Min.Y; y < absInk.Max.Y; y++ {
+			a := boxRowMaxAlpha(alphaImg, ink, y-dr.Min.Y)
+			for x := absInk.Max.X; x < area.Max.X; x++ {
+				boxSetAlpha(out, extendedInk, x, y, a)
 			}
 		}
-		ext := boxStrokeExtentsFromInk(dr, absInk)
-		if ext.Right {
-			for y := absInk.Min.Y; y < absInk.Max.Y; y++ {
-				a := boxRowMaxAlpha(alphaImg, ink, y-dr.Min.Y)
-				for x := absInk.Max.X; x < area.Max.X; x++ {
-					boxSetAlpha(out, extendedInk, x, y, a)
-				}
+	}
+	if ext.Left {
+		for y := absInk.Min.Y; y < absInk.Max.Y; y++ {
+			a := boxRowMaxAlpha(alphaImg, ink, y-dr.Min.Y)
+			for x := area.Min.X; x < absInk.Min.X; x++ {
+				boxSetAlpha(out, extendedInk, x, y, a)
 			}
 		}
-		if ext.Left {
-			for y := absInk.Min.Y; y < absInk.Max.Y; y++ {
-				a := boxRowMaxAlpha(alphaImg, ink, y-dr.Min.Y)
-				for x := area.Min.X; x < absInk.Min.X; x++ {
-					boxSetAlpha(out, extendedInk, x, y, a)
-				}
+	}
+	if ext.Down {
+		for x := absInk.Min.X; x < absInk.Max.X; x++ {
+			a := boxColumnMaxAlpha(alphaImg, ink, x-dr.Min.X)
+			for y := absInk.Max.Y; y < area.Max.Y; y++ {
+				boxSetAlpha(out, extendedInk, x, y, a)
 			}
 		}
-		if ext.Down {
-			for x := absInk.Min.X; x < absInk.Max.X; x++ {
-				a := boxColumnMaxAlpha(alphaImg, ink, x-dr.Min.X)
-				for y := absInk.Max.Y; y < area.Max.Y; y++ {
-					boxSetAlpha(out, extendedInk, x, y, a)
-				}
-			}
-		}
-		if ext.Up {
-			for x := absInk.Min.X; x < absInk.Max.X; x++ {
-				a := boxColumnMaxAlpha(alphaImg, ink, x-dr.Min.X)
-				for y := area.Min.Y; y < absInk.Min.Y; y++ {
-					boxSetAlpha(out, extendedInk, x, y, a)
-				}
+	}
+	if ext.Up {
+		for x := absInk.Min.X; x < absInk.Max.X; x++ {
+			a := boxColumnMaxAlpha(alphaImg, ink, x-dr.Min.X)
+			for y := area.Min.Y; y < absInk.Min.Y; y++ {
+				boxSetAlpha(out, extendedInk, x, y, a)
 			}
 		}
 	}

@@ -68,6 +68,9 @@ type options struct {
 
 	// envVars are extra environment variables to set for the [tea.Program].
 	envVars []string
+	// color is the color support advertised to the [tea.Program], or 0 to
+	// leave envVars as they are.
+	color ColorProfile
 
 	// ctx is the parent context for blocking [Wait]-style helpers.
 	ctx           context.Context
@@ -103,7 +106,7 @@ func defaultOptions() options {
 		envVars: []string{
 			// Force TTY mode, since we're not connecting to a real TTY/PTY.
 			"TTY_FORCE=1",
-			"TERM=xterm-256color",
+			term256,
 		},
 		ctx: context.Background(),
 	}
@@ -519,11 +522,12 @@ func WithLog(tb testing.TB) Option {
 // "key=value". Without this option the program sees only the defaults:
 //
 //   - TTY_FORCE=1
-//   - TERM=xterm-256color
+//   - TERM=xterm-256color (see [WithColor])
 //
 // Using this option replaces those defaults with the test process environment
-// plus vars, so pass TTY_FORCE and TERM again if the program needs them. It
-// panics if an entry is not in "key=value" form.
+// plus vars, so pass TTY_FORCE and TERM again if the program needs them.
+// [WithColor] replaces the color variables after this option. It panics if an
+// entry is not in "key=value" form.
 func WithEnvVars(vars ...string) Option {
 	return func(cfg *options) {
 		current := map[string]string{}

@@ -182,3 +182,32 @@ func TestAdaptivePaletteRGBAMatchesNRGBA(t *testing.T) {
 		t.Fatal("RGBA and NRGBA sources palettized differently")
 	}
 }
+
+// TestAdaptivePaletteSmallFlatShapeExact draws a 5x5 square, too few pixels
+// to count as solid by area, in a frame whose large fills leave only a few
+// slots for everything else, which blends near the square's hue compete
+// for. The square is flat, so it still gets an exact entry, like the window
+// buttons of a busy frame.
+func TestAdaptivePaletteSmallFlatShapeExact(t *testing.T) {
+	t.Parallel()
+
+	fills := distinctColors(232)
+	src := image.NewNRGBA(image.Rect(0, 0, 8*len(fills), 32))
+	for i, c := range fills {
+		paintRect(src, image.Rect(i*8, 0, (i+1)*8, 8), c)
+	}
+	// Blends on a checkerboard, so none forms a flat block. Each covers more
+	// pixels than the square, but fewer than a fill.
+	for i := range 64 * 32 {
+		x, y := i%512*2+i/512%2, 12+i/512
+		n := i % 64
+		src.SetNRGBA(x, y, color.NRGBA{R: uint8(0xc0 + n), G: uint8(0x50 + n%4*8), B: 0x60, A: 0xff}) //nolint:gosec // bounded.
+	}
+	square := color.NRGBA{R: 0xff, G: 0x5f, B: 0x57, A: 0xff}
+	paintRect(src, image.Rect(1300, 20, 1305, 25), square)
+
+	pm := palettizeAdaptive(newAdaptivePalette(true), src)
+	if got := nrgbaAt(pm, 1302, 22); got != square {
+		t.Fatalf("small flat square = %v, want exact %v", got, square)
+	}
+}

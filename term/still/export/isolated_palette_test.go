@@ -246,12 +246,18 @@ func TestDedupAcrossPaletteChange(t *testing.T) {
 		if same != 1 {
 			t.Errorf("optimize %v: identical isolated frames = %d, want 1", optimize, same)
 		}
+		// Dedup compares indices, so it keeps both. Disposal optimization
+		// compares colors across the change and finds nothing to write.
 		across := encodeCount(t, []Frame{
 			{Image: img, Delay: delay},
 			{Image: img, Delay: delay, Isolated: true},
 		}, WithOptimize(optimize))
-		if across != 2 {
-			t.Errorf("optimize %v: frames across a palette change = %d, want 2", optimize, across)
+		want := 2
+		if optimize.has(OptimizeDirtyRects) {
+			want = 1
+		}
+		if across != want {
+			t.Errorf("optimize %v: frames across a palette change = %d, want %d", optimize, across, want)
 		}
 	}
 }
@@ -262,7 +268,7 @@ func encodeCount(t *testing.T, frames []Frame, opts ...Option) int {
 	return len(g.Image)
 }
 
-func TestDisposalDoesNotDiffAcrossPalettes(t *testing.T) {
+func TestDisposalDiffsAcrossPalettesByColor(t *testing.T) {
 	t.Parallel()
 
 	const w, h = 32, 32
@@ -270,32 +276,46 @@ func TestDisposalDoesNotDiffAcrossPalettes(t *testing.T) {
 	changed := cloneNRGBA(base)
 	changed.SetNRGBA(4, 4, color.NRGBA{R: 0xff, G: 0x80, B: 0x40, A: 0xff})
 	delay := 40 * time.Millisecond
-	canvas := image.Rect(0, 0, w, h)
 
-	across, _ := encodeFrames(t, []Frame{
+	across, raw := encodeFrames(t, []Frame{
 		{Image: base, Delay: delay},
 		{Image: changed, Delay: delay, Isolated: true},
 	})
-	if !across.Image[1].Bounds().Eq(canvas) {
-		t.Fatalf("frame after a palette change is %v, want full canvas %v", across.Image[1].Bounds(), canvas)
+	if got, want := across.Image[1].Bounds(), image.Rect(4, 4, 5, 5); !got.Eq(want) {
+		t.Fatalf("frame after a palette change is %v, want only the pixel that changed color %v", got, want)
+	}
+	if samePalette(across.Image[0].Palette, across.Image[1].Palette) {
+		t.Fatal("isolated frame shares the first frame's palette")
+	}
+	replayed, err := ReplayGIF(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pct, _ := replayMismatchPct([]image.Image{base, changed}, replayed, color.NRGBA{}); pct != 0 {
+		t.Fatalf("replay differs from the source in %.2f%% of pixels", pct)
 	}
 
 	within, _ := encodeFrames(t, []Frame{
 		{Image: base, Delay: delay, Isolated: true},
 		{Image: changed, Delay: delay, Isolated: true},
 	})
-	if within.Image[1].Bounds().Eq(canvas) {
-		t.Fatal("same-palette isolated frames kept a full canvas, want a sub-rect")
+	if got, want := within.Image[1].Bounds(), image.Rect(4, 4, 5, 5); !got.Eq(want) {
+		t.Fatalf("same-palette isolated frame is %v, want sub-rect %v", got, want)
 	}
 }
 
 func TestIsolatedPaletteCompactsToPowerOfTwo(t *testing.T) {
 	t.Parallel()
 
+	// A shared frame first, so the isolated one is not the only palette and
+	// does not become the global table.
 	const colors = 40
 	frame := solidColorsFrame(offGridColors(colors), 8)
-	g, _ := encodeFrames(t, []Frame{{Image: frame, Delay: 40 * time.Millisecond, Isolated: true}})
-	got := len(g.Image[0].Palette)
+	g, _ := encodeFrames(t, []Frame{
+		{Image: solidNRGBA(frame.Rect.Dx(), frame.Rect.Dy(), color.NRGBA{A: 0xff}), Delay: 40 * time.Millisecond},
+		{Image: frame, Delay: 40 * time.Millisecond, Isolated: true},
+	})
+	got := len(g.Image[1].Palette)
 	want := 1
 	for want < colors {
 		want <<= 1
@@ -304,7 +324,7 @@ func TestIsolatedPaletteCompactsToPowerOfTwo(t *testing.T) {
 		t.Fatalf("local table has %d entries, want %d for %d colors", got, want, colors)
 	}
 	global, _ := g.Config.ColorModel.(color.Palette)
-	if usesGlobalPalette(g.Image[0].Palette, global) {
+	if usesGlobalPalette(g.Image[1].Palette, global) {
 		t.Fatal("isolated frame used the global color table")
 	}
 }

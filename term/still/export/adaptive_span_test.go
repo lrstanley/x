@@ -135,8 +135,8 @@ func TestAdaptiveWriteSpanMatchesReference(t *testing.T) {
 					t.Fatalf("%s premul=%v w=%d: miss colors %d, want %d", kind, premultiplied, w, len(p.spanMisses[0]), len(wantMisses))
 				}
 				for k, v := range wantMisses {
-					if p.spanMisses[0][k] != v {
-						t.Fatalf("%s premul=%v w=%d: misses[%06x]=%d, want %d", kind, premultiplied, w, k, p.spanMisses[0][k], v)
+					if got := p.spanMisses[0][k]; int(got.count) != v {
+						t.Fatalf("%s premul=%v w=%d: misses[%06x]=%+v, want count %d", kind, premultiplied, w, k, got, v)
 					}
 				}
 			}
@@ -145,9 +145,10 @@ func TestAdaptiveWriteSpanMatchesReference(t *testing.T) {
 }
 
 // adaptiveGoldenHash is the sha256 of the palette and palettized pixels
-// across the sequence in TestAdaptivePalettizeGolden, recorded before runs
-// were skipped. It guards against any change in palette growth or indices.
-const adaptiveGoldenHash = "5e81d803307724b114801ad3b577a7acd53aa22b41c74310d829b28d0fcb1f75"
+// across the sequence in TestAdaptivePalettizeGolden, recorded when small
+// flat shapes started counting as solid. It guards against any change in
+// palette growth or indices.
+const adaptiveGoldenHash = "cada4e351d94b6824f6ac2d18624dfde46fab6026d9309cc5cef87168b697709"
 
 func TestAdaptivePalettizeGolden(t *testing.T) {
 	t.Parallel()

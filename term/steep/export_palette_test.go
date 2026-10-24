@@ -32,16 +32,12 @@ func TestExportCardLocalPalettes(t *testing.T) {
 	if local == 0 {
 		t.Fatal("intro and outro stored no local color tables")
 	}
-	canvas := image.Rect(0, 0, withCards.gif.Config.Width, withCards.gif.Config.Height)
 	global, _ := withCards.gif.Config.ColorModel.(color.Palette)
 	prevLocal := false
 	for i, frame := range withCards.gif.Image {
 		localFrame := !usesGlobalTable(frame.Palette, global)
 		if localFrame && !powerOfTwo(len(frame.Palette)) {
 			t.Errorf("frame %d local table has %d entries, want a power of two", i, len(frame.Palette))
-		}
-		if i > 0 && localFrame != prevLocal && !frame.Bounds().Eq(canvas) {
-			t.Errorf("frame %d after a palette change is %v, want full canvas %v", i, frame.Bounds(), canvas)
 		}
 		prevLocal = localFrame
 	}

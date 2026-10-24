@@ -159,6 +159,7 @@ func newGIFRecorder(cfg options) *gifRecorder {
 	pal := cfg.palette
 	if !cfg.paletteSet {
 		adaptive = newAdaptivePalette(true)
+		adaptive.rollover = true
 		pal = adaptive.pal
 	}
 	return &gifRecorder{
@@ -209,6 +210,11 @@ func (r *gifRecorder) EncodeAll(w io.Writer) error {
 		if w == nil {
 			encodeErr = errors.New("export: nil writer")
 			return
+		}
+		if !r.opts.paletteSet && len(r.rec.images) > 0 {
+			// Frames on any other palette carry a local color table, so the
+			// global one goes to the palette the most frames use.
+			r.rec.config.ColorModel = busiestPalette(r.rec.images)
 		}
 		if r.opts.optimize.has(OptimizeDirtyRects) && len(r.rec.images) > 0 {
 			optimizeDisposals(r.rec, r.opts.background, r.opts.backgroundSet)
@@ -577,7 +583,7 @@ func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration,
 
 // palettizeCaptureFrame writes src into pm, compositing onto background when
 // configured. It uses adaptive when non-nil, otherwise the LUT or draw.Draw
-// path per useLUT.
+// path per useLUT. An adaptive palette that rolls over replaces pm.Palette.
 func palettizeCaptureFrame(pm *image.Paletted, frame image.Image, adaptive *adaptivePalette, useLUT bool, background color.Color, backgroundSet bool) {
 	src := frame
 	if backgroundSet {
@@ -648,6 +654,18 @@ func quantizeDelays(delays []time.Duration, opts options) []int {
 		cs[i] = clampCentiseconds(max(int(math.Round(float64(d)/float64(10*time.Millisecond))), 1))
 	}
 	return cs
+}
+
+// busiestPalette returns the palette the most frames use.
+func busiestPalette(frames []*image.Paletted) color.Palette {
+	groups := paletteGroups(frames)
+	best := groups[0]
+	for _, g := range groups[1:] {
+		if len(g.frames) > len(best.frames) {
+			best = g
+		}
+	}
+	return best.pal
 }
 
 // buildGIF converts a finalized recording into a gif.GIF with quantized delays.
