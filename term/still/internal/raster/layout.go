@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/still/internal/config"
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
@@ -53,6 +54,7 @@ type Layout struct {
 	Dot       fixed.Point26_6
 	Area      image.Rectangle
 	Target    image.Rectangle // Band that Powerline and Nerd Font glyphs scale into.
+	SpansNext bool            // Target covers the next cell too: a one-cell icon with room to grow.
 	Glyph     string
 	Rune      rune // First rune of Glyph.
 	Fg        color.NRGBA
@@ -75,7 +77,10 @@ func GridGlyphDotX(area image.Rectangle, metrics types.Metrics) fixed.Int26_6 {
 // LayoutGlyph resolves face, baseline dot, and raster mode for a cell glyph.
 // Sprites are recognized before any face is looked up, since they never use
 // one.
-func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, fg color.NRGBA, out *Layout) bool {
+//
+// spansNext lets a one-cell icon grow into the cell after it, as decided by
+// [IsSpanIcon] and [IconRoom]. Only fallback glyphs use the room.
+func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, spansNext bool, fg color.NRGBA, out *Layout) bool {
 	glyph := ctx.Glyph(cell)
 	r, ok := idraw.FirstRune(glyph)
 	if !ok {
@@ -100,6 +105,7 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, fg c
 		Fg:        fg,
 		ScaleMode: scaleMode,
 		AlignEnd:  alignEnd,
+		SpansNext: kind == KindFallback && spansNext,
 	}
 	out.SetArea(ctx, area, cell)
 	return true
@@ -122,8 +128,34 @@ func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Ce
 	case KindPowerline:
 		l.Target = area
 	case KindFallback:
-		l.Target = idraw.FallbackGlyphTarget(ctx, area, cell)
+		if l.SpansNext {
+			l.Target = idraw.FallbackGlyphSpanTarget(ctx, area)
+		} else {
+			l.Target = idraw.FallbackGlyphTarget(ctx, area, cell)
+		}
 	}
+}
+
+// IsSpanIcon reports whether content is a Nerd Font icon that Ghostty lets
+// grow into the cell after it, when there is room: see [IconRoom].
+func IsSpanIcon(content string) bool {
+	if content == "" || content[0] < utf8.RuneSelf {
+		return false
+	}
+	r, ok := idraw.FirstRune(content)
+	return ok && idraw.IsNerdIconRune(r)
+}
+
+// IconRoom reports whether a one-cell icon has room to grow into the cell
+// after it, given the content of the cells on each side. It follows Ghostty:
+// the next cell must be empty, a space, or an en space, and the icon stays in
+// one cell after another symbol, so that runs of icons stay aligned. Callers
+// keep an icon at the end of a row in one cell themselves.
+func IconRoom(prev, next string) bool {
+	if pr, ok := idraw.FirstRune(prev); ok && idraw.IsSymbolRune(pr) && !idraw.IsGraphicsElement(pr) {
+		return false
+	}
+	return next == "" || next == " " || next == "\u2002"
 }
 
 func classifyGlyph(ctx GlyphContext, face font.Face, glyph string) (Kind, idraw.ScaleMode, bool) {

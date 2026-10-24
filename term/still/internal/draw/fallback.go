@@ -21,13 +21,29 @@ import (
 // FallbackGlyphTarget returns the vertical band that fallback glyphs (Nerd Font
 // icons, fallback fonts) are fitted into.
 func FallbackGlyphTarget(ctx config.CellFrameSource, area image.Rectangle, cell *screen.Cell) image.Rectangle {
+	return fallbackBand(ctx, area, cell != nil && cell.Width > 1)
+}
+
+// FallbackGlyphSpanTarget returns the band for a one-cell fallback glyph that
+// may grow into the cell after it: the same vertical band as a wide cell, and
+// the width of area plus the next cell.
+func FallbackGlyphSpanTarget(ctx config.CellFrameSource, area image.Rectangle) image.Rectangle {
+	target := fallbackBand(ctx, area, true)
+	if !target.Empty() {
+		target.Max.X += area.Dx()
+	}
+	return target
+}
+
+// fallbackBand centers the icon height for a wide or single cell in area.
+func fallbackBand(ctx config.CellFrameSource, area image.Rectangle, wide bool) image.Rectangle {
 	if area.Empty() {
 		return area
 	}
 
 	metrics := ctx.Metrics()
 	height := metrics.IconHeightSingle.Int()
-	if cell != nil && cell.Width > 1 {
+	if wide {
 		height = metrics.IconHeight.Int()
 	}
 	height = units.Clamp(height, 1, area.Dy())

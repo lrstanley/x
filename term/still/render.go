@@ -273,11 +273,12 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 			if !usePass {
 				continue
 			}
+			spansNext := cellSpansNext(scr, view, x, y, cell)
 			if fgReady {
-				d.drawCellFgColor(dst, area, cell, f, true, fg, true)
+				d.drawCellFgColor(dst, area, cell, f, true, fg, true, spansNext)
 				continue
 			}
-			d.drawCellFg(dst, area, cell, f, true)
+			d.drawCellFg(dst, area, cell, f, true, spansNext)
 		}
 		if open {
 			idraw.Fill(dst, image.Rect(runX0, rowY0, runX1, rowY1), runColor)
@@ -295,7 +296,7 @@ func (d *Renderer) render(dst draw.Image, scr screen.Screen, f *renderFrame) {
 			}
 			col := x - view.Min.X
 			area := cellDrawArea(gridMin, gridMaxX, cellW, cellH, col, row, cell.Width)
-			d.drawCellFg(dst, area, cell, f, false)
+			d.drawCellFg(dst, area, cell, f, false, cellSpansNext(scr, view, x, y, cell))
 		}
 	}
 

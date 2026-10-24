@@ -206,6 +206,7 @@ func (l *chromeLine) text(x int, s string, fg color.NRGBA, bold bool) int {
 	var (
 		state  byte
 		layout raster.Layout
+		prev   string // content of the previous cell
 	)
 	for s != "" {
 		var n int
@@ -216,7 +217,16 @@ func (l *chromeLine) text(x int, s string, fg color.NRGBA, bold bool) int {
 		}
 		area := image.Rect(x, bottom-ch, x+cell.Width*cw, bottom)
 		x = area.Max.X
-		if !cellHasForegroundGlyph(&cell) || !raster.LayoutGlyph(ctx, area, &cell, fg, &layout) {
+		// Icons grow into a space after them, the same as in the grid. The
+		// end of the text counts as an edge, like the end of a row.
+		before := prev
+		prev = cell.Content
+		spansNext := false
+		if cell.Width == 1 && s != "" && raster.IsSpanIcon(cell.Content) {
+			next, _, _, _ := ansi.DecodeSequence(s, state, nil)
+			spansNext = raster.IconRoom(before, next)
+		}
+		if !cellHasForegroundGlyph(&cell) || !raster.LayoutGlyph(ctx, area, &cell, spansNext, fg, &layout) {
 			continue
 		}
 		if layout.Kind != raster.KindGrid {

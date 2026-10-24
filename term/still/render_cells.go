@@ -59,11 +59,31 @@ func cellDrawArea(gridMin image.Point, gridMaxX, cellW, cellH, col, row, width i
 	return image.Rect(minX, minY, maxX, minY+cellH)
 }
 
-func (d *Renderer) drawCellFg(dst draw.Image, area image.Rectangle, cell *screen.Cell, f *renderFrame, usePass bool) {
-	d.drawCellFgColor(dst, area, cell, f, usePass, color.NRGBA{}, false)
+// cellSpansNext reports whether the icon in the cell at x, y may grow into the
+// cell after it. A change to the next cell changes how the icon draws, but it
+// is in the same row, which the incremental draw repaints whole.
+func cellSpansNext(scr screen.Screen, view image.Rectangle, x, y int, cell *screen.Cell) bool {
+	if cell.Width != 1 || x+1 >= view.Max.X || !raster.IsSpanIcon(cell.Content) {
+		return false
+	}
+	// A missing cell reads as an empty one.
+	var prev, next string
+	if x > view.Min.X {
+		if c := scr.CellAt(x-1, y); c != nil {
+			prev = c.Content
+		}
+	}
+	if c := scr.CellAt(x+1, y); c != nil {
+		next = c.Content
+	}
+	return raster.IconRoom(prev, next)
 }
 
-func (d *Renderer) drawCellFgColor(dst draw.Image, area image.Rectangle, cell *screen.Cell, f *renderFrame, usePass bool, fg color.NRGBA, fgOK bool) {
+func (d *Renderer) drawCellFg(dst draw.Image, area image.Rectangle, cell *screen.Cell, f *renderFrame, usePass, spansNext bool) {
+	d.drawCellFgColor(dst, area, cell, f, usePass, color.NRGBA{}, false, spansNext)
+}
+
+func (d *Renderer) drawCellFgColor(dst draw.Image, area image.Rectangle, cell *screen.Cell, f *renderFrame, usePass bool, fg color.NRGBA, fgOK, spansNext bool) {
 	if !idraw.TextVisible(f, cell) {
 		return
 	}
@@ -78,7 +98,7 @@ func (d *Renderer) drawCellFgColor(dst draw.Image, area image.Rectangle, cell *s
 	var layout raster.Layout
 	hasLayout := false
 	if hasGlyph {
-		hasLayout = raster.LayoutGlyph(f, area, cell, fg, &layout)
+		hasLayout = raster.LayoutGlyph(f, area, cell, spansNext, fg, &layout)
 	}
 	if usePass {
 		if hasLayout {

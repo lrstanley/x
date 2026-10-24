@@ -163,6 +163,37 @@ func BenchmarkDrawSymbolGlyphs(b *testing.B) {
 	}
 }
 
+// BenchmarkDrawIconSpans draws rows of Nerd Font icons, alternately followed
+// by a space, which grows the icon into two cells, and by a letter.
+func BenchmarkDrawIconSpans(b *testing.B) {
+	const cols, rows = 40, 16
+	icons := []rune("\uf059\uf084\uf0ac\uea61\uf015")
+	scr := newTestScreen(cols, rows)
+	style := screen.Style{Fg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, Bg: color.NRGBA{A: 0xff}}
+	for y := range rows {
+		for x := 0; x+1 < cols; x += 2 {
+			next := " "
+			if (x/2+y)%2 == 0 {
+				next = "x"
+			}
+			scr.SetCell(x, y, &screen.Cell{Content: string(icons[(x/2+y)%len(icons)]), Width: 1, Style: style})
+			scr.SetCell(x+1, y, &screen.Cell{Content: next, Width: 1, Style: style})
+		}
+	}
+
+	d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)))
+	frame := image.NewNRGBA(d.Bounds(scr))
+	for range benchmarkWarmupIters {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		d.DrawInto(frame, frame.Bounds(), scr)
+	}
+}
+
 // BenchmarkDrawManyGlyphs draws a screen with more unique graphemes than the
 // old 128-entry mask cache could hold, which is the case the atlas budget is
 // sized for.

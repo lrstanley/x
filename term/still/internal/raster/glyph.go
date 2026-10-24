@@ -32,6 +32,9 @@ type glyphMaskKey struct {
 	face  font.Face
 	glyph string
 	size  image.Point
+
+	// target tells apart a glyph that may grow into the next cell.
+	target image.Point
 }
 
 type cachedGlyphMask struct {
@@ -82,7 +85,7 @@ func drawGlyphLayoutMask(img draw.Image, layout *Layout, mask cachedGlyphMask) {
 // DrawGlyph rasterizes the cell's grapheme into area.
 func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *screen.Cell, fg color.NRGBA) {
 	var layout Layout
-	if !LayoutGlyph(ctx, area, cell, fg, &layout) {
+	if !LayoutGlyph(ctx, area, cell, false, fg, &layout) {
 		return
 	}
 	DrawGlyphLayout(ctx, img, &layout)
@@ -150,9 +153,10 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 		return buildGlyphLayoutMask(layout)
 	}
 	key := glyphMaskKey{
-		face:  layout.Face,
-		glyph: layout.Glyph,
-		size:  layout.Area.Size(),
+		face:   layout.Face,
+		glyph:  layout.Glyph,
+		size:   layout.Area.Size(),
+		target: layout.Target.Size(),
 	}
 	if cache.items != nil {
 		if mask, ok := cache.items[key]; ok {
@@ -196,8 +200,12 @@ func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 		return scaledGlyphLayoutMask(layout, dot, layout.ScaleMode)
 	case KindFallback:
 		dot.Y += fixed.I(idraw.GlyphVerticalAdjust(layout.Face, dot, layout.Glyph, layout.Area))
-		if dr, ok := idraw.GlyphRasterBounds(layout.Face, dot, layout.Glyph); ok && idraw.FallbackGlyphNeedsScale(dr, layout.Target) {
-			return scaledGlyphLayoutMask(layout, dot, idraw.ScaleDefault)
+		if dr, ok := idraw.GlyphRasterBounds(layout.Face, dot, layout.Glyph); ok {
+			if idraw.FallbackGlyphNeedsScale(dr, layout.Target) {
+				return scaledGlyphLayoutMask(layout, dot, idraw.ScaleDefault)
+			}
+			shift := layout.spanShift(dr)
+			dot = dot.Add(fixed.P(shift.X, shift.Y))
 		}
 	}
 	dr, mask, maskp, _, ok := layout.Face.Glyph(dot, layout.Rune)
@@ -215,5 +223,21 @@ func scaledGlyphLayoutMask(layout *Layout, dot fixed.Point26_6, mode idraw.Scale
 	if !ok {
 		return cachedGlyphMask{}, false
 	}
+	dr = dr.Add(layout.spanShift(dr))
 	return cachedGlyphMask{offset: dr.Min.Sub(layout.Area.Min), alpha: mask}, true
+}
+
+// spanShift returns the move that puts ink dr where Ghostty aligns an icon
+// that may grow past its cell: ink that already lies within the first cell
+// stays put. Anything else is centered vertically in the target, and
+// horizontally in the first cell, or starts at its left edge when wider than
+// it, leaving the room after it empty (Ghostty's center1 alignment).
+func (l *Layout) spanShift(dr image.Rectangle) image.Point {
+	if !l.SpansNext || dr.In(image.Rect(l.Area.Min.X, dr.Min.Y, l.Area.Max.X, dr.Max.Y)) {
+		return image.Point{}
+	}
+	return image.Pt(
+		l.Area.Min.X+max(0, (l.Area.Dx()-dr.Dx())/2)-dr.Min.X,
+		l.Target.Min.Y+(l.Target.Dy()-dr.Dy())/2-dr.Min.Y,
+	)
 }
