@@ -111,16 +111,16 @@ func ScaledGlyphMask(target image.Rectangle, face font.Face, glyph string, dot f
 		}
 		out = image.Rect(x0, target.Min.Y-bleedY, x0+dw, target.Min.Y-bleedY+dh)
 	case ScaleDefault, ScaleFitCover1:
-		var sx, sy float64
-		if mode == ScaleFitCover1 {
-			sx = min(float64(target.Dx())/float64(dr.Dx()), float64(target.Dy())/float64(dr.Dy()))
-			sy = sx
-		} else {
-			sx = min(1, float64(target.Dx())/float64(dr.Dx()))
-			sy = min(1, float64(target.Dy())/float64(dr.Dy()))
+		// One scale for both axes, so the glyph keeps its aspect ratio:
+		// a round icon that is too wide for its cell shrinks into it
+		// instead of being squashed into an oval. ScaleDefault only ever
+		// shrinks; ScaleFitCover1 also grows to fit.
+		s := min(float64(target.Dx())/float64(dr.Dx()), float64(target.Dy())/float64(dr.Dy()))
+		if mode == ScaleDefault {
+			s = min(1, s)
 		}
-		dw := max(1, int(math.Round(float64(dr.Dx())*sx)))
-		dh := max(1, int(math.Round(float64(dr.Dy())*sy)))
+		dw := max(1, int(math.Round(float64(dr.Dx())*s)))
+		dh := max(1, int(math.Round(float64(dr.Dy())*s)))
 		x0 := target.Min.X + (target.Dx()-dw)/2
 		y0 := target.Min.Y + (target.Dy()-dh)/2
 		out = image.Rect(x0, y0, x0+dw, y0+dh)

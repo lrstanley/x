@@ -134,17 +134,44 @@ func TestIconHeightRendering(t *testing.T) {
 		if !ok {
 			t.Fatal("icon produced no ink")
 		}
-		textScr := newTestScreen(1, 1)
-		textScr.SetCell(0, 0, &screen.Cell{Content: "H", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-		textBounds, ok := inkBounds(drawNRGBA(t, d, textScr), ctx.cellBounds(0, 0), bg)
-		if !ok {
-			t.Fatal("text glyph produced no ink")
+		// The globe is round and wider than one cell, so it shrinks to
+		// the cell width and stays round.
+		cell := ctx.cellBounds(0, 0)
+		if d := bounds.Dx() - bounds.Dy(); d < -1 || d > 1 {
+			t.Fatalf("default icon ink = %dx%d, want it to keep its round aspect", bounds.Dx(), bounds.Dy())
 		}
-		if bounds.Dy() < textBounds.Dy() {
-			t.Fatalf("default icon ink height = %d, want at least text cap height %d", bounds.Dy(), textBounds.Dy())
+		if bounds.Dx() < cell.Dx()-2 {
+			t.Fatalf("default icon ink width = %d, want it to fill the cell width %d", bounds.Dx(), cell.Dx())
 		}
 		if bounds.Dy() > ctx.Metrics().IconHeightSingle.Int() {
 			t.Fatalf("default icon ink height = %d, want <= IconHeightSingle %d", bounds.Dy(), ctx.Metrics().IconHeightSingle)
+		}
+	})
+
+	t.Run("keeps aspect ratio when shrinking", func(t *testing.T) {
+		t.Parallel()
+
+		// fa-question-circle is round and fa-key's ink is about as wide as
+		// it is tall; both overflow one cell horizontally and must shrink
+		// without squashing, centered in the icon band.
+		const aspect = 1.0
+		for _, icon := range []rune{'\uf059', '\uf084'} {
+			scr := newTestScreen(1, 1)
+			scr.SetCell(0, 0, &screen.Cell{Content: string(icon), Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			d := MustNew(fontOpts...)
+			ctx := d.layoutSnapshot(t, image.Point{}, scr)
+			cell := ctx.cellBounds(0, 0)
+			b, ok := inkBounds(drawNRGBA(t, d, scr), cell, bg)
+			if !ok {
+				t.Fatalf("%U produced no ink", icon)
+			}
+			if got := float64(b.Dx()) / float64(b.Dy()); got < aspect*0.85 || got > aspect*1.15 {
+				t.Errorf("%U ink = %dx%d (aspect %.2f), want about %.2f", icon, b.Dx(), b.Dy(), got, aspect)
+			}
+			mid := cell.Min.Y + cell.Dy()/2
+			if c := (b.Min.Y + b.Max.Y) / 2; c < mid-1 || c > mid+1 {
+				t.Errorf("%U ink rows %d..%d, want centered on row %d", icon, b.Min.Y, b.Max.Y, mid)
+			}
 		}
 	})
 
