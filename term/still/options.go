@@ -220,7 +220,12 @@ func WithSystemFontFallback(enabled bool) Option {
 	}
 }
 
-// WithPalette replaces the renderer palette.
+// WithPalette sets the terminal color theme: the ANSI indexed colors, default
+// foreground and background, cursor, margin, and progress/status colors used
+// whenever a cell or control sequence doesn't specify one. Fields left unset
+// fall back to built-in defaults. It applies to every frame drawn, whatever the
+// output format. To control the GIF color table instead, see
+// [export.WithPalette].
 func WithPalette(palette Palette) Option {
 	return func(d *Renderer) error {
 		d.opts.Palette = config.ClonePalette(palette)
@@ -342,6 +347,7 @@ func WithPadding(px int) Option {
 }
 
 // WithBackgroundOpacity sets terminal background opacity in the range [0,1].
+// Defaults to 1 (fully opaque).
 func WithBackgroundOpacity(opacity float64) Option {
 	return func(d *Renderer) error {
 		if opacity < 0 || opacity > 1 {
@@ -360,7 +366,8 @@ func WithBackgroundOpacityCells(enabled bool) Option {
 	}
 }
 
-// WithFaintFactor sets how far faint foreground colors blend toward the background.
+// WithFaintFactor sets how far faint foreground colors blend toward the
+// background, in the range [0,1]. Defaults to 0.5.
 func WithFaintFactor(factor float64) Option {
 	return func(d *Renderer) error {
 		if factor < 0 || factor > 1 {
@@ -372,6 +379,7 @@ func WithFaintFactor(factor float64) Option {
 }
 
 // WithFocusDimming sets the unfocused dimming overlay opacity in the range [0,1].
+// Defaults to 0.16. A value of 0 disables dimming.
 func WithFocusDimming(factor float64) Option {
 	return func(d *Renderer) error {
 		if factor < 0 || factor > 1 {
@@ -395,7 +403,8 @@ func WithClock(now func() time.Time) Option {
 	}
 }
 
-// WithCursorBlinkSpeed sets the blink speed for the cursor when blinking is enabled.
+// WithCursorBlinkSpeed sets the blink speed for the cursor when blinking is
+// enabled. Defaults to 600ms.
 func WithCursorBlinkSpeed(speed time.Duration) Option {
 	return func(d *Renderer) error {
 		if speed <= 0 {

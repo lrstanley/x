@@ -197,8 +197,10 @@ func WithOptimize(flags OptimizeFlags) Option {
 	}
 }
 
-// WithPalette overrides the capture palette for GIF palettization, replacing
-// the palette built from captured colors (see package documentation).
+// WithPalette overrides the GIF color table (a [color.Palette] of at most 256
+// colors), replacing the palette built from captured colors (see package
+// documentation). This is not the terminal color theme; for that, see
+// [still.WithPalette].
 // Disables automatic palette compaction when [OptimizeColorQuantization] is
 // set. When using disposal optimization, palettes with 256 entries should
 // reserve [TransparentPaletteIndex] (255) as a zero-alpha color; see package
