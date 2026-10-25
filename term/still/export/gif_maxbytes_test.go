@@ -139,10 +139,3 @@ func TestGIFMaxBytesAccounting(t *testing.T) {
 		}
 	}
 }
-
-func TestWithMaxBytesGIFOnly(t *testing.T) {
-	t.Parallel()
-	if _, err := collectOptions(formatPNG, WithMaxBytes(10)); err == nil {
-		t.Fatal("WithMaxBytes should be rejected for PNG")
-	}
-}

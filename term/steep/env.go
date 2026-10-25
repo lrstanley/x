@@ -68,6 +68,14 @@ func applyEnv(tb testing.TB, cfg *options) {
 		}
 	}
 
+	if v := os.Getenv("STEEP_EXPORT_QUALITY"); v != "" {
+		// Out of range values are ignored, as the video encoder would reject
+		// them.
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 && n <= export.MaxQuality {
+			cfg.exportOpts = append(cfg.exportOpts, export.WithQuality(n))
+		}
+	}
+
 	if v := os.Getenv("STEEP_EXPORT_DIR"); v != "" {
 		cfg.exportDir = v
 	}
@@ -122,6 +130,12 @@ func parseExportTypes(raw string) ExportType {
 			t |= ExportTypePNG
 		case "gif":
 			t |= ExportTypeGIF
+		case "mp4":
+			t |= ExportTypeMP4
+		case "webm":
+			t |= ExportTypeWebM
+		case "webp":
+			t |= ExportTypeWebP
 		case "log":
 			t |= ExportTypeLog
 		case "snapshot", "snap":

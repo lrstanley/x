@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"io"
 	"testing"
 	"time"
 
@@ -87,7 +88,10 @@ func BenchmarkDrawInto(b *testing.B) {
 func BenchmarkRenderAndExportFrame(b *testing.B) {
 	scr := benchmarkTerminalScreen()
 	d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)))
-	rec := export.NewPalettizedRecorder()
+	enc, err := export.NewGIF(io.Discard, export.WithOptimize(export.OptimizeFrames))
+	if err != nil {
+		b.Fatal(err)
+	}
 	cursorVisible := false
 	cursor := screen.Cell{
 		Content: "_",
@@ -105,7 +109,7 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 		cursorVisible = !cursorVisible
 
 		d.DrawInto(frame, frame.Bounds(), scr)
-		if err := rec.AddFrame(frame, time.Millisecond); err != nil {
+		if err := enc.WriteFrame(export.Frame{Image: frame, Delay: time.Millisecond}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -122,7 +126,7 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 		cursorVisible = !cursorVisible
 
 		d.DrawInto(frame, frame.Bounds(), scr)
-		if err := rec.AddFrame(frame, time.Millisecond); err != nil {
+		if err := enc.WriteFrame(export.Frame{Image: frame, Delay: time.Millisecond}); err != nil {
 			b.Fatal(err)
 		}
 	}

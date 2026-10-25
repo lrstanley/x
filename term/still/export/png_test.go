@@ -45,33 +45,6 @@ func TestPNGTransparency(t *testing.T) {
 	})
 }
 
-func TestPNGRejectsGIFOnlyOptions(t *testing.T) {
-	t.Parallel()
-
-	src := image.NewNRGBA(image.Rect(0, 0, 4, 4))
-	path := t.TempDir() + "/bad.png"
-
-	cases := []struct {
-		name string
-		opt  Option
-	}{
-		{"WithPalette", WithPalette(defaultGIFPalette())},
-		{"WithBackground", WithBackground(color.Black)},
-		{"WithFrameRate", WithFrameRate(30, false, func() image.Image { return src })},
-		{"WithChannel", WithChannel(make(<-chan Frame))},
-		{"WithMaxFrames", WithMaxFrames(10)},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if err := PNG(src, path, tc.opt); err == nil {
-				t.Fatalf("expected error for %s on PNG", tc.name)
-			}
-		})
-	}
-}
-
 func TestPNGIgnoresLoopCount(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +54,31 @@ func TestPNGIgnoresLoopCount(t *testing.T) {
 		if err := PNG(src, path, WithLoopCount(n)); err != nil {
 			t.Fatalf("WithLoopCount(%d): %v", n, err)
 		}
+	}
+}
+
+// TestPNGIgnoresGIFOptions covers sharing one option list between PNG and GIF,
+// as steep does.
+func TestPNGIgnoresGIFOptions(t *testing.T) {
+	t.Parallel()
+
+	src := solidNRGBA(8, 8, color.NRGBA{R: 0xff, G: 0x00, B: 0x80, A: 0xff})
+	path := t.TempDir() + "/gif-options.png"
+	err := PNG(
+		src, path,
+		WithPalette(color.Palette{color.Black, color.White}),
+		WithBackground(color.White),
+		WithFrameRate(MaxFrameRate+1, true, nil),
+		WithChannel(make(chan Frame)),
+		WithDelayGrid(0),
+		WithMaxFrames(10),
+		WithMaxBytes(1024),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
 	}
 }
 

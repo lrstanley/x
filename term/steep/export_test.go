@@ -173,7 +173,7 @@ func TestExportPipelineDelay(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ch := make(chan export.Frame, 1)
-			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, speed: tc.speed, out: ch}
+			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, speed: tc.speed, out: []chan<- export.Frame{ch}}
 			p.record(labelImage(0), start, frameSource{})
 			p.finish(start.Add(tc.elapsed), false)
 			if got := (<-ch).Delay; got != tc.want {
@@ -228,12 +228,8 @@ func TestExportGIFOmitsProgramExitRepaint(t *testing.T) {
 // finishGIF quits the program, finalizes export, and decodes the recorded GIF.
 func finishGIF(t *testing.T, h *Harness, failed bool) *gif.GIF {
 	t.Helper()
-	h.QuitProgram()
-	h.WaitFinished()
-	if err := h.export.Finalize(failed); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(h.export.gifPath)
+	finishExport(t, h, failed)
+	f, err := os.Open(h.export.mediaPath("gif"))
 	if err != nil {
 		t.Fatal(err)
 	}

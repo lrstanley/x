@@ -50,12 +50,13 @@ func TestColorEmojiGIF(t *testing.T) {
 	scr := newTestScreen(labelW+34, len(rows)+2)
 	putText(scr, 0, 0, "color emoji, bundled Noto subset", style)
 
-	ch := make(chan export.Frame)
-	rec, err := export.GIF(export.WithChannel(ch), export.WithLoopCount(0))
+	enc, err := export.CreateGIF(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch <- export.Frame{Image: drawIntoNRGBA(d, scr), Delay: 700 * time.Millisecond}
+	if err = enc.WriteFrame(export.Frame{Image: drawIntoNRGBA(d, scr), Delay: 700 * time.Millisecond}); err != nil {
+		t.Fatal(err)
+	}
 	for i, row := range rows {
 		putText(scr, 0, i+2, row.label, dim)
 		putText(scr, labelW, i+2, row.text, row.style)
@@ -63,18 +64,11 @@ func TestColorEmojiGIF(t *testing.T) {
 		if i == len(rows)-1 {
 			delay = 4 * time.Second
 		}
-		ch <- export.Frame{Image: drawIntoNRGBA(d, scr), Delay: delay}
+		if err = enc.WriteFrame(export.Frame{Image: drawIntoNRGBA(d, scr), Delay: delay}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	close(ch)
-	if err = rec.Close(); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if err = rec.EncodeAll(f); err != nil {
+	if err = enc.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

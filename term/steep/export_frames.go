@@ -6,13 +6,15 @@ package steep
 
 import (
 	"image"
+	"sync/atomic"
 	"time"
 
 	"github.com/lrstanley/x/term/still/export"
 	"github.com/lrstanley/x/term/vt"
 )
 
-// ExportFrame is one recorded frame on its way to the GIF encoder.
+// ExportFrame is one recorded frame on its way to the encoders (the GIF and any
+// video).
 type ExportFrame struct {
 	// Image is the frame's pixels, an *image.NRGBA for recorded frames and
 	// cards. Neighboring frames may share it, so treat it as read-only: draw
@@ -87,10 +89,10 @@ type ExportContext struct {
 type ExportMutator func(ec ExportContext, frame ExportFrame, emit func(ExportFrame))
 
 // exportPipeline runs recorded frames through the [ExportMutator] chain into
-// out. It holds back the newest recorded frame until the next one (or
-// finish) says how long it was on screen, and each stage holds back one frame
-// so it can tell its mutator which frame is last once the stages before it
-// have finished. It runs on the test goroutine.
+// every channel of out. It holds back the newest recorded frame until the next
+// one (or finish) says how long it was on screen, and each stage holds back one
+// frame so it can tell its mutator which frame is last once the stages before
+// it have finished. It runs on the test goroutine.
 type exportPipeline struct {
 	// base holds the fields of every [ExportContext] that do not depend on
 	// the frame.
@@ -100,7 +102,9 @@ type exportPipeline struct {
 	speed  float64
 	newest sourcedFrame
 	stages []mutatorStage
-	out    chan<- export.Frame
+	// out holds one channel per recorded output, each of which receives every
+	// frame.
+	out []chan<- export.Frame
 }
 
 // sourcedFrame is a frame with the terminal it was drawn from. Frames a
@@ -198,11 +202,14 @@ func (p *exportPipeline) push(i int, f sourcedFrame) {
 	if i == len(p.stages) {
 		out := export.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step), Isolated: f.Isolated}
 		if len(p.stages) == 0 {
-			// Without mutators nothing else shares the image, so the encoder
-			// may recycle it. Mutators can emit one image for several frames.
-			out.Done = func() { releaseNRGBA(f.Image) }
+			// Without mutators nothing else shares the image, so the encoders
+			// may recycle it once all of them are done. Mutators can emit one
+			// image for several frames.
+			out.Done = doneAfter(func() { releaseNRGBA(f.Image) }, len(p.out))
 		}
-		p.out <- out
+		for _, ch := range p.out {
+			ch <- out
+		}
 		return
 	}
 	s := &p.stages[i]
@@ -234,4 +241,21 @@ func (p *exportPipeline) run(i int, f sourcedFrame, last, failed bool) {
 	s.mutate(ec, f.ExportFrame, func(out ExportFrame) {
 		p.push(i+1, sourcedFrame{out, f.src})
 	})
+}
+
+// doneAfter returns a function that calls done on its n-th call. Each of n
+// encoders sharing one frame gets it as [export.Frame.Done], so the image is
+// only released after the last encoder has finished with it. The encoders may
+// call it from different goroutines.
+func doneAfter(done func(), n int) func() {
+	if n <= 1 {
+		return done
+	}
+	var left atomic.Int32
+	left.Store(int32(n)) //nolint:gosec // The number of outputs is at most four.
+	return func() {
+		if left.Add(-1) == 0 {
+			done()
+		}
+	}
 }

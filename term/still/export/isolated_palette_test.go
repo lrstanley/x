@@ -52,7 +52,11 @@ func encodeFrames(t *testing.T, frames []Frame, opts ...Option) (g *gif.GIF, raw
 	t.Helper()
 	ch := make(chan Frame)
 	var buf bytes.Buffer
-	closer, err := WriteGIF(&buf, append([]Option{WithChannel(ch)}, opts...)...)
+	enc, err := NewGIF(&buf, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := Record(enc, WithChannel(ch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +64,7 @@ func encodeFrames(t *testing.T, frames []Frame, opts ...Option) (g *gif.GIF, raw
 		ch <- frame
 	}
 	close(ch)
-	if err = closer(); err != nil {
+	if err = rec.Close(); err != nil {
 		t.Fatal(err)
 	}
 	g, err = gif.DecodeAll(bytes.NewReader(buf.Bytes()))

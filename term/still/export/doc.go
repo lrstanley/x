@@ -2,16 +2,51 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package export encodes still renderer output to PNG and GIF.
+// Package export encodes still renderer output to PNG and GIF, and through
+// ffmpeg to MP4, WebM, and animated WebP.
 //
-// GIF capture accumulates per-frame delays as [time.Duration] internally;
-// conversion to centiseconds (1/100s) happens at finalize. Delays shorter than
-// 10 ms round up to 1 cs. A single GIF frame stores at most 65535cs (~655.35s);
-// longer [DisposalNone] holds are split into a full frame plus 1×1 transparent
-// continuations so the timeline is preserved. [WithChannel] accepts explicit [Frame.Delay] values preserved as
-// Duration until finalize; zero delay accumulates elapsed wall time since the
-// last capture attempt (including deduped ticks). Non-strict [WithFrameRate]
-// snaps accumulated delays to the nearest nominal FPS grid at finalize.
+// An animation is a [Recorder] writing into an [Encoder]: [CreateGIF] or
+// [NewGIF] for GIF, [CreateVideo] for video. The recorder reads [Frame] values
+// from [WithChannel], or captures them with [WithFrameRate], and resolves
+// every delay before the encoder sees it: a zero [Frame.Delay] becomes the
+// time since the previous frame, and each delay is rounded to whole steps of
+// the delay grid ([WithDelayGrid], the [WithFrameRate] FPS, or 10ms), at least
+// one step. Encoders fed the same frames therefore play on the same timeline.
+// [Recorder.Close] finishes the output; a recording with an invalid frame or
+// an encoder error is discarded instead. Encoders can also be written to
+// directly with [Encoder.WriteFrame].
+//
+// Options are shared: the recorder, every encoder, and [PNG] each check the
+// options they read and ignore the rest, so one list can configure them all.
+//
+// # Video
+//
+// [CreateVideo] encodes MP4 (H.264), WebM (VP9), or animated WebP through
+// ffmpeg, which must be installed: it is looked up on PATH, or set with
+// [WithFFmpeg]. The binary and the format's encoder are checked when the
+// encoder is created, so a missing one fails before anything is recorded
+// ([ErrFFmpegNotFound], [MissingEncoderError]); [CheckVideo] runs the same
+// check alone. Frames stream into ffmpeg's stdin uncompressed, each with its
+// own timestamp and duration, so ffmpeg encodes while frames arrive and a
+// hold stays one frame.
+//
+// MP4 and WebM are 4:2:0 by default for compatibility ([WithFullChroma] keeps
+// full color resolution), padded to even dimensions, and composited onto
+// [WithBackground] (black by default). WebP keeps transparency and
+// [WithLoopCount], and is lossless by default. [WithQuality] trades size for
+// fidelity in every format.
+//
+// [CreateGIF] and [CreateVideo] write a temporary file beside the
+// destination, renamed into place only once the output is complete, so a
+// failed or discarded recording leaves an existing file alone.
+//
+// # GIF
+//
+// GIF stores delays in centiseconds, so the 10ms default grid is exact. A
+// single GIF frame stores at most 65535cs (~655.35s); longer [DisposalNone]
+// holds are split into a full frame plus 1×1 transparent continuations so the
+// timeline is preserved. A frame identical to the previous one is merged into
+// it, adding its delay ([OptimizeFrames]).
 //
 // GIF capture keeps every frame by default. [WithMaxFrames] limits it to the
 // last n palettized frames (after dedup when [OptimizeFrames] is enabled), and
@@ -20,7 +55,7 @@
 // frame delays are not carried forward; disposal optimization runs on the
 // retained window only.
 //
-// [WithLoopCount] sets how many times a GIF animation repeats. The default,
+// [WithLoopCount] sets how many times a GIF (or WebP) animation repeats. The default,
 // [LoopForever], loops until the viewer stops. [LoopOnce] plays the animation
 // a single time. PNG ignores [WithLoopCount].
 //

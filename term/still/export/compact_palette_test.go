@@ -128,7 +128,12 @@ func TestCompactPaletteMatchesReference(t *testing.T) {
 func encodeSyntheticGIF(tb testing.TB, frames int) []byte {
 	tb.Helper()
 	ch := make(chan Frame)
-	rec, err := GIF(WithChannel(ch))
+	var buf bytes.Buffer
+	enc, err := NewGIF(&buf)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	rec, err := Record(enc, WithChannel(ch))
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -142,10 +147,6 @@ func encodeSyntheticGIF(tb testing.TB, frames int) []byte {
 	}
 	close(ch)
 	if err = rec.Close(); err != nil {
-		tb.Fatal(err)
-	}
-	var buf bytes.Buffer
-	if err = rec.EncodeAll(&buf); err != nil {
 		tb.Fatal(err)
 	}
 	return buf.Bytes()

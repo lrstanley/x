@@ -148,8 +148,7 @@ func copyNRGBA(dst, src *image.NRGBA) {
 }
 
 func clearRectNRGBA(pm *image.NRGBA, r image.Rectangle, bg color.Color) {
-	br, bgC, bb, _ := bg.RGBA()
-	c := color.NRGBA{R: uint8(br >> 8), G: uint8(bgC >> 8), B: uint8(bb >> 8), A: 0xff} //nolint:gosec // RGBA contract.
+	c := opaqueNRGBA(bg)
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		for x := r.Min.X; x < r.Max.X; x++ {
 			if image.Pt(x, y).In(pm.Bounds()) {

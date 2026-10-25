@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	// defaultExportFPS is the GIF delay grid. 20 FPS (5cs steps) plays back at
-	// the requested speed in browsers, which clamp very short delays to 10 FPS.
+	// defaultExportFPS is the GIF and video delay grid. 20 FPS (5cs steps)
+	// plays back at the requested speed in browsers, which clamp very short
+	// delays to 10 FPS.
 	defaultExportFPS = 20
-	// defaultExportSpeed plays the GIF at the speed the test ran.
+	// defaultExportSpeed plays recordings at the speed the test ran.
 	defaultExportSpeed = 1.0
 )
 
@@ -150,10 +151,7 @@ func (h *Harness) awaitsPaint(event HookEvent) bool {
 	if h.export == nil || h.export.mode == ExportOff {
 		return false
 	}
-	visual := h.export.types.has(ExportTypeGIF) ||
-		h.export.types.has(ExportTypePNG) ||
-		h.export.types.has(ExportTypeSnapshot)
-	if !visual {
+	if !h.export.types.has(exportTypeVisual) {
 		return false
 	}
 	return event == HookInput || event == HookProgram || event == HookTerminal

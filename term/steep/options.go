@@ -313,13 +313,24 @@ func WithIgnoreEnv(ignore bool) Option {
 }
 
 // WithExport enables artifact export hooks for the given mode and types. opts
-// are passed to the PNG/GIF encoders (see [export.Option]).
+// are passed to the PNG, GIF, and video encoders (see [export.Option]), each of
+// which ignores the ones it does not use.
 //
 // With [ExportOn], artifacts are written as the test runs. With
 // [ExportOnFailure], they are buffered and only written when the test fails.
 // [ExportOff] disables export (except [ExportTypeLog], see [ExportMode]). If
 // types is 0 and mode is not [ExportOff], GIF and PNG are exported. Files go to
 // [WithExportDir], else [testing.TB.ArtifactDir].
+//
+// [ExportTypeMP4], [ExportTypeWebM], and [ExportTypeWebP] record the same
+// frames as the GIF as a video ("name.mp4", "name.webm", "name.webp", or
+// "name_failed.<ext>" for [ExportOnFailure]), in any combination with the other
+// types. They are encoded by ffmpeg, which must be on PATH ([export.WithFFmpeg]
+// points elsewhere), along with the format's encoder (libx264, libvpx-vp9, or
+// libwebp). [ExportTypeAll] does not include them. If ffmpeg or the encoder is
+// missing, the harness fails right away rather than at the end of the test, so
+// remove the type from here or from STEEP_EXPORT_TYPE to run without it.
+// [export.WithQuality] and [export.WithFullChroma] tune the encode.
 //
 // Without [WithExportDir], artifacts are only persisted when the tests are run
 // with "go test -artifacts" (Go 1.26+). Otherwise, [testing.TB.ArtifactDir] is a
@@ -328,9 +339,9 @@ func WithIgnoreEnv(ignore bool) Option {
 //
 // Environment (each overrides this option unless [WithIgnoreEnv] is set):
 // STEEP_EXPORT_MODE (on, off, failure), STEEP_EXPORT_TYPE (comma-separated png,
-// gif, log, snapshot, or all), STEEP_EXPORT_OPTIMIZE, STEEP_EXPORT_MAX_FRAMES,
-// STEEP_EXPORT_MAX_BYTES,
-// STEEP_EXPORT_DIR.
+// gif, mp4, webm, webp, log, snapshot, or all, which excludes the video types),
+// STEEP_EXPORT_OPTIMIZE, STEEP_EXPORT_MAX_FRAMES, STEEP_EXPORT_MAX_BYTES,
+// STEEP_EXPORT_QUALITY (0 to 100, for video), STEEP_EXPORT_DIR.
 //
 // GIF recordings keep every frame unless [export.WithMaxFrames] or
 // [export.WithMaxBytes] (or their environment variables) set a limit. Frames
@@ -367,11 +378,11 @@ func WithExportName(name string) Option {
 	}
 }
 
-// WithExportMutators appends [ExportMutator]s that change GIF frames between
-// the terminal and the encoder: overlays, inserted cards, holds, and so on.
-// Calls accumulate. The key overlay from [WithExportKeys] and the cards from
-// [WithExportIntro] and [WithExportOutro] are added after every mutator, in
-// that order, so overlays never cover the keys or the cards.
+// WithExportMutators appends [ExportMutator]s that change GIF and video frames
+// between the terminal and the encoders: overlays, inserted cards, holds, and
+// so on. Calls accumulate. The key overlay from [WithExportKeys] and the cards
+// from [WithExportIntro] and [WithExportOutro] are added after every mutator,
+// in that order, so overlays never cover the keys or the cards.
 //
 // Mutators run in order, and each sees the frames the ones before it
 // emitted. A later mutator draws on top of an earlier one and sees any cards
@@ -391,10 +402,10 @@ func WithExportMutators(mutators ...ExportMutator) Option {
 }
 
 // WithExportKeys overlays the keys the test presses (see [Harness.Key] and
-// [Harness.Type]) on GIF recordings, in the bottom right corner. Keys pressed
-// within d of each other are shown together, repeats as one key with a count,
-// and stay for d after the last of them, fading out over its final third.
-// Paste and mouse input are not shown. A d of zero or less removes the
+// [Harness.Type]) on GIF and video recordings, in the bottom right corner. Keys
+// pressed within d of each other are shown together, repeats as one key with a
+// count, and stay for d after the last of them, fading out over its final
+// third. Paste and mouse input are not shown. A d of zero or less removes the
 // overlay.
 //
 // The overlay splits frames wherever it changes, which adds a few frames per
@@ -454,11 +465,13 @@ func WithSlow(d time.Duration) Option {
 	}
 }
 
-// WithExportFPS sets the frame rate grid for exported GIFs (default 20, clamped
-// to 1-100). Each frame is shown for the real time it was on screen, snapped
-// to the nearest multiple of 1/fps, and never for less than one step, so every
-// distinct screen the program painted stays visible even when several paints
-// land in the same instant. It does not sleep the test (see [WithSlow]).
+// WithExportFPS sets the frame rate grid for exported GIFs and videos (default
+// 20, clamped to 1-100). Each frame is shown for the real time it was on
+// screen, snapped to the nearest step of 1/fps (rounded down to whole
+// centiseconds, see [export.WithDelayGrid]), and never for less than one step,
+// so every distinct screen the program painted stays visible even when several
+// paints land in the same instant. It does not sleep the test (see
+// [WithSlow]).
 //
 // GIF delays are centiseconds, and browsers often cap playback near 50 FPS and
 // clamp higher rates to 10 FPS, so prefer 10 or 20. See [export.WithFrameRate]

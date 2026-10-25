@@ -7,76 +7,159 @@ package export
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
 	"io"
 	"math"
-	"os"
 	"slices"
-	"sync"
 	"time"
 )
 
-// FrameRecorder captures GIF frames, then finalizes and encodes via [FrameRecorder.EncodeAll].
-// Call [FrameRecorder.Close] to stop capture goroutines; encoding does not happen on close.
-type FrameRecorder interface {
-	// Frames returns frames captured so far (palettized images and duration delays).
-	Frames() []Frame
-	// EncodeAll runs disposal, palette, and transparency passes, then writes the GIF to w.
-	// w must be non-nil.
-	EncodeAll(w io.Writer) error
-	// Close stops capture and waits for background goroutines. Does not encode.
-	Close() error
+// GIFEncoder is an [Encoder] that writes an animated GIF. It keeps every frame
+// palettized in memory, deduplicating and diffing them as they arrive, and
+// encodes the GIF on [GIFEncoder.Close]: the global palette, disposal, and
+// palette compaction passes need the whole recording.
+//
+// It reads [WithOptimize], [WithPalette], [WithBackground], [WithLoopCount],
+// [WithMaxFrames], and [WithMaxBytes]. Other options are ignored.
+type GIFEncoder struct {
+	opts options
+	// palette is the capture palette; custom when WithPalette is set, otherwise
+	// the adaptive palette built from captured colors.
+	palette color.Palette
+	rec     *gifRecording
+	// w receives the GIF on Close. file, when set, is the temporary file
+	// behind w, which Close moves into place.
+	w    io.Writer
+	file *pendingFile
+	// err is the first frame error; once set, frames are rejected and Close
+	// writes nothing.
+	err  error
+	done bool
 }
 
-// GIF returns a new GIF-based [FrameRecorder].
-func GIF(opts ...Option) (FrameRecorder, error) {
-	cfg, err := collectOptions(formatGIF, opts...)
-	if err != nil {
-		return nil, err
-	}
-	rec := newGIFRecorder(cfg)
-	rec.start()
-	return rec, nil
-}
+var _ Encoder = (*GIFEncoder)(nil)
 
-// WriteGIF records animated frames for encoding to w. The returned closer calls
-// [FrameRecorder.Close] then [FrameRecorder.EncodeAll] with w; later calls are no-op.
-func WriteGIF(w io.Writer, opts ...Option) (closer func() error, err error) {
+// NewGIF returns an encoder that writes the GIF to w on [GIFEncoder.Close].
+func NewGIF(w io.Writer, opts ...Option) (*GIFEncoder, error) {
 	if w == nil {
 		return nil, errors.New("export: nil writer")
 	}
-	cfg, err := collectOptions(formatGIF, opts...)
+	cfg, err := collectOptions(validateGIF, opts...)
 	if err != nil {
 		return nil, err
 	}
-	rec := newGIFRecorder(cfg)
-	rec.start()
-	return rec.finishCloser(w), nil
+	return newGIFEncoder(w, cfg), nil
 }
 
-// MustGIF is a convenience wrapper around [GIF] that panics on setup, encode, or close
-// errors. The returned function closes capture, then encodes to path.
-func MustGIF(path string, opts ...Option) func() {
-	rec, err := GIF(opts...)
+// CreateGIF returns an encoder that writes the GIF to path. It is written to a
+// temporary file beside path, which [GIFEncoder.Close] renames into place, so
+// a failed or discarded recording leaves an existing file alone.
+func CreateGIF(path string, opts ...Option) (*GIFEncoder, error) {
+	cfg, err := collectOptions(validateGIF, opts...)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return func() {
-		if err := rec.Close(); err != nil {
-			panic(err)
-		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		if err := rec.EncodeAll(f); err != nil {
-			panic(err)
+	file, err := createPending(path)
+	if err != nil {
+		return nil, fmt.Errorf("export: creating gif output: %w", err)
+	}
+	e := newGIFEncoder(file.f, cfg)
+	e.file = file
+	return e, nil
+}
+
+func newGIFEncoder(w io.Writer, cfg options) *GIFEncoder {
+	var adaptive *adaptivePalette
+	pal := cfg.palette
+	if !cfg.paletteSet {
+		adaptive = newAdaptivePalette(true)
+		adaptive.rollover = true
+		pal = adaptive.pal
+	}
+	return &GIFEncoder{
+		opts:    cfg,
+		palette: pal,
+		w:       w,
+		rec: &gifRecording{
+			loopCount: cfg.loopCount,
+			config:    image.Config{ColorModel: pal},
+			adaptive:  adaptive,
+			maxFrames: cfg.maxFrames,
+			maxBytes:  cfg.maxBytes,
+		},
+	}
+}
+
+// WriteFrame palettizes f and adds it to the recording. f.Delay is rounded to
+// whole centiseconds (at least one) when the GIF is encoded; a frame identical
+// to the previous one only adds its delay to it.
+func (e *GIFEncoder) WriteFrame(f Frame) error {
+	switch {
+	case e.done:
+		return errors.New("export: write to closed gif encoder")
+	case e.err != nil:
+		return e.err
+	}
+	e.err = appendRecordingFrame(
+		e.rec, e.palette, false, e.opts.optimize,
+		e.opts.background, e.opts.backgroundSet, f.Isolated, f.Image, f.Delay,
+	)
+	return e.err
+}
+
+// Close encodes the GIF. With no frames written, or after a frame error, it
+// writes nothing. Later calls return the same result.
+func (e *GIFEncoder) Close() error {
+	if e.done {
+		return e.err
+	}
+	e.done = true
+	if e.err == nil && len(e.rec.images) > 0 {
+		e.err = encodeGIF(e.w, e.rec, e.opts)
+		if e.err == nil && e.file != nil {
+			e.err = e.file.commit()
 		}
 	}
+	if e.file != nil && (e.err != nil || len(e.rec.images) == 0) {
+		_ = e.file.abort()
+	}
+	return e.err
+}
+
+// Discard drops the recording without writing anything. It returns nil after
+// [GIFEncoder.Close] has run.
+func (e *GIFEncoder) Discard() error {
+	if e.done {
+		return nil
+	}
+	e.done = true
+	if e.file != nil {
+		return e.file.abort()
+	}
+	return nil
+}
+
+// encodeGIF runs the palette, disposal, and transparency passes over rec and
+// writes the GIF to w.
+func encodeGIF(w io.Writer, rec *gifRecording, opts options) error {
+	if !opts.paletteSet {
+		// Frames on any other palette carry a local color table, so the
+		// global one goes to the palette the most frames use.
+		rec.config.ColorModel = busiestPalette(rec.images)
+	}
+	if opts.optimize.has(OptimizeDirtyRects) {
+		optimizeDisposals(rec, opts.background, opts.backgroundSet)
+	}
+	out := buildGIF(rec)
+	if opts.optimize.has(OptimizeColorQuantization) {
+		compactPalettes(out, opts.paletteSet)
+	}
+	ensureTransparentPaletteSlot(out)
+	return gif.EncodeAll(w, out)
 }
 
 // gifRecording accumulates palettized frames and duration delays during capture.
@@ -118,240 +201,6 @@ type gifRecording struct {
 	// It is nil while the newest frame uses the shared palette, and it never
 	// adds colors to adaptive.
 	isolated *adaptivePalette
-}
-
-// gifRecorder captures palettized frames into a [gifRecording].
-type gifRecorder struct {
-	// opts is the validated export configuration for this recording session.
-	opts options
-	// palette is the capture palette; custom when WithPalette is set, otherwise
-	// the adaptive palette built from captured colors.
-	palette color.Palette
-	// rec accumulates frames and duration delays until finalize and encode.
-	rec *gifRecording
-	// lastCapture is wall time of the previous capture attempt, used to derive
-	// non-strict frame delays and deduped idle accumulation.
-	lastCapture time.Time
-	// done is closed by Close to signal capture goroutines to stop.
-	done chan struct{}
-	// wg waits for capture goroutines during close.
-	wg sync.WaitGroup
-	// closeErr stores the first capture or validation error.
-	closeErr error
-	// once ensures done is closed and wg.Wait runs exactly once on close.
-	once sync.Once
-	// encodeOnce ensures EncodeAll runs finalize and write exactly once.
-	encodeOnce sync.Once
-	// encoded records whether EncodeAll completed (including a no-frame encode).
-	encoded bool
-	// captureMu protects capturing for strict-mode tick skipping.
-	captureMu sync.Mutex
-	// capturing is true while a strict-mode frame function call is in progress.
-	capturing bool
-}
-
-var _ FrameRecorder = (*gifRecorder)(nil)
-
-// newGIFRecorder builds a recorder from validated options, selecting the
-// adaptive palette or the custom capture palette with the draw.Draw path.
-func newGIFRecorder(cfg options) *gifRecorder {
-	var adaptive *adaptivePalette
-	pal := cfg.palette
-	if !cfg.paletteSet {
-		adaptive = newAdaptivePalette(true)
-		adaptive.rollover = true
-		pal = adaptive.pal
-	}
-	return &gifRecorder{
-		opts:    cfg,
-		palette: pal,
-		rec: &gifRecording{
-			loopCount: cfg.loopCount,
-			config: image.Config{
-				ColorModel: pal,
-			},
-			adaptive:  adaptive,
-			maxFrames: cfg.maxFrames,
-			maxBytes:  cfg.maxBytes,
-		},
-		done: make(chan struct{}),
-	}
-}
-
-// start launches the frame-rate ticker goroutine and/or channel reader.
-func (r *gifRecorder) start() {
-	if r.opts.frameRateSet {
-		r.wg.Go(r.runFrameRate)
-	}
-	if r.opts.channelSet {
-		r.wg.Go(r.runChannel)
-	}
-}
-
-// Frames returns captured frames and their duration delays. Frames stored as
-// deltas are rebuilt into full frames on each call.
-func (r *gifRecorder) Frames() []Frame {
-	images := r.rec.fullFrames()
-	frames := make([]Frame, len(images))
-	for i, img := range images {
-		var delay time.Duration
-		if i < len(r.rec.delays) {
-			delay = r.rec.delays[i]
-		}
-		frames[i] = Frame{Image: img, Delay: delay}
-	}
-	return frames
-}
-
-// EncodeAll finalizes optimizations and writes the GIF to w.
-func (r *gifRecorder) EncodeAll(w io.Writer) error {
-	var encodeErr error
-	r.encodeOnce.Do(func() {
-		if w == nil {
-			encodeErr = errors.New("export: nil writer")
-			return
-		}
-		if !r.opts.paletteSet && len(r.rec.images) > 0 {
-			// Frames on any other palette carry a local color table, so the
-			// global one goes to the palette the most frames use.
-			r.rec.config.ColorModel = busiestPalette(r.rec.images)
-		}
-		if r.opts.optimize.has(OptimizeDirtyRects) && len(r.rec.images) > 0 {
-			optimizeDisposals(r.rec, r.opts.background, r.opts.backgroundSet)
-		}
-		out := buildGIF(r.rec, r.opts)
-		if r.opts.optimize.has(OptimizeColorQuantization) && len(out.Image) > 0 {
-			compactPalettes(out, r.opts.paletteSet)
-		}
-		if len(out.Image) > 0 {
-			ensureTransparentPaletteSlot(out)
-		}
-		encodeErr = gif.EncodeAll(w, out)
-		r.encoded = true
-	})
-	if encodeErr != nil {
-		return encodeErr
-	}
-	return r.closeErr
-}
-
-// Close stops capture goroutines. Does not encode or close the destination file.
-func (r *gifRecorder) Close() error {
-	r.once.Do(func() {
-		close(r.done)
-		r.wg.Wait()
-	})
-	return r.closeErr
-}
-
-// finishCloser returns the idempotent stop-and-encode callback used by [WriteGIF].
-func (r *gifRecorder) finishCloser(w io.Writer) func() error {
-	var finishOnce sync.Once
-	var finishErr error
-	return func() error {
-		finishOnce.Do(func() {
-			if err := r.Close(); err != nil {
-				finishErr = err
-				return
-			}
-			finishErr = r.EncodeAll(w)
-		})
-		return finishErr
-	}
-}
-
-// runFrameRate captures frames from the WithFrameRate callback on each tick
-// until done is closed.
-func (r *gifRecorder) runFrameRate() {
-	fps := r.opts.frameRate
-	tick := time.NewTicker(time.Second / time.Duration(fps))
-	defer tick.Stop()
-
-	r.lastCapture = time.Now()
-	for {
-		select {
-		case <-tick.C:
-			if r.opts.frameRateStrict && !r.tryBeginCapture() {
-				continue
-			}
-			r.captureTick()
-			if r.opts.frameRateStrict {
-				r.endCapture()
-			}
-		case <-r.done:
-			tick.Stop()
-			return
-		}
-	}
-}
-
-// tryBeginCapture returns false when a strict-mode tick arrives while the
-// previous capture is still running (no backlog).
-func (r *gifRecorder) tryBeginCapture() bool {
-	r.captureMu.Lock()
-	defer r.captureMu.Unlock()
-	if r.capturing {
-		return false
-	}
-	r.capturing = true
-	return true
-}
-
-// endCapture marks strict-mode capture complete so the next tick may run.
-func (r *gifRecorder) endCapture() {
-	r.captureMu.Lock()
-	r.capturing = false
-	r.captureMu.Unlock()
-}
-
-// runChannel reads WithChannel frames until the channel closes or done
-// is signaled. When done is signaled, frames already buffered are still kept.
-func (r *gifRecorder) runChannel() {
-	r.lastCapture = time.Now()
-	ch := r.opts.channel
-	for {
-		select {
-		case <-r.done:
-			r.drainChannel(ch)
-			return
-		case f, ok := <-ch:
-			if !ok {
-				return
-			}
-			r.captureChannelFrame(f)
-		}
-	}
-}
-
-// drainChannel records frames already buffered in ch without blocking for more.
-// A sender that fills the channel and then calls [FrameRecorder.Close] (like
-// closing ch first) would otherwise lose whatever the reader had not yet
-// palettized, since select picks randomly between done and a ready channel.
-func (r *gifRecorder) drainChannel(ch <-chan Frame) {
-	for {
-		select {
-		case f, ok := <-ch:
-			if !ok {
-				return
-			}
-			r.captureChannelFrame(f)
-		default:
-			return
-		}
-	}
-}
-
-// captureTick records one WithFrameRate tick.
-func (r *gifRecorder) captureTick() {
-	r.palettizeAndAppend(r.opts.frameRateFn(), r.nextDelay(0), false)
-}
-
-// captureChannelFrame records one WithChannel frame.
-func (r *gifRecorder) captureChannelFrame(f Frame) {
-	r.palettizeAndAppend(f.Image, r.nextDelay(f.Delay), f.Isolated)
-	if f.Done != nil {
-		f.Done()
-	}
 }
 
 // fullFrames returns every recorded frame as a full image. Delta recordings
@@ -570,17 +419,6 @@ func appendRecordingFrame(
 	return nil
 }
 
-// palettizeAndAppend converts frame to palettized storage and appends to rec,
-// storing validation errors in closeErr.
-func (r *gifRecorder) palettizeAndAppend(frame image.Image, delay time.Duration, isolated bool) {
-	if err := appendRecordingFrame(
-		r.rec, r.palette, false, r.opts.optimize,
-		r.opts.background, r.opts.backgroundSet, isolated, frame, delay,
-	); err != nil {
-		r.closeErr = err
-	}
-}
-
 // palettizeCaptureFrame writes src into pm, compositing onto background when
 // configured. It uses adaptive when non-nil, otherwise the LUT or draw.Draw
 // path per useLUT. An adaptive palette that rolls over replaces pm.Palette.
@@ -612,50 +450,6 @@ func asNRGBA(img image.Image) *image.NRGBA {
 	return dst
 }
 
-// nextDelay returns the duration delay for the current capture tick or channel
-// frame. lastCapture advances on every call so deduped identical frames accumulate
-// only the elapsed time since the previous capture attempt.
-func (r *gifRecorder) nextDelay(explicit time.Duration) time.Duration {
-	if explicit > 0 {
-		r.lastCapture = time.Now()
-		return explicit
-	}
-	if r.opts.frameRateStrict {
-		r.lastCapture = time.Now()
-		return time.Second / time.Duration(r.opts.frameRate)
-	}
-	now := time.Now()
-	delay := now.Sub(r.lastCapture)
-	r.lastCapture = now
-	return delay
-}
-
-// quantizeDelays converts accumulated duration delays to GIF centiseconds. FPS
-// modes and [WithDelayGrid] snap to the nearest nominal grid multiple; plain
-// channel mode rounds once. If we stored delays as centiseconds, it doesn't
-// provide enough precision for some of the other rounding, deduplication, etc
-// that we do, and it would result in slightly inconsistent FPS for higher-FPS
-// GIFs.
-func quantizeDelays(delays []time.Duration, opts options) []int {
-	cs := make([]int, len(delays))
-	fps := opts.frameRate
-	if opts.delayGridSet {
-		fps = opts.delayGrid
-	}
-	if opts.frameRateSet || opts.delayGridSet {
-		nominal := time.Second / time.Duration(fps)
-		nominalCS := max(1, 100/fps)
-		for i, d := range delays {
-			cs[i] = clampCentiseconds(max(int(math.Round(float64(d)/float64(nominal))), 1) * nominalCS)
-		}
-		return cs
-	}
-	for i, d := range delays {
-		cs[i] = clampCentiseconds(max(int(math.Round(float64(d)/float64(10*time.Millisecond))), 1))
-	}
-	return cs
-}
-
 // busiestPalette returns the palette the most frames use.
 func busiestPalette(frames []*image.Paletted) color.Palette {
 	groups := paletteGroups(frames)
@@ -668,9 +462,10 @@ func busiestPalette(frames []*image.Paletted) color.Palette {
 	return best.pal
 }
 
-// buildGIF converts a finalized recording into a gif.GIF with quantized delays.
-func buildGIF(rec *gifRecording, opts options) *gif.GIF {
-	images, delays, disposals := splitLongDelays(rec.images, quantizeDelays(rec.delays, opts), rec.disposal)
+// buildGIF converts a finalized recording into a gif.GIF with its delays in
+// centiseconds.
+func buildGIF(rec *gifRecording) *gif.GIF {
+	images, delays, disposals := splitLongDelays(rec.images, quantizeDelays(rec.delays), rec.disposal)
 	return &gif.GIF{
 		LoopCount:       rec.loopCount,
 		Config:          rec.config,
@@ -684,11 +479,14 @@ func buildGIF(rec *gifRecording, opts options) *gif.GIF {
 // maxGIFCentiseconds is the largest delay GIF can store in one frame.
 const maxGIFCentiseconds = 65535
 
-// clampCentiseconds enforces the GIF minimum delay of 1 cs. Values above
+// quantizeDelays rounds each delay to whole centiseconds, at least one. A
+// [Recorder] already delivers delays on its grid, so this only rounds delays
+// from a direct [GIFEncoder.WriteFrame] caller. Values above
 // [maxGIFCentiseconds] are split into continuation frames by [splitLongDelays].
-func clampCentiseconds(cs int) int {
-	if cs < 1 {
-		return 1
+func quantizeDelays(delays []time.Duration) []int {
+	cs := make([]int, len(delays))
+	for i, d := range delays {
+		cs[i] = max(1, int(math.Round(float64(d)/float64(10*time.Millisecond))))
 	}
 	return cs
 }
@@ -757,23 +555,19 @@ func holdFrame(src *image.Paletted) *image.Paletted {
 	return p
 }
 
-var (
-	errNilFrame   = gifError("export: nil frame")
-	errEmptyFrame = gifError("export: empty frame bounds")
-)
-
-// gifError is a sentinel error type for invalid GIF capture frames.
-type gifError string
-
-func (e gifError) Error() string { return string(e) }
+// opaqueNRGBA converts c to NRGBA with its alpha dropped, for use as a
+// background.
+func opaqueNRGBA(c color.Color) color.NRGBA {
+	r, g, b, _ := c.RGBA()
+	return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 0xff} //nolint:gosec // RGBA contract.
+}
 
 // compositeBackgroundNRGBA returns an NRGBA copy of src with fully transparent
 // pixels replaced by bg. src must be NRGBA; use [asNRGBA] at API boundaries.
 func compositeBackgroundNRGBA(src *image.NRGBA, bg color.Color) *image.NRGBA {
 	b := src.Bounds()
 	dst := image.NewNRGBA(b)
-	br, bgC, bb, _ := bg.RGBA()
-	br8, bgG8, bb8 := uint8(br>>8), uint8(bgC>>8), uint8(bb>>8) //nolint:gosec // RGBA contract.
+	c := opaqueNRGBA(bg)
 	width := b.Dx()
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		si := (y-src.Rect.Min.Y)*src.Stride + (b.Min.X-src.Rect.Min.X)*4
@@ -783,9 +577,9 @@ func compositeBackgroundNRGBA(src *image.NRGBA, bg color.Color) *image.NRGBA {
 		for x := range width {
 			sx := x * 4
 			if srcRow[sx+3] == 0 {
-				dstRow[sx] = br8
-				dstRow[sx+1] = bgG8
-				dstRow[sx+2] = bb8
+				dstRow[sx] = c.R
+				dstRow[sx+1] = c.G
+				dstRow[sx+2] = c.B
 				dstRow[sx+3] = 0xff
 				continue
 			}

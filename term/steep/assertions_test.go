@@ -88,11 +88,21 @@ type fatalSentinelType struct{}
 
 var fatalSentinel = fatalSentinelType{}
 
-// captureFatalTB records a Fatalf string and panics so callers can recover and
-// assert invalid-regexp (and similar) paths without aborting the real test.
+// captureFatalTB records a Fatalf string (or the error passed to Fatal) and
+// panics so callers can recover and assert invalid-regexp (and similar) paths
+// without aborting the real test.
 type captureFatalTB struct {
 	testing.TB
 	msg string
+	err error
+}
+
+func (c *captureFatalTB) Fatal(args ...any) {
+	c.msg = fmt.Sprint(args...)
+	if len(args) > 0 {
+		c.err, _ = args[0].(error)
+	}
+	panic(fatalSentinel)
 }
 
 func (c *captureFatalTB) Fatalf(format string, args ...any) {

@@ -79,7 +79,7 @@ func recordKeyOverlay(t *testing.T, opts ...Option) recordedGIF {
 	h.Type("abc")
 	h.Key("enter")
 	g := finishGIF(t, h, false)
-	return recordedGIF{gif: g, path: h.export.gifPath}
+	return recordedGIF{gif: g, path: h.export.mediaPath("gif")}
 }
 
 func mustOpen(t *testing.T, path string) *os.File {

@@ -22,14 +22,16 @@
 //
 // GIF frames are taken when the program commits terminal output, including
 // each paint in a burst of keys, so a recording does not need [WithSlow].
+// MP4, WebM, and WebP videos (see [WithExport], they need ffmpeg) are recorded
+// from the same frames.
 // After hooks for input, terminal, and program wait until that paint is
 // visible, then capture PNG and snapshot artifacts. Settle, ready, and close
 // capture the screen those helpers already observed. [WithSlow] still sleeps
 // before After hooks when a test wants the program to keep running between
 // actions.
 //
-// Each GIF frame plays for the real time it was on screen, snapped to the
-// [WithExportFPS] grid (default 20) with a minimum of one step, so the test
+// Each GIF or video frame plays for the real time it was on screen, snapped to
+// the [WithExportFPS] grid (default 20) with a minimum of one step, so the test
 // never sleeps to pace the recording. [WithExportSpeed] speeds up or slows down
 // playback without affecting the test.
 //

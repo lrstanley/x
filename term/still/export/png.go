@@ -13,22 +13,24 @@ import (
 
 // PNG writes img to path using opts. By default [OptimizeAll] applies (indexed
 // paletted PNG via the internal palette). Pass [WithOptimize]([OptimizeNone])
-// to encode full RGBA with alpha preserved.
+// to encode full RGBA with alpha preserved. Options are checked before path
+// is opened, so an invalid option leaves an existing file alone.
 func PNG(img image.Image, path string, opts ...Option) error {
+	cfg, err := collectOptions(validatePNG, opts...)
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if werr := WritePNG(img, f, opts...); werr != nil {
-		return werr
-	}
-	return nil
+	return encodePNG(img, f, cfg)
 }
 
 // WritePNG encodes img to w. See [PNG] for format behavior and option notes.
 func WritePNG(img image.Image, w io.Writer, opts ...Option) error {
-	cfg, err := collectOptions(formatPNG, opts...)
+	cfg, err := collectOptions(validatePNG, opts...)
 	if err != nil {
 		return err
 	}

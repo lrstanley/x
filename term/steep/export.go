@@ -6,6 +6,7 @@ package steep
 
 import (
 	"cmp"
+	"errors"
 	"image"
 	"os"
 	"path/filepath"
@@ -42,13 +43,30 @@ const (
 	ExportTypeGIF
 	ExportTypeLog
 	ExportTypeSnapshot
+	// ExportTypeMP4 records an H.264 MP4 video. Like [ExportTypeWebM] and
+	// [ExportTypeWebP], it needs ffmpeg (see [WithExport]).
+	ExportTypeMP4
+	// ExportTypeWebM records a VP9 WebM video.
+	ExportTypeWebM
+	// ExportTypeWebP records an animated WebP image.
+	ExportTypeWebP
 )
 
-// ExportTypeAll enables every export type.
+// ExportTypeAll enables every export type that needs nothing outside the Go
+// toolchain. It does not include [ExportTypeMP4], [ExportTypeWebM], or
+// [ExportTypeWebP], which need an external ffmpeg, so STEEP_EXPORT_TYPE=all
+// keeps working on machines without it.
 const ExportTypeAll = ExportTypePNG | ExportTypeGIF | ExportTypeLog | ExportTypeSnapshot
 
-func (t ExportType) has(flag ExportType) bool {
-	return t&flag != 0
+// exportTypeAnimated is every type that records a frame sequence.
+const exportTypeAnimated = ExportTypeGIF | ExportTypeMP4 | ExportTypeWebM | ExportTypeWebP
+
+// exportTypeVisual is every type captured from what the terminal shows.
+const exportTypeVisual = exportTypeAnimated | ExportTypePNG | ExportTypeSnapshot
+
+// has reports whether t includes any of flags.
+func (t ExportType) has(flags ExportType) bool {
+	return t&flags != 0
 }
 
 func exportCaptureEvent(event HookEvent) bool {
@@ -69,12 +87,13 @@ type exportManager struct {
 	baseName   string
 	exportOpts []export.Option
 
-	gifCh   chan export.Frame
-	gifRec  export.FrameRecorder
-	gifPath string
+	// outputs are the animated recordings (the GIF and each video), which all
+	// receive the same frames. It is nil when nothing animated is recorded,
+	// and once Finalize has taken it. mu guards it once the program runs.
+	outputs []*mediaOutput
 
-	// frames turns captured frames into GIF frames; keys and cards belong to
-	// its built-in stages. All three are only used on the test goroutine.
+	// frames turns captured frames into recorded frames; keys and cards belong
+	// to its built-in stages. All three are only used on the test goroutine.
 	frames exportPipeline
 	keys   *keysOverlay
 	cards  cardRenderer
@@ -159,8 +178,8 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		speed: speed,
 	}
 	mutators := slices.Clip(cfg.exportMutators)
-	gif := types.has(ExportTypeGIF) && cfg.exportMode != ExportOff
-	if gif && cfg.exportKeys > 0 {
+	animated := types.has(exportTypeAnimated) && cfg.exportMode != ExportOff
+	if animated && cfg.exportKeys > 0 {
 		m.keys = &keysOverlay{shown: cfg.exportKeys, speed: speed}
 		mutators = append(mutators, m.keys.mutate)
 	}
@@ -174,26 +193,20 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		return nil, err
 	}
 
-	if gif {
-		m.gifCh = make(chan export.Frame, exportQueueSize)
-		switch cfg.exportMode { //nolint:exhaustive
-		case ExportOn:
-			m.gifPath = filepath.Join(dir, m.stem()+".gif")
-		case ExportOnFailure:
-			m.gifPath = filepath.Join(dir, m.stem()+"_failed.gif")
+	// Outputs are started before anything that can fail later, and torn down
+	// again if it does, so a failed harness leaves no recorder or ffmpeg
+	// running.
+	ok := false
+	defer func() {
+		if !ok {
+			m.abortOutputs()
 		}
-		rec, err := export.GIF(
-			append(
-				m.exportOpts,
-				export.WithChannel(m.gifCh),
-				export.WithDelayGrid(fps),
-			)...,
-		)
-		if err != nil {
+	}()
+
+	if animated {
+		if err := m.openOutputs(fps); err != nil {
 			return nil, err
 		}
-		m.gifRec = rec
-		m.frames.out = m.gifCh
 	}
 
 	if types.has(ExportTypeLog) && cfg.exportMode == ExportOn {
@@ -205,6 +218,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		m.log = log
 	}
 
+	ok = true
 	return m, nil
 }
 
@@ -216,8 +230,8 @@ func (m *exportManager) hook(event HookEvent, stage HookStage, metadata any) err
 		return nil
 	}
 	m.flushCommits()
-	if m.types.has(ExportTypeGIF) {
-		if err := m.captureGIF(event); err != nil {
+	if m.types.has(exportTypeAnimated) {
+		if err := m.captureFrame(event); err != nil {
 			return err
 		}
 	}
@@ -234,7 +248,7 @@ func (m *exportManager) hook(event HookEvent, stage HookStage, metadata any) err
 	return nil
 }
 
-// noteCommit queues a GIF frame for a program write that left a visible grid.
+// noteCommit queues a frame for a program write that left a visible grid.
 // It runs on the writer goroutine, after the write has been parsed, and
 // returns before [vt.Terminal.OutputSeq] advances. A synchronized-output hold
 // is not a frame; the write that ends the hold queues the released grid.
@@ -243,7 +257,7 @@ func (m *exportManager) noteCommit() {
 		return
 	}
 	m.mu.Lock()
-	if m.stopped || m.gifCh == nil {
+	if m.stopped || len(m.outputs) == 0 {
 		m.mu.Unlock()
 		return
 	}
@@ -263,7 +277,7 @@ func (m *exportManager) noteCommit() {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.stopped || m.gifCh == nil || m.duplicateCommitLocked(st) {
+	if m.stopped || len(m.outputs) == 0 || m.duplicateCommitLocked(st) {
 		return
 	}
 	if m.beforeFirstFrameLocked() && m.isPristine(st, scr.Text()) {
@@ -294,7 +308,7 @@ func (m *exportManager) duplicateCommitLocked(st vt.Snapshot) bool {
 	return n > 0 && sameCommit(m.pending[n-1].state, st)
 }
 
-// flushCommits renders queued commits into the GIF. It runs on the test
+// flushCommits renders queued commits into the recording. It runs on the test
 // goroutine so it can use the harness renderer without racing [Harness.Image].
 func (m *exportManager) flushCommits() {
 	if m == nil {
@@ -320,7 +334,7 @@ func (m *exportManager) flushCommits() {
 	}
 }
 
-func (m *exportManager) captureGIF(event HookEvent) error {
+func (m *exportManager) captureFrame(event HookEvent) error {
 	if m.h.emulator.term.Held() {
 		m.noteHeldSkip()
 		return nil
@@ -351,14 +365,14 @@ func (m *exportManager) noteHeldSkip() {
 	m.tb.Log("export skipped a frame: terminal synchronized output is held")
 }
 
-// sendFrame makes img the current GIF frame as of at, finishing the previous
+// sendFrame makes img the current frame as of at, finishing the previous
 // frame with the time it was on screen.
 func (m *exportManager) sendFrame(src frameSource, img image.Image, at time.Time) {
 	if img == nil {
 		return
 	}
 	m.mu.Lock()
-	if m.gifCh == nil || m.stopped || m.duplicateCommitLocked(src.state) {
+	if len(m.outputs) == 0 || m.stopped || m.duplicateCommitLocked(src.state) {
 		m.mu.Unlock()
 		return
 	}
@@ -454,42 +468,24 @@ func (m *exportManager) Finalize(failed bool) error {
 	m.mu.Lock()
 	m.stopped = true
 	m.pending = nil
-	ch := m.gifCh
-	m.gifCh = nil
+	outputs := m.outputs
+	m.outputs = nil
 	m.mu.Unlock()
-	if ch != nil {
+	if len(outputs) > 0 {
 		m.frames.finish(time.Now(), failed)
-		close(ch)
+		for _, ch := range m.frames.out {
+			close(ch)
+		}
 	}
-	if err := m.cards.close(); err != nil {
+
+	// Every recorder and video is finished even when an earlier step fails,
+	// so no encoder or ffmpeg process is left running.
+	errs := []error{m.cards.close()}
+	for _, o := range outputs {
+		errs = append(errs, m.finishOutput(o, failed))
+	}
+	if err := errors.Join(errs...); err != nil {
 		return err
-	}
-	if m.gifRec != nil {
-		if err := m.gifRec.Close(); err != nil {
-			return err
-		}
-		switch m.mode {
-		case ExportOn:
-			if err := encodeGIFFile(m.gifPath, m.gifRec); err != nil {
-				return err
-			}
-			if failed && m.gifPath != "" {
-				data, err := os.ReadFile(m.gifPath)
-				if err == nil && len(data) > 0 {
-					failPath := filepath.Join(m.dir, m.stem()+"_failed.gif")
-					_ = os.WriteFile(failPath, data, 0o600)
-				}
-			}
-		case ExportOnFailure:
-			if failed && len(m.gifRec.Frames()) > 0 {
-				if err := encodeGIFFile(m.gifPath, m.gifRec); err != nil {
-					return err
-				}
-			} else if m.gifPath != "" {
-				_ = os.Remove(m.gifPath)
-			}
-		}
-		m.gifRec = nil
 	}
 
 	if m.mode == ExportOnFailure {
@@ -497,13 +493,13 @@ func (m *exportManager) Finalize(failed bool) error {
 			return nil
 		}
 		if m.types.has(ExportTypePNG) && m.lastPNG != nil {
-			path := filepath.Join(m.dir, m.stem()+"_failed.png")
+			path := m.failedPath("png")
 			if err := export.PNG(m.lastPNG, path, m.exportOpts...); err != nil {
 				return err
 			}
 		}
 		if m.types.has(ExportTypeSnapshot) && len(m.lastSnap) > 0 {
-			path := filepath.Join(m.dir, m.stem()+"_failed.snap")
+			path := m.failedPath("snap")
 			if err := os.WriteFile(path, m.lastSnap, 0o600); err != nil {
 				return err
 			}
@@ -556,15 +552,6 @@ func normalizeTestName(name string) string {
 func artifactDir(tb testing.TB) string {
 	tb.Helper()
 	return tb.ArtifactDir()
-}
-
-func encodeGIFFile(path string, rec export.FrameRecorder) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return rec.EncodeAll(f)
 }
 
 func (h *Harness) copyImage() image.Image {

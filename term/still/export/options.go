@@ -9,14 +9,14 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"time"
 
 	"github.com/lrstanley/x/term/still/units"
 )
 
 const (
-	formatPNG = "png"
-	formatGIF = "gif"
+	// MaxQuality is the highest [WithQuality], and selects lossless encoding
+	// where the format has it.
+	MaxQuality = 100
 
 	// MaxFrameRate is the highest FPS accepted by [WithFrameRate]. GIF delays
 	// are stored in centiseconds, so cannot represent more than 100 FPS.
@@ -61,29 +61,9 @@ func (f OptimizeFlags) has(flag OptimizeFlags) bool {
 	return f&flag != 0
 }
 
-// Frame is the channel payload for [WithChannel]. Delay zero accumulates elapsed
-// time since the last capture attempt (including deduped ticks) as Duration
-// until finalize, when it is rounded once to centiseconds (minimum 1 cs).
-// Explicit delays are preserved as Duration until finalize.
-type Frame struct {
-	Image image.Image
-	Delay time.Duration
-	// Isolated palettizes this frame on its own palette. It adds no colors to
-	// the shared recording palette, and consecutive isolated frames share one
-	// palette so they stay comparable to each other. GIF stores that palette
-	// as a local color table on each of those frames. Terminal frames leave it
-	// false.
-	Isolated bool
-	// Done, when set, is called once the recorder no longer reads Image (it
-	// has been palettized), from the recorder's goroutine. Image is then
-	// handed back to the sender, which may reuse it, so the sender must not
-	// share it with anything else and the recorder never touches it again.
-	Done func()
-}
-
-// Option configures PNG or GIF exports. Options are validated in
-// collectOptions; GIF-only capture options return an error from PNG entry
-// points. [WithLoopCount] is ignored on PNG.
+// Option configures a [Recorder], an encoder, or a PNG export. Each validates
+// the options it reads and ignores the rest, so one option list can be shared
+// between them.
 type Option func(*options)
 
 type options struct {
@@ -127,13 +107,25 @@ type options struct {
 	// loopCount is copied into GIF output. [LoopForever] (0) loops forever,
 	// [LoopOnce] (-1) plays once, and n > 0 plays n+1 times. PNG ignores it.
 	loopCount int
+	// quality is the video encode quality in [0, MaxQuality] when qualitySet
+	// is true; otherwise each video format uses its own default.
+	quality    int
+	qualitySet bool
+	// fullChroma encodes MP4 and WebM as 4:4:4 instead of 4:2:0.
+	fullChroma bool
+	// ffmpeg is the ffmpeg binary name or path; empty looks up "ffmpeg" on
+	// PATH.
+	ffmpeg string
 }
 
 func defaultOptions() options {
 	return options{}
 }
 
-func collectOptions(format string, opts ...Option) (options, error) {
+// collectOptions applies opts, then validate, which checks the options its
+// output reads and ignores the rest. That is what lets one option list be
+// shared between a [Recorder], every encoder, and PNG.
+func collectOptions(validate func(*options) error, opts ...Option) (options, error) {
 	cfg := defaultOptions()
 	for _, opt := range opts {
 		if opt != nil {
@@ -143,21 +135,20 @@ func collectOptions(format string, opts ...Option) (options, error) {
 	if !cfg.optimizeSet {
 		cfg.optimize = OptimizeAll
 	}
-	if format == formatPNG {
-		cfg.optimize &^= OptimizeFrames | OptimizeDirtyRects
-	}
-	return cfg, cfg.validate(format)
+	err := validate(&cfg)
+	return cfg, err
 }
 
-func (o options) validate(format string) error {
-	if o.frameRateSet && o.channelSet {
-		return errors.New("export: WithFrameRate and WithChannel are mutually exclusive")
-	}
-	if o.frameRateSet && o.delayGridSet {
-		return errors.New("export: WithFrameRate and WithDelayGrid are mutually exclusive")
-	}
-	if o.delayGridSet && o.delayGrid != units.Clamp(o.delayGrid, 1, MaxFrameRate) {
-		return fmt.Errorf("export: WithDelayGrid fps %d out of range [1, %d]", o.delayGrid, MaxFrameRate)
+// validatePNG strips the GIF-only optimize flags. PNG reads nothing else.
+func validatePNG(o *options) error {
+	o.optimize &^= OptimizeFrames | OptimizeDirtyRects
+	return nil
+}
+
+// validateRecorder checks the frame source and its grid.
+func validateRecorder(o *options) error {
+	if o.channelSet == o.frameRateSet {
+		return errors.New("export: Record requires exactly one of WithChannel or WithFrameRate")
 	}
 	if o.frameRateSet {
 		if o.frameRate != units.Clamp(o.frameRate, 1, MaxFrameRate) {
@@ -167,36 +158,29 @@ func (o options) validate(format string) error {
 			return errors.New("export: WithFrameRate requires a non-nil frame function")
 		}
 	}
-	if format == formatPNG {
-		if o.paletteSet {
-			return errors.New("export: WithPalette applies to GIF only")
-		}
-		if o.backgroundSet {
-			return errors.New("export: WithBackground applies to GIF only")
-		}
-		if o.frameRateSet {
-			return errors.New("export: WithFrameRate applies to GIF only")
-		}
-		if o.channelSet {
-			return errors.New("export: WithChannel applies to GIF only")
-		}
-		if o.delayGridSet {
-			return errors.New("export: WithDelayGrid applies to GIF only")
-		}
-		if o.maxFrames > 0 {
-			return errors.New("export: WithMaxFrames applies to GIF only")
-		}
-		if o.maxBytes > 0 {
-			return errors.New("export: WithMaxBytes applies to GIF only")
-		}
+	if o.frameRateSet && o.delayGridSet {
+		return errors.New("export: WithFrameRate and WithDelayGrid are mutually exclusive")
 	}
-	if format == formatGIF {
-		if o.loopCount < LoopOnce || o.loopCount > maxGIFLoopCount {
-			return fmt.Errorf("export: WithLoopCount %d out of range [%d, %d]", o.loopCount, LoopOnce, maxGIFLoopCount)
-		}
-		if !o.frameRateSet && !o.channelSet {
-			return errors.New("export: GIF requires WithFrameRate or WithChannel")
-		}
+	if o.delayGridSet && o.delayGrid != units.Clamp(o.delayGrid, 1, MaxFrameRate) {
+		return fmt.Errorf("export: WithDelayGrid fps %d out of range [1, %d]", o.delayGrid, MaxFrameRate)
+	}
+	return nil
+}
+
+func validateGIF(o *options) error {
+	return o.validateLoopCount()
+}
+
+func validateVideo(o *options) error {
+	if o.qualitySet && o.quality != units.Clamp(o.quality, 0, MaxQuality) {
+		return fmt.Errorf("export: WithQuality %d out of range [0, %d]", o.quality, MaxQuality)
+	}
+	return o.validateLoopCount()
+}
+
+func (o options) validateLoopCount() error {
+	if o.loopCount < LoopOnce || o.loopCount > maxGIFLoopCount {
+		return fmt.Errorf("export: WithLoopCount %d out of range [%d, %d]", o.loopCount, LoopOnce, maxGIFLoopCount)
 	}
 	return nil
 }
@@ -216,10 +200,9 @@ func WithOptimize(flags OptimizeFlags) Option {
 // WithPalette overrides the capture palette for GIF palettization, replacing
 // the palette built from captured colors (see package documentation).
 // Disables automatic palette compaction when [OptimizeColorQuantization] is
-// set. GIF
-// only. When using disposal optimization, palettes with 256 entries should
+// set. When using disposal optimization, palettes with 256 entries should
 // reserve [TransparentPaletteIndex] (255) as a zero-alpha color; see package
-// documentation for the transparency invariant.
+// documentation for the transparency invariant. [GIFEncoder] only.
 func WithPalette(p color.Palette) Option {
 	return func(cfg *options) {
 		cfg.palette = p
@@ -227,8 +210,10 @@ func WithPalette(p color.Palette) Option {
 	}
 }
 
-// WithBackground sets an opaque compositing color for semi-transparent GIF
-// pixels before palettization. GIF only.
+// WithBackground sets an opaque compositing color for semi-transparent pixels.
+// [GIFEncoder] fills fully transparent pixels with it before palettization. A
+// [VideoEncoder] composites every frame onto it and uses it for padding; without it, MP4 and WebM composite onto
+// black and WebP keeps transparency.
 func WithBackground(c color.Color) Option {
 	return func(cfg *options) {
 		cfg.background = c
@@ -236,11 +221,12 @@ func WithBackground(c color.Color) Option {
 	}
 }
 
-// WithFrameRate captures frames from fn at FPS. When strict is true, each tick
-// stores an exact delay of time.Second/FPS and ticks are skipped if fn is still
-// running; delays are grid-snapped to max(1, 100/FPS) centiseconds at finalize.
-// When strict is false, delay accumulates wall time per tick and snaps to the
-// nearest nominal FPS grid at finalize. GIF only.
+// WithFrameRate makes a [Recorder] capture a frame from fn at fps, on a delay
+// grid of the same fps (see [WithDelayGrid]). When strict is true, each frame
+// plays for exactly time.Second/fps, so ticks dropped while fn runs shorten
+// the recording. When strict is false, each frame plays for the wall time
+// since the previous one. Mutually exclusive with [WithChannel] and
+// [WithDelayGrid].
 //
 // It is important to note that most browsers support a max of 50 FPS (and if
 // higher, will actually cap at 10 FPS). Most operating systems and supported
@@ -260,12 +246,13 @@ func WithFrameRate(fps int, strict bool, fn func() image.Image) Option {
 	}
 }
 
-// WithDelayGrid snaps each [Frame] delay received through [WithChannel] to the
-// nearest multiple of the FPS grid, using the same math as [WithFrameRate]
-// (max(1, 100/fps) centiseconds per step, minimum one step). Without it,
-// channel delays are rounded to the nearest centisecond. fps must be in
+// WithDelayGrid makes a [Recorder] round each delay to the nearest multiple of
+// max(1, 100/fps) centiseconds, at least one step. That is the grid GIF can
+// store for fps: at rates that are not centisecond-aligned (such as 30, a
+// 30ms step), steady frames play slightly fast, while holds keep their
+// length. Without it, delays are rounded to whole centiseconds. Mutually
+// exclusive with [WithFrameRate], which sets its own grid. fps must be in
 // [1, [MaxFrameRate]]; see [WithFrameRate] for which rates play back smoothly.
-// Mutually exclusive with [WithFrameRate]. GIF only.
 func WithDelayGrid(fps int) Option {
 	return func(cfg *options) {
 		cfg.delayGrid = fps
@@ -273,9 +260,8 @@ func WithDelayGrid(fps int) Option {
 	}
 }
 
-// WithChannel reads frames from ch until it is closed. Call [FrameRecorder.Close]
-// to stop capture early, then [FrameRecorder.EncodeAll] with the output writer.
-// GIF only.
+// WithChannel makes a [Recorder] read frames from ch until it is closed or
+// [Recorder.Close] is called. Mutually exclusive with [WithFrameRate].
 func WithChannel(ch <-chan Frame) Option {
 	return func(cfg *options) {
 		cfg.channel = ch
@@ -283,13 +269,13 @@ func WithChannel(ch <-chan Frame) Option {
 	}
 }
 
-// WithLoopCount sets how many times a GIF animation repeats, matching
+// WithLoopCount sets how many times an animation repeats, matching
 // image/gif's GIF.LoopCount field.
 //
 // [LoopForever] (0), the default, loops forever. [LoopOnce] (-1) plays the
 // animation once and does not repeat. A count n in [1, 65535] plays the
-// animation n+1 times. Values outside [-1, 65535] are rejected. PNG ignores
-// this option.
+// animation n+1 times. Values outside [-1, 65535] are rejected. GIF and
+// animated WebP use it; MP4 and WebM have no loop count and ignore it.
 func WithLoopCount(n int) Option {
 	return func(cfg *options) {
 		cfg.loopCount = n
@@ -320,5 +306,41 @@ func WithMaxFrames(n int) Option {
 func WithMaxBytes(n int64) Option {
 	return func(cfg *options) {
 		cfg.maxBytes = max(0, n)
+	}
+}
+
+// WithQuality sets how closely [VideoEncoder] output matches the frames, from 0
+// (smallest file) to [MaxQuality] (lossless where the format supports it).
+// Without it, each format uses its own default, which is already visually
+// close for terminal content. MP4 maps q to libx264 CRF 51..0 (default CRF 18)
+// and WebM to libvpx-vp9 CRF 63..0 (default CRF 30, lossless at
+// [MaxQuality]). WebP is lossless by default and at [MaxQuality], which for
+// terminal frames is smaller than lossy at any quality worth using; a lower q
+// selects lossy WebP at that quality. Values outside [0, [MaxQuality]] are
+// rejected. PNG and GIF ignore it.
+func WithQuality(q int) Option {
+	return func(cfg *options) {
+		cfg.quality = q
+		cfg.qualitySet = true
+	}
+}
+
+// WithFullChroma encodes MP4 and WebM as 4:4:4, keeping the full color
+// resolution of thin colored text instead of halving it (4:2:0, the default).
+// Most desktop players handle it; many browsers and phones do not play 4:4:4
+// H.264, while VP9 4:4:4 (profile 1) plays in Chrome and Firefox. WebP, PNG,
+// and GIF ignore it.
+func WithFullChroma(enabled bool) Option {
+	return func(cfg *options) {
+		cfg.fullChroma = enabled
+	}
+}
+
+// WithFFmpeg sets the ffmpeg binary [VideoEncoder] runs: a path, or a name
+// looked up on PATH. The default is "ffmpeg" on PATH (with the platform's
+// executable extension, such as ffmpeg.exe on Windows). PNG and GIF ignore it.
+func WithFFmpeg(path string) Option {
+	return func(cfg *options) {
+		cfg.ffmpeg = path
 	}
 }

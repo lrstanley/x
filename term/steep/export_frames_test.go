@@ -145,7 +145,7 @@ func TestExportPipeline(t *testing.T) {
 			t.Parallel()
 			var log []string
 			ch := make(chan export.Frame, 16)
-			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, out: ch}
+			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, out: []chan<- export.Frame{ch}}
 			for _, mutate := range tc.mutators(&log) {
 				p.stages = append(p.stages, mutatorStage{mutate: mutate})
 			}
@@ -427,11 +427,16 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 				out <- f
 			}
 		}()
-		rec, err := export.GIF(export.WithChannel(out))
+		var buf bytes.Buffer
+		enc, err := export.NewGIF(&buf)
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := &exportPipeline{base: ExportContext{Step: 10 * time.Millisecond}, speed: 1, out: in}
+		rec, err := export.Record(enc, export.WithChannel(out))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := &exportPipeline{base: ExportContext{Step: 10 * time.Millisecond}, speed: 1, out: []chan<- export.Frame{in}}
 		at := time.Now()
 		for i := range 40 {
 			j := (i * 3) % len(screens)
@@ -443,10 +448,6 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 		close(in)
 		<-relayed
 		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-		var buf bytes.Buffer
-		if err := rec.EncodeAll(&buf); err != nil {
 			t.Fatal(err)
 		}
 		g, err := gif.DecodeAll(&buf)
@@ -541,7 +542,7 @@ func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
 	scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
 
 	ch := make(chan export.Frame, 64)
-	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: ch}
+	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: []chan<- export.Frame{ch}}
 	at := time.Unix(1000, 0)
 	img, held := copyCommitted(h, scr, st, at)
 	if (held != nil) != (frames > 1) {

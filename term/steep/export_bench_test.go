@@ -6,6 +6,7 @@ package steep
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -89,10 +90,13 @@ func BenchmarkExportEncode(b *testing.B) {
 				h := NewHarness(b, m.model("encode"), WithWindowSize(size[0], size[1]), WithIgnoreEnv(true))
 				h.Wait("text=encode")
 				img, _ := copyCommitted(h, h.emulator.term.Screen(), h.emulator.term.Snapshot(), time.Time{})
-				rec := export.NewPalettizedRecorder()
+				enc, err := export.NewGIF(io.Discard, export.WithOptimize(export.OptimizeFrames))
+				if err != nil {
+					b.Fatal(err)
+				}
 				b.ReportAllocs()
 				for b.Loop() {
-					if err := rec.AddFrame(img, time.Millisecond); err != nil {
+					if err = enc.WriteFrame(export.Frame{Image: img, Delay: time.Millisecond}); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -145,7 +149,7 @@ func BenchmarkExportRecording(b *testing.B) {
 					b.Fatal(err)
 				}
 				finalize += time.Since(start)
-				st, err := os.Stat(h.export.gifPath)
+				st, err := os.Stat(h.export.mediaPath("gif"))
 				if err != nil {
 					b.Fatal(err)
 				}

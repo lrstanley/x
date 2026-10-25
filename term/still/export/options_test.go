@@ -6,25 +6,25 @@ package export
 
 import (
 	"image"
-	"path/filepath"
+	"io"
 	"testing"
 )
 
-func TestGIFRequiresCaptureSource(t *testing.T) {
+func TestRecordRequiresCaptureSource(t *testing.T) {
 	t.Parallel()
 
-	_, err := GIF()
+	err := recordErr()
 	if err == nil {
 		t.Fatal("expected error when neither WithFrameRate nor WithChannel is set")
 	}
 }
 
-func TestGIFRejectsMutuallyExclusiveSources(t *testing.T) {
+func TestRecordRejectsMutuallyExclusiveSources(t *testing.T) {
 	t.Parallel()
 
 	src := image.NewNRGBA(image.Rect(0, 0, 4, 4))
 	ch := make(<-chan Frame)
-	_, err := GIF(
+	err := recordErr(
 		WithFrameRate(30, false, func() image.Image { return src }),
 		WithChannel(ch),
 	)
@@ -40,31 +40,23 @@ func TestDelayGridValidation(t *testing.T) {
 	fn := func() image.Image { return src }
 
 	for _, fps := range []int{0, -1, MaxFrameRate + 1} {
-		if _, err := GIF(WithChannel(make(<-chan Frame)), WithDelayGrid(fps)); err == nil {
+		if err := recordErr(WithChannel(make(<-chan Frame)), WithDelayGrid(fps)); err == nil {
 			t.Fatalf("expected error for WithDelayGrid(%d)", fps)
 		}
 	}
-	if _, err := GIF(WithFrameRate(10, false, fn), WithDelayGrid(10)); err == nil {
+	if err := recordErr(WithFrameRate(10, false, fn), WithDelayGrid(20)); err == nil {
 		t.Fatal("expected error for WithFrameRate and WithDelayGrid together")
 	}
-	if err := PNG(src, filepath.Join(t.TempDir(), "x.png"), WithDelayGrid(10)); err == nil {
-		t.Fatal("expected error for WithDelayGrid on PNG")
-	}
-	rec, err := GIF(WithChannel(make(chan Frame)), WithDelayGrid(20))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = rec.Close()
 }
 
-func TestGIFRejectsInvalidFrameRate(t *testing.T) {
+func TestRecordRejectsInvalidFrameRate(t *testing.T) {
 	t.Parallel()
 
 	src := image.NewNRGBA(image.Rect(0, 0, 4, 4))
 	fn := func() image.Image { return src }
 
 	for _, fps := range []int{0, -1, MaxFrameRate + 1} {
-		_, err := GIF(WithFrameRate(fps, false, fn))
+		err := recordErr(WithFrameRate(fps, false, fn))
 		if err == nil {
 			t.Fatalf("fps %d: expected error", fps)
 		}
@@ -76,27 +68,41 @@ func TestGIFRejectsLoopCount(t *testing.T) {
 
 	ch := make(<-chan Frame)
 	for _, n := range []int{LoopOnce - 1, maxGIFLoopCount + 1} {
-		_, err := GIF(WithChannel(ch), WithLoopCount(n))
+		err := recordErr(WithChannel(ch), WithLoopCount(n))
 		if err == nil {
 			t.Fatalf("loop count %d: expected error", n)
 		}
 	}
 }
 
-func TestGIFRejectsNilFrameFunction(t *testing.T) {
+func TestRecordRejectsNilFrameFunction(t *testing.T) {
 	t.Parallel()
 
-	_, err := GIF(WithFrameRate(30, false, nil))
+	err := recordErr(WithFrameRate(30, false, nil))
 	if err == nil {
 		t.Fatal("expected error for nil WithFrameRate callback")
 	}
+}
+
+// recordErr returns the error of starting a [Recorder] into a GIF that is
+// thrown away, closing the recorder if it starts.
+func recordErr(opts ...Option) error {
+	enc, err := NewGIF(io.Discard, opts...)
+	if err != nil {
+		return err
+	}
+	rec, err := Record(enc, opts...)
+	if err != nil {
+		return err
+	}
+	return rec.Close()
 }
 
 func TestDefaultGIFOptimizeAll(t *testing.T) {
 	t.Parallel()
 
 	ch := make(<-chan Frame)
-	cfg, err := collectOptions(formatGIF, WithChannel(ch))
+	cfg, err := collectOptions(validateGIF, WithChannel(ch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +117,7 @@ func TestDefaultGIFOptimizeAll(t *testing.T) {
 func TestDefaultPNGOptimizeAll(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := collectOptions(formatPNG)
+	cfg, err := collectOptions(validatePNG)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +132,7 @@ func TestDefaultPNGOptimizeAll(t *testing.T) {
 func TestPNGStripsGIFOnlyOptimizeFlags(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := collectOptions(formatPNG, WithOptimize(OptimizeAll))
+	cfg, err := collectOptions(validatePNG, WithOptimize(OptimizeAll))
 	if err != nil {
 		t.Fatal(err)
 	}
