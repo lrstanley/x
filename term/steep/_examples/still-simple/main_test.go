@@ -12,7 +12,7 @@ import (
 	"github.com/lrstanley/x/term/still"
 )
 
-// STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif go test -v -count 1 ./...
+// STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -v -count 1 ./...
 
 func TestGenerate(t *testing.T) {
 	h := steep.NewHarness(
@@ -23,11 +23,6 @@ func TestGenerate(t *testing.T) {
 			still.WithScale(1.5),
 		),
 		// steep.WithWindowSize(160, 40),
-		// steep.WithExport(
-		// 	steep.ExportOn,
-		// 	steep.ExportTypeMP4,
-		// 	export.WithQuality(100),
-		// ),
 		steep.WithExportDir("testdata"),
 		steep.WithSlow(10*time.Millisecond),
 	)
