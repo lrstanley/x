@@ -58,6 +58,10 @@ func (c *glyphMaskCache) releaseEvicted() {
 
 // DrawGlyphLayout rasterizes layout onto img.
 func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
+	if layout.Kind == KindColor {
+		drawColorLayout(img, layout)
+		return
+	}
 	if mask, ok := layoutSpriteMask(ctx, layout); ok {
 		drawBoxGlyphMask(img, layout.Fg, mask)
 		return
@@ -76,6 +80,66 @@ func DrawGlyphLayout(ctx GlyphContext, img draw.Image, layout *Layout) {
 	if mask, ok := buildGlyphLayoutMask(layout); ok {
 		drawGlyphLayoutMask(img, layout, mask)
 		alpha.ReleaseGlyphAlpha(mask.alpha)
+	}
+}
+
+// drawColorLayout draws the glyph of a [KindColor] layout over its area. The
+// glyph keeps its own colors; the foreground does not tint it.
+func drawColorLayout(img draw.Image, layout *Layout) {
+	src := layout.Color.Image(layout.Area.Dx(), layout.Area.Dy())
+	if src == nil {
+		return
+	}
+	if dst, ok := img.(*image.NRGBA); ok {
+		blendPremultiplied(dst, layout.Area, src, layout.Opacity)
+		return
+	}
+	if layout.Opacity == 255 {
+		draw.Draw(img, layout.Area, src, image.Point{}, draw.Over)
+		return
+	}
+	draw.DrawMask(img, layout.Area, src, image.Point{}, image.NewUniform(color.Alpha{A: layout.Opacity}), image.Point{}, draw.Over)
+}
+
+// blendPremultiplied draws src, premultiplied and sized like area, over dst
+// within area, scaled by opacity. It is what [draw.Over] does, without the
+// per pixel color conversions that make it slow for a screen of emoji.
+func blendPremultiplied(dst *image.NRGBA, area image.Rectangle, src *image.RGBA, opacity uint8) {
+	// The opacity is multiplied in without rounding, so the source's color and
+	// alpha, and its alpha scaled by opacity, are all kept in units of 1/255 of
+	// 1/255: full alpha is one.
+	const one = 255 * 255
+	r := area.Intersect(dst.Bounds())
+	if r.Empty() {
+		return
+	}
+	op := int(opacity)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		sp := src.Pix[(y-area.Min.Y)*src.Stride+(r.Min.X-area.Min.X)*4:]
+		dp := dst.Pix[dst.PixOffset(r.Min.X, y):]
+		for x := range r.Dx() {
+			s, d := sp[x*4:x*4+4:x*4+4], dp[x*4:x*4+4:x*4+4]
+			cr, cg, cb, sa := int(s[0])*op, int(s[1])*op, int(s[2])*op, int(s[3])*op
+			switch da := int(d[3]); {
+			case sa == 0:
+			case sa == one:
+				d[0], d[1], d[2], d[3] = s[0], s[1], s[2], 255
+			case da == 255:
+				inv := one - sa
+				d[0] = uint8((255*cr + int(d[0])*inv + one/2) / one) //nolint:gosec // At most 255.
+				d[1] = uint8((255*cg + int(d[1])*inv + one/2) / one) //nolint:gosec // At most 255.
+				d[2] = uint8((255*cb + int(d[2])*inv + one/2) / one) //nolint:gosec // At most 255.
+			default:
+				// The destination is not premultiplied, so weigh it by its
+				// alpha before it shows through, then undo that for the result.
+				inv := one - sa
+				den := 255*sa + da*inv
+				d[0] = uint8(min((one*cr+int(d[0])*da*inv+den/2)/den, 255)) //nolint:gosec // Clamped.
+				d[1] = uint8(min((one*cg+int(d[1])*da*inv+den/2)/den, 255)) //nolint:gosec // Clamped.
+				d[2] = uint8(min((one*cb+int(d[2])*da*inv+den/2)/den, 255)) //nolint:gosec // Clamped.
+				d[3] = uint8((den + one/2) / one)                           //nolint:gosec // At most 255.
+			}
+		}
 	}
 }
 
@@ -198,7 +262,7 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 	dot := layout.Dot
 	switch layout.Kind {
-	case KindGrid, KindSprite:
+	case KindGrid, KindSprite, KindColor:
 	case KindPowerline:
 		return scaledGlyphLayoutMask(layout, dot, layout.ScaleMode)
 	case KindFallback:

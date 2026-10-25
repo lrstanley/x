@@ -7,6 +7,80 @@ The fonts in [`data/`](data) are embedded into the `fonts` package, gzipped.
 | `JetBrainsMono-*.ttf.gz` | [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) 2.304 | SIL Open Font License 1.1 |
 | `SymbolsNerdFontMono-Regular.ttf.gz` | [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) 3.4.0 symbols-only font | See the [Nerd Fonts license](https://github.com/ryanoasis/nerd-fonts/blob/master/LICENSE); glyph sets keep their upstream licenses |
 | `DejaVuSansMonoSymbols-Regular.ttf.gz` | Symbol subset of [DejaVu Sans Mono](https://github.com/dejavu-fonts/dejavu-fonts) 2.37 | Bitstream Vera and Arev font licenses, DejaVu changes public domain; see [`data/DejaVuSansMonoSymbols-LICENSE`](data/DejaVuSansMonoSymbols-LICENSE) |
+| `NotoColorEmoji-Subset.ttf.gz` | Subset of [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) 2.057 | SIL Open Font License 1.1; see [`data/NotoColorEmoji-LICENSE`](data/NotoColorEmoji-LICENSE) |
+
+## Noto Color Emoji subset
+
+`NotoColorEmoji-Subset` draws emoji in color when no installed font does. It is
+not a family that can be selected: it has no text glyphs, and the family index
+skips it. It keeps the bitmaps of Noto Color Emoji's `CBDT`/`CBLC` tables for:
+
+- every emoji, flag, keycap and subdivision flag, and the ZWJ sequences without
+  a skin tone (couples, families, professions, the rainbow flag, and so on);
+- but not the skin tone modifiers or the sequences that use them (about 57% of
+  the original bitmaps). `fonts.BundledColorGlyph` draws these in the default
+  tone instead.
+
+To fit in about 2.6 MB instead of 10.7 MB, each bitmap is also scaled from
+136×128 to 64×60 pixels and quantized to a 48 color palette (libimagequant, no
+dithering), and the strike's metrics are scaled to match. The result is still
+a valid `CBDT` font; the renderer only reads the PNG sizes. 64 pixels covers a
+two cell wide emoji up to a 32 pixel cell; larger ones are upscaled and look
+softer. Compressing the file barely helps (the PNGs are already deflated).
+
+Noto Color Emoji declares no Reserved Font Name, so the subset keeps its name
+and notices. The OFL text is embedded with the font as `data/NotoColorEmoji-LICENSE`.
+
+To rebuild it from `NotoColorEmoji.ttf` (fontTools 4.x, Pillow with
+libimagequant):
+
+```sh
+python3 -I -c '
+import io, sys
+from fontTools import subset
+from fontTools.ttLib import TTFont
+from PIL import Image
+
+WIDTH, COLORS = 64, 48
+font = TTFont(sys.argv[1])
+unicodes = sorted(cp for cp in font.getBestCmap() if not 0x1F3FB <= cp <= 0x1F3FF)
+
+opts = subset.Options()
+opts.layout_features = ["ccmp", "rlig", "liga", "clig"]
+opts.name_IDs = [0, 1, 2, 3, 4, 5, 6, 13, 14]
+opts.name_languages = ["*"]
+opts.notdef_outline = True
+opts.glyph_names = False
+sub = subset.Subsetter(opts)
+sub.populate(unicodes=unicodes)
+sub.subset(font)
+
+old = font["CBLC"].strikes[0].bitmapSizeTable.ppemX
+scale = None
+for data in font["CBDT"].strikeData:
+    for glyph in data.values():
+        im = Image.open(io.BytesIO(glyph.imageData)).convert("RGBA")
+        scale = scale or WIDTH / im.width
+        h = max(1, round(im.height * scale))
+        im = im.resize((WIDTH, h), Image.LANCZOS).quantize(
+            colors=COLORS, method=Image.Quantize.LIBIMAGEQUANT, dither=Image.Dither.NONE)
+        buf = io.BytesIO()
+        im.save(buf, "PNG", optimize=True)
+        glyph.imageData = buf.getvalue()
+        m = glyph.metrics
+        m.width, m.height = WIDTH, h
+        m.BearingX, m.BearingY, m.Advance = (round(v * scale) for v in (m.BearingX, m.BearingY, m.Advance))
+
+for strike in font["CBLC"].strikes:
+    t = strike.bitmapSizeTable
+    t.ppemX = t.ppemY = max(1, round(old * scale))
+    for lm in (t.hori, t.vert):
+        for name in ("ascender", "descender", "widthMax", "caretOffset"):
+            setattr(lm, name, round(getattr(lm, name) * scale))
+font.save(sys.argv[2])
+' NotoColorEmoji.ttf NotoColorEmoji-Subset.ttf
+gzip -9n NotoColorEmoji-Subset.ttf
+```
 
 ## DejaVu Sans Mono Symbols
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/internal/fontset"
 	"github.com/lrstanley/x/term/vt/screen"
@@ -38,6 +39,20 @@ type testScreen struct {
 
 func newTestScreen(width, height int) testScreen {
 	return testScreen{Buffer: screen.NewBuffer(width, height)}
+}
+
+// putText writes s into row y of scr from column x, one grapheme per cell.
+func putText(scr screen.Screen, x, y int, s string, style screen.Style) {
+	var state byte
+	for s != "" {
+		seq, width, n, st := ansi.DecodeSequence(s, state, nil)
+		s, state = s[n:], st
+		if width == 0 {
+			continue
+		}
+		scr.SetCell(x, y, &screen.Cell{Content: seq, Width: width, Style: style})
+		x += width
+	}
 }
 
 func drawNRGBA(t *testing.T, d *Renderer, scr screen.Screen) *image.NRGBA {

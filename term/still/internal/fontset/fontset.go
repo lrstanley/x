@@ -53,6 +53,10 @@ type Set struct {
 	// nil when system fonts are disabled.
 	systemFallback func(rune) (*opentype.Font, bool)
 
+	// colorFallback finds the full color glyph (an emoji) that draws a cluster,
+	// or returns nil.
+	colorFallback func(cluster string) idraw.ColorGlyph
+
 	// ascii holds the resolved face for printable ASCII, filled by Build and
 	// read without locking.
 	ascii [4][0x7f]xfont.Face
@@ -89,6 +93,22 @@ func Build(opts config.Options) (*Set, error) {
 	return build(opts, system)
 }
 
+// colorFallback finds color glyphs in an installed color font, when system fonts
+// are used, and otherwise in the bundled one.
+func colorFallback(system bool) func(string) idraw.ColorGlyph {
+	return func(cluster string) idraw.ColorGlyph {
+		if system {
+			if g, ok := fonts.SystemColorGlyph(cluster); ok {
+				return g
+			}
+		}
+		if g, ok := fonts.BundledColorGlyph(cluster); ok {
+			return g
+		}
+		return nil // Not a nil *fonts.ColorGlyph, which would be a non-nil interface.
+	}
+}
+
 func build(opts config.Options, system func(rune) (*opentype.Font, bool)) (*Set, error) {
 	fs := &Set{
 		faceOpts: &opentype.FaceOptions{
@@ -97,6 +117,7 @@ func build(opts config.Options, system func(rune) (*opentype.Font, bool)) (*Set,
 			Hinting: xfont.HintingFull,
 		},
 		systemFallback: system,
+		colorFallback:  colorFallback(system != nil),
 		faces:          map[*opentype.Font]xfont.Face{},
 		synthetics:     map[syntheticFaceKey]xfont.Face{},
 		gridFaces:      map[xfont.Face]struct{}{},
@@ -143,6 +164,22 @@ func build(opts config.Options, system func(rune) (*opentype.Font, bool)) (*Set,
 		}
 	}
 	return fs, nil
+}
+
+// ColorGlyph returns the glyph that draws cluster in full color, from an
+// installed color font when system fonts are used, else from the bundled one, or
+// nil.
+func (fs *Set) ColorGlyph(cluster idraw.Cluster) idraw.ColorGlyph {
+	if fs == nil {
+		return nil
+	}
+	return fs.colorFallback(cluster.Text)
+}
+
+// SetColorFallback replaces how color glyphs are found. It must be called
+// before the set is used, and exists so tests don't depend on installed fonts.
+func (fs *Set) SetColorFallback(fn func(cluster string) idraw.ColorGlyph) {
+	fs.colorFallback = fn
 }
 
 // Regular returns the primary regular grid face.

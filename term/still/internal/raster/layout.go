@@ -15,6 +15,7 @@ import (
 	"github.com/lrstanley/x/term/still/internal/config"
 	idraw "github.com/lrstanley/x/term/still/internal/draw"
 	"github.com/lrstanley/x/term/still/types"
+	"github.com/lrstanley/x/term/still/units"
 	"github.com/lrstanley/x/term/vt/screen"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -26,6 +27,10 @@ type GlyphContext interface {
 	FontFace(cell *screen.Cell, cluster idraw.Cluster) font.Face
 	UsesGridLayout(face font.Face) bool
 	BoxThicknessOverride() bool
+
+	// ColorGlyph returns the full color glyph that draws cluster, or nil to draw
+	// it as text.
+	ColorGlyph(cluster idraw.Cluster) idraw.ColorGlyph
 }
 
 // Kind classifies glyph layout strategy.
@@ -44,6 +49,9 @@ const (
 	// KindSprite glyphs ([IsSpriteRune]) are drawn from the cell geometry and
 	// have no face.
 	KindSprite
+	// KindColor glyphs are full color images (emoji) fitted into the area of
+	// their wide cell, and have no face.
+	KindColor
 )
 
 // Layout holds resolved glyph rasterization parameters.
@@ -58,6 +66,9 @@ type Layout struct {
 	Fg        color.NRGBA
 	ScaleMode idraw.ScaleMode
 	AlignEnd  bool
+
+	Color   idraw.ColorGlyph // The glyph of a [KindColor] layout.
+	Opacity uint8            // How opaque a [KindColor] glyph is drawn: less than 255 for faint text.
 }
 
 // GridGlyphDotX returns the horizontal pen position for a grid glyph centered
@@ -88,6 +99,15 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, span
 		return true
 	}
 
+	// Only wide cells hold emoji: a text presentation symbol is one cell wide
+	// even when the font that has it for emoji also has a color glyph.
+	if cell.Width == 2 {
+		if glyph := ctx.ColorGlyph(cluster); glyph != nil {
+			*out = Layout{Kind: KindColor, Area: area, Cluster: cluster, Color: glyph, Opacity: colorOpacity(ctx, cell)}
+			return true
+		}
+	}
+
 	face := ctx.FontFace(cell, cluster)
 	if face == nil {
 		return false
@@ -111,7 +131,7 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, span
 // looking up its face or classifying it again.
 func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Cell) {
 	l.Area = area
-	if l.Kind == KindSprite {
+	if l.Kind == KindSprite || l.Kind == KindColor {
 		return
 	}
 	metrics := ctx.Metrics()
@@ -120,7 +140,7 @@ func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Ce
 		Y: fixed.I(area.Max.Y - metrics.FontBaseline.Int()),
 	}
 	switch l.Kind {
-	case KindGrid, KindSprite:
+	case KindGrid, KindSprite, KindColor:
 	case KindPowerline:
 		l.Target = area
 	case KindFallback:
@@ -130,6 +150,19 @@ func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Ce
 			l.Target = idraw.FallbackGlyphTarget(ctx, area, cell)
 		}
 	}
+}
+
+// colorOpacity is how opaque cell's color glyph is: faint text fades toward the
+// background by the faint factor and concealed text is gone, as for a tinted
+// glyph, which internal/color resolves from the same faint factor.
+func colorOpacity(ctx GlyphContext, cell *screen.Cell) uint8 {
+	switch attrs := cell.Style.Attrs; {
+	case attrs&screen.AttrConceal != 0:
+		return 0
+	case attrs&screen.AttrFaint == 0:
+		return 255
+	}
+	return uint8(math.Round(255 * (1 - units.Clamp(ctx.FaintFactor(), 0, 1))))
 }
 
 // IsSpanIcon reports whether content is a Nerd Font icon that Ghostty lets

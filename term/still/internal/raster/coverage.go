@@ -253,7 +253,7 @@ func (p *Pass) AddGlyph(ctx GlyphContext, layout *Layout) {
 			p.over = append(p.over, overGlyph{dr, y})
 		}
 		p.queue = append(p.queue, queuedGlyph{dr, pix, stride, layout.Fg, over})
-	case KindPowerline, KindFallback:
+	case KindPowerline, KindFallback, KindColor:
 		p.glyphs = append(p.glyphs, *layout)
 	}
 }
@@ -348,6 +348,10 @@ func blendMask(dst *image.NRGBA, clip image.Rectangle, q *queuedGlyph) {
 func (p *Pass) DrawPending(ctx GlyphContext, dst draw.Image) {
 	for i := range p.glyphs {
 		layout := &p.glyphs[i]
+		if layout.Kind == KindColor {
+			drawColorLayout(dst, layout)
+			continue
+		}
 		if mask, ok := glyphLayoutMask(layout, &p.glyphMasks); ok {
 			drawGlyphLayoutMask(dst, layout, mask)
 		}

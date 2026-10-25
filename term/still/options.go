@@ -208,6 +208,11 @@ func WithCodepointMap(cp map[string]fonts.FontFamily) Option {
 // font. It is enabled by default. The first such rune makes the renderer read
 // the cmap of every installed font. Disable it for output that must not depend
 // on the fonts installed on the machine.
+//
+// It also lets emoji in wide cells be drawn in full color from an installed
+// color font (CBDT, sbix, or COLR version 0), which takes precedence over the
+// bundled emoji font; the first emoji reads the tables of every installed font
+// again. Without it emoji are still drawn in color, from the bundled font only.
 func WithSystemFontFallback(enabled bool) Option {
 	return func(d *Renderer) error {
 		d.opts.SystemFontFallback = enabled

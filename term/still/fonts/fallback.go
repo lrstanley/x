@@ -77,7 +77,7 @@ type fallbackFace struct {
 var systemFallbackIndex = sync.OnceValue(buildSystemFallbackIndex)
 
 func buildSystemFallbackIndex() []fallbackFace {
-	return buildFallbackIndex(systemFontFiles(Dirs()))
+	return buildFallbackIndex(systemFontPaths())
 }
 
 // buildFallbackIndex reads the usable faces of every source and orders them
@@ -189,7 +189,7 @@ func parseReaderAt(r io.ReaderAt, index int) (*opentype.Font, error) {
 	if _, err := r.ReadAt(tag[:], 0); err != nil {
 		return nil, err
 	}
-	if string(tag[:]) != "ttcf" {
+	if string(tag[:]) != ttcTag {
 		return opentype.ParseReaderAt(r)
 	}
 	col, err := opentype.ParseCollectionReaderAt(r)
@@ -237,11 +237,23 @@ func (c coverage) normalized() coverage {
 // parseCmap reads the coverage of the best Unicode subtable of a raw cmap
 // table: format 12 (full repertoire) when present, otherwise format 4 (BMP).
 func parseCmap(tbl []byte) (coverage, error) {
+	best, format, err := bestCmapSubtable(tbl)
+	if err != nil {
+		return nil, err
+	}
+	if format == 12 {
+		return parseCmap12(best)
+	}
+	return parseCmap4(best)
+}
+
+// bestCmapSubtable returns the Unicode subtable of a raw cmap table that maps
+// the most runes, and its format (12 or 4).
+func bestCmapSubtable(tbl []byte) (sub []byte, format int, err error) {
 	if len(tbl) < 4 {
-		return nil, errors.New("short cmap table")
+		return nil, 0, errors.New("short cmap table")
 	}
 	var best []byte
-	bestScore := 0
 	for i := range int(binary.BigEndian.Uint16(tbl[2:])) {
 		rec := 4 + 8*i
 		if rec+8 > len(tbl) {
@@ -256,24 +268,15 @@ func parseCmap(tbl []byte) (coverage, error) {
 		if !isUnicode {
 			continue
 		}
-		score := 0
-		switch binary.BigEndian.Uint16(tbl[off:]) {
-		case 12:
-			score = 2
-		case 4:
-			score = 1
-		}
-		if score > bestScore {
-			best, bestScore = tbl[off:], score
+		// Format 12 covers more than 4, so the larger of the two wins.
+		if f := int(binary.BigEndian.Uint16(tbl[off:])); (f == 12 || f == 4) && f > format {
+			best, format = tbl[off:], f
 		}
 	}
-	switch bestScore {
-	case 2:
-		return parseCmap12(best)
-	case 1:
-		return parseCmap4(best)
+	if best == nil {
+		return nil, 0, errors.New("no supported unicode cmap subtable")
 	}
-	return nil, errors.New("no supported unicode cmap subtable")
+	return best, format, nil
 }
 
 func parseCmap12(sub []byte) (coverage, error) {
@@ -307,16 +310,11 @@ func parseCmap4(sub []byte) (coverage, error) {
 	if offsets+segX2 > len(sub) {
 		return nil, errors.New("truncated cmap format 4 subtable")
 	}
-	u16 := func(at int) int {
-		if at+2 > len(sub) {
-			return 0
-		}
-		return int(binary.BigEndian.Uint16(sub[at:]))
-	}
+	b := be(sub)
 	var cov coverage
 	for i := 0; i < segX2; i += 2 {
-		start, end := u16(starts+i), u16(ends+i)
-		delta, ro := u16(deltas+i), u16(offsets+i)
+		start, end := b.u16(starts+i), b.u16(ends+i)
+		delta, ro := b.u16(deltas+i), b.u16(offsets+i)
 		if start > end || start == 0xFFFF {
 			continue
 		}
@@ -325,7 +323,7 @@ func parseCmap4(sub []byte) (coverage, error) {
 			var g int
 			if ro == 0 {
 				g = (c + delta) & 0xFFFF
-			} else if g = u16(offsets + i + ro + 2*(c-start)); g != 0 {
+			} else if g = b.u16(offsets + i + ro + 2*(c-start)); g != 0 {
 				g = (g + delta) & 0xFFFF
 			}
 			switch {

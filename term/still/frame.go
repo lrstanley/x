@@ -241,6 +241,10 @@ func (f *renderFrame) FontFace(cell *screen.Cell, cluster idraw.Cluster) font.Fa
 	return f.r.fonts.FaceForCell(cell, cluster)
 }
 
+func (f *renderFrame) ColorGlyph(cluster idraw.Cluster) idraw.ColorGlyph {
+	return f.r.fonts.ColorGlyph(cluster)
+}
+
 func (f *renderFrame) UsesGridLayout(face font.Face) bool {
 	if f.r.fonts == nil {
 		return false

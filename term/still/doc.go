@@ -46,6 +46,12 @@
 // Legacy Computing block mosaics are drawn from the cell geometry instead, so
 // neighboring cells tile exactly.
 //
+// Emoji in wide cells are drawn in full color, scaled into the cell. With
+// [WithSystemFontFallback] enabled an installed color font (Noto Color Emoji,
+// Apple Color Emoji, Segoe UI Emoji) is tried first; otherwise, or when it does
+// not have the emoji, a bundled subset of Noto Color Emoji draws it. That subset
+// has no skin tones, so those are drawn in the default tone.
+//
 // See the Ghostty configuration reference for the closest user-facing
 // knobs: https://ghostty.org/docs/config/reference
 package still

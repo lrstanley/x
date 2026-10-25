@@ -8,6 +8,7 @@ package testutil
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"strings"
 	"testing"
@@ -16,6 +17,16 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
+
+// SolidColorGlyph is a full color glyph that fills its whole box with one color.
+type SolidColorGlyph color.RGBA
+
+// Image draws the glyph at w×h.
+func (g SolidColorGlyph) Image(w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA(g)), image.Point{}, draw.Src)
+	return img
+}
 
 // GlyphMask captures rasterized glyph ink bounds and a compact signature for tests.
 type GlyphMask struct {

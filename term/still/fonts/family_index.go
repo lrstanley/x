@@ -88,7 +88,7 @@ func readFaces(r io.ReaderAt, src string) ([]face, error) {
 	}
 
 	offsets := []uint32{0}
-	if string(head[:4]) == "ttcf" {
+	if string(head[:4]) == ttcTag {
 		n := binary.BigEndian.Uint32(head[8:12])
 		if n == 0 || n > 1024 {
 			return nil, errors.New("invalid collection size")
@@ -348,7 +348,7 @@ var embeddedFamilyIndex = sync.OnceValue(func() *familyIndex {
 	entries, _ := fs.ReadDir(embeddedFonts, "data")
 	var srcs []string
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".gz") {
+		if strings.HasSuffix(e.Name(), ".gz") && e.Name() != bundledColorFile {
 			srcs = append(srcs, "embed:data/"+e.Name())
 		}
 	}
@@ -360,30 +360,114 @@ var embeddedFamilyIndex = sync.OnceValue(func() *familyIndex {
 var systemFamilyIndex = sync.OnceValue(buildSystemIndex)
 
 func buildSystemIndex() *familyIndex {
-	return buildIndex(systemFontFiles(Dirs()))
+	return buildIndex(systemFontPaths())
 }
 
-// systemFontFiles walks dirs in order and returns the font files found,
-// deduplicated, as "file:<path>" sources.
+// systemFontPaths lists the installed font files. The family, fallback and color
+// indexes are each built on first use from the same list, which is searched for
+// once.
+var systemFontPaths = sync.OnceValue(func() []string { return systemFontFiles(Dirs()) })
+
+// Limits on how far the search for font files goes. They only matter for
+// symlinks that were made wrong, such as one to "/": an ordinary font
+// directory has a few hundred directories at most, a few levels down.
+const (
+	maxFontDirDepth = 16    // Levels of directories below a font directory.
+	maxFontDirs     = 4096  // Directories read in one search.
+	maxFontFiles    = 65536 // Font files collected in one search.
+)
+
+// systemFontFiles searches dirs in order and returns the font files found,
+// deduplicated, as "file:<path>" sources. Symbolic links to directories (and
+// Windows junctions) are followed, within limits: a directory is read once
+// however many links lead to it, which also ends loops, and the search is
+// bounded in depth and size.
 func systemFontFiles(dirs []string) []string {
-	var srcs []string
-	seen := map[string]struct{}{}
+	w := newFontWalker()
 	for _, dir := range dirs {
-		_ = filepath.WalkDir(dir, func(path string, de fs.DirEntry, err error) error {
-			if err != nil || de.IsDir() {
-				return nil //nolint:nilerr // Ignore errors and continue searching.
-			}
-			switch strings.ToLower(filepath.Ext(path)) {
-			case ".ttf", ".otf", ".ttc", ".otc":
-			default:
-				return nil
-			}
-			if _, ok := seen[path]; !ok {
-				seen[path] = struct{}{}
-				srcs = append(srcs, "file:"+path)
-			}
-			return nil
-		})
+		w.walk(dir, 0)
 	}
-	return srcs
+	return w.srcs
+}
+
+func newFontWalker() *fontWalker {
+	return &fontWalker{
+		maxDepth: maxFontDirDepth,
+		maxDirs:  maxFontDirs,
+		maxFiles: maxFontFiles,
+		seenDirs: map[string]struct{}{},
+		seen:     map[string]struct{}{},
+	}
+}
+
+type fontWalker struct {
+	maxDepth, maxDirs, maxFiles int
+
+	srcs     []string
+	seenDirs map[string]struct{} // Directories read, by their path with links resolved.
+	seen     map[string]struct{} // Font files found, likewise.
+}
+
+// resolveEntry tells whether directory entry e, at path, is a directory, and for
+// a file returns the key that identifies it: its path with links resolved, which
+// is key, the path with only the directory's links resolved, unless e is a link.
+// ok is false for a link that leads nowhere.
+func resolveEntry(e fs.DirEntry, path, key string) (isDir bool, fileKey string, ok bool) {
+	if e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 { // Not a link, nor a junction.
+		return e.IsDir(), key, true
+	}
+	info, err := os.Stat(path) //nolint:gosec // Paths are in the font directories being searched.
+	if err != nil {
+		return false, "", false
+	}
+	if info.IsDir() {
+		return true, "", true
+	}
+	key, err = filepath.EvalSymlinks(path)
+	return false, key, err == nil
+}
+
+// walk reads dir and the directories in it, which are at depth below the root
+// of the search, in name order. Errors are ignored, to keep searching.
+func (w *fontWalker) walk(dir string, depth int) {
+	if depth > w.maxDepth || len(w.seenDirs) >= w.maxDirs || len(w.srcs) >= w.maxFiles {
+		return
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return
+	}
+	if _, ok := w.seenDirs[resolved]; ok {
+		return
+	}
+	w.seenDirs[resolved] = struct{}{}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		isDir, key, ok := resolveEntry(e, path, filepath.Join(resolved, e.Name()))
+		if !ok {
+			continue
+		}
+		if isDir {
+			w.walk(path, depth+1)
+			continue
+		}
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".ttf", ".otf", ".ttc", ".otc":
+		default:
+			continue
+		}
+		if _, dup := w.seen[key]; dup {
+			continue
+		}
+		if len(w.srcs) >= w.maxFiles {
+			return
+		}
+		w.seen[key] = struct{}{}
+		w.srcs = append(w.srcs, "file:"+path)
+	}
 }
