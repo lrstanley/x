@@ -57,14 +57,19 @@ func readCastFile(t *testing.T, name string) *Timeline {
 	return readCast(t, data)
 }
 
-// rounded returns the events of tl with offsets rounded to milliseconds, as
-// a file keeps them.
-func rounded(tl *Timeline) []Event {
-	var out []Event
-	for ev := range tl.Events() {
-		out = append(out, ev.stamp(ev.At().Round(time.Millisecond)))
+// assertSameTimes fails unless got's events are at exactly the offsets of
+// want's.
+func assertSameTimes(t *testing.T, got, want *Timeline) {
+	t.Helper()
+	g, w := slices.Collect(got.Events()), slices.Collect(want.Events())
+	if len(g) != len(w) {
+		t.Fatalf("%d events, want %d", len(g), len(w))
 	}
-	return out
+	for i := range g {
+		if g[i].At() != w[i].At() {
+			t.Fatalf("event %d at %v, want %v", i, g[i].At(), w[i].At())
+		}
+	}
 }
 
 // withDefaultPalette returns h with the palette a file without one of its
@@ -240,17 +245,7 @@ func TestCastIntervalsDoNotDrift(t *testing.T) {
 		tl.appendAt(Output{Data: []byte{'a' + byte(i%26)}}, time.Duration(i)*time.Second/3000)
 	}
 	got := readCast(t, writeCast(t, tl, CastV3))
-	want := rounded(tl)
-	if got.Len() != n {
-		t.Fatalf("read %d events, want %d", got.Len(), n)
-	}
-	i := 0
-	for ev := range got.Events() {
-		if ev.At() != want[i].At() {
-			t.Fatalf("event %d at %v, want %v", i, ev.At(), want[i].At())
-		}
-		i++
-	}
+	assertSameTimes(t, got, tl)
 	if d := got.Duration(); d != 10*time.Second {
 		t.Fatalf("Duration = %v, want 10s", d)
 	}
@@ -263,13 +258,16 @@ func TestCastSplitCharacters(t *testing.T) {
 		Output{event: at(0), Data: []byte("a" + box[:1])},
 		Input{event: at(1), Data: []byte(smile[:2])},
 		Output{event: at(2), Data: []byte(box[1:2])},
-		// An event holding only part of a character is folded into the next.
+		// An event holding only part of a character passes it on, and is
+		// kept empty.
 		Output{event: at(3), Data: []byte(box[2:] + smile[:3])},
 		Input{event: at(4), Data: []byte(smile[2:] + "x")},
 		Output{event: at(5), Data: []byte(smile[3:] + "\xffb\xe2")},
 	)
 	assertEvents(t, readCast(t, writeCast(t, tl, CastV3)),
 		`0 output "a"`,
+		`1 input ""`,
+		`2 output ""`,
 		`3 output "─"`,
 		`4 input "😀x"`,
 		// Bytes that are not UTF-8, including a character the last event
@@ -311,7 +309,8 @@ func TestCastSession(t *testing.T) {
 	if want := withDefaultPalette(tl.Header()); got.Header() != want {
 		t.Fatalf("Header = %+v, want %+v", got.Header(), want)
 	}
-	assertEvents(t, got, describe(rounded(tl))...)
+	assertEvents(t, got, describe(slices.Collect(tl.Events()))...)
+	assertSameTimes(t, got, tl)
 	if got.start.Unix() != tl.start.Unix() {
 		t.Fatalf("start = %v, want %v", got.start, tl.start)
 	}
@@ -360,20 +359,19 @@ func TestReadTimelineSpec(t *testing.T) {
 	if h := tl.Header(); h != want {
 		t.Fatalf("v3 Header = %+v", h)
 	}
+	// The file's intervals are in microseconds. Their sums are rounded to
+	// the millisecond, so they do not drift: the last is 6.643958s.
 	assertEvents(t, tl,
-		`248 output "\x1b[1;31mHello \x1b[32mWorld!\x1b[0m\n"`,
+		`249 output "\x1b[1;31mHello \x1b[32mWorld!\x1b[0m\n"`,
 		`1250 output "That was ok\rThis is better."`,
 		`1750 mark `,
-		`1893 input "ls\r"`,
-		`2093 output "file1  file2\r\n"`,
+		`1894 input "ls\r"`,
+		`2094 output "file1  file2\r\n"`,
 		// The unknown events' intervals still count.
-		`5143 resize 90x30`,
-		`6143 mark chapter 2`,
-		`6643 exit 0`,
+		`5144 resize 90x30`,
+		`6144 mark chapter 2`,
+		`6644 exit 0`,
 	)
-	if last := slices.Collect(tl.Events())[7].At(); last != 6_643_958*time.Microsecond {
-		t.Fatalf("last event at %v, want 6.643958s", last)
-	}
 
 	// And from the v2 spec, with an 8 color palette and an event out of
 	// order, which is raised to the one before.
@@ -387,11 +385,11 @@ func TestReadTimelineSpec(t *testing.T) {
 		t.Fatalf("v2 Header = %+v", h)
 	}
 	assertEvents(t, tl,
-		`248 output "\x1b[1;31mHello \x1b[32mWorld!\x1b[0m\n"`,
+		`249 output "\x1b[1;31mHello \x1b[32mWorld!\x1b[0m\n"`,
 		`1250 output "That was ok\rThis is better."`,
 		`1750 mark intro`,
-		`1893 input "ls\r"`,
-		`1893 output "out of order"`,
+		`1894 input "ls\r"`,
+		`1894 output "out of order"`,
 		`3000 resize 90x30`,
 	)
 }

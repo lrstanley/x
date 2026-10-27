@@ -130,6 +130,42 @@ func TestTimelineAppendClock(t *testing.T) {
 	}
 }
 
+func TestTimelineRoundsToMillisecond(t *testing.T) {
+	t.Parallel()
+	tl := testTimeline(t)
+	for _, at := range []time.Duration{
+		// -400µs rounds to zero, and -2ms is raised to it.
+		-400 * time.Microsecond, -2 * ms,
+		1499 * time.Microsecond, 1500 * time.Microsecond,
+		// Later in the same millisecond, and before the last event's
+		// offset once it is rounded up.
+		2600 * time.Microsecond, 2400 * time.Microsecond, 2999 * time.Microsecond,
+		10*ms + 1,
+	} {
+		tl.appendAt(Output{Data: []byte("x")}, at)
+	}
+	var got []time.Duration
+	for ev := range tl.Events() {
+		got = append(got, ev.At())
+	}
+	want := []time.Duration{0, 0, 1 * ms, 2 * ms, 3 * ms, 3 * ms, 3 * ms, 10 * ms}
+	if !slices.Equal(got, want) {
+		t.Fatalf("offsets = %v, want %v", got, want)
+	}
+
+	// The wall clock is rounded too.
+	tl = testTimeline(t)
+	for range 20 {
+		tl.append(Output{Data: []byte("x")})
+		time.Sleep(137 * time.Microsecond)
+	}
+	for ev := range tl.Events() {
+		if ev.At()%ms != 0 {
+			t.Fatalf("wall clock offset %v is not whole milliseconds", ev.At())
+		}
+	}
+}
+
 func TestTimelineFilters(t *testing.T) {
 	t.Parallel()
 	tl := testTimeline(t,

@@ -10,11 +10,11 @@
 // host types, presses keys, pastes, clicks, resizes, focuses, and sets colors.
 // The session records each of these in a [Timeline], an append-only event log
 // of the bytes and host actions that changed the terminal, with each event's
-// offset from the first. Recordings are derived from a timeline by replaying
-// it, so recording costs a copy of the bytes and nothing more while the
-// program runs. [Mark] events name points in a timeline, and
-// [Timeline.Between] cuts the part between two of them. A timeline is saved
-// as an asciicast v3 file (".cast", [CastMediaType]) with
+// offset from the first, in whole milliseconds. Recordings are derived from
+// a timeline by replaying it, so recording costs a copy of the bytes and
+// nothing more while the program runs. [Mark] events name points in a
+// timeline, and [Timeline.Between] cuts the part between two of them. A
+// timeline is saved as an asciicast v3 file (".cast", [CastMediaType]) with
 // [Timeline.WriteTo], which asciinema plays, and read back, or read from a
 // file asciinema recorded, with [ReadTimeline].
 //

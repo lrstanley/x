@@ -29,6 +29,16 @@ var ErrNoMark = errors.New("reel: no such mark")
 // Events are never changed once appended. Their byte slices must not be
 // modified.
 //
+// Offsets are whole milliseconds, the precision of an asciicast file: an
+// event's time is rounded to the millisecond as it is appended, whether it
+// comes from the wall clock, a timing file, or a file being read, and raised
+// to the offset of the event before, so offsets never decrease. [Export]
+// therefore writes the same files from a timeline and from the asciicast file
+// [Timeline.WriteTo] saved of it, except where the file holds something else:
+// output bytes that are not UTF-8, which it saves as U+FFFD (see
+// [Timeline.WriteCast]), and a cut that starts at a mark, which it saves as
+// its window, redrawn.
+//
 // [Timeline.WriteTo] saves a timeline as an asciicast file, which asciinema
 // and the tools around it play, and [ReadTimeline] reads one back.
 type Timeline struct {
@@ -239,16 +249,17 @@ func (t *Timeline) unpace() {
 }
 
 // appendAt adds ev at offset at, for events whose times come from elsewhere
-// than the wall clock, such as a timing file. An offset before zero or before
-// the last event's is raised to it, so offsets never decrease.
+// than the wall clock, such as a timing file.
 func (t *Timeline) appendAt(ev Event, at time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.appendLocked(ev, at)
 }
 
+// appendLocked adds ev at offset at rounded to the millisecond, and raised
+// to zero and to the last event's offset, so offsets never decrease.
 func (t *Timeline) appendLocked(ev Event, at time.Duration) {
-	at = max(at, 0)
+	at = max(at.Round(time.Millisecond), 0)
 	if n := len(t.events); n > 0 {
 		at = max(at, t.events[n-1].At())
 	}

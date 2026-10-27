@@ -24,9 +24,10 @@ import (
 // The frames of a timeline returned by [Timeline.Between] are those of its
 // window, which opens on the terminal the events before it left. Frames are
 // drawn as of their offset into the timeline, never the wall clock, so
-// exporting one timeline twice writes the same bytes. The frames then run
-// through p's effects into every frame output; effects that drop every frame
-// are an error.
+// exporting one timeline twice writes the same bytes, as does exporting the
+// asciicast file [Timeline.WriteTo] saved of it, but for the exceptions
+// [Timeline] lists. The frames then run through p's effects into every frame
+// output; effects that drop every frame are an error.
 //
 // Until the first frame, a terminal that looks like nothing was drawn on it
 // is not a frame, which skips the capability queries programs start with. A

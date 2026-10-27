@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-const us = time.Microsecond
-
 // classicTypescript and classicTiming are what "script -t" wrote for
 // "printf hello; sleep 0.2; printf ' world\n'".
 const (
@@ -57,14 +55,14 @@ func TestAttachClassicTiming(t *testing.T) {
 	if err := Attach(t.Context(), s, strings.NewReader(classicTypescript), WithTiming(strings.NewReader(classicTiming))); err != nil {
 		t.Fatal(err)
 	}
-	assertEvents(t, s.Timeline(), `0 output "hello"`, `201 output " world\r\n"`)
-	if at := slices.Collect(s.Timeline().Events())[1].At(); at != 201860*us {
-		t.Fatalf("second output at %v, want 201.86ms", at)
-	}
+	// The times in the file, 0.906ms and 201.86ms, are rounded to the
+	// millisecond.
+	assertEvents(t, s.Timeline(), `1 output "hello"`, `202 output " world\r\n"`)
 	assertFrames(t, exportFrames(t, s.Timeline(), Profile{FPS: 100, Hold: -1}),
-		// Frames are at the times in the file, and delays on the 10ms grid.
-		wantFrame{"hello", 906 * us, 200 * ms, true},
-		wantFrame{"hello world", 201860 * us, 10 * ms, true},
+		// Frames are at the times in the timeline, and delays on the 10ms
+		// grid.
+		wantFrame{"hello", 1 * ms, 200 * ms, true},
+		wantFrame{"hello world", 202 * ms, 10 * ms, true},
 	)
 }
 
@@ -74,14 +72,17 @@ func TestAttachAdvancedTiming(t *testing.T) {
 	if err := Attach(t.Context(), s, strings.NewReader(logIO), WithTiming(strings.NewReader(logIOTiming))); err != nil {
 		t.Fatal(err)
 	}
+	// Each time is the sum of the intervals before it, rounded to the
+	// millisecond: 0.624ms, 148.88ms, 149.023ms, 301.9ms, 349.012ms,
+	// 602.915ms.
 	assertEvents(t, s.Timeline(),
-		`0 output "a"`,
-		`148 input "yo\r"`,
+		`1 output "a"`,
+		`149 input "yo\r"`,
 		`149 output "yo\r\n"`,
-		`301 output "got yo"`,
+		`302 output "got yo"`,
 		`349 resize 100x30`,
-		`602 output "b"`,
-		`602 exit 0`,
+		`603 output "b"`,
+		`603 exit 0`,
 	)
 	if text := s.Terminal().Text(); !strings.Contains(text, "got yob") {
 		t.Fatalf("terminal:\n%s", text)

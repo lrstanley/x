@@ -82,6 +82,11 @@ func (r *Recording) run(ctx context.Context, tl *Timeline, rec *recorder) error 
 			}
 		}
 		if stopping {
+			// A ctx canceled before Stop wins, though the select may
+			// have seen both.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			fixed := tl.fixed(tl.header, n)
 			if err := rec.end(fixed.Duration()); err != nil {
 				return err

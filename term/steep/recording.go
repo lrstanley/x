@@ -5,7 +5,6 @@
 package steep
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -111,10 +110,7 @@ var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookSettle
 // pause badge marks that held frame, and the FAIL card follows it.
 //
 // The recording is the [reel.Timeline] of the session up to the start of
-// [Harness.Close], so a program's repaint as it exits is left out. It is
-// exported as its ".cast" file stores it, its event times rounded to the
-// millisecond, so exporting that file again with the same profile and
-// [Result] writes the same bytes, given the 3s hold for a failed test.
+// [Harness.Close], so a program's repaint as it exits is left out.
 //
 // Environment (each applied unless [WithIgnoreEnv] is set): STEEP_EXPORT_TYPE
 // replaces the outputs and stills, as a comma-separated list of gif, mp4,
@@ -369,20 +365,10 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 }
 
 // exportTimeline exports the session's timeline up to the mark labeled end,
-// or all of it without one, as its asciicast file stores it.
+// or all of it without one.
 func (h *Harness) exportTimeline(end string, p reel.Profile) error {
 	tl, err := h.session.Timeline().Between("", end)
 	if err != nil {
-		return err
-	}
-	// The asciicast file rounds event times to the millisecond, and stores
-	// text as UTF-8. Exporting what it reads back, rather than the timeline
-	// itself, makes the files an export of that file writes the same bytes.
-	var cast bytes.Buffer
-	if _, err = tl.WriteTo(&cast); err != nil {
-		return err
-	}
-	if tl, err = reel.ReadTimeline(&cast); err != nil {
 		return err
 	}
 	// The test's context is canceled by the time cleanups run.

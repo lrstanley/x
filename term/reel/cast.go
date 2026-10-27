@@ -105,14 +105,15 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // source showed what was there before the program started. [Export] of the
 // cut replays every event, so its frames are unaffected.
 //
-// Event times are rounded to milliseconds. In v3, where each is written as
-// the interval since the one before, the intervals add up to the rounded
-// times, so a long recording does not drift.
+// Event times are whole milliseconds (see [Timeline]), written exactly. In
+// v3, where each is written as the interval since the one before, the
+// intervals add up to the times, so a long recording does not drift.
 //
 // [Output] and [Input] bytes are written as JSON strings, which hold UTF-8.
 // A character split between two events of the same kind, as a program's
 // writes often split them, is moved whole into the later event, so the bytes
-// read back are the bytes written. Bytes that are not UTF-8, such as an X10
+// read back are the bytes written. An event left with no bytes is written
+// empty, which replays as it was. Bytes that are not UTF-8, such as an X10
 // mouse report past column 94, are written as U+FFFD, as asciinema writes
 // them.
 //
@@ -310,17 +311,12 @@ func writeCastEvents(enc *json.Encoder, events []Event, v CastVersion) error {
 		case Exit:
 			code, data, v3Only = "x", strconv.Itoa(ev.Status), true
 		}
-		switch {
-		case v == CastV2 && v3Only:
-			continue
-		case (code == "o" || code == "i") && data == "":
-			// No bytes are left, as when the event held only the start of a
-			// split character.
+		if v == CastV2 && v3Only {
 			continue
 		}
 
 		// v3 times are intervals, v2 times are offsets.
-		at, from := ev.At().Round(time.Millisecond), time.Duration(0)
+		at, from := ev.At(), time.Duration(0)
 		if v == CastV3 {
 			from = prev
 		}
@@ -357,7 +353,7 @@ func carryRune(tail, data []byte, more bool) (s string, newTail []byte) {
 	return string(data), nil
 }
 
-// castTime formats an offset as seconds with millisecond precision.
+// castTime formats an offset in whole milliseconds as seconds.
 func castTime(d time.Duration) json.Number {
 	ms := d.Milliseconds()
 	return json.Number(fmt.Sprintf("%d.%03d", ms/1000, ms%1000))
@@ -404,8 +400,10 @@ func (cw *countWriter) Write(p []byte) (int, error) {
 // header's palette is read into [Header.Palette], and reel's "skip_pristine"
 // into [Header.SkipPristine]. Times in a v2 file are from the start rather
 // than from the event before; a time before the previous event's is raised
-// to it. A marker with no label reads as a [Mark] with an empty Label, which
-// [Timeline.Between] cannot cut at.
+// to it. Each event's time from the start is rounded to the millisecond, as
+// a [Timeline] keeps it, so intervals finer than that, as asciinema writes
+// them, do not drift. A marker with no label reads as a [Mark] with an empty
+// Label, which [Timeline.Between] cannot cut at.
 //
 // An asciicast v1 file, a header without a terminal size or with a malformed
 // field reel reads, a line that is not a JSON array of time, code, and data,

@@ -319,6 +319,53 @@ func TestExportDeterministic(t *testing.T) {
 	}
 }
 
+// TestExportCastAgain checks that exporting the asciicast file an export
+// wrote writes the same GIF, for times finer than the file's milliseconds
+// that round across a step of the delay grid, and a first write of only part
+// of a character, which the file moves into the next.
+func TestExportCastAgain(t *testing.T) {
+	t.Parallel()
+	s := openTest(t, 6, 1)
+	// The first byte of "─" draws a blank frame. Output at 4.6ms is on the
+	// first step of the 10ms grid, but 5ms, once rounded to the millisecond,
+	// is on the second. Then 24.5ms and 61.499ms round across half a
+	// millisecond.
+	timing := "0.000000 1\n0.004600 2\n0.019900 1\n0.036999 1\n0.010000 1\n"
+	if err := Attach(t.Context(), s, strings.NewReader("─bcd"), WithTiming(strings.NewReader(timing))); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p := Profile{FPS: 100, Outputs: Files(filepath.Join(dir, "a.gif"), filepath.Join(dir, "a.cast"))}
+	if err := Export(t.Context(), s.Timeline(), p); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filepath.Join(dir, "a.cast"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tl, err := ReadTimeline(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSameTimes(t, tl, s.Timeline())
+	p.Outputs = Files(filepath.Join(dir, "b.gif"))
+	if err = Export(t.Context(), tl, p); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.ReadFile(filepath.Join(dir, "a.gif"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(filepath.Join(dir, "b.gif"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("exporting the .cast again wrote a different GIF")
+	}
+}
+
 func TestExportOutputs(t *testing.T) {
 	t.Parallel()
 	tl := demoTimeline()
