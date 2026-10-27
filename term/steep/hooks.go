@@ -130,7 +130,7 @@ func (h *Harness) hook(event HookEvent, metadata any) func() {
 	h.tb.Helper()
 	var seq uint64
 	if h.awaitsPaint(event) {
-		seq = h.emulator.term.OutputSeq()
+		seq = h.session.Terminal().OutputSeq()
 	}
 	h.runHooks(event, HookStageBefore, metadata)
 	return func() {
@@ -172,8 +172,8 @@ func (h *Harness) waitForPaint(start uint64) {
 	timer := time.NewTimer(time.Millisecond)
 	defer timer.Stop()
 	for {
-		seq := h.emulator.term.OutputSeq()
-		held := h.emulator.term.Held()
+		seq := h.session.Terminal().OutputSeq()
+		held := h.session.Terminal().Held()
 		if seq != start && !held {
 			start = seq
 			idleAt = time.Now().Add(quiet)

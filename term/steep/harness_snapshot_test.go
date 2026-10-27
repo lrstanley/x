@@ -60,7 +60,7 @@ func TestHarnessImageRendersLiveState(t *testing.T) {
 	h.Wait("text=image")
 	h.Blur()
 	h.SetCursorColor(cursorColor)
-	if err := h.emulator.writeString(ansi.SetCursorStyle(5)); err != nil {
+	if err := writeString(h, ansi.SetCursorStyle(5)); err != nil {
 		t.Fatalf("set cursor style: %v", err)
 	}
 	img := h.Image()
@@ -71,7 +71,7 @@ func TestHarnessImageRendersLiveState(t *testing.T) {
 	if screenBounds.Dx() != h.Width() || screenBounds.Dy() != h.Height() {
 		t.Fatalf("screen bounds = %v, want harness dimensions %dx%d", screenBounds, h.Width(), h.Height())
 	}
-	st := liveState(h)
+	st := h.session.State()
 	if st.Focused {
 		t.Fatal("state focused = true, want false")
 	}
@@ -97,11 +97,11 @@ func TestHarnessImageTracksStateChanges(t *testing.T) {
 	fg := color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}
 	bg := color.NRGBA{R: 0x01, G: 0x02, B: 0x03, A: 0xff}
 	h.SetFgColor(fg).SetBgColor(bg).Blur()
-	if err := h.emulator.writeString(ansi.SetWindowTitle("renamed")); err != nil {
+	if err := writeString(h, ansi.SetWindowTitle("renamed")); err != nil {
 		t.Fatalf("set title: %v", err)
 	}
 	blurred := copyImage(t, h.Image())
-	if st := liveState(h); st.Focused || st.Title != "renamed" || st.Foreground != fg || st.Background != bg {
+	if st := h.session.State(); st.Focused || st.Title != "renamed" || st.Foreground != fg || st.Background != bg {
 		t.Fatalf("state = %#v", st)
 	}
 
@@ -110,7 +110,7 @@ func TestHarnessImageTracksStateChanges(t *testing.T) {
 	if bytes.Equal(blurred.Pix, copyImage(t, h.Image()).Pix) {
 		t.Fatal("image did not change with the focus and colors")
 	}
-	if st := liveState(h); !st.Focused || st.Title != "renamed" || st.Foreground != fg || st.Background != bg {
+	if st := h.session.State(); !st.Focused || st.Title != "renamed" || st.Foreground != fg || st.Background != bg {
 		t.Fatalf("updated state = %#v", st)
 	}
 }
@@ -136,7 +136,7 @@ func TestHarnessImageTracksProgress(t *testing.T) {
 	} {
 		writeVT(t, h, tc.seq)
 		img := copyImage(t, h.Image())
-		if got := liveState(h).ShownProgress(); got != tc.want {
+		if got := h.session.State().ShownProgress(); got != tc.want {
 			t.Fatalf("%q: shown progress = %+v, want %+v", tc.seq, got, tc.want)
 		}
 		if bytes.Equal(before.Pix, img.Pix) {
@@ -173,7 +173,7 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 	before := copyImage(t, h.Image())
 	records := func() []screen.ProgramStatus {
 		t.Helper()
-		return liveState(h).ProgramStatuses
+		return h.session.State().ProgramStatuses
 	}
 
 	writeVT(t, h, ansi.SetProgramStatus(agentDone))
@@ -242,7 +242,7 @@ func TestHarnessProgramStatusStopsProgress(t *testing.T) {
 	h := statusHarness(t, "rule")
 	progress := func() screen.Progress {
 		t.Helper()
-		return liveState(h).ShownProgress()
+		return h.session.State().ShownProgress()
 	}
 	set := func(pct int) screen.Progress {
 		return screen.Progress{Reported: true, State: screen.ProgressSet, Percent: pct}
@@ -301,7 +301,7 @@ func TestHarnessImageConcurrentWithTerminalMutation(t *testing.T) {
 	h.Wait("size=24x3")
 	// Steady cursor: blink phase is time-dependent and this test cannot use synctest
 	// (VT I/O runs outside the bubble).
-	if err := h.emulator.writeString(ansi.SetCursorStyle(2)); err != nil {
+	if err := writeString(h, ansi.SetCursorStyle(2)); err != nil {
 		t.Fatalf("set steady cursor: %v", err)
 	}
 

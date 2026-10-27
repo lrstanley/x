@@ -402,8 +402,8 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 	for _, c := range "abcdefg" {
 		text += string(c)
 		h.Type(string(c)).Wait("text=" + text)
-		screens = append(screens, h.emulator.term.Screen())
-		states = append(states, h.emulator.term.State())
+		screens = append(screens, h.session.Terminal().Screen())
+		states = append(states, h.session.Terminal().State())
 	}
 
 	record := func(recycle bool) *gif.GIF {
@@ -476,11 +476,11 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 	h := NewHarness(t, backgroundModel{rootTestModel{}}, WithWindowSize(20, 4), WithIgnoreEnv(true))
 	h.Type("a").Wait("text=a")
-	scr, st := h.emulator.term.Screen(), h.emulator.term.State()
+	scr, st := h.session.Terminal().Screen(), h.session.Terminal().State()
 
 	// copyCommitted draws with the harness's focus, as of h.start.
 	fresh := st
-	fresh.Focused = h.emulator.focused
+	fresh.Focused = h.session.Focused()
 	h.imageMu.Lock()
 	want := image.NewNRGBA(h.imageRenderer.Layout(scr.Width(), scr.Height()).Image)
 	h.imageRenderer.Draw(want, scr, fresh, 0)
@@ -540,7 +540,7 @@ func TestExportAnimatesIndicators(t *testing.T) {
 func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
 	t.Helper()
 	writeVT(t, h, seq)
-	scr, st := h.emulator.term.Screen(), h.emulator.term.State()
+	scr, st := h.session.Terminal().Screen(), h.session.Terminal().State()
 
 	ch := make(chan sink.Frame, 64)
 	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: []chan<- sink.Frame{ch}}

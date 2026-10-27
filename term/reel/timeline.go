@@ -1,0 +1,311 @@
+// Copyright (c) Liam Stanley <liam@liam.sh>. All rights reserved. Use of
+// this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+package reel
+
+import (
+	"errors"
+	"fmt"
+	"image/color"
+	"iter"
+	"sync"
+	"time"
+)
+
+// ErrNoMark is returned by [Timeline.Between] when a label names no mark in
+// the timeline's window.
+var ErrNoMark = errors.New("reel: no such mark")
+
+// Timeline is the event log of a [Session]: what the program wrote, what the
+// session sent it, and what the host did to its terminal, each at its offset
+// from the first event. Every recording is derived from a timeline by replaying it into
+// a fresh terminal, so it holds no frames and does no rendering. Appending
+// copies the bytes once.
+//
+// A session's timeline grows while the session runs. Its methods are safe for
+// concurrent use, and each observes the events appended before it was called:
+// an iterator does not see events appended after the call that returned it.
+// Events are never changed once appended. Their byte slices must not be
+// modified.
+//
+// [Timeline.WriteTo] saves a timeline as an asciicast file, which asciinema
+// and the tools around it play, and [ReadTimeline] reads one back.
+type Timeline struct {
+	// header is fixed when the timeline is created.
+	header Header
+
+	// mu guards start and events. Readers copy the slice header under it and
+	// read the elements without it, which is safe because appends never
+	// change an element already in the slice.
+	mu sync.RWMutex
+	// start is when the first event was appended with the wall clock, which
+	// event offsets are measured from. It is zero until then.
+	start time.Time
+	// events are in the order they were appended, with offsets that never
+	// decrease.
+	events []Event
+	// from is the index of the event a [Timeline.Between] window starts at,
+	// or -1 when it starts before the first event. A timeline that is not a
+	// window has from -1 and ends at its last event.
+	from int
+}
+
+// newTimeline returns an empty timeline with header.
+func newTimeline(header Header) *Timeline {
+	return &Timeline{header: header, from: -1}
+}
+
+// Header describes the terminal a timeline starts with.
+type Header struct {
+	// Cols and Rows are the terminal size in cells when the session opened.
+	// [Resize] events change it.
+	Cols, Rows int
+	// Theme is the colors the terminal showed when the session opened. Fg
+	// and Bg are set, unless the timeline was read from a file without
+	// them. Cursor is nil when no cursor color was set. A fresh terminal
+	// shows the same colors, so a replay need not apply them; [Theme]
+	// events then set the host's colors over them.
+	Theme Colors
+	// Title is a name for the recording, which is not the window title the
+	// program sets. It is empty unless [WithTitle] set it, or the file the
+	// timeline was read from had one.
+	Title string
+}
+
+// Colors is a foreground, background, and cursor color. Non-nil colors are
+// [color.NRGBA].
+type Colors struct {
+	Fg, Bg, Cursor color.Color
+}
+
+// Event is one entry in a [Timeline]: [Output], [Input], [Resize], [Mark],
+// [Focus], [Theme], or [Exit]. The set is closed.
+type Event interface {
+	// At is the event's offset from the first event in its timeline.
+	At() time.Duration
+
+	// stamp returns a copy of the event at offset at.
+	stamp(at time.Duration) Event
+}
+
+// event holds the offset every [Event] carries.
+type event struct{ at time.Duration }
+
+// At is the event's offset from the first event in its timeline.
+func (e event) At() time.Duration { return e.at }
+
+// Output is bytes the program wrote to its terminal.
+type Output struct {
+	event
+	// Data is the bytes, as written. It must not be modified.
+	Data []byte
+}
+
+// Input is bytes the program was sent as input: a key, typed text, a paste,
+// or a mouse event, encoded as the terminal sends it in the modes the program
+// had set. [Input.Strokes] decodes it.
+type Input struct {
+	event
+	// Data is the bytes, as sent. It must not be modified.
+	Data []byte
+}
+
+// Resize is the terminal changing size.
+type Resize struct {
+	event
+	// Cols and Rows are the new size in cells.
+	Cols, Rows int
+}
+
+// Mark is a named point in a timeline, which [Timeline.Between] cuts at.
+type Mark struct {
+	event
+	// Label is the mark's name. It is never empty, unless the mark was read
+	// from a file with an unlabeled marker.
+	Label string
+}
+
+// Focus is the terminal window gaining or losing focus. A session starts
+// focused.
+type Focus struct {
+	event
+	// On is true when the window gained focus.
+	On bool
+}
+
+// Theme is the host changing the terminal's colors.
+type Theme struct {
+	event
+	// Colors is the colors the host set, after the change. A nil color is
+	// one the host no longer sets, so the terminal's default, or the color
+	// the program set, applies.
+	Colors
+}
+
+// Exit is the program exiting.
+type Exit struct {
+	event
+	// Status is the program's exit status.
+	Status int
+}
+
+func (e Output) stamp(at time.Duration) Event { e.at = at; return e }
+func (e Input) stamp(at time.Duration) Event  { e.at = at; return e }
+func (e Resize) stamp(at time.Duration) Event { e.at = at; return e }
+func (e Mark) stamp(at time.Duration) Event   { e.at = at; return e }
+func (e Focus) stamp(at time.Duration) Event  { e.at = at; return e }
+func (e Theme) stamp(at time.Duration) Event  { e.at = at; return e }
+func (e Exit) stamp(at time.Duration) Event   { e.at = at; return e }
+
+// append adds ev at the wall clock's offset from the first event appended
+// this way.
+func (t *Timeline) append(ev Event) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	if t.start.IsZero() {
+		t.start = now
+	}
+	t.appendLocked(ev, now.Sub(t.start))
+}
+
+// appendAt adds ev at offset at, for events whose times come from elsewhere
+// than the wall clock, such as a timing file. An offset before zero or before
+// the last event's is raised to it, so offsets never decrease.
+func (t *Timeline) appendAt(ev Event, at time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.appendLocked(ev, at)
+}
+
+func (t *Timeline) appendLocked(ev Event, at time.Duration) {
+	at = max(at, 0)
+	if n := len(t.events); n > 0 {
+		at = max(at, t.events[n-1].At())
+	}
+	t.events = append(t.events, ev.stamp(at))
+}
+
+// snapshot returns the events appended so far. The caller must not modify
+// the slice.
+func (t *Timeline) snapshot() []Event {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.events[:len(t.events):len(t.events)]
+}
+
+// started returns when the first event was appended with the wall clock, or
+// the zero time. Read after [Timeline.snapshot], it is set for any events
+// that were.
+func (t *Timeline) started() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.start
+}
+
+// Header returns the terminal the timeline starts with.
+func (t *Timeline) Header() Header { return t.header }
+
+// Len returns the number of events.
+func (t *Timeline) Len() int { return len(t.snapshot()) }
+
+// Duration returns the offset of the last event, or zero when there is none.
+func (t *Timeline) Duration() time.Duration { return lastAt(t.snapshot()) }
+
+// Window returns the span a recording of the timeline shows: from the start
+// of the timeline to its last event, or for a timeline returned by
+// [Timeline.Between], from its start mark to its end.
+func (t *Timeline) Window() (from, to time.Duration) {
+	events := t.snapshot()
+	if t.from >= 0 {
+		from = events[t.from].At()
+	}
+	return from, lastAt(events)
+}
+
+func lastAt(events []Event) time.Duration {
+	if len(events) == 0 {
+		return 0
+	}
+	return events[len(events)-1].At()
+}
+
+// Events returns an iterator over the events, oldest first.
+func (t *Timeline) Events() iter.Seq[Event] {
+	return eventsOf[Event](t)
+}
+
+// Inputs returns an iterator over the [Input] events, oldest first.
+func (t *Timeline) Inputs() iter.Seq[Input] {
+	return eventsOf[Input](t)
+}
+
+// Marks returns an iterator over the [Mark] events, oldest first.
+func (t *Timeline) Marks() iter.Seq[Mark] {
+	return eventsOf[Mark](t)
+}
+
+// eventsOf returns an iterator over the events in t of type E, as of the
+// call.
+func eventsOf[E Event](t *Timeline) iter.Seq[E] {
+	events := t.snapshot()
+	return func(yield func(E) bool) {
+		for _, ev := range events {
+			if e, ok := ev.(E); ok && !yield(e) {
+				return
+			}
+		}
+	}
+}
+
+// Between returns the part of the timeline from the first mark labeled from
+// to the first mark labeled to after it, for recording one stretch of a
+// session. An empty from starts at the start of t's window, and an empty to
+// ends at its end. Marks are only looked for inside t's window, its start mark
+// included, so calling Between on the result narrows it further.
+//
+// The result keeps every event up to the end, including those before the
+// start, because replaying them is what puts the terminal in the state the
+// window starts in. Its Events, Inputs, Marks, Len, and Duration cover all of
+// them; [Timeline.Window] reports the span to show. Its events are fixed as of
+// the call, even when t is still growing.
+//
+// Between returns an error wrapping [ErrNoMark] when either label names no
+// mark in the window. When from and to are the same label, the window runs
+// from its first mark to its second.
+func (t *Timeline) Between(from, to string) (*Timeline, error) {
+	events := t.snapshot()
+	start, end := t.from, len(events)-1
+	if from != "" {
+		i := findMark(events, from, start, end)
+		if i < 0 {
+			return nil, fmt.Errorf("%w: %q", ErrNoMark, from)
+		}
+		start = i
+	}
+	if to != "" {
+		i := findMark(events, to, start+1, end)
+		if i < 0 {
+			return nil, fmt.Errorf("%w: %q after the start of the window", ErrNoMark, to)
+		}
+		end = i
+	}
+	return &Timeline{
+		header: t.header,
+		start:  t.started(),
+		events: events[: end+1 : end+1],
+		from:   start,
+	}, nil
+}
+
+// findMark returns the index of the first mark labeled label in
+// events[lo:hi+1], or -1.
+func findMark(events []Event, label string, lo, hi int) int {
+	for i := max(lo, 0); i <= hi; i++ {
+		if m, ok := events[i].(Mark); ok && m.Label == label {
+			return i
+		}
+	}
+	return -1
+}

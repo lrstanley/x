@@ -16,6 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/vt/screen"
 )
@@ -31,7 +32,7 @@ var _ MessageCollector = (*Harness)(nil) // Enforce implementation of [MessageCo
 type Harness struct {
 	tb       testing.TB
 	failures *failureTB
-	emulator *emulator
+	session  *reel.Session
 	program  *tea.Program
 	observer *observer
 	opts     []Option
@@ -75,9 +76,13 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		cfg = collectOptions(tb, opts...)
 	}
 
-	// The renderer is built before the emulator, which holds a pool slot, so
-	// failing to build it leaves no slot taken.
+	// The renderer is built before the session, whose terminal holds a pool
+	// slot, so failing to build it leaves no slot taken.
 	imageRenderer, err := render.New(cfg.imageRendererOpts...)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	session, err := reel.Open(tb.Context(), max(cfg.width, 1), max(cfg.height, 1))
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -85,7 +90,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	h := &Harness{
 		tb:            tb,
 		failures:      failures,
-		emulator:      newEmulator(tb, cfg.width, cfg.height),
+		session:       session,
 		observer:      newObserver(tb, model),
 		done:          make(chan struct{}),
 		opts:          append([]Option(nil), opts...),
@@ -105,7 +110,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	}
 
 	if h.export != nil && len(h.export.outputs) > 0 {
-		h.emulator.setWriteNotify(h.export.noteCommit)
+		h.session.Terminal().SetWriteNotify(h.export.noteCommit)
 	}
 
 	env, programOpts := cfg.envVars, cfg.programOpts
@@ -119,8 +124,8 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 			programOpts,
 			tea.WithEnvironment(env),
 			tea.WithContext(cfg.ctx),
-			tea.WithInput(h.emulator),
-			tea.WithOutput(h.emulator),
+			tea.WithInput(h.session),
+			tea.WithOutput(h.session),
 			tea.WithoutSignals(),
 			tea.WithWindowSize(cfg.width, cfg.height),
 		)...,
@@ -155,9 +160,9 @@ func (h *Harness) Close() {
 	// readable for export, then returns to the pool when Close returns.
 	// Drop the retained screen before the terminal is pooled so a later
 	// draw cannot paint the previous checkout's grid.
-	defer h.emulator.Close()
+	defer h.session.Close()
 	defer h.dropImageScreen()
-	h.emulator.closeInput()
+	h.session.Terminal().CloseReader()
 
 	quitDone := make(chan struct{})
 	go func() {
@@ -230,6 +235,15 @@ func NewComponentHarness[M any](tb testing.TB, model M, opts ...Option) *Harness
 	m := &componentWrapper[M]{tb: tb, model: model}
 	m.validate()
 	return NewHarness(tb, m, opts...)
+}
+
+// check fails the test, without stopping it, when a terminal action returned
+// err.
+func (h *Harness) check(err error) {
+	h.tb.Helper()
+	if err != nil {
+		h.tb.Errorf("steep: %v", err)
+	}
 }
 
 func (h *Harness) mergedOpts(call ...Option) []Option {

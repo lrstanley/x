@@ -28,7 +28,7 @@ func init() {
 		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts",
 		"FilterMessagesType", "FilterMessagesFunc",
 		"drawImage", "drawImageInto", "imageViewport", "dropImageScreen",
-		"key", "typeKeys", "mouse", "mouseClick", "mouseDrag", "waitFinished",
+		"check", "mouseClick", "mouseDrag", "waitFinished",
 		"KeyUp", "KeyDown", "KeyLeft", "KeyRight", "KeyEsc", "KeyDelete",
 		"KeyBackspace", "KeyCtrlC", "KeyCtrlD",
 	} {
@@ -40,10 +40,10 @@ func TestHookInstrumentation(t *testing.T) {
 	t.Helper()
 
 	files := []string{
-		"emulator.go",
 		"harness.go",
 		"harness_assertions.go",
 		"harness_snapshot.go",
+		"harness_terminal.go",
 	}
 
 	fset := token.NewFileSet()

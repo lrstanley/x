@@ -1,0 +1,4 @@
+{"version":2,"width":40,"height":6,"timestamp":1792962137,"command":"bash -c \"printf \\\"\\\\033[1;32mhello\\\\033[0m wörld ─│\\\\r\\\\n\\\"; sleep 0.3; printf \\\"\\\\033[31mred\\\\033[0m\\\\r\\\\n\\\"; sleep 0.2; exit 3\"","title":"fixture","env":{"SHELL":"/bin/bash"}}
+[0.002, "o", "\u001b[1;32mhello\u001b[0m wörld ─│\r\r\n"]
+[0.303, "o", "\u001b[31mred\u001b[0m\r\r\n"]
+[0.505, "x", "3"]

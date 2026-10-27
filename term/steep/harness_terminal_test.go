@@ -91,7 +91,7 @@ func TestHarness_terminalDimensionsResizeInBandMsgs(t *testing.T) {
 	})
 
 	const nextW, nextH = 30, 12
-	_ = h.emulator.writeString(ansi.SetModeInBandResize)
+	_ = writeString(h, ansi.SetModeInBandResize)
 	h.Resize(nextW, nextH)
 	waitMessagesContainWindowSize(t, h, nextW, nextH)
 
@@ -168,8 +168,8 @@ func TestHarness_terminalScrollbackCopyAndCount(t *testing.T) {
 	for i := range 18 {
 		fmt.Fprintf(&rows, "row-%d\n", i)
 	}
-	_ = h.emulator.writeString(rows.String())
-	vtLen := h.emulator.term.ScrollbackLen()
+	_ = writeString(h, rows.String())
+	vtLen := h.session.Terminal().ScrollbackLen()
 	if h.ScrollbackCount() != vtLen {
 		t.Fatalf("TerminalScrollbackCount vs vt len: %d vs %d", h.ScrollbackCount(), vtLen)
 	}
@@ -204,7 +204,7 @@ func TestHarness_terminalSetScrollbackSize(t *testing.T) {
 	h := newTerminalHarness(t, 4, 3)
 	h.SetScrollbackSize(0)
 	for i := range 20 {
-		_, _ = fmt.Fprintf(h.emulator.term, "x%d\n", i)
+		_, _ = fmt.Fprintf(h.session, "x%d\n", i)
 	}
 	if got := h.ScrollbackCount(); got != 0 {
 		t.Fatalf("TerminalScrollbackCount = %d, want 0 with scrollback disabled", got)
@@ -217,11 +217,11 @@ func TestHarness_terminalAltScreen(t *testing.T) {
 	if h.IsAltScreen() {
 		t.Fatal("expected main screen initially")
 	}
-	_ = h.emulator.writeString("\x1b[?1049h")
+	_ = writeString(h, "\x1b[?1049h")
 	if !h.IsAltScreen() {
 		t.Fatal("expected alt screen after CSI ?1049h")
 	}
-	_ = h.emulator.writeString("\x1b[?1049l")
+	_ = writeString(h, "\x1b[?1049l")
 	if h.IsAltScreen() {
 		t.Fatal("expected main screen after leaving alt screen")
 	}
@@ -230,7 +230,7 @@ func TestHarness_terminalAltScreen(t *testing.T) {
 func TestHarness_terminalFocusBlurMsgs(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 2)
-	_ = h.emulator.writeString(ansi.SetModeFocusEvent)
+	_ = writeString(h, ansi.SetModeFocusEvent)
 
 	h.Focus()
 	h.WaitMessage[tea.FocusMsg]()
@@ -271,7 +271,7 @@ func TestHarness_terminalTrackedTitle(t *testing.T) {
 	t.Parallel()
 	const want = "steep-tracked-title"
 	h := newTerminalHarness(t, 4, 2)
-	_ = h.emulator.writeString(ansi.SetWindowTitle(want))
+	_ = writeString(h, ansi.SetWindowTitle(want))
 	if got := h.Title(); got != want {
 		t.Fatalf("Title() = %q, want %q", got, want)
 	}
@@ -284,14 +284,14 @@ func TestHarness_terminalTrackedBell(t *testing.T) {
 		t.Fatalf("LastBellAt() = %v, want zero time before first bell", h.LastBellAt())
 	}
 
-	_ = h.emulator.writeString(string(rune(ansi.BEL)))
+	_ = writeString(h, string(rune(ansi.BEL)))
 
 	first := h.LastBellAt()
 	if first.IsZero() {
 		t.Fatal("expected LastBellAt non-zero after BEL")
 	}
 
-	_ = h.emulator.writeString(string(rune(ansi.BEL)))
+	_ = writeString(h, string(rune(ansi.BEL)))
 
 	second := h.LastBellAt()
 	if second.Before(first) {
@@ -327,11 +327,11 @@ func TestHarness_terminalTrackedModeDEC(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			local := newTerminalHarness(t, 4, 2)
-			_ = local.emulator.writeString(tt.seq)
+			_ = writeString(local, tt.seq)
 			if got := local.ModeSetting(tt.mode); got != tt.want {
 				t.Fatalf("after enable: ModeSetting(%v)=%v want %v", tt.mode, got, tt.want)
 			}
-			_ = local.emulator.writeString(tt.cleanup)
+			_ = writeString(local, tt.cleanup)
 			if got := local.ModeSetting(tt.mode); got != ansi.ModeReset {
 				t.Fatalf("after reset: ModeSetting(%v)=%v want Reset", tt.mode, got)
 			}
@@ -351,11 +351,11 @@ func TestHarness_terminalTrackedModeUnsetKey(t *testing.T) {
 func TestHarness_terminalTrackedCursorHideShow(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 6, 2)
-	_ = h.emulator.writeString(ansi.HideCursor)
+	_ = writeString(h, ansi.HideCursor)
 	if h.CursorVisible() {
 		t.Fatal("expected hidden cursor after HideCursor sequence")
 	}
-	_ = h.emulator.writeString(ansi.ShowCursor)
+	_ = writeString(h, ansi.ShowCursor)
 	if !h.CursorVisible() {
 		t.Fatal("expected visible cursor after ShowCursor sequence")
 	}
@@ -364,7 +364,7 @@ func TestHarness_terminalTrackedCursorHideShow(t *testing.T) {
 func TestHarness_terminalPasteMsg(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 2)
-	_ = h.emulator.writeString(ansi.SetModeBracketedPaste)
+	_ = writeString(h, ansi.SetModeBracketedPaste)
 
 	const pasted = "hello"
 	h.Paste(pasted)
@@ -391,8 +391,8 @@ func TestHarness_TerminalKey_accumulatesPrintableText(t *testing.T) {
 
 func enableEmulatorMouseReporting(tb testing.TB, h *Harness) {
 	tb.Helper()
-	_ = h.emulator.writeString(ansi.SetModeMouseButtonEvent)
-	_ = h.emulator.writeString(ansi.SetModeMouseExtSgr)
+	_ = writeString(h, ansi.SetModeMouseButtonEvent)
+	_ = writeString(h, ansi.SetModeMouseExtSgr)
 }
 
 // mouseStep is a normalized mouse line from [tea] for ordered assertions.
@@ -584,9 +584,15 @@ func TestHarness_TerminalMouse_ignoredWithoutMouseModes(t *testing.T) {
 
 func osc7501(body string) string { return "\x1b]7501;" + body + "\x1b\\" }
 
+// writeString writes s to the harness's session as if the program had.
+func writeString(h *Harness, s string) error {
+	_, err := h.session.Write([]byte(s))
+	return err
+}
+
 func writeVT(t *testing.T, h *Harness, s string) {
 	t.Helper()
-	if err := h.emulator.writeString(s); err != nil {
+	if err := writeString(h, s); err != nil {
 		t.Fatalf("write vt: %v", err)
 	}
 }
@@ -594,15 +600,15 @@ func writeVT(t *testing.T, h *Harness, s string) {
 func TestProgramStatusProtocol(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 8, 2)
-	before := h.emulator.term.Text()
+	before := h.session.Terminal().Text()
 
 	stream := osc7501("?") + osc7501("state=blocked:kind=question:progress=42:app=agent:id=job:title=VGl0bGU=:msg=SGVsbG8=")
 	for i := range len(stream) {
-		if err := h.emulator.writeString(stream[i : i+1]); err != nil {
+		if err := writeString(h, stream[i:i+1]); err != nil {
 			t.Fatalf("write vt: %v", err)
 		}
 	}
-	after := h.emulator.term.Text()
+	after := h.session.Terminal().Text()
 
 	if before != after {
 		t.Fatal("program status changed the screen")
@@ -723,7 +729,7 @@ func TestProgramStatusInSnapshot(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 1)
 	writeVT(t, h, osc7501("state=working:id=job:progress=0:app=demo"))
-	snap := h.emulator.snapshot(t)
+	snap := screenSnapshot(t, h.session)
 	if len(snap.ProgramStatus) != 1 || snap.ProgramStatus[0].State != "working" {
 		t.Fatalf("snapshot status = %+v", snap.ProgramStatus)
 	}

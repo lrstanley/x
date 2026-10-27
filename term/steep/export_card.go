@@ -53,7 +53,7 @@ func (ec ExportContext) Card(lines ...CardLine) image.Image {
 // status, and nothing to scroll. Cards hold still, so they are drawn as of
 // offset 0.
 func (ec ExportContext) cardState() screen.State {
-	return screen.State{Title: ec.src.state.Title, Focused: ec.h.emulator.focused}
+	return screen.State{Title: ec.src.state.Title, Focused: ec.h.session.Focused()}
 }
 
 // cardScale is how much larger card text is than the terminal font. It grows

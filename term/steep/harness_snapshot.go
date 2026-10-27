@@ -8,8 +8,11 @@ import (
 	"bytes"
 	"image"
 	"image/draw"
+	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/vt/screen"
 	"github.com/lrstanley/x/term/steep/snapshot"
 )
@@ -57,7 +60,7 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
-	snapshot.AssertScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
+	snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), opts...)
 	return h
 }
 
@@ -69,7 +72,7 @@ func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
-	snapshot.RequireScreenEqual(h.tb, h.emulator.snapshot(h.tb, opts...), opts...)
+	snapshot.RequireScreenEqual(h.tb, screenSnapshot(h.tb, h.session), opts...)
 	return h
 }
 
@@ -87,7 +90,7 @@ func (h *Harness) ImageInto(dst *image.NRGBA) {
 
 func (h *Harness) drawImageInto(dst *image.NRGBA) {
 	h.tb.Helper()
-	st := liveState(h)
+	st := h.session.State()
 	scr := h.imageViewport(st)
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
@@ -110,7 +113,7 @@ func (h *Harness) Image() image.Image {
 }
 
 func (h *Harness) drawImage() image.Image {
-	st := liveState(h)
+	st := h.session.State()
 	scr := h.imageViewport(st)
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
@@ -133,7 +136,7 @@ func (h *Harness) imageViewport(st screen.State) *screen.Buffer {
 	}
 	h.imageMu.Unlock()
 
-	scr := h.emulator.term.Screen()
+	scr := h.session.Terminal().Screen()
 	h.imageMu.Lock()
 	h.imageScreen = scr
 	h.imageMu.Unlock()
@@ -146,15 +149,6 @@ func (h *Harness) dropImageScreen() {
 	h.imageMu.Unlock()
 }
 
-// liveState is the terminal's state now, with the harness's focus, which the
-// terminal does not track. Call it from the test goroutine, which is the one
-// that changes focus.
-func liveState(h *Harness) screen.State {
-	st := h.emulator.term.State()
-	st.Focused = h.emulator.focused
-	return st
-}
-
 // timelineAt is the offset of t from the harness start, which frames are
 // drawn as of.
 func timelineAt(h *Harness, t time.Time) time.Duration {
@@ -164,7 +158,7 @@ func timelineAt(h *Harness, t time.Time) time.Duration {
 // copyLive renders the terminal now and returns an owned image, with the
 // screen and state it was drawn from. Call it from the test goroutine.
 func copyLive(h *Harness) (img image.Image, scr *screen.Buffer, st screen.State) {
-	st = liveState(h)
+	st = h.session.State()
 	scr = h.imageViewport(st)
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
@@ -174,13 +168,13 @@ func copyLive(h *Harness) (img image.Image, scr *screen.Buffer, st screen.State)
 // copyCommitted renders scr as it looked at st, as of time at, and returns an
 // owned image, with what keeps its indicators (the progress bar and program
 // status) moving in copies of the image as of later times when they move with
-// the clock (nil otherwise). st takes the harness's focus now. Call it from
+// the clock (nil otherwise). st takes the session's focus now. Call it from
 // the test goroutine.
 func copyCommitted(h *Harness, scr *screen.Buffer, st screen.State, at time.Time) (img image.Image, held *heldIndicators) {
 	if scr == nil {
 		return nil, nil
 	}
-	st.Focused = h.emulator.focused
+	st.Focused = h.session.Focused()
 	h.imageMu.Lock()
 	img = copyDrawnLocked(h, scr, st, timelineAt(h, at))
 	h.imageMu.Unlock()
@@ -270,4 +264,61 @@ func cloneNRGBA(src image.Image) *image.NRGBA {
 	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, src, b.Min, draw.Src)
 	return dst
+}
+
+// screenSnapshot captures the session's screen and terminal state for JSON
+// snapshots.
+func screenSnapshot(tb testing.TB, s *reel.Session) *snapshot.ScreenSnapshot {
+	tb.Helper()
+	term := s.Terminal()
+	grid := term.Screen()
+	cur := term.Cursor()
+	fg := term.Foreground()
+	bg := term.Background()
+	cursorColor, hasCursorColor := term.CursorColor()
+	cols, rows := term.Size()
+	cursorSnap := snapshot.Cursor{
+		Position: snapshot.Position{X: cur.X, Y: cur.Y},
+		Visible:  cur.Visible,
+		Blink:    cur.Blink,
+		Style:    cur.Shape,
+	}
+	if hasCursorColor {
+		cursorSnap.Color = snapshot.Color{Color: cursorColor}
+	}
+	snap := &snapshot.ScreenSnapshot{
+		Title:         term.Title(),
+		Rows:          rows,
+		Cols:          cols,
+		AltScreen:     term.AltScreen(),
+		Focused:       s.Focused(),
+		ProgramStatus: snapshotProgramStatuses(programStatuses(term)),
+		Cursor:        cursorSnap,
+		BgColor:       snapshot.Color{Color: bg},
+		FgColor:       snapshot.Color{Color: fg},
+	}
+	snap.WithScreenBuffer(tb, grid)
+	return snap
+}
+
+func snapshotProgramStatuses(in []ansi.ProgramStatus) []snapshot.ProgramStatus {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]snapshot.ProgramStatus, len(in))
+	for i, s := range in {
+		out[i] = snapshot.ProgramStatus{
+			ID:      s.ID,
+			State:   string(s.State),
+			Kind:    string(s.Kind),
+			App:     s.App,
+			Title:   s.Title,
+			Message: s.Message,
+		}
+		if s.HasProgress {
+			progress := s.Progress
+			out[i].Progress = &progress
+		}
+	}
+	return out
 }

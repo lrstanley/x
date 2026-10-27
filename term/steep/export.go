@@ -170,7 +170,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		baseName:   cfg.exportName,
 		exportOpts: exportOpts,
 	}
-	m.pristine = h.emulator.term.State()
+	m.pristine = h.session.Terminal().State()
 	m.cards.opts = cfg.imageRendererOpts
 	m.frames = exportPipeline{
 		base:  ExportContext{Mode: cfg.exportMode, Step: time.Second / time.Duration(fps), h: h, cards: &m.cards},
@@ -262,7 +262,7 @@ func (m *exportManager) noteCommit() {
 	}
 	m.mu.Unlock()
 
-	term := m.h.emulator.term
+	term := m.h.session.Terminal()
 	if term.Held() {
 		return
 	}
@@ -334,15 +334,15 @@ func (m *exportManager) flushCommits() {
 }
 
 func (m *exportManager) captureFrame(event HookEvent) error {
-	if m.h.emulator.term.Held() {
+	if m.h.session.Terminal().Held() {
 		m.noteHeldSkip()
 		return nil
 	}
-	src := frameSource{state: m.h.emulator.term.State()}
+	src := frameSource{state: m.h.session.Terminal().State()}
 	if m.duplicateCommit(src.state) {
 		return nil
 	}
-	if event == HookReady && m.beforeFirstFrame() && m.isPristine(src.state, m.h.emulator.term.Text()) {
+	if event == HookReady && m.beforeFirstFrame() && m.isPristine(src.state, m.h.session.Terminal().Text()) {
 		return nil
 	}
 	src.cols, src.rows = m.h.Dimensions()
@@ -414,7 +414,7 @@ func (m *exportManager) isPristine(st screen.State, text string) bool {
 }
 
 func (m *exportManager) capturePNG(event HookEvent) error {
-	if m.h.emulator.term.Held() {
+	if m.h.session.Terminal().Held() {
 		return nil
 	}
 	img, _, _ := copyLive(m.h)

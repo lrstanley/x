@@ -65,8 +65,8 @@ func BenchmarkExportCapture(b *testing.B) {
 			// of reusing the renderer's cached frame.
 			for _, text := range []string{"a", "ab"} {
 				h.Type(text[len(text)-1:]).Wait("text=" + text)
-				screens = append(screens, h.emulator.term.Screen())
-				states = append(states, h.emulator.term.State())
+				screens = append(screens, h.session.Terminal().Screen())
+				states = append(states, h.session.Terminal().State())
 			}
 			b.ReportAllocs()
 			i := 0
@@ -88,7 +88,7 @@ func BenchmarkExportEncode(b *testing.B) {
 			b.Run(fmt.Sprintf("%s/%dx%d", m.name, size[0], size[1]), func(b *testing.B) {
 				h := NewHarness(b, m.model("encode"), WithWindowSize(size[0], size[1]), WithIgnoreEnv(true))
 				h.Wait("text=encode")
-				img, _ := copyCommitted(h, h.emulator.term.Screen(), h.emulator.term.State(), h.start)
+				img, _ := copyCommitted(h, h.session.Terminal().Screen(), h.session.Terminal().State(), h.start)
 				enc, err := sink.NewGIF(io.Discard, sink.WithOptimize(sink.OptimizeFrames))
 				if err != nil {
 					b.Fatal(err)

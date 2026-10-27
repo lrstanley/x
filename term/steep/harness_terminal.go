@@ -7,106 +7,12 @@ package steep
 import (
 	"image"
 	"image/color"
-	"io"
-	"sync"
-	"testing"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/vt"
 	"github.com/lrstanley/x/term/reel/vt/screen"
-	"github.com/lrstanley/x/term/steep/snapshot"
 )
-
-var (
-	_ io.Reader = (*emulator)(nil)
-	_ io.Writer = (*emulator)(nil)
-)
-
-type emulator struct {
-	term         *vt.Terminal
-	shutdownOnce sync.Once
-
-	focused bool
-}
-
-func (e *emulator) writeString(s string) error {
-	_, err := e.term.Write([]byte(s))
-	return err
-}
-
-// termRuntime is the emulator pool for steep. A size below 1 follows
-// GOMAXPROCS, so parallel tests stay within one Wasm instance per processor.
-var termRuntime = vt.NewRuntime(0)
-
-func newEmulator(tb testing.TB, width, height int) *emulator {
-	tb.Helper()
-	if width < 1 {
-		width = 1
-	}
-	if height < 1 {
-		height = 1
-	}
-	term, err := termRuntime.Open(tb.Context(), width, height)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	return &emulator{term: term, focused: true}
-}
-
-// snapshot produces a snapshot of the current terminal state.
-func (e *emulator) snapshot(tb testing.TB, _ ...snapshot.Option) *snapshot.ScreenSnapshot {
-	tb.Helper()
-	grid := e.term.Screen()
-	cur := e.term.Cursor()
-	fg := e.term.Foreground()
-	bg := e.term.Background()
-	cursorColor, hasCursorColor := e.term.CursorColor()
-	cols, rows := e.term.Size()
-	cursorSnap := snapshot.Cursor{
-		Position: snapshot.Position{X: cur.X, Y: cur.Y},
-		Visible:  cur.Visible,
-		Blink:    cur.Blink,
-		Style:    cur.Shape,
-	}
-	if hasCursorColor {
-		cursorSnap.Color = snapshot.Color{Color: cursorColor}
-	}
-	snap := &snapshot.ScreenSnapshot{
-		Title:         e.term.Title(),
-		Rows:          rows,
-		Cols:          cols,
-		AltScreen:     e.term.AltScreen(),
-		Focused:       e.focused,
-		ProgramStatus: snapshotProgramStatuses(e.programStatuses()),
-		Cursor:        cursorSnap,
-		BgColor:       snapshot.Color{Color: bg},
-		FgColor:       snapshot.Color{Color: fg},
-	}
-	snap.WithScreenBuffer(tb, grid)
-	return snap
-}
-
-// closeInput unblocks program reads with EOF. The grid stays available
-// until [emulator.Close].
-func (e *emulator) closeInput() { e.term.CloseReader() }
-
-func (e *emulator) Close() {
-	e.shutdownOnce.Do(func() {
-		e.closeInput()
-		e.term.SetWriteNotify(nil)
-		_ = e.term.Close()
-	})
-}
-
-// setWriteNotify registers fn to run after each program write to the
-// terminal. See [vt.Terminal.SetWriteNotify].
-func (e *emulator) setWriteNotify(fn func()) {
-	e.term.SetWriteNotify(fn)
-}
-
-func (e *emulator) Read(p []byte) (int, error)  { return e.term.Read(p) }
-func (e *emulator) Write(p []byte) (int, error) { return e.term.Write(p) }
 
 // View returns the current VT screen text. Harness wait, assert, and
 // snapshot helpers sample this rendered output.
@@ -117,7 +23,7 @@ func (e *emulator) Write(p []byte) (int, error) { return e.term.Write(p) }
 // when the text under test should fill the window.
 func (h *Harness) View() string {
 	h.tb.Helper()
-	return h.emulator.term.Text()
+	return h.session.Terminal().Text()
 }
 
 // Focus sends the terminal a focus event if focus events mode is enabled. This is
@@ -125,8 +31,7 @@ func (h *Harness) View() string {
 func (h *Harness) Focus() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.Focus(true)
-	h.emulator.focused = true
+	h.check(h.session.Focus(true))
 	return h
 }
 
@@ -135,35 +40,34 @@ func (h *Harness) Focus() *Harness {
 func (h *Harness) Blur() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.Focus(false)
-	h.emulator.focused = false
+	h.check(h.session.Focus(false))
 	return h
 }
 
 // IsFocused reports the last known terminal focus state.
-func (h *Harness) IsFocused() bool { return h.emulator.focused }
+func (h *Harness) IsFocused() bool { return h.session.Focused() }
 
 // Title returns the last known window title.
-func (h *Harness) Title() string { return h.emulator.term.Title() }
+func (h *Harness) Title() string { return h.session.Terminal().Title() }
 
 // LastBellAt returns the wall clock time of the most recent bell ([ansi.BEL])
 // processed by the VT emulator. It is the zero [time.Time] until the first bell.
-func (h *Harness) LastBellAt() time.Time { return h.emulator.term.LastBellAt() }
+func (h *Harness) LastBellAt() time.Time { return h.session.Terminal().LastBellAt() }
 
 // Bounds returns the terminal's current screen bounds.
 func (h *Harness) Bounds() image.Rectangle {
-	w, height := h.emulator.term.Size()
+	w, height := h.session.Terminal().Size()
 	return image.Rect(0, 0, w, height)
 }
 
 // IsAltScreen returns true if the terminal is in alt screen mode.
-func (h *Harness) IsAltScreen() bool { return h.emulator.term.AltScreen() }
+func (h *Harness) IsAltScreen() bool { return h.session.Terminal().AltScreen() }
 
 // ModeSetting returns the tracked ANSI mode setting. An absent mode yields
 // [ansi.ModeNotRecognized].
 func (h *Harness) ModeSetting(mode ansi.Mode) ansi.ModeSetting {
 	_, ansiMode := mode.(ansi.ANSIMode)
-	on, ok := h.emulator.term.Mode(vt.Mode{Number: mode.Mode(), ANSI: ansiMode})
+	on, ok := h.session.Terminal().Mode(vt.Mode{Number: mode.Mode(), ANSI: ansiMode})
 	if !ok {
 		return ansi.ModeNotRecognized
 	}
@@ -176,26 +80,26 @@ func (h *Harness) ModeSetting(mode ansi.Mode) ansi.ModeSetting {
 // Width returns the terminal width in cells. This matches [Harness.View], which
 // pads each line out to this width.
 func (h *Harness) Width() int {
-	w, _ := h.emulator.term.Size()
+	w, _ := h.session.Terminal().Size()
 	return w
 }
 
 // Height returns the terminal's current height in cells (matches [Harness.View]
 // row count).
 func (h *Harness) Height() int {
-	_, height := h.emulator.term.Size()
+	_, height := h.session.Terminal().Size()
 	return height
 }
 
 // Dimensions returns the terminal's width and height in cells.
-func (h *Harness) Dimensions() (width, height int) { return h.emulator.term.Size() }
+func (h *Harness) Dimensions() (width, height int) { return h.session.Terminal().Size() }
 
 // Resize resizes the terminal to the given width and height. This should result
 // in a [tea.WindowSizeMsg] being sent to the [tea.Program].
 func (h *Harness) Resize(width, height int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.Resize(width, height)
+	h.check(h.session.Resize(width, height))
 	return h
 }
 
@@ -204,19 +108,19 @@ func (h *Harness) Resize(width, height int) *Harness {
 func (h *Harness) Paste(text string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "paste", Text: text})()
-	_ = h.emulator.term.Paste(text)
+	h.check(h.session.Paste(text))
 	return h
 }
 
 // FgColor returns the terminal emulator's foreground color.
-func (h *Harness) FgColor() color.Color { return h.emulator.term.Foreground() }
+func (h *Harness) FgColor() color.Color { return h.session.Terminal().Foreground() }
 
 // BgColor returns the terminal emulator's background color.
-func (h *Harness) BgColor() color.Color { return h.emulator.term.Background() }
+func (h *Harness) BgColor() color.Color { return h.session.Terminal().Background() }
 
 // CursorColor returns the terminal emulator's cursor color.
 func (h *Harness) CursorColor() color.Color {
-	c, _ := h.emulator.term.CursorColor()
+	c, _ := h.session.Terminal().CursorColor()
 	return c
 }
 
@@ -224,7 +128,7 @@ func (h *Harness) CursorColor() color.Color {
 func (h *Harness) SetFgColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetForeground(c)
+	h.check(h.session.SetForeground(c))
 	return h
 }
 
@@ -232,7 +136,7 @@ func (h *Harness) SetFgColor(c color.Color) *Harness {
 func (h *Harness) SetBgColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetBackground(c)
+	h.check(h.session.SetBackground(c))
 	return h
 }
 
@@ -240,7 +144,7 @@ func (h *Harness) SetBgColor(c color.Color) *Harness {
 func (h *Harness) SetCursorColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetCursorColor(c)
+	h.check(h.session.SetCursorColor(c))
 	return h
 }
 
@@ -248,7 +152,7 @@ func (h *Harness) SetCursorColor(c color.Color) *Harness {
 func (h *Harness) SetDefaultFgColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetDefaultForeground(c)
+	h.check(h.session.SetDefaultForeground(c))
 	return h
 }
 
@@ -256,7 +160,7 @@ func (h *Harness) SetDefaultFgColor(c color.Color) *Harness {
 func (h *Harness) SetDefaultBgColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetDefaultBackground(c)
+	h.check(h.session.SetDefaultBackground(c))
 	return h
 }
 
@@ -264,40 +168,40 @@ func (h *Harness) SetDefaultBgColor(c color.Color) *Harness {
 func (h *Harness) SetDefaultCursorColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetDefaultCursorColor(c)
+	h.check(h.session.SetDefaultCursorColor(c))
 	return h
 }
 
 // CursorPosition returns the terminal emulator cursor position.
 func (h *Harness) CursorPosition() image.Point {
-	cur := h.emulator.term.Cursor()
+	cur := h.session.Terminal().Cursor()
 	return image.Pt(cur.X, cur.Y)
 }
 
 // CursorVisible reports whether the cursor is shown. Visibility follows DECTCEM.
-func (h *Harness) CursorVisible() bool { return h.emulator.term.Cursor().Visible }
+func (h *Harness) CursorVisible() bool { return h.session.Terminal().Cursor().Visible }
 
 // CursorBlink reports whether the cursor style is blinking.
-func (h *Harness) CursorBlink() bool { return h.emulator.term.Cursor().Blink }
+func (h *Harness) CursorBlink() bool { return h.session.Terminal().Cursor().Blink }
 
 // CursorStyle returns the current VT cursor shape.
 func (h *Harness) CursorStyle() screen.CursorShape {
-	return h.emulator.term.Cursor().Shape
+	return h.session.Terminal().Cursor().Shape
 }
 
 // Scrollback returns a copy of the terminal's scrollback rows (oldest first).
 // It is nil in alternate screen mode.
-func (h *Harness) Scrollback() [][]screen.Cell { return h.emulator.term.Scrollback() }
+func (h *Harness) Scrollback() [][]screen.Cell { return h.session.Terminal().Scrollback() }
 
 // ScrollbackCount returns the count of scrollback lines.
-func (h *Harness) ScrollbackCount() int { return h.emulator.term.ScrollbackLen() }
+func (h *Harness) ScrollbackCount() int { return h.session.Terminal().ScrollbackLen() }
 
 // SetScrollbackSize sets the maximum scrollback lines retained on the terminal's
 // screen buffer.
 func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.SetScrollbackMaxLines(maxLines)
+	h.check(h.session.Terminal().SetScrollbackMaxLines(maxLines))
 	return h
 }
 
@@ -305,7 +209,7 @@ func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 func (h *Harness) ClearScrollback() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	_ = h.emulator.term.ClearScrollback()
+	h.check(h.session.Terminal().ClearScrollback())
 	return h
 }
 
@@ -319,18 +223,14 @@ func (h *Harness) ClearScrollback() *Harness {
 func (h *Harness) Type(s string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "type", Text: s})()
-	h.typeKeys(s)
+	h.check(h.session.Type(s))
 	return h
 }
 
-func (h *Harness) typeKeys(s string) {
-	for _, r := range s {
-		_ = h.emulator.term.SendKey(vt.Key{Code: letterCode(r), Text: string(r)})
-	}
-}
-
 // Key sends a single key press to the terminal emulator itself, for example
-// "ctrl+a", "enter", or "space".
+// "ctrl+a", "enter", "shift+tab", or "space". See
+// [github.com/lrstanley/x/term/reel.Session.Key] for the names it accepts; an
+// unknown name fails the test.
 //
 // Because this goes through the emulator, pairing it with [Harness.SendProgram]
 // can deliver events to the [tea.Program] in a different order than the
@@ -338,17 +238,8 @@ func (h *Harness) typeKeys(s string) {
 func (h *Harness) Key(key string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "key", Key: key})()
-	h.key(key)
+	h.check(h.session.Key(key))
 	return h
-}
-
-func (h *Harness) key(key string) {
-	ev := mapKey(key)
-	if ev.Code == "" && ev.Text != "" {
-		h.typeKeys(ev.Text)
-		return
-	}
-	_ = h.emulator.term.SendKey(ev)
 }
 
 // KeyUp sends an up-arrow key press to the terminal emulator.
@@ -385,7 +276,7 @@ func (h *Harness) KeyCtrlD() *Harness { return h.Key("ctrl+d") }
 func (h *Harness) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "mouse"})()
-	_ = h.emulator.term.SendMouse(action, button, x, y)
+	h.check(h.session.Mouse(action, button, x, y))
 	return h
 }
 
@@ -398,8 +289,8 @@ func (h *Harness) MouseClick(button vt.MouseButton, x, y int) *Harness {
 }
 
 func (h *Harness) mouseClick(button vt.MouseButton, x, y int) {
-	_ = h.emulator.term.SendMouse(vt.MousePress, button, x, y)
-	_ = h.emulator.term.SendMouse(vt.MouseRelease, button, x, y)
+	h.check(h.session.Mouse(vt.MousePress, button, x, y))
+	h.check(h.session.Mouse(vt.MouseRelease, button, x, y))
 }
 
 // LeftClick is [Harness.MouseClick] with the left mouse button.
@@ -435,7 +326,7 @@ func (h *Harness) MouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) *Harness 
 }
 
 func (h *Harness) mouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) {
-	_ = h.emulator.term.SendMouse(vt.MousePress, button, x1, y1)
+	h.check(h.session.Mouse(vt.MousePress, button, x1, y1))
 	dx, dy := 0, 0
 	switch {
 	case x2 > x1:
@@ -457,9 +348,9 @@ func (h *Harness) mouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) {
 		if y != y2 {
 			y += dy
 		}
-		_ = h.emulator.term.SendMouse(vt.MouseMotion, button, x, y)
+		h.check(h.session.Mouse(vt.MouseMotion, button, x, y))
 	}
-	_ = h.emulator.term.SendMouse(vt.MouseRelease, button, x2, y2)
+	h.check(h.session.Mouse(vt.MouseRelease, button, x2, y2))
 }
 
 // LeftDrag is [Harness.MouseDrag] with the left mouse button.
@@ -471,32 +362,32 @@ func (h *Harness) LeftDrag(x1, y1, x2, y2 int) *Harness {
 }
 
 // Progress returns the latest OSC 9;4 progress report.
-func (h *Harness) Progress() screen.Progress { return h.emulator.term.Progress() }
+func (h *Harness) Progress() screen.Progress { return h.session.Terminal().Progress() }
 
 // Notifications returns desktop notifications from OSC 9 and OSC 777.
-func (h *Harness) Notifications() []vt.Notification { return h.emulator.term.Notifications() }
+func (h *Harness) Notifications() []vt.Notification { return h.session.Terminal().Notifications() }
 
 // Clipboard returns the last text the program wrote to the clipboard.
-func (h *Harness) Clipboard() string { return h.emulator.term.Clipboard() }
+func (h *Harness) Clipboard() string { return h.session.Terminal().Clipboard() }
 
 // SetClipboard sets the host clipboard returned for OSC 52 reads.
 func (h *Harness) SetClipboard(text string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	h.emulator.term.SetClipboard(text)
+	h.session.Terminal().SetClipboard(text)
 	return h
 }
 
 // WorkingDirectory returns the last OSC 7 working directory.
-func (h *Harness) WorkingDirectory() string { return h.emulator.term.WorkingDirectory() }
+func (h *Harness) WorkingDirectory() string { return h.session.Terminal().WorkingDirectory() }
 
 // Prompt returns the latest OSC 133 semantic prompt step.
-func (h *Harness) Prompt() vt.Prompt { return h.emulator.term.Prompt() }
+func (h *Harness) Prompt() vt.Prompt { return h.session.Terminal().Prompt() }
 
 // ResizeRequest returns the last CSI 8 t window-resize request.
 // ok is false until the program asks. The harness is not resized.
 func (h *Harness) ResizeRequest() (cols, rows int, ok bool) {
-	return h.emulator.term.ResizeRequest()
+	return h.session.Terminal().ResizeRequest()
 }
 
 const programStatusMaxRecords = 256
@@ -514,11 +405,11 @@ const programStatusMaxRecords = 256
 // OSC 9;4 progress is no longer drawn, until a full reset, as the OSC 7501
 // spec asks.
 func (h *Harness) ProgramStatuses() []ansi.ProgramStatus {
-	return h.emulator.programStatuses()
+	return programStatuses(h.session.Terminal())
 }
 
-func (e *emulator) programStatuses() []ansi.ProgramStatus {
-	in := e.term.ProgramStatuses()
+func programStatuses(term *vt.Terminal) []ansi.ProgramStatus {
+	in := term.ProgramStatuses()
 	if len(in) == 0 {
 		return nil
 	}
@@ -535,28 +426,6 @@ func (e *emulator) programStatuses() []ansi.ProgramStatus {
 		if s.Progress >= 0 {
 			out[i].Progress = s.Progress
 			out[i].HasProgress = true
-		}
-	}
-	return out
-}
-
-func snapshotProgramStatuses(in []ansi.ProgramStatus) []snapshot.ProgramStatus {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]snapshot.ProgramStatus, len(in))
-	for i, s := range in {
-		out[i] = snapshot.ProgramStatus{
-			ID:      s.ID,
-			State:   string(s.State),
-			Kind:    string(s.Kind),
-			App:     s.App,
-			Title:   s.Title,
-			Message: s.Message,
-		}
-		if s.HasProgress {
-			progress := s.Progress
-			out[i].Progress = &progress
 		}
 	}
 	return out

@@ -27,16 +27,19 @@ func newReplyBuf() *replyBuf {
 	return r
 }
 
-func (r *replyBuf) Write(p []byte) {
-	if len(p) == 0 {
-		return
-	}
+// Write queues p, and reports false when the stream is closed, which drops
+// it.
+func (r *replyBuf) Write(p []byte) bool {
 	r.mu.Lock()
-	if !r.closed {
+	defer r.mu.Unlock()
+	if r.closed {
+		return false
+	}
+	if len(p) > 0 {
 		r.buf = append(r.buf, p...)
 		r.cond.Signal()
 	}
-	r.mu.Unlock()
+	return true
 }
 
 func (r *replyBuf) Read(p []byte) (int, error) {

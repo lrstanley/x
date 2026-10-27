@@ -1,0 +1,14 @@
+{"version": 3, "term": {"cols": 80, "rows": 24, "type": "xterm-256color", "version": "VTE(7600)", "theme": {"fg": "#d0d0d0", "bg": "#212121", "palette": "#151515:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#d0d0d0:#505050:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#f5f5f5"}}, "timestamp": 1504467315, "idle_time_limit": 2.0, "command": "/bin/bash", "title": "Demo", "env": {"SHELL": "/bin/bash"}, "tags": ["demo"], "future": {"nested": true}}
+# A comment after the header.
+[0.248848, "o", "\u001b[1;31mHello \u001b[32mWorld!\u001b[0m\n"]
+[1.001376, "o", "That was ok\rThis is better."]
+[0.5, "m", ""]
+[0.143733, "i", "ls\r"]
+
+# A blank line and a comment between events.
+[0.2, "o", "file1  file2\r\n"]
+[0.75, "q", "an event code reel does not know"]
+[0.25, "query", "a longer code"]
+[2.050000, "r", "90x30"]
+[1.000001, "m", "chapter 2"]
+[0.5, "x", "0"]

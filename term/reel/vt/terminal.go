@@ -260,10 +260,13 @@ func (t *Terminal) writeLocked(p []byte) error {
 // Read reads pty replies produced while processing VT. It blocks until a
 // reply arrives or the terminal is closed.
 func (t *Terminal) Read(p []byte) (int, error) {
-	if t.replies == nil {
+	t.mu.Lock()
+	replies := t.replies
+	t.mu.Unlock()
+	if replies == nil {
 		return 0, io.EOF
 	}
-	return t.replies.Read(p)
+	return replies.Read(p)
 }
 
 // Close resets the emulator and returns it to the pool. The Wasm image is
@@ -582,6 +585,22 @@ func (t *Terminal) cursorColorLocked() (color.NRGBA, bool) {
 	return t.shownColor(t.cursorOverride, t.cursorDefault, wasmvt.TerminalDataColorCursor, t.cursor), true
 }
 
+// HostColors returns the foreground, background, and cursor colors the host
+// set, each the current color if set, else the default. A color is nil when
+// the host set neither, so the terminal's own (or the program's) applies.
+// Non-nil colors are [color.NRGBA].
+func (t *Terminal) HostColors() (fg, bg, cursor color.Color) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	host := func(override, def color.Color) color.Color {
+		if c := firstColor(override, def); c != nil {
+			return colorNRGBA(c)
+		}
+		return nil
+	}
+	return host(t.fgOverride, t.fgDefault), host(t.bgOverride, t.bgDefault), host(t.cursorOverride, t.cursorDefault)
+}
+
 // SetForeground sets the current foreground. Nil clears it back to the default.
 func (t *Terminal) SetForeground(c color.Color) error {
 	t.mu.Lock()
@@ -833,11 +852,24 @@ func (t *Terminal) reapplyLocked() error {
 	return nil
 }
 
-// clearPooledLocked drops host options that belong to the previous
-// checkout. [Terminal.Reset] keeps them.
+// clearPooledLocked drops what belongs to the previous checkout: the
+// checksum switches, the host colors, and the colors the program set with
+// OSC 10, 11, and 12, which a full reset keeps. [Terminal.Reset] keeps the
+// host options.
 func (t *Terminal) clearPooledLocked() {
 	t.checksumReport = false
 	t.checksumFlags = 0
+	t.fgOverride, t.bgOverride, t.cursorOverride = nil, nil, nil
+	t.fgDefault, t.bgDefault, t.cursorDefault = nil, nil, nil
+	t.hasCursor = false
+	for _, opt := range [...]int32{
+		wasmvt.TerminalOptionColorForeground,
+		wasmvt.TerminalOptionColorBackground,
+		wasmvt.TerminalOptionColorCursor,
+	} {
+		_ = t.mod.SetOption(t.term, opt, 0)
+	}
+	_ = t.writeLocked([]byte("\x1b]110\x07\x1b]111\x07\x1b]112\x07"))
 }
 
 func (t *Terminal) checkout(cols, rows, scrollback int) error {

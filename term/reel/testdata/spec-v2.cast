@@ -1,0 +1,8 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1504467315, "title": "Demo", "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color", "LANG": null}, "theme": {"fg": "#d0d0d0", "bg": "#212121", "palette": "#151515:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#d0d0d0"}}
+[0.248848, "o", "\u001b[1;31mHello \u001b[32mWorld!\u001b[0m\n"]
+[1.250224, "o", "That was ok\rThis is better."]
+[1.750224, "m", "intro"]
+[1.893957, "i", "ls\r"]
+[2.0, "q", "unknown"]
+[1.5, "o", "out of order"]
+[3.0, "r", "90x30"]

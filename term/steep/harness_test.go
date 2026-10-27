@@ -145,12 +145,3 @@ func TestHarness_TerminalKey_mapsNamedKeys(t *testing.T) {
 		})
 	}
 }
-
-func TestHarness_TerminalKey_fallbackMultiCharacterLiteralText(t *testing.T) {
-	t.Parallel()
-	const arbitrary = "custom-key-token"
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 4))
-	h.Key(arbitrary)
-	// Unknown multi-char keys are sent as one press per rune through the vt layer.
-	h.Wait("text=" + arbitrary).Require("text=" + arbitrary)
-}

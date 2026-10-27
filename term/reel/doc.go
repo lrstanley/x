@@ -3,8 +3,27 @@
 // the LICENSE file.
 
 // Package reel emulates terminal programs and turns what they draw into
-// images and video. The module is split into packages that can be used on
-// their own:
+// images and video.
+//
+// A [Session] owns a terminal emulator that a program runs in: the program
+// writes its output to the session and reads its input from it, while the
+// host types, presses keys, pastes, clicks, resizes, focuses, and sets colors.
+// The session records each of these in a [Timeline], an append-only event log
+// of the bytes and host actions that changed the terminal, with each event's
+// offset from the first. Recordings are derived from a timeline by replaying
+// it, so recording costs a copy of the bytes and nothing more while the
+// program runs. [Mark] events name points in a timeline, and
+// [Timeline.Between] cuts the part between two of them. A timeline is saved
+// as an asciicast v3 file (".cast", [CastMediaType]) with
+// [Timeline.WriteTo], which asciinema plays, and read back, or read from a
+// file asciinema recorded, with [ReadTimeline].
+//
+// Input is recorded as the exact bytes the terminal sent the program, encoded
+// in whatever keyboard and mouse modes the program had set.
+// [Input.Strokes] decodes them back into key names, typed text, pastes, and
+// mouse events.
+//
+// The module is split into packages that can be used on their own:
 //
 //   - vt is a terminal emulator backed by a checked-in libghostty-vt Wasm
 //     build.
@@ -17,7 +36,5 @@
 //     and animated WebP.
 //
 // Apart from internal test helpers, no package in the module imports testing,
-// Bubble Tea, or steep, so any program can link them. This package has no API
-// yet; a recording API that ties the emulator, renderer, and sinks together is
-// planned here.
+// Bubble Tea, or steep, so any program can link them.
 package reel
