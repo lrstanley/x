@@ -94,6 +94,14 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // and two of reel's own, which other readers ignore: focus ("f", as "1" or
 // "0") and theme ("t", as "fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", leaving out
 // the colors that are nil). [CastV2] has neither these nor exit.
+//
+// [Output] is the bytes the program wrote for a terminal of the size it had,
+// and programs move the cursor by that size, as bash's readline does to
+// redraw a line that wraps. A player that writes them to the terminal it runs
+// in, such as asciinema's play command, shows them as recorded only when that
+// terminal has the same size: in a wider one, such a redraw overwrites the
+// lines above it. asciinema-player sizes its terminal from the header and the
+// resize events, so it is unaffected.
 func (t *Timeline) WriteCast(w io.Writer, v CastVersion) (int64, error) {
 	if v != CastV3 && v != CastV2 {
 		return 0, fmt.Errorf("reel: unknown asciicast version %d", v)

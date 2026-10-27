@@ -44,9 +44,12 @@ func main() {
 }
 
 // commands are typed at the prompt, each once the one before has finished.
+// Each fits on the line after the prompt, since bash redraws a line that
+// wraps by moving the cursor, which asciinema's play command shows wrongly
+// in a terminal wider than the recording (see [reel.Timeline.WriteCast]).
 var commands = []string{
 	"echo hello from reel",
-	`for p in 20 40 60 80 100; do printf '\rbuilding %d%%' $p; sleep .2; done; echo`,
+	`for p in 25 50 75 100; do printf '\rbuilding %d%%' $p; sleep .2; done; echo`,
 	"exit",
 }
 
