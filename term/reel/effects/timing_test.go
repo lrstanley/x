@@ -153,20 +153,18 @@ func TestWindowCover(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		from, to time.Duration
-		late     bool
 		want     []piece
 	}{
 		// The middle of the first step, 355ms, is past the end of the
 		// window, at 329ms, though the frame is drawn in it.
-		{"end", 293 * ms, 329 * ms, false, []piece{{0, 100 * ms, 1}, {100 * ms, 200 * ms, 0}}},
-		{"instant", 305 * ms, 305 * ms, false, []piece{{0, 100 * ms, 1}, {100 * ms, 200 * ms, 0}}},
+		{"end", 293 * ms, 329 * ms, []piece{{0, 100 * ms, 1}, {100 * ms, 200 * ms, 0}}},
+		{"instant", 305 * ms, 305 * ms, []piece{{0, 100 * ms, 1}, {100 * ms, 200 * ms, 0}}},
 		// A step that ends before the window starts stays off, and the
 		// one it starts in is covered.
-		{"start", 450 * ms, openTo, false, []piece{{0, 100 * ms, 0}, {100 * ms, 200 * ms, 1}}},
-		{"late start", 450 * ms, openTo, true, []piece{{0, 100 * ms, 0}, {100 * ms, 200 * ms, 1}}},
-		{"after", openFrom, 300 * ms, false, []piece{{0, 300 * ms, 0}}},
+		{"start", 450 * ms, openTo, []piece{{0, 100 * ms, 0}, {100 * ms, 200 * ms, 1}}},
+		{"after", openFrom, 300 * ms, []piece{{0, 300 * ms, 0}}},
 	} {
-		w := window{from: tc.from, to: tc.to, step: step, speed: 1, cover: true, late: tc.late}
+		w := window{from: tc.from, to: tc.to, step: step, speed: 1, cover: true}
 		got := w.pieces(reel.Frame{At: 305 * ms, Delay: 300 * ms})
 		if !slices.Equal(got, tc.want) {
 			t.Errorf("%s: pieces\n got %v\nwant %v", tc.name, got, tc.want)
@@ -285,7 +283,7 @@ func TestTimingLive(t *testing.T) {
 		known := start(easeAfterMark, Between("early", "off"), Ease(20*ms))
 		late := start(easeAfterMark, Between("on", "off"), Ease(20*ms))
 		apart := start(easeAfterMark, Between("on", "off"), EaseIn(20*ms), EaseOut(40*ms))
-		full := start(coverWindow, Between("on", "off"), Ease(20*ms))
+		full := start(coverWindow, Between("on", "off"))
 		never := start(easeAfterMark, Between("on", "never"))
 		same := start(easeAfterMark, Between("m", "m"))
 		ends := start(easeAfterMark, Between("", "off"))
@@ -320,9 +318,8 @@ func TestTimingLive(t *testing.T) {
 		if got, want := levels(apart, 300*ms, 310*ms, 320*ms, 400*ms, 410*ms, 420*ms, 440*ms), []float64{0, smooth(0.5), 1, 1, smooth(0.75), smooth(0.5), 0}; !slices.Equal(got, want) {
 			t.Fatalf("late window easing apart: levels %v, want %v", got, want)
 		}
-		// One that must cover its window is at full strength on the mark,
-		// and still eases out.
-		if got, want := levels(full, 299*ms, 300*ms, 410*ms), []float64{0, 1, smooth(0.5)}; !slices.Equal(got, want) {
+		// One that must cover its window is at full strength on the mark.
+		if got, want := levels(full, 299*ms, 300*ms, 400*ms, 401*ms), []float64{0, 1, 1, 0}; !slices.Equal(got, want) {
 			t.Fatalf("full window: levels %v, want %v", got, want)
 		}
 		for _, w := range []*window{known, same, ends, never} {

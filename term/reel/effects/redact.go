@@ -148,8 +148,6 @@ func (e redact) Start(ctx *reel.Context) (reel.Stage, error) {
 	switch {
 	case e.region == nil:
 		return nil, errors.New("effects: redact without a region")
-	case e.timing.eases():
-		return nil, errors.New("effects: redact cannot ease: easing would show part of what it hides")
 	case e.mode == redactReplace && (!unicode.IsPrint(e.mask) || ansi.StringWidth(string(e.mask)) != 1):
 		return nil, fmt.Errorf("effects: redact replacement %q is not a printable character one cell wide", e.mask)
 	}

@@ -407,6 +407,7 @@ func TestRedactErrors(t *testing.T) {
 	}{
 		{"nil region", Redact(nil)},
 		{"ease", Redact(Row(0), Ease(10*ms))},
+		{"ease in", Redact(Row(0), EaseIn(10*ms))},
 		{"ease out", Redact(Row(0), EaseOut(10*ms))},
 		{"negative ease", Redact(Row(0), Ease(-ms))},
 		{"wide replacement", Redact(Row(0), Replace('日'))},

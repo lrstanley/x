@@ -40,8 +40,8 @@ type timing struct {
 // missing when the recording stops is an error from
 // [reel.Recording.Stop], wrapping [reel.ErrNoMark], which still writes the
 // outputs. A from mark appended after the effect started was not known in
-// advance, so [EaseIn] eases the effect in after it rather than before, so
-// it is at full strength one easing after the mark.
+// advance, so [EaseIn] eases the effect in after it rather than before, and
+// it is at full strength one ease-in after the mark.
 func Between(from, to string) Timing {
 	return func(t *timing) { t.from, t.to = from, to }
 }
@@ -72,9 +72,6 @@ func EaseOut(d time.Duration) Timing {
 	return func(t *timing) { t.easeOut = d }
 }
 
-// eases reports whether t eases the effect in or out.
-func (t timing) eases() bool { return t.easeIn != 0 || t.easeOut != 0 }
-
 func (o Timing) applyHighlight(h *highlight) {
 	if o != nil {
 		o(&h.timing)
@@ -100,7 +97,7 @@ const (
 	// coverWindow gives every step that shows any of the window full
 	// strength, and starts at full strength on a late from mark, for an
 	// effect that must never leave part of its window uncovered, such as
-	// one that hides secrets.
+	// one that hides secrets. Such an effect cannot ease.
 	coverWindow
 )
 
@@ -109,18 +106,16 @@ const (
 // the recording's delay grid, speed, and hold. In a live recording, the
 // marks not yet appended are looked for by [window.update].
 type window struct {
-	from, to time.Duration
-	// easeIn is how long the effect eases in before from, or after it when
-	// late, and easeOut how long it eases out after to.
+	// from is past the from mark by lag, set when the mark was appended
+	// after the effect started, so the effect eases in after the mark.
+	from, to        time.Duration
+	lag             time.Duration
 	easeIn, easeOut time.Duration
 	step            time.Duration
 	speed           float64
 	hold            time.Duration
 	// cover is set to cover every step that shows any of the window.
 	cover bool
-	// late is set when the from mark was appended after the effect
-	// started.
-	late bool
 
 	// from and to label a live window's marks, and wantFrom and wantTo are
 	// set while they are still looked for in tl, of whose events read have
@@ -142,6 +137,8 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		return nil, fmt.Errorf("effects: ease in %v is below zero", t.easeIn)
 	case t.easeOut < 0:
 		return nil, fmt.Errorf("effects: ease out %v is below zero", t.easeOut)
+	case cov == coverWindow && (t.easeIn != 0 || t.easeOut != 0):
+		return nil, errors.New("effects: an effect that must cover its window cannot ease: easing would leave part of it uncovered")
 	}
 	w := &window{
 		from:    openFrom,
@@ -165,10 +162,7 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		}
 		w.update()
 		if w.wantFrom {
-			w.late = true
-			if w.cover {
-				w.easeIn = 0
-			}
+			w.lag = w.easeIn
 		}
 		ctx.OnClose(w.missing)
 		return w, nil
@@ -205,7 +199,7 @@ func (w *window) update() {
 		case !ok:
 		case w.wantFrom:
 			if m.Label == w.fromLabel {
-				w.from, w.wantFrom = m.At(), false
+				w.from, w.wantFrom = m.At()+w.lag, false
 			}
 		case m.Label == w.toLabel:
 			w.to, w.wantTo = m.At(), false
@@ -231,18 +225,11 @@ func (w *window) missing() error {
 }
 
 // level is the strength of the effect at offset at: 1 in the window, 0 well
-// outside it, and in between on the easing curve. A late window is off
-// before its start, and eases in after it.
+// outside it, and in between on the easing curve.
 func (w *window) level(at time.Duration) float64 {
-	if at < w.from {
-		if w.late {
-			return 0
-		}
-		return eased(w.from-at, w.easeIn)
-	}
 	lv := 1.0
-	if w.late {
-		lv = 1 - eased(at-w.from, w.easeIn)
+	if at < w.from {
+		lv = eased(w.from-at, w.easeIn)
 	}
 	if at > w.to {
 		lv *= eased(at-w.to, w.easeOut)
