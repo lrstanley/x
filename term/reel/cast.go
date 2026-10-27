@@ -48,16 +48,18 @@ const castTermType = "xterm-ghostty"
 var _ io.WriterTo = (*Timeline)(nil)
 
 // castHeader is the first line of an asciicast file. Term is set in v3, and
-// Width, Height, Env, and Theme in v2.
+// Width, Height, Env, and Theme in v2. SkipPristine is reel's, which other
+// readers ignore, and only written in v3.
 type castHeader struct {
-	Version   int            `json:"version"`
-	Term      *castTerm      `json:"term,omitempty"`
-	Width     int            `json:"width,omitempty"`
-	Height    int            `json:"height,omitempty"`
-	Timestamp int64          `json:"timestamp,omitempty"`
-	Title     string         `json:"title,omitempty"`
-	Env       map[string]any `json:"env,omitempty"`
-	Theme     *castTheme     `json:"theme,omitempty"`
+	Version      int            `json:"version"`
+	Term         *castTerm      `json:"term,omitempty"`
+	Width        int            `json:"width,omitempty"`
+	Height       int            `json:"height,omitempty"`
+	Timestamp    int64          `json:"timestamp,omitempty"`
+	Title        string         `json:"title,omitempty"`
+	Env          map[string]any `json:"env,omitempty"`
+	Theme        *castTheme     `json:"theme,omitempty"`
+	SkipPristine bool           `json:"skip_pristine,omitempty"`
 }
 
 type castTerm struct {
@@ -117,7 +119,9 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // The header has the size, the title, the time of the first event, and the
 // header colors with asciicast's 16 color palette: [Header.Palette], with
 // the colors reel draws with by default for its nil entries. The colors are
-// left out unless Fg and Bg are set. Events are asciicast's output ("o"),
+// left out unless Fg and Bg are set. A v3 header has reel's own
+// "skip_pristine": true when [Header.SkipPristine] is set, which other
+// readers ignore. Events are asciicast's output ("o"),
 // input ("i"), resize ("r", as "COLSxROWS"), marker ("m"), and exit ("x"),
 // and two of reel's own, which other readers ignore: focus ("f", as "1" or
 // "0") and theme ("t", as "fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", leaving out
@@ -224,6 +228,7 @@ func castHeaderOf(h Header, start time.Time, v CastVersion) castHeader {
 		theme.Cursor = hexColor(h.Theme.Cursor)
 	}
 	ch.Term = &castTerm{Cols: h.Cols, Rows: h.Rows, Type: castTermType, Theme: theme}
+	ch.SkipPristine = h.SkipPristine
 	return ch
 }
 
@@ -395,10 +400,11 @@ func (cw *countWriter) Write(p []byte) (int, error) {
 //
 // Lines starting with "#" after the header are comments, and blank lines are
 // skipped. Header fields and event codes reel does not use are ignored. The
-// header's palette is read into [Header.Palette]. Times in a v2 file are from
-// the start rather than from the event before; a time before the previous
-// event's is raised to it. A marker with no label reads as a [Mark] with an
-// empty Label, which [Timeline.Between] cannot cut at.
+// header's palette is read into [Header.Palette], and reel's "skip_pristine"
+// into [Header.SkipPristine]. Times in a v2 file are from the start rather
+// than from the event before; a time before the previous event's is raised
+// to it. A marker with no label reads as a [Mark] with an empty Label, which
+// [Timeline.Between] cannot cut at.
 //
 // An asciicast v1 file, a header without a terminal size or with a malformed
 // field reel reads, a line that is not a JSON array of time, code, and data,
@@ -517,7 +523,7 @@ func timelineOf(ch castHeader) (*Timeline, error) {
 	if h.Cols <= 0 || h.Rows <= 0 || h.Cols > maxCastSize || h.Rows > maxCastSize {
 		return nil, fmt.Errorf("reel: asciicast line 1: header: terminal size %dx%d", h.Cols, h.Rows)
 	}
-	h.Title = ch.Title
+	h.Title, h.SkipPristine = ch.Title, ch.SkipPristine
 	if theme != nil {
 		var err error
 		if h.Theme, err = parseCastTheme(theme); err != nil {

@@ -479,9 +479,9 @@ func buildGIF(rec *gifRecording) *gif.GIF {
 // maxGIFCentiseconds is the largest delay GIF can store in one frame.
 const maxGIFCentiseconds = 65535
 
-// quantizeDelays rounds each delay to whole centiseconds, at least one. A
-// [Recorder] already delivers delays on its grid, so this only rounds delays
-// from a direct [GIFEncoder.WriteFrame] caller. Values above
+// quantizeDelays rounds each delay to whole centiseconds, at least one. The
+// frames of a reel export are on its delay grid already, so this only rounds
+// delays from other callers. Values above
 // [maxGIFCentiseconds] are split into continuation frames by [splitLongDelays].
 func quantizeDelays(delays []time.Duration) []int {
 	cs := make([]int, len(delays))

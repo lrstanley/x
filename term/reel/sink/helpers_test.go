@@ -6,6 +6,7 @@ package sink
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/draw"
@@ -16,47 +17,33 @@ import (
 	"time"
 )
 
-// recordGIF starts a [Recorder] writing a GIF to path. opts go to both the
-// encoder and the recorder.
-func recordGIF(path string, opts ...Option) (*Recorder, error) {
+// writeGIF writes imgs, each playing for delay, to a GIF at path encoded
+// with opts.
+func writeGIF(path string, imgs []image.Image, delay time.Duration, opts ...Option) error {
 	enc, err := CreateGIF(path, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return Record(enc, opts...)
-}
-
-// sendAll records imgs through a channel, each for delay, then closes rec.
-func sendAll(imgs []image.Image, delay time.Duration, record func(ch <-chan Frame) (*Recorder, error)) error {
-	ch := make(chan Frame)
-	rec, err := record(ch)
 	if err != nil {
 		return err
 	}
-	for _, img := range imgs {
-		ch <- Frame{Image: img, Delay: delay}
+	return writeAll(enc, imgs, delay)
+}
+
+// writeGIFTo is [writeGIF] writing the GIF to w.
+func writeGIFTo(w io.Writer, imgs []image.Image, delay time.Duration, opts ...Option) error {
+	enc, err := NewGIF(w, opts...)
+	if err != nil {
+		return err
 	}
-	close(ch)
-	return rec.Close()
+	return writeAll(enc, imgs, delay)
 }
 
-// recordViaChannel encodes imgs to path using [WithChannel] and a fixed delay
-// per frame. Additional opts (e.g. [WithOptimize]) are applied after the channel.
-func recordViaChannel(path string, imgs []image.Image, delay time.Duration, opts ...Option) error {
-	return sendAll(imgs, delay, func(ch <-chan Frame) (*Recorder, error) {
-		return recordGIF(path, append([]Option{WithChannel(ch)}, opts...)...)
-	})
-}
-
-// recordViaChannelWriter is [recordViaChannel] writing encoded bytes to w.
-func recordViaChannelWriter(w io.Writer, imgs []image.Image, delay time.Duration, opts ...Option) error {
-	return sendAll(imgs, delay, func(ch <-chan Frame) (*Recorder, error) {
-		enc, err := NewGIF(w, opts...)
-		if err != nil {
-			return nil, err
+// writeAll writes imgs to s, each playing for delay, and closes it.
+func writeAll(s Sink, imgs []image.Image, delay time.Duration) error {
+	for _, img := range imgs {
+		if err := s.WriteFrame(Frame{Image: img, Delay: delay}); err != nil {
+			return errors.Join(err, s.Discard())
 		}
-		return Record(enc, append([]Option{WithChannel(ch)}, opts...)...)
-	})
+	}
+	return s.Close()
 }
 
 // gifDecodeFile reads and decodes all frames from a GIF file at path.

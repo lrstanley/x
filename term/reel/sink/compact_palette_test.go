@@ -123,17 +123,12 @@ func TestCompactPaletteMatchesReference(t *testing.T) {
 	}
 }
 
-// encodeSyntheticGIF records deterministic gradient frames through the public
-// recorder and returns the encoded bytes.
+// encodeSyntheticGIF encodes deterministic gradient frames and returns the
+// encoded bytes.
 func encodeSyntheticGIF(tb testing.TB, frames int) []byte {
 	tb.Helper()
-	ch := make(chan Frame)
 	var buf bytes.Buffer
 	enc, err := NewGIF(&buf)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	rec, err := Record(enc, WithChannel(ch))
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -143,10 +138,11 @@ func encodeSyntheticGIF(tb testing.TB, frames int) []byte {
 		for x := 100; x < 140; x++ {
 			img.SetNRGBA(x, 100+i, color.NRGBA{R: 0xff, A: 0xff})
 		}
-		ch <- Frame{Image: img, Delay: 50 * time.Millisecond}
+		if err = enc.WriteFrame(Frame{Image: img, Delay: 50 * time.Millisecond}); err != nil {
+			tb.Fatal(err)
+		}
 	}
-	close(ch)
-	if err = rec.Close(); err != nil {
+	if err = enc.Close(); err != nil {
 		tb.Fatal(err)
 	}
 	return buf.Bytes()

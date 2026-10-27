@@ -82,7 +82,8 @@ func TestCastRoundTrip(t *testing.T) {
 	t.Parallel()
 	tl := newTimeline(Header{
 		Cols: 80, Rows: 24, Title: "demo <&>",
-		Theme: Colors{Fg: castFg, Bg: castBg, Cursor: castCursor},
+		Theme:        Colors{Fg: castFg, Bg: castBg, Cursor: castCursor},
+		SkipPristine: true,
 	})
 	tl.start = time.Unix(1700000000, 0)
 	for _, ev := range []Event{
@@ -199,7 +200,11 @@ func TestCastNoTheme(t *testing.T) {
 
 func TestCastV2RoundTrip(t *testing.T) {
 	t.Parallel()
-	tl := newTimeline(Header{Cols: 80, Rows: 24, Title: "v2", Theme: Colors{Fg: castFg, Bg: castBg, Cursor: castCursor}})
+	tl := newTimeline(Header{
+		Cols: 80, Rows: 24, Title: "v2",
+		Theme:        Colors{Fg: castFg, Bg: castBg, Cursor: castCursor},
+		SkipPristine: true,
+	})
 	for _, ev := range []Event{
 		Output{event: at(0), Data: []byte("hi")},
 		Focus{event: at(3)},
@@ -212,7 +217,8 @@ func TestCastV2RoundTrip(t *testing.T) {
 		tl.appendAt(ev, ev.At())
 	}
 	got := readCast(t, writeCast(t, tl, CastV2))
-	// v2 has no slot for the cursor color.
+	// v2 has no slot for the cursor color, and reel writes its own header
+	// fields only in v3.
 	if want := withDefaultPalette(Header{Cols: 80, Rows: 24, Title: "v2", Theme: Colors{Fg: castFg, Bg: castBg}}); got.Header() != want {
 		t.Fatalf("Header = %+v, want %+v", got.Header(), want)
 	}

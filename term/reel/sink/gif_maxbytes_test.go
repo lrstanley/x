@@ -38,7 +38,7 @@ func TestGIFMaxBytesRetention(t *testing.T) {
 			t.Parallel()
 			path := t.TempDir() + "/max-bytes.gif"
 			opts := append([]Option{WithMaxBytes(16 * 3)}, tt.opts...)
-			if err := recordViaChannel(path, frames, 50*time.Millisecond, opts...); err != nil {
+			if err := writeGIF(path, frames, 50*time.Millisecond, opts...); err != nil {
 				t.Fatal(err)
 			}
 			g, err := gifDecodeFile(path)
@@ -64,7 +64,7 @@ func TestGIFMaxBytesKeepsNewestFrame(t *testing.T) {
 
 	frames := []image.Image{solidFrame(1, 4, 4), solidFrame(2, 4, 4), solidFrame(3, 4, 4)}
 	path := t.TempDir() + "/max-bytes-tiny.gif"
-	if err := recordViaChannel(path, frames, 50*time.Millisecond, WithMaxBytes(1)); err != nil {
+	if err := writeGIF(path, frames, 50*time.Millisecond, WithMaxBytes(1)); err != nil {
 		t.Fatal(err)
 	}
 	replayed, err := replayGIFFile(path)
@@ -87,7 +87,7 @@ func TestGIFMaxBytesUnlimited(t *testing.T) {
 	}
 	for _, limit := range []int64{0, -5} {
 		path := t.TempDir() + "/max-bytes-unlimited.gif"
-		if err := recordViaChannel(path, frames, 50*time.Millisecond, WithMaxBytes(limit)); err != nil {
+		if err := writeGIF(path, frames, 50*time.Millisecond, WithMaxBytes(limit)); err != nil {
 			t.Fatal(err)
 		}
 		g, err := gifDecodeFile(path)

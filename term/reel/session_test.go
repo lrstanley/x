@@ -51,8 +51,11 @@ func TestSessionOpen(t *testing.T) {
 	s := openTest(t, 20, 4, WithTitle("demo"), WithScrollback(0), WithRuntime(vt.NewRuntime(1)))
 	h := s.Timeline().Header()
 	white, black := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, color.NRGBA{A: 0xff}
-	if h.Cols != 20 || h.Rows != 4 || h.Title != "demo" || h.Theme.Fg != white || h.Theme.Bg != black || h.Theme.Cursor != nil {
+	if h.Cols != 20 || h.Rows != 4 || h.Title != "demo" || h.Theme.Fg != white || h.Theme.Bg != black || h.Theme.Cursor != nil || h.SkipPristine {
 		t.Fatalf("Header = %+v", h)
+	}
+	if h := openTest(t, 20, 4, WithSkipPristine()).Timeline().Header(); !h.SkipPristine {
+		t.Fatalf("Header with WithSkipPristine = %+v", h)
 	}
 	if !s.Focused() || !s.State().Focused {
 		t.Fatal("new session is not focused")

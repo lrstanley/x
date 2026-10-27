@@ -49,9 +49,8 @@ func (h *Harness) waitFinished(opts ...Option) {
 }
 
 // Sleep lets the program run for d without waiting on anything in particular,
-// such as to hold on a screen while a GIF recording plays it, or to let an
-// animation run. GIF frames the program paints in the meantime are recorded
-// as it goes. It returns early, failing the test, if the context set with
+// such as to hold on a screen while a recording plays it, or to let an
+// animation run. It returns early, failing the test, if the context set with
 // [WithContext] is canceled.
 //
 // Prefer a wait for the screen the test expects, such as [Harness.Wait], when
@@ -63,28 +62,12 @@ func (h *Harness) Sleep(d time.Duration, opts ...Option) *Harness {
 	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
 	timer := time.NewTimer(d)
 	defer timer.Stop()
-	tick := time.NewTicker(cfg.checkInterval)
-	defer tick.Stop()
-	for {
-		select {
-		case <-timer.C:
-			return h
-		case <-tick.C:
-			h.export.flushCommits()
-		case <-cfg.ctx.Done():
-			h.tb.Fatalf("sleep canceled: %v", cfg.ctx.Err())
-			return h
-		}
+	select {
+	case <-timer.C:
+	case <-cfg.ctx.Done():
+		h.tb.Fatalf("sleep canceled: %v", cfg.ctx.Err())
 	}
-}
-
-// pollView is [Harness.View] for blocking waits. Each poll first records the
-// GIF frames the program painted since the last, which are otherwise only
-// recorded at the next hook, so a long wait does not overflow the queue of
-// frames waiting to be recorded.
-func (h *Harness) pollView() string {
-	h.export.flushCommits()
-	return h.View()
+	return h
 }
 
 // WaitSettle waits until the rendered view string from [Harness.View] has not
@@ -96,7 +79,7 @@ func (h *Harness) pollView() string {
 func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookSettle, SettleMeta{Kind: "settle"})()
-	WaitSettle(h.tb, h.pollView, h.mergedOpts(opts...)...)
+	WaitSettle(h.tb, h.View, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -107,7 +90,7 @@ func (h *Harness) WaitSettle(opts ...Option) *Harness {
 func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookSettle, SettleMeta{Kind: "func"})()
-	WaitViewFunc(h.tb, h.pollView, condition, h.mergedOpts(opts...)...)
+	WaitViewFunc(h.tb, h.View, condition, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -118,7 +101,7 @@ func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opt
 func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookSettle, SettleMeta{Kind: "wait"})()
-	Wait(h.tb, h.pollView, contents, h.mergedOpts(opts...)...)
+	Wait(h.tb, h.View, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -129,7 +112,7 @@ func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option)
 func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookSettle, SettleMeta{Kind: "not"})()
-	WaitNot(h.tb, h.pollView, contents, h.mergedOpts(opts...)...)
+	WaitNot(h.tb, h.View, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -140,7 +123,7 @@ func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Opti
 func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookSettle, SettleMeta{Kind: "match"})()
-	WaitMatch(h.tb, h.pollView, pattern, h.mergedOpts(opts...)...)
+	WaitMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -152,7 +135,7 @@ func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookSettle, SettleMeta{Kind: "not_match"})()
-	WaitNotMatch(h.tb, h.pollView, pattern, h.mergedOpts(opts...)...)
+	WaitNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 

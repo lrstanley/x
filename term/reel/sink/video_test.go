@@ -380,7 +380,10 @@ func TestVideoCanvasFollowsFirstFrame(t *testing.T) {
 	}
 }
 
-func TestVideoThroughRecorder(t *testing.T) {
+// TestVideoReusedImage checks that the encoder does not keep a frame's image
+// past WriteFrame: one buffer, painted over after each frame, records every
+// color.
+func TestVideoReusedImage(t *testing.T) {
 	t.Parallel()
 	info := requireVideo(t, FormatWebM)
 
@@ -389,28 +392,16 @@ func TestVideoThroughRecorder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch := make(chan Frame, 2)
-	rec, err := Record(enc, WithChannel(ch), WithDelayGrid(20))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A shared buffer recycled through Done, the way steep sends frames.
 	buf := image.NewNRGBA(image.Rect(0, 0, 40, 20))
 	for i, c := range videoTestColors {
-		release := make(chan struct{})
 		paintRect(buf, buf.Rect, c)
-		ch <- Frame{Image: buf, Delay: videoTestDelays[i], Done: func() { close(release) }}
-		<-release
+		if err = enc.WriteFrame(Frame{Image: buf, Delay: videoTestDelays[i]}); err != nil {
+			t.Fatal(err)
+		}
+		paintRect(buf, buf.Rect, color.NRGBA{A: 0xff})
 	}
-	close(ch)
-	if err := rec.Close(); err != nil {
+	if err = enc.Close(); err != nil {
 		t.Fatal(err)
-	}
-	starts, total := videoTimeline(t, info, path)
-	// The 20 fps grid is 5cs steps, so the 30ms frame plays for one step.
-	want := []time.Duration{0, 2000 * time.Millisecond, 2050 * time.Millisecond, 2550 * time.Millisecond}
-	if !slices.Equal(starts, want) || total != 4050*time.Millisecond {
-		t.Fatalf("frame starts = %v (total %v), want %v (total 4.05s)", starts, total, want)
 	}
 	frames := decodeRGB(t, info, path, 40, 20)
 	for i, want := range videoTestColors {

@@ -9,11 +9,37 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/lrstanley/x/term/reel"
+	"github.com/lrstanley/x/term/reel/effects"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/steep"
 )
 
-// STEEP_EXPORT_DIR=testdata/ STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif go test -v -count 1 ./reel-showcase/
+// The recording is only written when exporting is turned on, as with:
+//
+//	STEEP_EXPORT_DIR=testdata/ STEEP_EXPORT_MODE=on go test -v -count 1 ./reel-showcase/
+//
+// which writes testdata/showcase.gif and testdata/showcase.cast. Exporting
+// the .cast again with the same profile writes the same GIF.
+
+// showcaseProfile is what the showcase's recording writes: the steep logo,
+// the keys pressed, a pause badge on the held last frame, and a PASS or FAIL
+// card after it, in a window with chrome.
+var showcaseProfile = reel.Profile{
+	Outputs: reel.Files("showcase.gif", "showcase.cast"),
+	Render: []render.Option{
+		render.WithWindowChrome(true),
+		render.WithPadding(14),
+		render.WithMargin(36, lipgloss.Color("#1d212c")),
+		render.WithBorderRadius(12),
+	},
+	Effects: []reel.Effect{
+		steep.Logo(2 * time.Second),
+		effects.Keys(1200 * time.Millisecond),
+		effects.PauseBadge(),
+		steep.Outro(2 * time.Second),
+	},
+}
 
 func TestShowcase(t *testing.T) {
 	h := steep.NewHarness(
@@ -23,16 +49,7 @@ func TestShowcase(t *testing.T) {
 		// steep's terminal reports 256 colors by default; the gradients
 		// need every bit.
 		steep.WithColor(steep.ColorTrueColor),
-		steep.WithRenderer(
-			render.WithWindowChrome(true),
-			render.WithPadding(14),
-			render.WithMargin(36, lipgloss.Color("#1d212c")),
-			render.WithBorderRadius(12),
-		),
-		steep.WithExportName("showcase"),
-		steep.WithExportKeys(1200*time.Millisecond),
-		steep.WithExportIntro(2*time.Second),
-		steep.WithExportOutro(2*time.Second),
+		steep.WithRecording(showcaseProfile),
 	)
 
 	// Boot: the wordmark sweeps in while OSC 9;4 reports progress.
@@ -66,6 +83,6 @@ func TestShowcase(t *testing.T) {
 		Wait("deploy failed").
 		Sleep(2200 * time.Millisecond)
 
-	h.Key("q").
-		WaitFinished()
+	// The recording ends here, on the failed deploy: Close, which the
+	// harness runs as a cleanup, quits the program, and leaves its exit out.
 }

@@ -399,9 +399,10 @@ const programStatusMaxRecords = 256
 // Working and blocked records are removed when a shell prompt starts (OSC 133
 // A). A full reset (RIS) removes every record.
 //
-// With [render.WithWindowChrome] in [WithRenderer], [Harness.Image] and GIF
-// exports draw the records in the title bar and as an outline around the
-// window (see [render.WithProgramStatus]). Once any record has been reported,
+// With [render.WithWindowChrome] in the profile's Render options (see
+// [WithRecording]), [Harness.Image] and recordings draw the records in the
+// title bar and as an outline around the window (see
+// [render.WithProgramStatus]). Once any record has been reported,
 // OSC 9;4 progress is no longer drawn, until a full reset, as the OSC 7501
 // spec asks.
 func (h *Harness) ProgramStatuses() []ansi.ProgramStatus {

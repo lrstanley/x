@@ -71,7 +71,7 @@ func assertFrames(t *testing.T, frames []Frame, want ...wantFrame) {
 func TestExportReplayRules(t *testing.T) {
 	t.Parallel()
 	bg := color.NRGBA{R: 0x20, A: 0xff}
-	tl := buildTimeline(Header{Cols: 6, Rows: 1},
+	tl := buildTimeline(Header{Cols: 6, Rows: 1, SkipPristine: true},
 		// A query changes nothing, so the terminal is still pristine.
 		outAt(0, "\x1b[c"),
 		outAt(100, "hi"),
@@ -111,6 +111,21 @@ func TestExportReplayRules(t *testing.T) {
 	if cursor := frames[4].Cells.State; !cursor.CursorColorSet || cursor.CursorColor != (color.NRGBA{R: 0xff, A: 0xff}) {
 		t.Fatalf("cursor color after OSC 12 = %v (set %v), want red", cursor.CursorColor, cursor.CursorColorSet)
 	}
+}
+
+// TestExportPristine checks that the blank terminal a program starts on is a
+// frame of its own unless the header skips it.
+func TestExportPristine(t *testing.T) {
+	t.Parallel()
+	events := []Event{outAt(0, "\x1b[c\x1b[?2004h"), outAt(100, "$ "), Exit{event: at(300)}}
+	assertFrames(t, exportFrames(t, buildTimeline(Header{Cols: 4, Rows: 1}, events...), Profile{FPS: 100, Hold: -1}),
+		wantFrame{"", 0, 100 * ms, true},
+		wantFrame{"$", 100 * ms, 200 * ms, true},
+	)
+	skipped := buildTimeline(Header{Cols: 4, Rows: 1, SkipPristine: true}, events...)
+	assertFrames(t, exportFrames(t, skipped, Profile{FPS: 100, Hold: -1}),
+		wantFrame{"$", 100 * ms, 200 * ms, true},
+	)
 }
 
 func TestExportHoldAndSpeed(t *testing.T) {

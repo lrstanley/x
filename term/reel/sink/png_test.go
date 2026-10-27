@@ -58,7 +58,7 @@ func TestPNGIgnoresLoopCount(t *testing.T) {
 }
 
 // TestPNGIgnoresGIFOptions covers sharing one option list between PNG and GIF,
-// as steep does.
+// as a reel.Profile does.
 func TestPNGIgnoresGIFOptions(t *testing.T) {
 	t.Parallel()
 
@@ -68,9 +68,6 @@ func TestPNGIgnoresGIFOptions(t *testing.T) {
 		src, path,
 		WithPalette(color.Palette{color.Black, color.White}),
 		WithBackground(color.White),
-		WithFrameRate(MaxFrameRate+1, true, nil),
-		WithChannel(make(chan Frame)),
-		WithDelayGrid(0),
 		WithMaxFrames(10),
 		WithMaxBytes(1024),
 	)

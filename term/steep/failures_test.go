@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lrstanley/x/term/reel/effects"
 )
 
 func TestFailureTBRecords(t *testing.T) {
@@ -21,9 +23,9 @@ func TestFailureTBRecords(t *testing.T) {
 	}
 }
 
-func TestExportFailureLines(t *testing.T) {
+func TestFailureLines(t *testing.T) {
 	t.Parallel()
-	texts := func(lines []CardLine) []string {
+	texts := func(lines []effects.Line) []string {
 		out := make([]string, len(lines))
 		for i, line := range lines {
 			out[i] = line.Text
@@ -67,11 +69,7 @@ func TestExportFailureLines(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ec := ExportContext{
-				h:   &Harness{failures: &failureTB{msgs: tc.failures}},
-				src: frameSource{cols: tc.cols, rows: tc.rows},
-			}
-			got := texts(ec.failureLines())
+			got := texts(failureLines(tc.failures, tc.cols, tc.rows))
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("lines =\n%s\nwant\n%s", strings.Join(got, "|\n"), strings.Join(tc.want, "|\n"))
 			}

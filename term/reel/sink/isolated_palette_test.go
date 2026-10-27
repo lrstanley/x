@@ -50,21 +50,17 @@ func solidColorsFrame(colors []color.NRGBA, block int) *image.NRGBA {
 
 func encodeFrames(t *testing.T, frames []Frame, opts ...Option) (g *gif.GIF, raw []byte) {
 	t.Helper()
-	ch := make(chan Frame)
 	var buf bytes.Buffer
 	enc, err := NewGIF(&buf, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := Record(enc, WithChannel(ch))
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, frame := range frames {
-		ch <- frame
+		if err = enc.WriteFrame(frame); err != nil {
+			t.Fatal(err)
+		}
 	}
-	close(ch)
-	if err = rec.Close(); err != nil {
+	if err = enc.Close(); err != nil {
 		t.Fatal(err)
 	}
 	g, err = gif.DecodeAll(bytes.NewReader(buf.Bytes()))

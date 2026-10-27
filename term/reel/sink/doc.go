@@ -13,14 +13,8 @@
 // several sinks. A sink with an invalid frame or an encoder error should be
 // discarded with [Sink.Discard] instead of closed.
 //
-// A [Recorder] feeds a sink from [WithChannel], or captures frames with
-// [WithFrameRate], and resolves every delay before the sink sees it: a zero
-// [Frame.Delay] becomes the time since the previous frame, and each delay is
-// rounded to whole steps of the delay grid ([WithDelayGrid], the
-// [WithFrameRate] FPS, or 10ms), at least one step.
-//
-// Options are shared: the recorder, every sink, and [PNG] each check the
-// options they read and ignore the rest, so one list can configure them all.
+// Options are shared: every sink and [PNG] each check the options they read
+// and ignore the rest, so one list can configure them all.
 //
 // # Video
 //

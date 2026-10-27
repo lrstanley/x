@@ -80,6 +80,17 @@ type Header struct {
 	// program sets. It is empty unless [WithTitle] set it, or the file the
 	// timeline was read from had one.
 	Title string
+	// SkipPristine makes a replay draw no frame while the terminal still
+	// looks as it did before anything was written to it: a blank screen
+	// with the title, colors, cursor, progress, and status it opened with.
+	// A Bubble Tea program starts by writing capability queries, which
+	// change nothing, so without it a recording would open on a frame of
+	// the bare terminal before the program's first paint. A program that
+	// starts on a blank screen on purpose, such as a shell with an empty
+	// prompt, wants its first frame shown, so it is unset unless
+	// [WithSkipPristine] set it, or the file the timeline was read from
+	// had it.
+	SkipPristine bool
 }
 
 // Colors is a foreground, background, and cursor color. Non-nil colors are

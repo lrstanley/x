@@ -233,6 +233,23 @@ func TestChan(t *testing.T) {
 	}
 }
 
+// collectEncoder records every frame it receives and how it was finished.
+type collectEncoder struct {
+	frames    []Frame
+	closed    bool
+	discarded bool
+}
+
+var errEncoderFull = errors.New("encoder full")
+
+func (e *collectEncoder) WriteFrame(f Frame) error {
+	e.frames = append(e.frames, f)
+	return nil
+}
+
+func (e *collectEncoder) Close() error   { e.closed = true; return nil }
+func (e *collectEncoder) Discard() error { e.discarded = true; return nil }
+
 // failSink fails every write.
 type failSink struct{ collectEncoder }
 

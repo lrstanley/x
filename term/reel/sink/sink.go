@@ -17,9 +17,7 @@ import (
 // Frame is one frame of a recording, as a [Sink] is given it.
 type Frame struct {
 	Image image.Image
-	// Delay is how long the frame plays. A [Sink] is always given a positive
-	// delay. Sent to a [Recorder], zero means the time since the previous
-	// frame was read.
+	// Delay is how long the frame plays, and should be positive.
 	Delay time.Duration
 	// Isolated palettizes this frame on its own palette. It adds no colors to
 	// the shared recording palette, and consecutive isolated frames share one
@@ -27,11 +25,6 @@ type Frame struct {
 	// as a local color table on each of those frames, and other formats
 	// ignore it. Terminal frames leave it false.
 	Isolated bool
-	// Done, when set, is called from the [Recorder]'s goroutine once the sink
-	// has returned from the frame. Image is then handed back to the sender,
-	// which may reuse it, so the sender must not share it with anything else.
-	// Only a Recorder reads it; a Sink is never given a Done.
-	Done func()
 }
 
 var (

@@ -8,8 +8,11 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"slices"
 	"time"
 
+	"github.com/lrstanley/x/term/reel"
+	"github.com/lrstanley/x/term/reel/effects"
 	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
@@ -57,14 +60,51 @@ var (
 	logoSway = []int{0, 0, 1, 1, 1, 0, 0, -1, -1, -1}
 )
 
-// steepLogo emits the frames of the animated intro: the teacup and wordmark
-// start empty and fill with tea from the bottom up, one pixel row per step,
-// then steam rises from the cup for d while the test name fades in. It
-// emits nothing and returns false when the terminal is too small for the
+// Logo returns an effect that shows steep's animated logo before the first
+// frame of a recording: a teacup and wordmark fill with tea, then steam rises
+// for d while the recording's title ([reel.Context.Title], the test name for
+// a [Harness]) fades in below. Terminals too small for the logo get a card of
+// "steep" and the title instead (see [effects.CardRenderer.Card]). A d of
+// zero or less is no logo. The speed does not scale it.
+//
+// Its frames are palettized on their own GIF palette ([reel.Frame.Isolated]),
+// and have no terminal ([reel.Frame.Cells] is nil), so effects after it, such
+// as [effects.Keys], leave them alone. They count toward any GIF frame or
+// byte limit.
+func Logo(d time.Duration) reel.Effect {
+	return logo{d: d}
+}
+
+type logo struct{ d time.Duration }
+
+func (e logo) Start(ctx *reel.Context) (reel.Stage, error) {
+	if e.d <= 0 {
+		return nil, nil //nolint:nilnil // A nil stage leaves the recording alone.
+	}
+	cards, err := effects.NewCardRenderer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return func(f reel.Frame, emit func(reel.Frame)) {
+		if f.First && !logoFrames(cards, f.Cells, ctx.Title, e.d, emit) {
+			title := []effects.Line{{Text: "steep", Style: screen.Style{Attrs: screen.AttrBold}}}
+			if ctx.Title != "" {
+				title = append(title, effects.Line{Text: ctx.Title, Style: faint})
+			}
+			emit(reel.Frame{Image: cards.Card(f.Cells, title...), Delay: e.d, Isolated: true})
+		}
+		emit(f)
+	}, nil
+}
+
+// logoFrames emits the frames of the logo on cards the size of src: the
+// teacup and wordmark start empty and fill with tea from the bottom up, one
+// pixel row per step, then steam rises from the cup for d while title fades
+// in. It emits nothing and returns false when the card is too small for the
 // logo.
-func (ec ExportContext) steepLogo(d time.Duration, emit func(ExportFrame)) bool {
+func logoFrames(cards *effects.CardRenderer, src *reel.CellFrame, title string, d time.Duration, emit func(reel.Frame)) bool {
 	logoW, logoH := len(logoBitmap[0]), len(logoBitmap)
-	base := ec.Card()
+	base := cards.Card(src)
 	b := base.Bounds()
 	px := min(b.Dx()*2/3/logoW, b.Dy()/3/(logoH+logoSteamRows))
 	px -= px % 2 // Steam is drawn in half pixels.
@@ -72,18 +112,21 @@ func (ec ExportContext) steepLogo(d time.Duration, emit func(ExportFrame)) bool 
 		return false
 	}
 
-	// The wordmark sits a pixel above the middle, and the test name below it,
+	// The wordmark sits a pixel above the middle, and the title below it,
 	// a line of its own text height plus a logo pixel away.
 	origin := image.Pt(b.Min.X+(b.Dx()-logoW*px)/2, b.Min.Y+(b.Dy()-logoH*px)/2-px)
-	name := ec.cardText(ec.cardState(), []CardLine{{Text: ec.h.tb.Name(), Style: screen.Style{Attrs: screen.AttrFaint}}})
+	var name *image.NRGBA
+	if title != "" {
+		name = cards.Text(src, effects.Line{Text: title, Style: faint})
+	}
 	var nameAt image.Rectangle
 	if name != nil {
 		nb := name.Bounds()
 		nameAt = nb.Sub(nb.Min).Add(image.Pt(b.Min.X+(b.Dx()-nb.Dx())/2, origin.Y+logoH*px+px+nb.Dy()))
 	}
 
-	frame := func(level, phase int, showName bool, delay time.Duration) ExportFrame {
-		img := cloneNRGBA(base)
+	frame := func(level, phase int, showName bool, delay time.Duration) reel.Frame {
+		img := &image.NRGBA{Pix: slices.Clone(base.Pix), Stride: base.Stride, Rect: base.Rect}
 		if showName && name != nil {
 			draw.Draw(img, nameAt, name, name.Bounds().Min, draw.Src)
 		}
@@ -110,7 +153,7 @@ func (ec ExportContext) steepLogo(d time.Duration, emit func(ExportFrame)) bool 
 				dot(at, half, logoSteam[k*len(logoSteam)/height])
 			}
 		}
-		return ExportFrame{Image: img, Delay: delay, Isolated: true}
+		return reel.Frame{Image: img, Delay: delay, Isolated: true}
 	}
 
 	emit(frame(logoH, 0, false, logoEmptyHold))

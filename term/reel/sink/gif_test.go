@@ -11,79 +11,8 @@ import (
 	"image/gif"
 	"slices"
 	"testing"
-	"testing/synctest"
 	"time"
 )
-
-func TestGIFFrameCount(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		frame := 0
-		bounds := image.Rect(0, 0, 8, 8)
-		path := t.TempDir() + "/out.gif"
-
-		rec, err := recordGIF(path, WithFrameRate(MaxFrameRate, false, func() image.Image {
-			img := image.NewNRGBA(bounds)
-			solidFrameInto(img, frame%4)
-			frame++
-			return img
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		synctest.Sleep(265 * time.Millisecond)
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n := len(g.Image); n != 26 {
-			t.Fatalf("got %d frames, want 26 ticks for 265ms at %dfps", n, MaxFrameRate)
-		}
-	})
-}
-
-func TestGIFDedupIncrementalDelay(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		path := t.TempDir() + "/dedup-delay.gif"
-		rec, err := recordGIF(path, WithFrameRate(MaxFrameRate, false, func() image.Image {
-			return solidFrame(0, 4, 4)
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		synctest.Sleep(500 * time.Millisecond)
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(g.Image) != 1 {
-			t.Fatalf("got %d frames, want 1 deduped idle frame", len(g.Image))
-		}
-		// ~500ms idle at max fps should stay near wall time, not explode via
-		// repeated time-since-last-emit accumulation on deduped ticks.
-		if g.Delay[0] > 100 {
-			t.Fatalf("delay = %d cs, want <= 100 cs (~500ms idle)", g.Delay[0])
-		}
-		if g.Delay[0] < 40 {
-			t.Fatalf("delay = %d cs, want >= 40 cs (~500ms idle)", g.Delay[0])
-		}
-	})
-}
 
 func TestOptimizeDisposalsBackgroundIndex(t *testing.T) {
 	t.Parallel()
@@ -95,7 +24,7 @@ func TestOptimizeDisposalsBackgroundIndex(t *testing.T) {
 
 	originals := []image.Image{base, scroll, base}
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, originals, 50*time.Millisecond,
+	if err := writeGIFTo(&buf, originals, 50*time.Millisecond,
 		WithBackground(bg),
 		WithOptimize(OptimizeDirtyRects),
 	); err != nil {
@@ -133,7 +62,7 @@ func TestOptimizeDisposalsDominantBackgroundIndex(t *testing.T) {
 	paintRect(frame, image.Rect(0, 0, 2, 32), margin)
 
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, []image.Image{frame, frame}, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
+	if err := writeGIFTo(&buf, []image.Image{frame, frame}, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,81 +76,27 @@ func TestOptimizeDisposalsDominantBackgroundIndex(t *testing.T) {
 	}
 }
 
-func TestGIFStrictDedupMultiple(t *testing.T) {
+func TestGIFDedupMultiple(t *testing.T) {
 	t.Parallel()
 
-	synctest.Test(t, func(t *testing.T) {
-		tick := 0
-		path := t.TempDir() + "/dedup-multiple.gif"
-		rec, err := recordGIF(path, WithFrameRate(10, true, func() image.Image {
-			tick++
-			switch tick {
-			case 1:
-				return solidFrame(1, 4, 4)
-			case 2:
-				return solidFrame(2, 4, 4)
-			default:
-				return solidFrame(3, 4, 4)
-			}
-		}))
-		if err != nil {
-			t.Fatal(err)
+	frames := []image.Image{solidFrame(1, 4, 4), solidFrame(2, 4, 4), solidFrame(3, 4, 4), solidFrame(3, 4, 4)}
+	path := t.TempDir() + "/dedup-multiple.gif"
+	if err := writeGIF(path, frames, 100*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	g, err := gifDecodeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) != 3 {
+		t.Fatalf("got %d frames, want 3 (frames 3 and 4 deduped)", len(g.Image))
+	}
+	want := []int{10, 10, 20}
+	for i, d := range g.Delay {
+		if d != want[i] {
+			t.Fatalf("delay[%d] = %d cs, want %d cs", i, d, want[i])
 		}
-
-		synctest.Sleep(400 * time.Millisecond)
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(g.Image) != 3 {
-			t.Fatalf("got %d frames, want 3 (ticks 3-4 deduped into frame 3)", len(g.Image))
-		}
-		want := []int{10, 10, 20}
-		for i, d := range g.Delay {
-			if d != want[i] {
-				t.Fatalf("delay[%d] = %d cs, want %d cs", i, d, want[i])
-			}
-		}
-	})
-}
-
-func TestGIFNonStrictGridSnap(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		frame := 0
-		path := t.TempDir() + "/grid-snap.gif"
-		rec, err := recordGIF(path, WithFrameRate(10, false, func() image.Image {
-			img := solidFrame(frame%3, 4, 4)
-			frame++
-			return img
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		synctest.Sleep(300 * time.Millisecond)
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		const nominalCS = 10
-		for i, d := range g.Delay {
-			if d%nominalCS != 0 {
-				t.Fatalf("delay[%d] = %d cs, want multiple of %d cs at 10fps", i, d, nominalCS)
-			}
-		}
-	})
+	}
 }
 
 func TestGIFChannelRoundOnce(t *testing.T) {
@@ -230,7 +105,7 @@ func TestGIFChannelRoundOnce(t *testing.T) {
 	same := solidFrame(0, 4, 4)
 	frames := []image.Image{same, same, same}
 	path := t.TempDir() + "/round-once.gif"
-	if err := recordViaChannel(path, frames, 10*time.Millisecond); err != nil {
+	if err := writeGIF(path, frames, 10*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
@@ -290,7 +165,7 @@ func TestGIFSubRectTransparentPaletteSlot(t *testing.T) {
 	frames := cursorBlinkSequence(64, 48, 3)
 
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, frames, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
+	if err := writeGIFTo(&buf, frames, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -332,7 +207,7 @@ func TestOptimizeDisposalsScrollStripReplay(t *testing.T) {
 
 	originals := []image.Image{base, strip1, strip2}
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, originals, 50*time.Millisecond,
+	if err := writeGIFTo(&buf, originals, 50*time.Millisecond,
 		WithBackground(bg),
 		WithOptimize(OptimizeDirtyRects),
 	); err != nil {
@@ -384,7 +259,7 @@ func TestOptimizeDisposalsSelectionRowRevert(t *testing.T) {
 
 	originals := []image.Image{table, row1, row2}
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, originals, 50*time.Millisecond,
+	if err := writeGIFTo(&buf, originals, 50*time.Millisecond,
 		WithBackground(bg),
 		WithOptimize(OptimizeDirtyRects),
 	); err != nil {
@@ -408,7 +283,7 @@ func TestOptimizeDisposalsSelectionRowRevert(t *testing.T) {
 	}
 
 	var fullBuf bytes.Buffer
-	if recErr := recordViaChannelWriter(&fullBuf, originals, 50*time.Millisecond,
+	if recErr := writeGIFTo(&fullBuf, originals, 50*time.Millisecond,
 		WithBackground(bg),
 		WithOptimize(OptimizeFrames),
 	); recErr != nil {
@@ -440,7 +315,7 @@ func TestOptimizeDisposalsBackgroundHole(t *testing.T) {
 
 	originals := []image.Image{base, patch, restored}
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, originals, 50*time.Millisecond,
+	if err := writeGIFTo(&buf, originals, 50*time.Millisecond,
 		WithBackground(bg),
 		WithOptimize(OptimizeDirtyRects),
 	); err != nil {
@@ -457,42 +332,6 @@ func TestOptimizeDisposalsBackgroundHole(t *testing.T) {
 	for i := range originals {
 		assertPalettizedSimilar(t, originals[i], replayed[i])
 	}
-}
-
-func TestGIFStrictFPSFixedDelay(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		frame := 0
-		path := t.TempDir() + "/strict-delay.gif"
-		rec, err := recordGIF(path, WithFrameRate(10, true, func() image.Image {
-			img := solidFrame(frame%4, 4, 4)
-			frame++
-			return img
-		}))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		synctest.Sleep(300 * time.Millisecond)
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(g.Image) == 0 {
-			t.Fatal("expected at least one frame")
-		}
-		for i, d := range g.Delay {
-			if d != 10 {
-				t.Fatalf("delay[%d] = %d cs, want 10 cs for strict 10fps", i, d)
-			}
-		}
-	})
 }
 
 func TestGIFArenaFrameRetention(t *testing.T) {
@@ -551,7 +390,7 @@ func TestGIFMaxFramesRetention(t *testing.T) {
 		frames[i] = solidFrame(i, 4, 4)
 	}
 	path := t.TempDir() + "/max-frames.gif"
-	if err := recordViaChannel(path, frames, 50*time.Millisecond, WithMaxFrames(3)); err != nil {
+	if err := writeGIF(path, frames, 50*time.Millisecond, WithMaxFrames(3)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -576,7 +415,7 @@ func TestGIFMaxFramesDelaysNotInflated(t *testing.T) {
 		frames[i] = solidFrame(i, 4, 4)
 	}
 	path := t.TempDir() + "/max-frames-delay.gif"
-	if err := recordViaChannel(path, frames, 100*time.Millisecond, WithMaxFrames(2)); err != nil {
+	if err := writeGIF(path, frames, 100*time.Millisecond, WithMaxFrames(2)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -603,7 +442,7 @@ func TestGIFMaxFramesUnlimited(t *testing.T) {
 		frames[i] = solidFrame(i, 4, 4)
 	}
 	path := t.TempDir() + "/max-frames-unlimited.gif"
-	if err := recordViaChannel(path, frames, 50*time.Millisecond, WithMaxFrames(0)); err != nil {
+	if err := writeGIF(path, frames, 50*time.Millisecond, WithMaxFrames(0)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -619,28 +458,16 @@ func TestGIFMaxFramesUnlimited(t *testing.T) {
 func TestGIFMaxFramesDedupCap(t *testing.T) {
 	t.Parallel()
 
-	ch := make(chan Frame)
-	path := t.TempDir() + "/max-frames-dedup.gif"
-	rec, err := recordGIF(path,
-		WithChannel(ch),
-		WithMaxFrames(2),
-		WithOptimize(OptimizeFrames),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	frameA := solidFrame(0, 4, 4)
 	frameB := solidFrame(1, 4, 4)
 	frameC := solidFrame(2, 4, 4)
+	var frames []image.Image
 	for range 20 {
-		ch <- Frame{Image: frameA, Delay: 10 * time.Millisecond}
+		frames = append(frames, frameA)
 	}
-	ch <- Frame{Image: frameB, Delay: 10 * time.Millisecond}
-	ch <- Frame{Image: frameC, Delay: 10 * time.Millisecond}
-	close(ch)
-
-	if err := rec.Close(); err != nil {
+	frames = append(frames, frameB, frameC)
+	path := t.TempDir() + "/max-frames-dedup.gif"
+	if err := writeGIF(path, frames, 10*time.Millisecond, WithMaxFrames(2), WithOptimize(OptimizeFrames)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -666,7 +493,7 @@ func TestGIFChannelExplicitDelay(t *testing.T) {
 		solidFrame(2, 8, 8),
 	}
 	path := t.TempDir() + "/channel.gif"
-	if err := recordViaChannel(path, frames, 250*time.Millisecond); err != nil {
+	if err := writeGIF(path, frames, 250*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
@@ -682,84 +509,15 @@ func TestGIFChannelExplicitDelay(t *testing.T) {
 	}
 }
 
-func TestGIFChannelAutoDelay(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		ch := make(chan Frame, 2)
-		path := t.TempDir() + "/auto.gif"
-		rec, err := recordGIF(path, WithChannel(ch))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		ch <- Frame{Image: solidFrame(1, 4, 4)}
-		synctest.Sleep(50 * time.Millisecond)
-		ch <- Frame{Image: solidFrame(2, 4, 4)}
-		close(ch)
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(g.Image) != 2 {
-			t.Fatalf("got %d frames, want 2", len(g.Image))
-		}
-		if g.Delay[1] < 5 {
-			t.Fatalf("auto delay[1] = %d cs, want >= 5 cs for 50ms since prior emit", g.Delay[1])
-		}
-	})
-}
-
-func TestGIFChannelCloserBeforeClose(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		ch := make(chan Frame, 1)
-		path := t.TempDir() + "/early.gif"
-		rec, err := recordGIF(path, WithChannel(ch))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		ch <- Frame{Image: solidFrame(1, 4, 4), Delay: 10 * time.Millisecond}
-		synctest.Wait()
-
-		if err := rec.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if err := rec.Close(); err != nil {
-			t.Fatal("second Close call should be no-op")
-		}
-
-		g, err := gifDecodeFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n := len(g.Image); n != 1 {
-			t.Fatalf("got %d frames, want 1 from early Close", n)
-		}
-	})
-}
-
 func TestGIFRejectsNilFrame(t *testing.T) {
 	t.Parallel()
 
-	ch := make(chan Frame, 1)
-	path := t.TempDir() + "/nil.gif"
-	rec, err := recordGIF(path, WithChannel(ch))
+	enc, err := CreateGIF(t.TempDir() + "/nil.gif")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ch <- Frame{Image: nil}
-	close(ch)
-
-	if err := rec.Close(); err == nil {
+	defer func() { _ = enc.Discard() }()
+	if err = enc.WriteFrame(Frame{Image: nil, Delay: 10 * time.Millisecond}); err == nil {
 		t.Fatal("expected error for nil frame")
 	}
 }
@@ -767,17 +525,12 @@ func TestGIFRejectsNilFrame(t *testing.T) {
 func TestGIFRejectsEmptyFrame(t *testing.T) {
 	t.Parallel()
 
-	ch := make(chan Frame, 1)
-	path := t.TempDir() + "/empty.gif"
-	rec, err := recordGIF(path, WithChannel(ch))
+	enc, err := CreateGIF(t.TempDir() + "/empty.gif")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ch <- Frame{Image: image.NewNRGBA(image.Rect(0, 0, 0, 0))}
-	close(ch)
-
-	if err := rec.Close(); err == nil {
+	defer func() { _ = enc.Discard() }()
+	if err = enc.WriteFrame(Frame{Image: image.NewNRGBA(image.Rect(0, 0, 0, 0)), Delay: 10 * time.Millisecond}); err == nil {
 		t.Fatal("expected error for empty frame bounds")
 	}
 }
@@ -787,7 +540,7 @@ func TestGIFTransparentPixelsRoundTrip(t *testing.T) {
 
 	src := frameWithTransparentCenter(16, 16)
 	path := t.TempDir() + "/transparent.gif"
-	if err := recordViaChannel(path, []image.Image{src}, 100*time.Millisecond, WithOptimize(OptimizeNone)); err != nil {
+	if err := writeGIF(path, []image.Image{src}, 100*time.Millisecond, WithOptimize(OptimizeNone)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -812,7 +565,7 @@ func TestOptimizeDisposalsOverlayRevert(t *testing.T) {
 
 	originals := []image.Image{base, flash, base}
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, originals, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
+	if err := writeGIFTo(&buf, originals, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -842,12 +595,12 @@ func TestOptimizeDisposalsReducesCursorBlinkSize(t *testing.T) {
 	frames := cursorBlinkSequence(64, 48, 20)
 
 	var dedupOnly bytes.Buffer
-	if err := recordViaChannelWriter(&dedupOnly, frames, 50*time.Millisecond, WithOptimize(OptimizeFrames)); err != nil {
+	if err := writeGIFTo(&dedupOnly, frames, 50*time.Millisecond, WithOptimize(OptimizeFrames)); err != nil {
 		t.Fatal(err)
 	}
 
 	var withDisposals bytes.Buffer
-	if err := recordViaChannelWriter(&withDisposals, frames, 50*time.Millisecond, WithOptimize(OptimizeFrames|OptimizeDirtyRects)); err != nil {
+	if err := writeGIFTo(&withDisposals, frames, 50*time.Millisecond, WithOptimize(OptimizeFrames|OptimizeDirtyRects)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -889,7 +642,7 @@ func TestGIFLongDelaySplits(t *testing.T) {
 	const wantCS = 70000 // 700s, past the 65535cs GIF frame limit
 	src := solidFrame(4, 16, 16)
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, []image.Image{src}, 700*time.Second); err != nil {
+	if err := writeGIFTo(&buf, []image.Image{src}, 700*time.Second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -946,7 +699,7 @@ func TestGIFLoopCount(t *testing.T) {
 			t.Parallel()
 
 			var buf bytes.Buffer
-			if err := recordViaChannelWriter(&buf, frames, 50*time.Millisecond, tt.opts...); err != nil {
+			if err := writeGIFTo(&buf, frames, 50*time.Millisecond, tt.opts...); err != nil {
 				t.Fatal(err)
 			}
 			g, err := gif.DecodeAll(bytes.NewReader(buf.Bytes()))
@@ -957,27 +710,6 @@ func TestGIFLoopCount(t *testing.T) {
 				t.Fatalf("LoopCount = %d, want %d", g.LoopCount, tt.want)
 			}
 		})
-	}
-}
-
-func TestChannelCloseKeepsBufferedFrames(t *testing.T) {
-	t.Parallel()
-
-	const n = 20
-	ch := make(chan Frame, n)
-	rec, err := recordGIF(t.TempDir()+"/buffered.gif", WithChannel(ch))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range n {
-		ch <- Frame{Image: solidFrame(i*10, 64, 64), Delay: 10 * time.Millisecond}
-	}
-	close(ch)
-	if err = rec.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if got := rec.Frames(); got != n {
-		t.Fatalf("recorded %d frames, want all %d buffered frames", got, n)
 	}
 }
 
@@ -1016,34 +748,28 @@ func TestPalettizeRGBAMatchesNRGBA(t *testing.T) {
 	}
 }
 
-func TestGIFFrameDoneRecyclesImage(t *testing.T) {
+func TestGIFDoesNotKeepImage(t *testing.T) {
 	t.Parallel()
 
-	ch := make(chan Frame)
-	path := t.TempDir() + "/done.gif"
-	rec, err := recordGIF(path, WithChannel(ch), WithOptimize(OptimizeNone))
+	path := t.TempDir() + "/reuse.gif"
+	enc, err := CreateGIF(path, WithOptimize(OptimizeNone))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// One buffer is reused for every frame: Done poisons it, so a recorder
-	// reading it afterwards would see the poison.
+	// One buffer is reused for every frame, and poisoned once the encoder
+	// has returned from it, so an encoder that kept it would see the poison.
 	const n = 5
 	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
-	done := make(chan struct{}, 1)
 	for i := range n {
 		solidFrameInto(img, i+1)
-		ch <- Frame{Image: img, Delay: 100 * time.Millisecond, Done: func() {
-			for j := range img.Pix {
-				img.Pix[j] = 0xAA
-			}
-			done <- struct{}{}
-		}}
-		<-done
+		if err = enc.WriteFrame(Frame{Image: img, Delay: 100 * time.Millisecond}); err != nil {
+			t.Fatal(err)
+		}
+		for j := range img.Pix {
+			img.Pix[j] = 0xAA
+		}
 	}
-	close(ch)
-
-	if err := rec.Close(); err != nil {
+	if err = enc.Close(); err != nil {
 		t.Fatal(err)
 	}
 	g, err := gifDecodeFile(path)

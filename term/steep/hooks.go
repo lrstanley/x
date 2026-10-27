@@ -5,23 +5,9 @@
 package steep
 
 import (
-	"encoding/json/jsontext"
-	"encoding/json/v2"
-	"io"
 	"log/slog"
-	"os"
-	"sync"
 	"testing"
 	"time"
-)
-
-const (
-	// defaultExportFPS is the GIF and video delay grid. 20 FPS (5cs steps)
-	// plays back at the requested speed in browsers, which clamp very short
-	// delays to 10 FPS.
-	defaultExportFPS = 20
-	// defaultExportSpeed plays recordings at the speed the test ran.
-	defaultExportSpeed = 1.0
 )
 
 // InputMeta describes keyboard, paste, and mouse harness actions.
@@ -66,7 +52,8 @@ func (m CaptureMeta) LogValue() slog.Value {
 	return slog.StringValue(m.Kind)
 }
 
-// HookEvent identifies a harness action for hooks and export capture.
+// HookEvent identifies a harness action for hooks, and labels the action's
+// mark in the timeline (see [Harness.Mark]).
 type HookEvent int
 
 const (
@@ -80,7 +67,8 @@ const (
 	HookCapture
 )
 
-// String returns the stable event name used in artifact filenames.
+// String returns the stable event name used in mark labels and still file
+// names.
 func (e HookEvent) String() string {
 	switch e {
 	case HookInput:
@@ -122,8 +110,8 @@ func (s HookStage) String() string {
 	return "unknown"
 }
 
-// Hook observes harness actions. Built-in export hooks run before user hooks
-// from [WithHooks]. Errors fail the test immediately.
+// Hook observes harness actions (see [WithHooks]). Errors fail the test
+// immediately.
 type Hook func(event HookEvent, stage HookStage, metadata any) error
 
 func (h *Harness) hook(event HookEvent, metadata any) func() {
@@ -140,18 +128,21 @@ func (h *Harness) hook(event HookEvent, metadata any) func() {
 		if d := h.cfg.slow; d > 0 {
 			time.Sleep(d)
 		}
+		// Close places its own mark as it starts.
+		if event != HookClose || !h.closed.Load() {
+			h.markEvent(event)
+		}
 		h.runHooks(event, HookStageAfter, metadata)
 	}
 }
 
-// awaitsPaint reports whether After hooks for event must wait until the
-// program has committed the action's terminal output. Export reads the
-// screen in After; without the wait that read is the previous frame.
+// awaitsPaint reports whether the mark and After hooks for event must wait
+// until the program has painted the action's terminal output. Without the
+// wait, a still at the mark shows the screen from before the action. It only
+// waits while an export policy is on, so tests that write nothing do not pay
+// for it.
 func (h *Harness) awaitsPaint(event HookEvent) bool {
-	if h.export == nil || h.export.mode == ExportOff {
-		return false
-	}
-	if !h.export.types.has(exportTypeVisual) {
+	if h.cfg.policy == exportOff {
 		return false
 	}
 	return event == HookInput || event == HookProgram || event == HookTerminal
@@ -195,7 +186,7 @@ func (h *Harness) waitForPaint(start uint64) {
 }
 
 // paintWait is how long an exporting action waits for a program write before
-// After hooks sample the screen. A paint that never comes must not stall for
+// it is marked. A paint that never comes must not stall for
 // the full test timeout. The floor covers a harness whose settle interval is
 // shorter than one scheduler delay.
 func (h *Harness) paintWait() time.Duration {
@@ -208,11 +199,6 @@ func (h *Harness) paintWait() time.Duration {
 
 func (h *Harness) runHooks(event HookEvent, stage HookStage, metadata any) {
 	h.tb.Helper()
-	if h.export != nil {
-		if err := h.export.hook(event, stage, metadata); err != nil {
-			h.tb.Fatalf("export hook %s %s: %v", event, stage.String(), err)
-		}
-	}
 	for _, hook := range h.hooks {
 		if hook == nil {
 			continue
@@ -221,46 +207,6 @@ func (h *Harness) runHooks(event HookEvent, stage HookStage, metadata any) {
 			h.tb.Fatalf("hook %s %s: %v", event, stage.String(), err)
 		}
 	}
-	if h.logHook != nil {
-		h.logHook.Record(event, stage, metadata, time.Now())
-	}
-}
-
-type hookLog struct {
-	mu  sync.Mutex
-	w   io.Writer
-	enc *jsontext.Encoder
-}
-
-func newHookLog(w io.Writer) *hookLog {
-	if w == nil {
-		w = io.Discard
-	}
-	return &hookLog{
-		w:   w,
-		enc: jsontext.NewEncoder(w, json.Deterministic(true)),
-	}
-}
-
-type hookLogEntry struct {
-	Time     time.Time `json:"time"`
-	Event    string    `json:"event"`
-	Stage    string    `json:"stage"`
-	Metadata any       `json:"metadata,omitempty"`
-}
-
-func (l *hookLog) Record(event HookEvent, stage HookStage, metadata any, at time.Time) {
-	if l == nil || l.enc == nil {
-		return
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	_ = json.MarshalEncode(l.enc, hookLogEntry{
-		Time:     at,
-		Event:    event.String(),
-		Stage:    stage.String(),
-		Metadata: metadata,
-	})
 }
 
 type testLogWriter struct{ tb testing.TB }
@@ -289,12 +235,4 @@ func LoggerHook(tb testing.TB, logger *slog.Logger) Hook {
 		logger.LogAttrs(tb.Context(), slog.LevelInfo, "steep", args...)
 		return nil
 	}
-}
-
-func openHookLogFile(path string) (*hookLog, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	return newHookLog(f), nil
 }

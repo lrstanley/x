@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,31 +38,23 @@ func TestWriteTextAndLinefeed(t *testing.T) {
 	}
 }
 
-func TestOutputSeqAndWriteNotify(t *testing.T) {
+func TestOutputSeq(t *testing.T) {
 	t.Parallel()
 	term := openTest(t, 8, 2)
-	var calls atomic.Int32
-	term.SetWriteNotify(func() { calls.Add(1) })
-
 	before := term.OutputSeq()
 	if _, err := term.Write(nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := term.OutputSeq(); got != before || calls.Load() != 0 {
-		t.Fatalf("empty write: seq=%d calls=%d, want seq=%d calls=0", got, calls.Load(), before)
+	if got := term.OutputSeq(); got != before {
+		t.Fatalf("empty write: seq=%d, want %d", got, before)
 	}
-	if _, err := term.Write([]byte("A")); err != nil {
-		t.Fatal(err)
-	}
-	if got, n := term.OutputSeq(), calls.Load(); got != before+1 || n != 1 {
-		t.Fatalf("after A: seq=%d calls=%d, want seq=%d calls=1", got, n, before+1)
-	}
-	term.SetWriteNotify(nil)
-	if _, err := term.Write([]byte("B")); err != nil {
-		t.Fatal(err)
-	}
-	if got, n := term.OutputSeq(), calls.Load(); got != before+2 || n != 1 {
-		t.Fatalf("after clear: seq=%d calls=%d, want seq=%d calls=1", got, n, before+2)
+	for i, s := range []string{"A", "B"} {
+		if _, err := term.Write([]byte(s)); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := term.OutputSeq(), before+uint64(i)+1; got != want {
+			t.Fatalf("after %s: seq=%d, want %d", s, got, want)
+		}
 	}
 }
 

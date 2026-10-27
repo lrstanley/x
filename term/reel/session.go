@@ -46,8 +46,8 @@ type Session struct {
 	// mu serializes each change to the terminal with the event that records
 	// it, and Close with those changes.
 	mu sync.Mutex
-	// closed and focused are atomic so that Read, and a write notify callback
-	// that runs while mu is held, can read them without mu.
+	// closed and focused are atomic so that Read, which blocks, and Focused
+	// and State can read them without mu.
 	closed  atomic.Bool
 	focused atomic.Bool
 }
@@ -56,9 +56,10 @@ type Session struct {
 type SessionOption func(*sessionConfig)
 
 type sessionConfig struct {
-	runtime *vt.Runtime
-	vtOpts  []vt.Option
-	title   string
+	runtime      *vt.Runtime
+	vtOpts       []vt.Option
+	title        string
+	skipPristine bool
 }
 
 // WithRuntime opens the session's terminal from rt instead of the package's
@@ -84,6 +85,14 @@ func WithTitle(title string) SessionOption {
 	return func(cfg *sessionConfig) { cfg.title = title }
 }
 
+// WithSkipPristine sets [Header.SkipPristine], so a recording of the
+// session starts on the program's first paint rather than on the blank
+// terminal it opened on. It is for programs that write capability queries
+// before they draw, as Bubble Tea programs do.
+func WithSkipPristine() SessionOption {
+	return func(cfg *sessionConfig) { cfg.skipPristine = true }
+}
+
 // Open starts a session on a terminal of cols by rows cells. It blocks until
 // the terminal's pool has room or ctx is canceled. The session starts
 // focused. Close it to return the terminal to the pool.
@@ -102,19 +111,15 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 	if c, ok := term.CursorColor(); ok {
 		theme.Cursor = c
 	}
-	s := &Session{
-		term:     term,
-		timeline: newTimeline(Header{Cols: cols, Rows: rows, Theme: theme, Title: cfg.title}),
-	}
+	h := Header{Cols: cols, Rows: rows, Theme: theme, Title: cfg.title, SkipPristine: cfg.skipPristine}
+	s := &Session{term: term, timeline: newTimeline(h)}
 	s.focused.Store(true)
 	return s, nil
 }
 
 // Terminal returns the session's terminal, for reading its screen and state.
 // Changes made through it directly are not recorded. It must not be used
-// after [Session.Close], which returns it to its pool. A callback set with
-// [vt.Terminal.SetWriteNotify] runs during [Session.Write], so it must not call
-// Session methods other than Focused, State, Terminal, and Timeline.
+// after [Session.Close], which returns it to its pool.
 func (s *Session) Terminal() *vt.Terminal { return s.term }
 
 // Timeline returns the session's event log. It is the same timeline for the

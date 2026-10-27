@@ -5,9 +5,7 @@
 package steep
 
 import (
-	"bytes"
 	"image"
-	"image/draw"
 	"testing"
 	"time"
 
@@ -97,8 +95,8 @@ func (h *Harness) drawImageInto(dst *image.NRGBA) {
 	h.imageRenderer.Draw(dst, scr, st, timelineAt(h, time.Now()))
 }
 
-// Image renders the current terminal screen buffer as an image. Configure the
-// harness renderer with [WithRenderer] when creating the harness.
+// Image renders the current terminal screen buffer as an image, with the
+// Render options of the recording profile (see [WithRecording]).
 //
 // The returned [image.Image] is owned by the harness and invalidated by the
 // next [Harness.Image] call. Do not mutate it and do not retain it across
@@ -153,117 +151,6 @@ func (h *Harness) dropImageScreen() {
 // drawn as of.
 func timelineAt(h *Harness, t time.Time) time.Duration {
 	return t.Sub(h.start)
-}
-
-// copyLive renders the terminal now and returns an owned image, with the
-// screen and state it was drawn from. Call it from the test goroutine.
-func copyLive(h *Harness) (img image.Image, scr *screen.Buffer, st screen.State) {
-	st = h.session.State()
-	scr = h.imageViewport(st)
-	h.imageMu.Lock()
-	defer h.imageMu.Unlock()
-	return copyDrawnLocked(h, scr, st, timelineAt(h, time.Now())), scr, st
-}
-
-// copyCommitted renders scr as it looked at st, as of time at, and returns an
-// owned image, with what keeps its indicators (the progress bar and program
-// status) moving in copies of the image as of later times when they move with
-// the clock (nil otherwise). st takes the session's focus now. Call it from
-// the test goroutine.
-func copyCommitted(h *Harness, scr *screen.Buffer, st screen.State, at time.Time) (img image.Image, held *heldIndicators) {
-	if scr == nil {
-		return nil, nil
-	}
-	st.Focused = h.session.Focused()
-	h.imageMu.Lock()
-	img = copyDrawnLocked(h, scr, st, timelineAt(h, at))
-	h.imageMu.Unlock()
-	return img, newHeldIndicators(h, scr, st)
-}
-
-// heldIndicators keeps the indicators of a held frame moving: the screen and
-// state the image was drawn from.
-type heldIndicators struct {
-	h     *Harness
-	scr   *screen.Buffer
-	state screen.State
-}
-
-// newHeldIndicators returns the [heldIndicators] of an image of scr drawn
-// with st. It is nil unless they move with the clock.
-func newHeldIndicators(h *Harness, scr *screen.Buffer, st screen.State) *heldIndicators {
-	if scr == nil || !h.imageRenderer.Animates(st) {
-		return nil
-	}
-	return &heldIndicators{h: h, scr: scr, state: st}
-}
-
-// change reports whether the indicators may look different at to than at
-// from, see [render.Renderer.Changes].
-func (r *heldIndicators) change(from, to time.Time) bool {
-	r.h.imageMu.Lock()
-	defer r.h.imageMu.Unlock()
-	return r.h.imageRenderer.Changes(r.state, timelineAt(r.h, from), timelineAt(r.h, to))
-}
-
-// repaint repaints the indicators of dst, a copy of the image, as of at.
-func (r *heldIndicators) repaint(dst *image.NRGBA, at time.Time) {
-	r.h.imageMu.Lock()
-	defer r.h.imageMu.Unlock()
-	r.h.imageRenderer.Repaint(dst, r.scr, r.state, timelineAt(r.h, at))
-}
-
-// copyDrawnLocked renders scr with st, as of offset at, and returns an owned
-// image. h.imageMu must be held.
-func copyDrawnLocked(h *Harness, scr screen.Screen, st screen.State, at time.Duration) *image.NRGBA {
-	b := scr.Bounds()
-	dst := newNRGBA(h.imageRenderer.Layout(b.Dx(), b.Dy()).Image)
-	h.imageRenderer.Draw(dst, scr, st, at)
-	return dst
-}
-
-// frameBufs holds a few finished frame buffers for [newNRGBA]. It is a small
-// bounded list, not a sync.Pool, which keeps up to two generations of
-// full-size frames alive.
-var frameBufs = make(chan []byte, 3)
-
-// newNRGBA returns an image covering r, reusing a released buffer when one
-// fits. Its pixels are stale: the caller must paint every one.
-func newNRGBA(r image.Rectangle) *image.NRGBA {
-	n := r.Dx() * r.Dy() * 4
-	select {
-	case pix := <-frameBufs:
-		if cap(pix) >= n {
-			return &image.NRGBA{Pix: pix[:n], Stride: r.Dx() * 4, Rect: r}
-		}
-	default:
-	}
-	return image.NewNRGBA(r)
-}
-
-// releaseNRGBA hands img's buffer back to [newNRGBA]. img must not be used
-// again, nor shared with anything that still reads it.
-func releaseNRGBA(img image.Image) {
-	if n, ok := img.(*image.NRGBA); ok {
-		select {
-		case frameBufs <- n.Pix:
-		default:
-		}
-	}
-}
-
-// cloneNRGBA returns an owned copy of src, which must not be nil, to draw on.
-// Frames stay NRGBA, the renderer's own format, from the renderer to the GIF
-// encoder: copying one is a plain byte copy, the encoder maps it to the GIF
-// palette with a lookup table, and translucent pixels keep their exact color.
-func cloneNRGBA(src image.Image) *image.NRGBA {
-	if n, ok := src.(*image.NRGBA); ok {
-		return &image.NRGBA{Pix: bytes.Clone(n.Pix), Stride: n.Stride, Rect: n.Rect}
-	}
-	b := src.Bounds()
-	dst := image.NewNRGBA(b)
-	draw.Draw(dst, b, src, b.Min, draw.Src)
-	return dst
 }
 
 // screenSnapshot captures the session's screen and terminal state for JSON

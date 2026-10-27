@@ -8,22 +8,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/steep"
 )
 
-// STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -v -count 1 ./...
+// The recording is only written when exporting is turned on, as with:
+//
+//	STEEP_EXPORT_MODE=on go test -v -count 1 ./reel-simple/
+//
+// which writes testdata/TestGenerate.gif and testdata/TestGenerate.mp4 (the
+// MP4 needs ffmpeg).
 
 func TestGenerate(t *testing.T) {
 	h := steep.NewHarness(
 		t, newRankingModel(),
-		steep.WithRenderer(
-			render.WithWindowChrome(true),
-			render.WithPadding(5),
-			render.WithScale(1.5),
-		),
+		steep.WithRecording(reel.Profile{
+			Outputs: reel.Files("{name}.gif", "{name}.mp4"),
+			Render: []render.Option{
+				render.WithWindowChrome(true),
+				render.WithPadding(5),
+				render.WithScale(1.5),
+			},
+		}),
 		// steep.WithWindowSize(160, 40),
-		steep.WithExportDir("testdata"),
+		steep.WithArtifacts("testdata"),
 		steep.WithSlow(10*time.Millisecond),
 	)
 

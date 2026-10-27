@@ -37,11 +37,8 @@ type replay struct {
 	focused bool
 
 	// skipPristine drops the frames that look like a terminal nothing has
-	// drawn on yet, until the first frame. A Bubble Tea program starts by
-	// writing capability queries, which commit without changing anything, so
-	// recording them would show a frame of the default colors and the cursor
-	// at 0,0 before the program's first paint. A program that legitimately
-	// starts on a blank screen, such as a shell, wants it off.
+	// drawn on yet, until the first frame, as [Header.SkipPristine] asks.
+	// pristine is the state of the fresh terminal they are compared with.
 	skipPristine bool
 	pristine     screen.State
 
@@ -82,7 +79,7 @@ func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from ti
 	}
 	// Nothing reads the replies to the program's queries.
 	term.CloseReader()
-	r := &replay{term: term, focused: true, skipPristine: true, start: start, from: from}
+	r := &replay{term: term, focused: true, skipPristine: h.SkipPristine, start: start, from: from}
 	if c := h.Theme.Fg; c != nil && nrgba(c) != term.Foreground() {
 		r.base.Fg = c
 	}

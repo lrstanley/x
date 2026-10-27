@@ -22,7 +22,7 @@ func TestReplayGIFRoundTrip(t *testing.T) {
 	}
 
 	path := t.TempDir() + "/roundtrip.gif"
-	if err := recordViaChannel(path, originals, 100*time.Millisecond, WithOptimize(OptimizeNone)); err != nil {
+	if err := writeGIF(path, originals, 100*time.Millisecond, WithOptimize(OptimizeNone)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ func TestReplayGIFDisposals(t *testing.T) {
 	originals := []image.Image{base, dotOn, dotOff, dotOn}
 
 	var buf bytes.Buffer
-	if err := recordViaChannelWriter(&buf, originals, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
+	if err := writeGIFTo(&buf, originals, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,7 +73,7 @@ func TestOptimizePaletteRoundTrip(t *testing.T) {
 	src := solidFrame(1, 8, 8)
 	frames := []image.Image{src, src, solidFrame(2, 8, 8)}
 	path := t.TempDir() + "/quant.gif"
-	if err := recordViaChannel(path, frames, 100*time.Millisecond, WithOptimize(OptimizeFrames|OptimizeColorQuantization)); err != nil {
+	if err := writeGIF(path, frames, 100*time.Millisecond, WithOptimize(OptimizeFrames|OptimizeColorQuantization)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,12 +101,12 @@ func TestOptimizePaletteReducesFileSize(t *testing.T) {
 	frames := []image.Image{solidFrame(1, 16, 16), solidFrame(2, 16, 16), solidFrame(3, 16, 16)}
 
 	var baseline bytes.Buffer
-	if err := recordViaChannelWriter(&baseline, frames, 100*time.Millisecond, WithOptimize(OptimizeNone)); err != nil {
+	if err := writeGIFTo(&baseline, frames, 100*time.Millisecond, WithOptimize(OptimizeNone)); err != nil {
 		t.Fatal(err)
 	}
 
 	var compact bytes.Buffer
-	if err := recordViaChannelWriter(&compact, frames, 100*time.Millisecond, WithOptimize(OptimizeColorQuantization)); err != nil {
+	if err := writeGIFTo(&compact, frames, 100*time.Millisecond, WithOptimize(OptimizeColorQuantization)); err != nil {
 		t.Fatal(err)
 	}
 

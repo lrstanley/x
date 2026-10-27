@@ -12,9 +12,10 @@ import (
 	"testing"
 )
 
-// failureTB records the failure messages the harness reports through it, so
-// an outro card can show why a test failed. It calls Helper before each
-// report, so failures are still attributed to the caller's line.
+// failureTB records the failure messages the harness reports through it, for
+// [Result.Failures], so an outro card can show why a test failed. It calls
+// Helper before each report, so failures are still attributed to the
+// caller's line.
 type failureTB struct {
 	testing.TB
 

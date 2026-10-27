@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,10 +54,16 @@ type Harness struct {
 	// phase from (see [timelineAt]).
 	start       time.Time
 	imageMu     sync.Mutex
-	export      *exportManager
 	hooks       []Hook
-	logHook     *hookLog
 	readyHooked bool
+
+	// marksMu guards markCount and marks, the marks placed for hook events
+	// (see [Harness.Mark]).
+	marksMu   sync.Mutex
+	markCount map[HookEvent]int
+	marks     []hookMark
+	// closed is set by the first [Harness.Close].
+	closed atomic.Bool
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -78,11 +85,16 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 
 	// The renderer is built before the session, whose terminal holds a pool
 	// slot, so failing to build it leaves no slot taken.
-	imageRenderer, err := render.New(cfg.imageRendererOpts...)
+	imageRenderer, err := render.New(cfg.recording.Render...)
 	if err != nil {
 		tb.Fatal(err)
 	}
-	session, err := reel.Open(tb.Context(), max(cfg.width, 1), max(cfg.height, 1))
+	// Bubble Tea writes capability queries before its first paint, so the
+	// recording starts on that paint rather than on the blank terminal.
+	session, err := reel.Open(
+		tb.Context(), max(cfg.width, 1), max(cfg.height, 1),
+		reel.WithTitle(tb.Name()), reel.WithSkipPristine(),
+	)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -98,19 +110,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		imageRenderer: imageRenderer,
 		start:         time.Now(),
 		hooks:         append([]Hook(nil), cfg.hooks...),
-	}
-
-	em, err := newExportManager(h, cfg)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	h.export = em
-	if em != nil && em.log != nil {
-		h.logHook = em.log
-	}
-
-	if h.export != nil && len(h.export.outputs) > 0 {
-		h.session.Terminal().SetWriteNotify(h.export.noteCommit)
+		markCount:     make(map[HookEvent]int),
 	}
 
 	env, programOpts := cfg.envVars, cfg.programOpts
@@ -142,26 +142,46 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		close(h.done)
 	}()
 
-	h.waitStarted(cfg)
+	// Registered before waiting for the program, so a startup failure still
+	// stops it, exports, and returns the terminal.
+	tb.Cleanup(h.Close)
 
-	tb.Cleanup(func() {
-		h.Close()
-	})
+	h.waitStarted(cfg)
 
 	return h
 }
 
+// Close stops the program, exports the recording when the export policy says
+// to (see [WithExportOnFailure] and [WithExportAlways]), and returns the
+// terminal. [NewHarness] registers it as a cleanup of the test, so calling it
+// is optional. Calls after the first do nothing.
 func (h *Harness) Close() {
+	if h.closed.Swap(true) {
+		return
+	}
+	// These run last, in reverse, even when a hook or stopping the program
+	// fails the test: the terminal returns to the pool once the After hooks
+	// have run, and the retained screen is dropped before then so a later
+	// draw cannot paint the previous checkout's grid.
+	defer h.session.Close()
+	defer h.dropImageScreen()
+	defer func() {
+		if err := h.imageRenderer.Close(); err != nil {
+			h.tb.Errorf("failed to close image renderer: %v", err)
+		}
+	}()
 	defer h.hook(HookClose, nil)()
 
 	cfg := collectOptions(h.tb, h.mergedOpts()...)
 
-	// Unblock the program input loop before Quit. The terminal stays
-	// readable for export, then returns to the pool when Close returns.
-	// Drop the retained screen before the terminal is pooled so a later
-	// draw cannot paint the previous checkout's grid.
-	defer h.session.Close()
-	defer h.dropImageScreen()
+	// The recording ends here, on the last screen the test saw: the
+	// program's repaint as it exits, such as leaving the alternate screen,
+	// is left out. It is exported once the program has stopped, or failed
+	// to.
+	end := h.markEvent(HookClose)
+	defer h.exportRecording(end)
+
+	// Unblock the program input loop before Quit.
 	h.session.Terminal().CloseReader()
 
 	quitDone := make(chan struct{})
@@ -194,16 +214,6 @@ func (h *Harness) Close() {
 	// TB context is already canceled during Cleanups (see testing.T.Context); join with
 	// a detached parent so WaitFinished observes h.done/timer only.
 	h.waitFinished(WithContext(context.Background()))
-
-	if h.export != nil {
-		if err := h.export.Finalize(h.tb.Failed()); err != nil {
-			h.tb.Errorf("export finalize: %v", err)
-		}
-	}
-
-	if err := h.imageRenderer.Close(); err != nil {
-		h.tb.Errorf("failed to close image renderer: %v", err)
-	}
 }
 
 func (h *Harness) waitStarted(cfg options) {

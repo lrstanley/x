@@ -55,7 +55,7 @@ func TestHarnessImageRendersLiveState(t *testing.T) {
 
 	cursorColor := color.NRGBA{R: 0xff, A: 0xff}
 	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3),
-		WithRenderer(render.WithPadding(2)),
+		withRender(render.WithPadding(2)),
 	)
 	h.Wait("text=image")
 	h.Blur()
@@ -121,7 +121,7 @@ func TestHarnessImageTracksStateChanges(t *testing.T) {
 func TestHarnessImageTracksProgress(t *testing.T) {
 	t.Parallel()
 
-	h := NewHarness(t, rootTestModel{text: "progress"}, WithWindowSize(24, 3), WithRenderer(render.WithWindowChrome(true)))
+	h := NewHarness(t, rootTestModel{text: "progress"}, WithWindowSize(24, 3), withRender(render.WithWindowChrome(true)))
 	h.Wait("text=progress")
 	before := copyImage(t, h.Image())
 
@@ -154,7 +154,7 @@ func TestHarnessImageTracksProgress(t *testing.T) {
 // chrome, and a margin for the outline.
 func statusHarness(t *testing.T, text string) *Harness {
 	t.Helper()
-	h := NewHarness(t, rootTestModel{text: text}, WithWindowSize(30, 3), WithRenderer(
+	h := NewHarness(t, rootTestModel{text: text}, WithWindowSize(30, 3), withRender(
 		render.WithWindowChrome(true), render.WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), render.WithBorderRadius(8),
 	))
 	h.Wait("text=" + text)

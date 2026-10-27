@@ -5,9 +5,7 @@
 package sink
 
 import (
-	"errors"
 	"fmt"
-	"image"
 	"image/color"
 
 	"github.com/lrstanley/x/term/reel/render/units"
@@ -18,8 +16,9 @@ const (
 	// where the format has it.
 	MaxQuality = 100
 
-	// MaxFrameRate is the highest FPS accepted by [WithFrameRate]. GIF delays
-	// are stored in centiseconds, so cannot represent more than 100 FPS.
+	// MaxFrameRate is the highest frame rate a recording can play at: GIF
+	// delays are stored in centiseconds, so cannot represent more than 100
+	// FPS.
 	MaxFrameRate = 100
 
 	// LoopForever is the default [WithLoopCount]: viewers repeat the GIF until
@@ -61,7 +60,7 @@ func (f OptimizeFlags) has(flag OptimizeFlags) bool {
 	return f&flag != 0
 }
 
-// Option configures a [Recorder], an encoder, or a PNG export. Each validates
+// Option configures an encoder or a PNG export. Each validates
 // the options it reads and ignores the rest, so one option list can be shared
 // between them.
 type Option func(*options)
@@ -81,24 +80,6 @@ type options struct {
 	background color.Color
 	// backgroundSet records whether [WithBackground] was set.
 	backgroundSet bool
-	// frameRate is the capture FPS when frameRateSet is true.
-	frameRate int
-	// frameRateStrict selects fixed-delay strict mode vs wall-clock non-strict
-	// timing for [WithFrameRate].
-	frameRateStrict bool
-	// frameRateFn returns the image captured on each frame-rate tick.
-	frameRateFn func() image.Image
-	// frameRateSet records whether [WithFrameRate] was set.
-	frameRateSet bool
-	// delayGrid is the FPS that explicit [Frame] delays snap to when
-	// delayGridSet is true.
-	delayGrid int
-	// delayGridSet records whether [WithDelayGrid] was set.
-	delayGridSet bool
-	// channel receives frames for channel-driven capture when channelSet is true.
-	channel <-chan Frame
-	// channelSet records whether [WithChannel] was set.
-	channelSet bool
 	// maxFrames caps stored palettized frames during GIF capture; 0 is unlimited.
 	maxFrames int
 	// maxBytes caps pixel storage of retained frames during GIF capture; 0 is
@@ -124,7 +105,7 @@ func defaultOptions() options {
 
 // collectOptions applies opts, then validate, which checks the options its
 // output reads and ignores the rest. That is what lets one option list be
-// shared between a [Recorder], every encoder, and PNG.
+// shared between every encoder and PNG.
 func collectOptions(validate func(*options) error, opts ...Option) (options, error) {
 	cfg := defaultOptions()
 	for _, opt := range opts {
@@ -142,28 +123,6 @@ func collectOptions(validate func(*options) error, opts ...Option) (options, err
 // validatePNG strips the GIF-only optimize flags. PNG reads nothing else.
 func validatePNG(o *options) error {
 	o.optimize &^= OptimizeFrames | OptimizeDirtyRects
-	return nil
-}
-
-// validateRecorder checks the frame source and its grid.
-func validateRecorder(o *options) error {
-	if o.channelSet == o.frameRateSet {
-		return errors.New("sink: Record requires exactly one of WithChannel or WithFrameRate")
-	}
-	if o.frameRateSet {
-		if o.frameRate != units.Clamp(o.frameRate, 1, MaxFrameRate) {
-			return fmt.Errorf("sink: WithFrameRate fps %d out of range [1, %d]", o.frameRate, MaxFrameRate)
-		}
-		if o.frameRateFn == nil {
-			return errors.New("sink: WithFrameRate requires a non-nil frame function")
-		}
-	}
-	if o.frameRateSet && o.delayGridSet {
-		return errors.New("sink: WithFrameRate and WithDelayGrid are mutually exclusive")
-	}
-	if o.delayGridSet && o.delayGrid != units.Clamp(o.delayGrid, 1, MaxFrameRate) {
-		return fmt.Errorf("sink: WithDelayGrid fps %d out of range [1, %d]", o.delayGrid, MaxFrameRate)
-	}
 	return nil
 }
 
@@ -220,54 +179,6 @@ func WithBackground(c color.Color) Option {
 	return func(cfg *options) {
 		cfg.background = c
 		cfg.backgroundSet = true
-	}
-}
-
-// WithFrameRate makes a [Recorder] capture a frame from fn at fps, on a delay
-// grid of the same fps (see [WithDelayGrid]). When strict is true, each frame
-// plays for exactly time.Second/fps, so ticks dropped while fn runs shorten
-// the recording. When strict is false, each frame plays for the wall time
-// since the previous one. Mutually exclusive with [WithChannel] and
-// [WithDelayGrid].
-//
-// It is important to note that most browsers support a max of 50 FPS (and if
-// higher, will actually cap at 10 FPS). Most operating systems and supported
-// GIF players will cap at 100 FPS. Additionally, as GIFs use centiseconds for
-// per-frame delays, the maximum is [MaxFrameRate] FPS (even if we could export
-// higher). Additionally, for smoother GIFs, prefer centisecond-aligned FPS (10,
-// 20, 25, 50, 100).
-//
-// fn must return quickly and must not retain the returned [image.Image] beyond
-// the call (same contract as [render.Renderer.Draw] buffer reuse).
-func WithFrameRate(fps int, strict bool, fn func() image.Image) Option {
-	return func(cfg *options) {
-		cfg.frameRate = fps
-		cfg.frameRateStrict = strict
-		cfg.frameRateFn = fn
-		cfg.frameRateSet = true
-	}
-}
-
-// WithDelayGrid makes a [Recorder] round each delay to the nearest multiple of
-// max(1, 100/fps) centiseconds, at least one step. That is the grid GIF can
-// store for fps: at rates that are not centisecond-aligned (such as 30, a
-// 30ms step), steady frames play slightly fast, while holds keep their
-// length. Without it, delays are rounded to whole centiseconds. Mutually
-// exclusive with [WithFrameRate], which sets its own grid. fps must be in
-// [1, [MaxFrameRate]]; see [WithFrameRate] for which rates play back smoothly.
-func WithDelayGrid(fps int) Option {
-	return func(cfg *options) {
-		cfg.delayGrid = fps
-		cfg.delayGridSet = true
-	}
-}
-
-// WithChannel makes a [Recorder] read frames from ch until it is closed or
-// [Recorder.Close] is called. Mutually exclusive with [WithFrameRate].
-func WithChannel(ch <-chan Frame) Option {
-	return func(cfg *options) {
-		cfg.channel = ch
-		cfg.channelSet = true
 	}
 }
 

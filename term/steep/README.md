@@ -2,4 +2,62 @@
 
 ---
 
-TODO
+steep is a test harness for [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+programs and components. It runs the program in an emulated terminal (a
+[reel](../reel) session), drives it with keys, text, mouse events, and
+resizes, and asserts on what it draws.
+
+```go
+func TestModel(t *testing.T) {
+	steep.NewHarness(t, newModel()).
+		Wait("Tokyo").
+		Key("down").
+		AssertSnapshot()
+}
+```
+
+## Recording
+
+Everything the program draws is kept in the session's timeline, and nothing is
+written unless an export policy says so. `WithRecording` takes a `reel.Profile`:
+what to write, how to draw it, and the effects to apply.
+
+```go
+h := steep.NewHarness(t, newModel(),
+	steep.WithRecording(reel.Profile{
+		Outputs: reel.Files("{name}_{status}.gif", "{name}_{status}.cast"),
+		Effects: []reel.Effect{
+			steep.Logo(2 * time.Second),
+			effects.Keys(time.Second),
+			effects.PauseBadge(),
+			steep.Outro(2 * time.Second),
+		},
+	}),
+	steep.WithExportOnFailure(), // or steep.WithExportAlways()
+)
+```
+
+The export runs once, when the harness closes. A failed test holds its last
+frame for 3s (unless the profile sets `Hold`), then shows a FAIL card listing
+the failures. Files go to `t.ArtifactDir()` (kept with `go test -artifacts`),
+or to `WithArtifacts(dir)`. The `.cast` file is the recording itself:
+exporting it again with `reel.Export`, the same profile, and the same
+`steep.Result` (and the 3s hold, for a failed test) writes the same GIF.
+
+Any test can be recorded without changing it:
+
+```sh
+STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -artifacts ./...
+```
+
+| Variable | Sets |
+| --- | --- |
+| `STEEP_EXPORT_MODE` | `on`, `failure`, or `off` |
+| `STEEP_EXPORT_TYPE` | outputs: `gif`, `mp4`, `webm`, `webp`, `cast`; stills: `png`, `snapshot`; or `all` |
+| `STEEP_EXPORT_DIR` | the artifacts directory |
+| `STEEP_EXPORT_FPS`, `STEEP_EXPORT_SPEED` | the profile's timing |
+| `STEEP_EXPORT_QUALITY`, `STEEP_EXPORT_MAX_FRAMES`, `STEEP_EXPORT_MAX_BYTES`, `STEEP_EXPORT_OPTIMIZE` | encoder options |
+| `STEEP_RENDERER_SCALE`, `STEEP_RENDERER_FONT_FAMILY` | renderer options |
+
+See [`_examples/reel-showcase`](_examples/reel-showcase/main_test.go) for a
+complete example.

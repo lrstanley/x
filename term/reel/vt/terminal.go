@@ -156,11 +156,8 @@ type Terminal struct {
 	gridCursor screen.Cursor
 	// gridFresh is true when grid matches the emulator since the last write.
 	gridFresh bool
-	// outputSeq counts non-empty Write calls that have finished their notify
-	// callback. Waiters observe a new value only after that callback returns.
+	// outputSeq counts non-empty Write calls.
 	outputSeq uint64
-	// onWrite runs after each non-empty Write, without mu held. Close clears it.
-	onWrite func()
 	// rawRow is scratch for one viewport row of GhosttyCell words.
 	// rowFlags is one flag byte per cell in that row (grapheme, style, link).
 	// rowWords is the last words copied for every viewport row of the
@@ -194,51 +191,30 @@ type Terminal struct {
 }
 
 // Write feeds VT bytes to the emulator. It never returns a short write.
-// A non-empty write runs [Terminal.SetWriteNotify] after the bytes are
-// parsed and the lock is released, then advances [Terminal.OutputSeq].
+// A non-empty write advances [Terminal.OutputSeq] once the bytes are parsed.
 func (t *Terminal) Write(p []byte) (int, error) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.idle {
-		t.mu.Unlock()
 		return 0, fmt.Errorf("vt: terminal is closed")
 	}
 	if err := t.writeLocked(p); err != nil {
-		t.mu.Unlock()
 		return 0, err
 	}
 	t.gridFresh = false
-	fn := t.onWrite
-	t.mu.Unlock()
-	if len(p) > 0 && fn != nil {
-		fn()
-	}
 	if len(p) > 0 {
-		t.mu.Lock()
 		t.outputSeq++
-		t.mu.Unlock()
 	}
 	return len(p), nil
 }
 
-// OutputSeq reports how many non-empty [Terminal.Write] calls have completed.
-// The count advances after a [Terminal.SetWriteNotify] callback returns, so a
-// waiter that sees a new value also sees that callback's effects. An empty
+// OutputSeq reports how many non-empty [Terminal.Write] calls have completed,
+// so a waiter that sees a new value sees the screen that write left. An empty
 // write does not advance it.
 func (t *Terminal) OutputSeq() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.outputSeq
-}
-
-// SetWriteNotify registers fn to run after each non-empty [Terminal.Write],
-// on the writer goroutine, once the bytes are parsed and the terminal lock
-// is released. [Terminal.OutputSeq] advances after fn returns. fn may call
-// back into the terminal; it must not call SetWriteNotify. A nil fn clears
-// the hook. [Terminal.Close] clears it.
-func (t *Terminal) SetWriteNotify(fn func()) {
-	t.mu.Lock()
-	t.onWrite = fn
-	t.mu.Unlock()
 }
 
 // writeLocked copies p into the reusable feed buffer and calls
@@ -277,7 +253,6 @@ func (t *Terminal) Close() error {
 		t.mu.Unlock()
 		return nil
 	}
-	t.onWrite = nil
 	t.freeSearchesLocked()
 	t.mod.Xghostty_terminal_reset(t.term)
 	t.resetStateLocked()
@@ -876,7 +851,6 @@ func (t *Terminal) checkout(cols, rows, scrollback int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.idle = false
-	t.onWrite = nil
 	t.outputSeq = 0
 	t.replies = newReplyBuf()
 	t.scrollbackLines = scrollback
