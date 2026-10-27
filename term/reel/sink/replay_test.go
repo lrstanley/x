@@ -8,11 +8,41 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
+	"image/gif"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
+
+// replayGIF decodes r and rebuilds each frame as a full-canvas NRGBA image,
+// undoing disposal methods in order. The decoder gives the transparent index
+// a zero-alpha color, so drawing a frame over the canvas skips those pixels.
+func replayGIF(r io.Reader) ([]image.Image, error) {
+	g, err := gif.DecodeAll(r)
+	if err != nil {
+		return nil, err
+	}
+	canvas := image.NewNRGBA(image.Rect(0, 0, g.Config.Width, g.Config.Height))
+	frames := make([]image.Image, 0, len(g.Image))
+	for i, frame := range g.Image {
+		var before *image.NRGBA
+		if g.Disposal[i] == gif.DisposalPrevious {
+			before = cloneNRGBA(canvas)
+		}
+		draw.Draw(canvas, frame.Rect, frame, frame.Rect.Min, draw.Over)
+		frames = append(frames, cloneNRGBA(canvas))
+		switch g.Disposal[i] {
+		case gif.DisposalPrevious:
+			canvas = before
+		case gif.DisposalBackground:
+			draw.Draw(canvas, frame.Rect, image.Transparent, image.Point{}, draw.Src)
+		}
+	}
+	return frames, nil
+}
 
 func TestReplayGIFRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -36,7 +66,7 @@ func TestReplayGIFRoundTrip(t *testing.T) {
 		t.Fatalf("got %d replayed frames, want %d", len(replayed), len(originals))
 	}
 	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
+		assertImagesSimilar(t, originals[i], replayed[i])
 	}
 }
 
@@ -57,7 +87,7 @@ func TestReplayGIFDisposals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	replayed, err := ReplayGIF(&buf)
+	replayed, err := replayGIF(&buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +95,7 @@ func TestReplayGIFDisposals(t *testing.T) {
 		t.Fatalf("got %d replayed frames, want %d", len(replayed), len(originals))
 	}
 	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
+		assertImagesSimilar(t, originals[i], replayed[i])
 	}
 }
 
@@ -94,7 +124,7 @@ func TestOptimizePaletteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPalettizedSimilar(t, src, replayed[0])
+	assertImagesSimilar(t, src, replayed[0])
 }
 
 func TestOptimizePaletteReducesFileSize(t *testing.T) {

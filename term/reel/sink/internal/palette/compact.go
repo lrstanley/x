@@ -5,11 +5,9 @@
 package palette
 
 import (
-	"cmp"
 	"image"
 	"image/color"
 	"image/gif"
-	"slices"
 )
 
 // Same reports whether a and b are the same palette slice. Equal
@@ -51,117 +49,76 @@ func Groups(frames []*image.Paletted) []Group {
 	return groups
 }
 
-// From returns a GIF's global palette: colorModel when it is a palette,
-// otherwise the first frame's, or [Default] when there is none.
-func From(colorModel color.Model, frames []*image.Paletted) color.Palette {
-	if p, ok := colorModel.(color.Palette); ok && p != nil {
-		return p
-	}
-	if len(frames) > 0 && frames[0].Palette != nil {
-		return frames[0].Palette
-	}
-	return Default()
-}
-
-// Compact compacts oldPal to only entries referenced across frames,
-// reordering by descending frequency so low indices dominate (gifsicle-style
-// colormap canonicalization). Transparent pixels map to a dedicated slot
-// marked with zero alpha in the palette for replay detection. Frames are
-// updated in place with remapped indices and the new palette.
-func Compact(frames []*image.Paletted, oldPal color.Palette) color.Palette {
-	var freq [256]int
-	for _, frame := range frames {
+// Compact compacts the palette frames share to only the entries they use,
+// keeping their order, and moves the transparent slot to the end when a frame
+// uses it, so a palette with few colors gets a smaller table. GIF's LZW output
+// does not depend on which index a color has, only on how many bits the table
+// needs, so reordering by frequency would gain nothing. Frames are updated in
+// place with remapped indices and the new palette.
+func Compact(frames []*image.Paletted) color.Palette {
+	oldPal := frames[0].Palette
+	var used [256]bool
+	// top is the highest index each frame uses. Indices below the first one
+	// compaction moves keep their place, so a frame entirely below it (often
+	// a keyframe, which an adaptive palette fills from 0 up) is not rewritten.
+	top := make([]int, len(frames))
+	for i, frame := range frames {
+		var seen [256]bool
 		for _, idx := range frame.Pix {
-			freq[idx]++
+			seen[idx] = true
+		}
+		for idx, ok := range seen {
+			if ok {
+				used[idx], top[i] = true, idx
+			}
 		}
 	}
-
-	usesTransparent := freq[TransparentIndex] > 0
-	freq[TransparentIndex] = 0
-
-	var used []uint8
-	for idx, count := range &freq {
-		if count > 0 {
-			used = append(used, uint8(idx)) //nolint:gosec // idx is 0..255.
-		}
-	}
-	slices.SortFunc(used, func(a, b uint8) int {
-		return cmp.Or(cmp.Compare(freq[b], freq[a]), cmp.Compare(a, b))
-	})
 
 	var remap [256]uint8
-	newPal := make(color.Palette, 0, len(used)+1)
-	for i, idx := range used {
-		newPal = append(newPal, oldPal[idx])
-		remap[idx] = uint8(i) //nolint:gosec // i is bounded by palette size.
+	newPal := make(color.Palette, 0, len(oldPal))
+	for idx := range TransparentIndex {
+		if used[idx] {
+			remap[idx] = uint8(len(newPal)) //nolint:gosec // bounded by 255 colors.
+			newPal = append(newPal, oldPal[idx])
+		}
 	}
-	if usesTransparent {
+	if used[TransparentIndex] {
 		remap[TransparentIndex] = uint8(len(newPal)) //nolint:gosec // bounded by 256 colors.
 		newPal = append(newPal, transparentMarkerColor())
 	}
+	moved := 0
+	for moved < len(remap) && (!used[moved] || int(remap[moved]) == moved) {
+		moved++
+	}
 
-	for _, frame := range frames {
+	for i, frame := range frames {
 		frame.Palette = newPal
-		for i, idx := range frame.Pix {
-			frame.Pix[i] = remap[idx]
+		if top[i] < moved {
+			continue
+		}
+		for j, idx := range frame.Pix {
+			frame.Pix[j] = remap[idx]
 		}
 	}
 	return newPal
 }
 
-// CompactGIF compacts each palette to the colors its frames use.
-// keepGlobal leaves a caller-supplied shared palette as given; isolated
-// palettes are still compacted. Otherwise the shared palette is compacted
-// over the frames that use it and becomes the global color table.
-func CompactGIF(out *gif.GIF, keepGlobal bool) {
-	global := From(out.Config.ColorModel, out.Image)
-	var shared color.Palette
-	for _, g := range Groups(out.Image) {
-		if keepGlobal && Same(g.Palette, global) {
-			continue
-		}
-		compacted := Compact(g.Frames, g.Palette)
-		if Same(g.Palette, global) {
-			shared = compacted
-		}
-	}
-	if shared != nil {
-		out.Config.ColorModel = shared
-	}
-}
-
-// MarkTransparent marks TransparentIndex as a zero-alpha
-// palette color so GIF encoders emit a transparent color index for sub-rect
-// frames. Each palette is patched on its own, so an isolated frame keeps its
-// local table. Custom palettes may still use an opaque xterm slot 255. A
-// palette only needs the slot when a frame on it uses transparency; shorter
-// palettes have already dropped an unused slot during compaction.
-func MarkTransparent(out *gif.GIF) {
-	if len(out.Image) == 0 {
-		return
-	}
+// CompactGIF compacts each palette to the colors its frames use. The shared
+// palette is compacted over the frames that use it and stays the global
+// color table.
+func CompactGIF(out *gif.GIF) {
 	global, _ := out.Config.ColorModel.(color.Palette)
 	for _, g := range Groups(out.Image) {
-		if len(g.Palette) <= int(TransparentIndex) {
-			continue
-		}
-		if _, _, _, a := g.Palette[TransparentIndex].RGBA(); a == 0 {
-			continue
-		}
-		newPal := make(color.Palette, len(g.Palette))
-		copy(newPal, g.Palette)
-		newPal[TransparentIndex] = transparentMarkerColor()
+		compacted := Compact(g.Frames)
 		if Same(g.Palette, global) {
-			out.Config.ColorModel = newPal
-		}
-		for _, frame := range g.Frames {
-			frame.Palette = newPal
+			out.Config.ColorModel = compacted
 		}
 	}
 }
 
-// transparentMarkerColor is stored in compact palettes to mark the transparent
-// slot, which a replay finds by its zero alpha.
+// transparentMarkerColor fills the transparent slot of every palette this
+// package builds. GIF writers give a frame's transparent index to its
+// palette's zero-alpha color.
 func transparentMarkerColor() color.Color {
 	return color.RGBA{A: 0}
 }

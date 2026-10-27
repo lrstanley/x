@@ -5,17 +5,16 @@
 package sink
 
 import (
-	"bytes"
 	"errors"
 	"image"
 	"image/color"
 	"image/gif"
 	"io"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
@@ -58,14 +57,14 @@ func gifDecodeFile(path string) (*gif.GIF, error) {
 	return gif.DecodeAll(f)
 }
 
-// replayGIFFile opens path and reconstructs full frames via [ReplayGIF].
+// replayGIFFile opens path and reconstructs full frames via [replayGIF].
 func replayGIFFile(path string) ([]image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	return ReplayGIF(f)
+	return replayGIF(f)
 }
 
 // solidFrame returns an w×h NRGBA image filled with a distinct solid color.
@@ -84,13 +83,6 @@ func solidFrameInto(img *image.NRGBA, c int) {
 			img.SetNRGBA(x, y, col)
 		}
 	}
-}
-
-// palettize converts src through pal using the package capture path.
-func palettize(src *image.NRGBA, pal color.Palette) *image.Paletted {
-	pm := image.NewPaletted(src.Bounds(), pal)
-	palette.Palettize(pm, src)
-	return pm
 }
 
 // cursorBlinkSequence returns n full-canvas frames with a 2×1 cursor toggling
@@ -113,9 +105,7 @@ func cursorBlinkSequence(w, h, n int) []image.Image {
 }
 
 func cloneNRGBA(src *image.NRGBA) *image.NRGBA {
-	dst := image.NewNRGBA(src.Bounds())
-	copy(dst.Pix, src.Pix)
-	return dst
+	return &image.NRGBA{Pix: slices.Clone(src.Pix), Stride: src.Stride, Rect: src.Rect}
 }
 
 func solidNRGBA(w, h int, c color.NRGBA) *image.NRGBA {
@@ -124,15 +114,23 @@ func solidNRGBA(w, h int, c color.NRGBA) *image.NRGBA {
 	return img
 }
 
-// assertPalettizedSimilar compares want and got after palettizing with the
-// default internal palette — tolerates GIF quantization drift in round-trips.
-func assertPalettizedSimilar(t *testing.T, want, got image.Image) {
+// assertImagesSimilar checks that got shows want, tolerating GIF
+// quantization drift in round-trips: pixels transparent in one are
+// transparent in the other, and other pixels differ by at most 24 summed
+// over R, G, and B, compared by color alone.
+func assertImagesSimilar(t *testing.T, want, got image.Image) {
 	t.Helper()
-	pal := palette.Default()
-	wantP := palettize(testutil.ToNRGBA(want), pal)
-	gotP := palettize(testutil.ToNRGBA(got), pal)
-	if !bytes.Equal(wantP.Pix, gotP.Pix) {
-		t.Fatal("palettized pixels differ")
+	w, g := testutil.ToNRGBA(want), testutil.ToNRGBA(got)
+	if w.Rect != g.Rect {
+		t.Fatalf("bounds = %v, want %v", g.Rect, w.Rect)
+	}
+	for y := w.Rect.Min.Y; y < w.Rect.Max.Y; y++ {
+		for x := w.Rect.Min.X; x < w.Rect.Max.X; x++ {
+			wc, gc := w.NRGBAAt(x, y), g.NRGBAAt(x, y)
+			if (wc.A == 0) != (gc.A == 0) || (wc.A != 0 && rgbDelta(wc, gc) > 24) {
+				t.Fatalf("pixel (%d,%d) = %v, want %v", x, y, gc, wc)
+			}
+		}
 	}
 }
 
@@ -153,20 +151,7 @@ func replayMismatchPct(want, got []image.Image, exclude color.NRGBA) (pct float6
 					continue
 				}
 				totalPixels++
-				gc := g.NRGBAAt(x, y)
-				dr := int(wc.R) - int(gc.R)
-				dg := int(wc.G) - int(gc.G)
-				db := int(wc.B) - int(gc.B)
-				if dr < 0 {
-					dr = -dr
-				}
-				if dg < 0 {
-					dg = -dg
-				}
-				if db < 0 {
-					db = -db
-				}
-				if dr+dg+db > tol {
+				if rgbDelta(wc, g.NRGBAAt(x, y)) > tol {
 					totalWrong++
 				}
 			}
@@ -179,20 +164,11 @@ func replayMismatchPct(want, got []image.Image, exclude color.NRGBA) (pct float6
 }
 
 func colorNear(a, b color.NRGBA, tol int) bool {
-	if a.A != b.A {
-		return false
-	}
-	dr := int(a.R) - int(b.R)
-	dg := int(a.G) - int(b.G)
-	db := int(a.B) - int(b.B)
-	if dr < 0 {
-		dr = -dr
-	}
-	if dg < 0 {
-		dg = -dg
-	}
-	if db < 0 {
-		db = -db
-	}
-	return dr+dg+db <= tol
+	return a.A == b.A && rgbDelta(a, b) <= tol
+}
+
+// rgbDelta is the summed absolute difference of a and b over R, G, and B.
+func rgbDelta(a, b color.NRGBA) int {
+	d := func(x, y uint8) int { return max(int(x), int(y)) - min(int(x), int(y)) }
+	return d(a.R, b.R) + d(a.G, b.G) + d(a.B, b.B)
 }

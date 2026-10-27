@@ -576,7 +576,7 @@ func TestVideoQualityArgs(t *testing.T) {
 		{FormatWebP, []Option{WithQuality(MaxQuality)}, []string{"-lossless", "1"}},
 		{FormatWebP, []Option{WithQuality(50)}, []string{"-lossless", "0", "-quality", "50"}},
 	} {
-		cfg, err := collectOptions(validateVideo, tc.opts...)
+		cfg, err := videoOptions(tc.opts)
 		if err != nil {
 			t.Fatal(err)
 		}

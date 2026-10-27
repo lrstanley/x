@@ -45,18 +45,6 @@ func TestPNGTransparency(t *testing.T) {
 	})
 }
 
-func TestPNGIgnoresLoopCount(t *testing.T) {
-	t.Parallel()
-
-	src := solidNRGBA(8, 8, color.NRGBA{R: 0xff, G: 0x00, B: 0x80, A: 0xff})
-	path := t.TempDir() + "/loop.png"
-	for _, n := range []int{LoopOnce, LoopForever, maxGIFLoopCount + 1} {
-		if err := PNG(src, path, WithLoopCount(n)); err != nil {
-			t.Fatalf("WithLoopCount(%d): %v", n, err)
-		}
-	}
-}
-
 // TestPNGIgnoresGIFOptions covers sharing one option list between PNG and GIF,
 // as a reel.Profile does.
 func TestPNGIgnoresGIFOptions(t *testing.T) {
@@ -66,10 +54,10 @@ func TestPNGIgnoresGIFOptions(t *testing.T) {
 	path := t.TempDir() + "/gif-options.png"
 	err := PNG(
 		src, path,
-		WithPalette(color.Palette{color.Black, color.White}),
 		WithBackground(color.White),
 		WithMaxFrames(10),
 		WithMaxBytes(1024),
+		WithLoopCount(maxGIFLoopCount+1),
 	)
 	if err != nil {
 		t.Fatal(err)

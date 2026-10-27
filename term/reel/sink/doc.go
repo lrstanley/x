@@ -59,18 +59,18 @@
 // Export defaults to [OptimizeAll] when WithOptimize is omitted. GIF uses frame
 // dedup, disposal/sub-rect optimization, and palette compaction. PNG applies
 // [OptimizeColorQuantization] only ([OptimizeFrames] and [OptimizeDirtyRects]
-// are stripped). Pass [OptimizeNone] for unoptimized GIF or full RGBA PNG
+// are ignored). Pass [OptimizeNone] for unoptimized GIF or full RGBA PNG
 // with alpha preserved.
 //
 // # Palette
 //
-// Without [WithPalette], GIF capture builds its palette from the colors the
-// recording uses. Each color keeps the index it was first given, so earlier
-// frames stay valid as the palette grows. Colors covering many pixels (fills
-// and glyph bodies) or forming a flat block, however small (window buttons,
-// status dots), get exact entries first. Antialiased glyph edges get exact
-// entries while slots remain, otherwise median cut picks representatives along
-// each blend, which keeps edges on the foreground's hue. Once every slot is
+// GIF capture builds its palette from the colors the recording uses. Each
+// color keeps the index it was first given, so earlier frames stay valid as
+// the palette grows. Colors covering many pixels (fills and glyph bodies) or
+// forming a flat block, however small (window buttons, status dots), get
+// exact entries first. Antialiased glyph edges get exact entries while slots
+// remain, otherwise median cut picks representatives along each blend, which
+// keeps edges on the foreground's hue. Once every slot is
 // used, new colors map to the nearest existing entry. When a frame brings
 // more than a few cells' worth of colors that map poorly that way (a theme
 // change, a gradient sweeping through new hues), the recording starts a fresh
@@ -89,19 +89,10 @@
 //
 // # GIF palette transparency
 //
-// The capture and optimization pipeline reserves palette index 255
-// ([TransparentPaletteIndex]) for transparency. During palettization, fully
-// transparent source pixels (alpha 0) map to this index, and opaque pixels
-// never do. The default capture palette pre-fills slot 255 with a zero-alpha
-// marker.
-//
-// At finalize, disposal sub-rect optimization marks unchanged pixels with
-// TransparentPaletteIndex; GIF viewers require a zero-alpha palette entry at
-// that index (finalize patches opaque slot 255 when needed). Palette
-// compaction may move transparent pixels to a lower index but keeps a
-// zero-alpha palette entry so [ReplayGIF] can detect transparency.
-//
-// Custom capture palettes ([WithPalette]) with 256 entries should leave slot
-// 255 transparent when using disposal optimization; finalize patches an
-// opaque slot 255 automatically when the palette is long enough.
+// Palette index 255 is reserved for transparency, and every palette capture
+// builds holds a zero-alpha color there. Fully transparent source pixels
+// (alpha 0) map to it, opaque pixels never do, and disposal optimization
+// marks unchanged pixels of a sub-rect frame with it. Palette compaction moves
+// the slot to the end of a compacted palette, still zero-alpha, which is what
+// GIF writers look for to set a frame's transparent index.
 package sink

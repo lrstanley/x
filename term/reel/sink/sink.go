@@ -111,7 +111,7 @@ func Writer(w io.Writer, format Format, opts ...Option) (Sink, error) {
 	case FormatGIF:
 		return NewGIF(w, opts...)
 	case FormatPNG:
-		return newPNGSink(w, opts)
+		return newPNGSink(w, opts), nil
 	case FormatMP4, FormatWebM, FormatWebP:
 		return NewVideo(w, format, opts...)
 	}

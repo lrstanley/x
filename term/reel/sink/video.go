@@ -168,7 +168,7 @@ func findVideoEncoder(format Format, p videoProfile, o options) (*ffmpeg.Info, s
 // ffmpeg is installed and has an encoder for it. It runs ffmpeg only to probe
 // it, once per binary.
 func CheckVideo(format Format, opts ...Option) error {
-	cfg, err := collectOptions(validateVideo, opts...)
+	cfg, err := videoOptions(opts)
 	if err != nil {
 		return err
 	}
@@ -235,7 +235,7 @@ func NewVideo(w io.Writer, format Format, opts ...Option) (*VideoEncoder, error)
 
 // newVideo probes ffmpeg for format, then creates the output with create.
 func newVideo(create func() (*pendingFile, error), format Format, opts []Option) (*VideoEncoder, error) {
-	cfg, err := collectOptions(validateVideo, opts...)
+	cfg, err := videoOptions(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +265,7 @@ func newVideo(create func() (*pendingFile, error), format Format, opts []Option)
 		file:       file,
 		background: color.NRGBA{A: 0xff},
 	}
-	if cfg.backgroundSet {
+	if cfg.background != nil {
 		s.background = opaqueNRGBA(cfg.background)
 	}
 	return s, nil
@@ -368,7 +368,7 @@ func (s *VideoEncoder) args() []string {
 // set. Opaque NRGBA frames of the canvas size, the common case for the render
 // package's renderer, are returned as is.
 func (s *VideoEncoder) streamable(img image.Image) *image.NRGBA {
-	composite := !s.profile.alpha || s.opts.backgroundSet
+	composite := !s.profile.alpha || s.opts.background != nil
 	if src, ok := img.(*image.NRGBA); ok && src.Rect.Size() == s.bounds.Size() && (!composite || src.Opaque()) {
 		return src
 	}

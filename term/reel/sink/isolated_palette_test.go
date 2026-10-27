@@ -127,9 +127,9 @@ func TestIsolatedFramesSkipSharedPalette(t *testing.T) {
 	t.Parallel()
 
 	ap := palette.NewAdaptive(true, false)
-	rec := &gifRecording{adaptive: ap, config: image.Config{ColorModel: ap.Palette()}}
+	rec := &gifRecording{adaptive: ap}
 	intro := solidColorsFrame(offGridColors(40), 8)
-	if err := appendRecordingFrame(rec, nil, false, OptimizeAll, nil, false, true, intro, time.Millisecond); err != nil {
+	if err := appendRecordingFrame(rec, OptimizeAll, nil, true, intro, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if ap.Len() != 0 {
@@ -140,11 +140,11 @@ func TestIsolatedFramesSkipSharedPalette(t *testing.T) {
 	}
 
 	shared := solidColorsFrame(testutil.DistinctColors(255), 8)
-	if err := appendRecordingFrame(rec, nil, false, OptimizeAll, nil, false, false, shared, time.Millisecond); err != nil {
+	if err := appendRecordingFrame(rec, OptimizeAll, nil, false, shared, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	if ap.Len() != int(TransparentPaletteIndex) {
-		t.Fatalf("shared palette used %d slots, want all %d", ap.Len(), TransparentPaletteIndex)
+	if ap.Len() != int(palette.TransparentIndex) {
+		t.Fatalf("shared palette used %d slots, want all %d", ap.Len(), palette.TransparentIndex)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestIsolatedRunAroundSharedFrames(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			g, raw := encodeFrames(t, tc.frames)
-			replayed, err := ReplayGIF(bytes.NewReader(raw))
+			replayed, err := replayGIF(bytes.NewReader(raw))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -218,7 +218,7 @@ func TestOutroExactWhenSharedPaletteFull(t *testing.T) {
 		{Image: outro, Delay: 40 * time.Millisecond, Isolated: true},
 	}
 	_, raw := encodeFrames(t, frames)
-	replayed, err := ReplayGIF(bytes.NewReader(raw))
+	replayed, err := replayGIF(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestDisposalDiffsAcrossPalettesByColor(t *testing.T) {
 	if palette.Same(across.Image[0].Palette, across.Image[1].Palette) {
 		t.Fatal("isolated frame shares the first frame's palette")
 	}
-	replayed, err := ReplayGIF(bytes.NewReader(raw))
+	replayed, err := replayGIF(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

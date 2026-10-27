@@ -55,7 +55,7 @@ func TestAdaptivePaletteRollsOverWhenFull(t *testing.T) {
 	if palettes != 2 {
 		t.Fatal("frame of far colors on a full palette did not start a new palette")
 	}
-	replayed, err := ReplayGIF(bytes.NewReader(raw))
+	replayed, err := replayGIF(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

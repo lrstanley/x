@@ -35,8 +35,8 @@ const (
 // OptimizeFlags selects post-process and capture optimizations. Each
 // [WithOptimize] call replaces the full flag set; [OptimizeNone] resets to zero.
 //
-// When [WithOptimize] is omitted, export defaults to [OptimizeAll]. On PNG,
-// GIF-only flags are stripped so only [OptimizeColorQuantization] applies.
+// When [WithOptimize] is omitted, export defaults to [OptimizeAll]. PNG reads
+// only [OptimizeColorQuantization].
 type OptimizeFlags uint
 
 const (
@@ -47,12 +47,12 @@ const (
 	// OptimizeDirtyRects runs disposal/sub-rect optimization at GIF finalize.
 	// GIF only; ignored on PNG.
 	OptimizeDirtyRects
-	// OptimizeColorQuantization compacts the GIF palette at finalize when no
-	// custom palette is set, or encodes PNG as an indexed paletted image.
+	// OptimizeColorQuantization compacts each GIF palette at finalize to the
+	// colors its frames use, or encodes PNG as an indexed paletted image.
 	OptimizeColorQuantization
 
-	// OptimizeAll enables every optimization flag above. On PNG export, GIF-only
-	// bits are ignored and only color quantization runs.
+	// OptimizeAll enables every optimization flag above. On PNG export, only
+	// color quantization runs.
 	OptimizeAll = OptimizeFrames | OptimizeDirtyRects | OptimizeColorQuantization
 )
 
@@ -66,20 +66,11 @@ func (f OptimizeFlags) has(flag OptimizeFlags) bool {
 type Option func(*options)
 
 type options struct {
-	// optimize selects capture and finalize optimizations; defaults to
-	// [OptimizeAll] when optimizeSet is false.
+	// optimize selects capture and finalize optimizations.
 	optimize OptimizeFlags
-	// optimizeSet records whether [WithOptimize] was called explicitly.
-	optimizeSet bool
-	// palette overrides the GIF capture palette when paletteSet is true.
-	palette color.Palette
-	// paletteSet records whether [WithPalette] was set.
-	paletteSet bool
-	// background is the opaque compositing color for semi-transparent pixels
-	// when backgroundSet is true.
+	// background is the opaque compositing color for semi-transparent pixels,
+	// or nil when unset.
 	background color.Color
-	// backgroundSet records whether [WithBackground] was set.
-	backgroundSet bool
 	// maxFrames caps stored palettized frames during GIF capture; 0 is unlimited.
 	maxFrames int
 	// maxBytes caps pixel storage of retained frames during GIF capture; 0 is
@@ -99,42 +90,34 @@ type options struct {
 	ffmpeg string
 }
 
-func defaultOptions() options {
-	return options{}
-}
-
-// collectOptions applies opts, then validate, which checks the options its
-// output reads and ignores the rest. That is what lets one option list be
-// shared between every encoder and PNG.
-func collectOptions(validate func(*options) error, opts ...Option) (options, error) {
-	cfg := defaultOptions()
+// collectOptions applies opts. Each output then checks only the options it
+// reads ([gifOptions], [videoOptions]; PNG reads nothing it could reject),
+// which is what lets one option list be shared between them.
+func collectOptions(opts []Option) options {
+	cfg := options{optimize: OptimizeAll}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
-	if !cfg.optimizeSet {
-		cfg.optimize = OptimizeAll
-	}
-	err := validate(&cfg)
+	return cfg
+}
+
+// gifOptions collects opts for a [GIFEncoder].
+func gifOptions(opts []Option) (options, error) {
+	cfg := collectOptions(opts)
+	err := cfg.validateLoopCount()
 	return cfg, err
 }
 
-// validatePNG strips the GIF-only optimize flags. PNG reads nothing else.
-func validatePNG(o *options) error {
-	o.optimize &^= OptimizeFrames | OptimizeDirtyRects
-	return nil
-}
-
-func validateGIF(o *options) error {
-	return o.validateLoopCount()
-}
-
-func validateVideo(o *options) error {
-	if o.qualitySet && o.quality != units.Clamp(o.quality, 0, MaxQuality) {
-		return fmt.Errorf("sink: WithQuality %d out of range [0, %d]", o.quality, MaxQuality)
+// videoOptions collects opts for a [VideoEncoder].
+func videoOptions(opts []Option) (options, error) {
+	cfg := collectOptions(opts)
+	if cfg.qualitySet && cfg.quality != units.Clamp(cfg.quality, 0, MaxQuality) {
+		return cfg, fmt.Errorf("sink: WithQuality %d out of range [0, %d]", cfg.quality, MaxQuality)
 	}
-	return o.validateLoopCount()
+	err := cfg.validateLoopCount()
+	return cfg, err
 }
 
 func (o options) validateLoopCount() error {
@@ -152,33 +135,16 @@ func (o options) validateLoopCount() error {
 func WithOptimize(flags OptimizeFlags) Option {
 	return func(cfg *options) {
 		cfg.optimize = flags
-		cfg.optimizeSet = true
-	}
-}
-
-// WithPalette overrides the GIF color table (a [color.Palette] of at most 256
-// colors), replacing the palette built from captured colors (see package
-// documentation). This is not the terminal color theme; for that, see
-// [render.WithPalette].
-// Disables automatic palette compaction when [OptimizeColorQuantization] is
-// set. When using disposal optimization, palettes with 256 entries should
-// reserve [TransparentPaletteIndex] (255) as a zero-alpha color; see package
-// documentation for the transparency invariant. [GIFEncoder] only.
-func WithPalette(p color.Palette) Option {
-	return func(cfg *options) {
-		cfg.palette = p
-		cfg.paletteSet = true
 	}
 }
 
 // WithBackground sets an opaque compositing color for semi-transparent pixels.
 // [GIFEncoder] fills fully transparent pixels with it before palettization. A
 // [VideoEncoder] composites every frame onto it and uses it for padding; without it, MP4 and WebM composite onto
-// black and WebP keeps transparency.
+// black and WebP keeps transparency. A nil c leaves it unset.
 func WithBackground(c color.Color) Option {
 	return func(cfg *options) {
 		cfg.background = c
-		cfg.backgroundSet = true
 	}
 }
 

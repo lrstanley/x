@@ -20,15 +20,23 @@ import (
 	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
-func TestOptimizeDisposalsBackgroundIndex(t *testing.T) {
+func TestOptimizeDisposalsWithBackground(t *testing.T) {
 	t.Parallel()
 
 	bg := color.NRGBA{R: 0x0e, G: 0x11, B: 0x16, A: 0xff}
 	base := solidNRGBA(32, 32, bg)
 	scroll := cloneNRGBA(base)
 	testutil.PaintRect(scroll, image.Rect(0, 8, 32, 24), color.NRGBA{R: 0xff, A: 0xff})
+	// A transparent hole in the first frame, which nothing is under yet,
+	// shows bg once captured.
+	holed := cloneNRGBA(scroll)
+	hole := image.Rect(4, 12, 12, 16)
+	testutil.PaintRect(holed, hole, color.NRGBA{})
+	filled := cloneNRGBA(scroll)
+	testutil.PaintRect(filled, hole, bg)
 
-	originals := []image.Image{base, scroll, base}
+	originals := []image.Image{holed, base, scroll}
+	want := []image.Image{filled, base, scroll}
 	var buf bytes.Buffer
 	if err := writeGIFTo(&buf, originals, 50*time.Millisecond,
 		WithBackground(bg),
@@ -37,48 +45,12 @@ func TestOptimizeDisposalsBackgroundIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw := bytes.Clone(buf.Bytes())
-
-	g, err := gif.DecodeAll(bytes.NewReader(raw))
+	replayed, err := replayGIF(&buf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantBG := uint8(g.Image[0].Palette.Index(bg)) //nolint:gosec // bounded.
-	if g.BackgroundIndex != wantBG {
-		t.Fatalf("BackgroundIndex = %d, want %d from WithBackground", g.BackgroundIndex, wantBG)
-	}
-
-	replayed, err := ReplayGIF(bytes.NewReader(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
-	}
-}
-
-func TestOptimizeDisposalsDominantBackgroundIndex(t *testing.T) {
-	t.Parallel()
-
-	margin := color.NRGBA{R: 0x81, G: 0x2c, B: 0xd1, A: 0xff}
-	content := color.NRGBA{R: 0x0e, G: 0x11, B: 0x16, A: 0xff}
-	// Small margin border; content bg dominates pixel count.
-	frame := solidNRGBA(32, 32, content)
-	testutil.PaintRect(frame, image.Rect(0, 0, 32, 2), margin)
-	testutil.PaintRect(frame, image.Rect(0, 0, 2, 32), margin)
-
-	var buf bytes.Buffer
-	if err := writeGIFTo(&buf, []image.Image{frame, frame}, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
-		t.Fatal(err)
-	}
-
-	g, err := gif.DecodeAll(bytes.NewReader(buf.Bytes()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantBG := uint8(g.Image[0].Palette.Index(content)) //nolint:gosec // bounded.
-	if g.BackgroundIndex != wantBG {
-		t.Fatalf("BackgroundIndex = %d, want dominant content index %d", g.BackgroundIndex, wantBG)
+	for i := range want {
+		assertImagesSimilar(t, want[i], replayed[i])
 	}
 }
 
@@ -140,10 +112,9 @@ func TestQuantizeDelays(t *testing.T) {
 func TestOptimizeDisposalsMergesDurationDelays(t *testing.T) {
 	t.Parallel()
 
-	pal := palette.Default()
-	base := palettize(solidFrame(0, 8, 8), pal)
+	base := image.NewPaletted(image.Rect(0, 0, 8, 8), testutil.GrayPalette())
 	rec := &gifRecording{
-		config: image.Config{Width: 8, Height: 8, ColorModel: pal},
+		size: image.Pt(8, 8),
 		images: []*image.Paletted{
 			gifopt.Clone(base),
 			gifopt.Clone(base),
@@ -155,7 +126,7 @@ func TestOptimizeDisposalsMergesDurationDelays(t *testing.T) {
 			50 * time.Millisecond,
 		},
 	}
-	optimizeDisposals(rec, nil, false)
+	optimizeDisposals(rec)
 
 	if len(rec.images) != 1 {
 		t.Fatalf("got %d frames, want 1 merged canvas-identical frame", len(rec.images))
@@ -184,19 +155,19 @@ func TestGIFSubRectTransparentPaletteSlot(t *testing.T) {
 	}
 
 	pal := g.Image[0].Palette
-	if len(pal) <= int(TransparentPaletteIndex) {
-		t.Fatalf("palette len = %d, want > transparent slot %d", len(pal), TransparentPaletteIndex)
+	if len(pal) <= int(palette.TransparentIndex) {
+		t.Fatalf("palette len = %d, want > transparent slot %d", len(pal), palette.TransparentIndex)
 	}
-	if _, _, _, a := pal[TransparentPaletteIndex].RGBA(); a != 0 {
-		t.Fatalf("palette[%d] alpha = %d, want 0 for GIF transparency", TransparentPaletteIndex, a>>8)
+	if _, _, _, a := pal[palette.TransparentIndex].RGBA(); a != 0 {
+		t.Fatalf("palette[%d] alpha = %d, want 0 for GIF transparency", palette.TransparentIndex, a>>8)
 	}
 
-	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	replayed, err := replayGIF(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := range frames {
-		assertPalettizedSimilar(t, frames[i], replayed[i])
+		assertImagesSimilar(t, frames[i], replayed[i])
 	}
 }
 
@@ -231,7 +202,7 @@ func TestOptimizeDisposalsScrollStripReplay(t *testing.T) {
 		t.Fatalf("scroll strip disposal = %d, want DisposalNone", g.Disposal[1])
 	}
 
-	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	replayed, err := replayGIF(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +210,7 @@ func TestOptimizeDisposalsScrollStripReplay(t *testing.T) {
 		t.Fatalf("got %d replayed frames, want %d", len(replayed), len(originals))
 	}
 	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
+		assertImagesSimilar(t, originals[i], replayed[i])
 	}
 }
 
@@ -280,12 +251,12 @@ func TestOptimizeDisposalsSelectionRowRevert(t *testing.T) {
 		t.Fatalf("selection strip disposal = %v, want DisposalNone on delta frame", g.Disposal)
 	}
 
-	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	replayed, err := replayGIF(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
+		assertImagesSimilar(t, originals[i], replayed[i])
 	}
 
 	var fullBuf bytes.Buffer
@@ -295,7 +266,7 @@ func TestOptimizeDisposalsSelectionRowRevert(t *testing.T) {
 	); recErr != nil {
 		t.Fatal(recErr)
 	}
-	fullReplay, err := ReplayGIF(bytes.NewReader(fullBuf.Bytes()))
+	fullReplay, err := replayGIF(bytes.NewReader(fullBuf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +299,7 @@ func TestOptimizeDisposalsBackgroundHole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	replayed, err := replayGIF(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,11 +307,13 @@ func TestOptimizeDisposalsBackgroundHole(t *testing.T) {
 		t.Fatalf("got %d replayed frames, want %d", len(replayed), len(originals))
 	}
 	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
+		assertImagesSimilar(t, originals[i], replayed[i])
 	}
 }
 
-func TestGIFArenaFrameRetention(t *testing.T) {
+// TestGIFStoredFramesNotOverwritten checks that recycling the capture buffer
+// never overwrites or shares the pixels of a frame already stored.
+func TestGIFStoredFramesNotOverwritten(t *testing.T) {
 	t.Parallel()
 
 	rec := &gifRecording{loopCount: 0}
@@ -354,14 +327,14 @@ func TestGIFArenaFrameRetention(t *testing.T) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeNone, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeNone, nil, false, frame, time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 		snapshots[i] = bytes.Clone(rec.images[i].Pix)
 	}
 
 	for range 4 {
-		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeNone, nil, false, false, frameA, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeNone, nil, false, frameA, time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -408,7 +381,7 @@ func TestGIFMaxFramesRetention(t *testing.T) {
 		t.Fatalf("got %d frames, want 3 retained", len(g.Image))
 	}
 	for i := range 3 {
-		assertPalettizedSimilar(t, frames[n-3+i], g.Image[i])
+		assertImagesSimilar(t, frames[n-3+i], g.Image[i])
 	}
 }
 
@@ -487,8 +460,8 @@ func TestGIFMaxFramesDedupCap(t *testing.T) {
 	if len(g.Image) != 2 {
 		t.Fatalf("got %d frames, want 2 (B and C after A deduped)", len(g.Image))
 	}
-	assertPalettizedSimilar(t, frameB, g.Image[0])
-	assertPalettizedSimilar(t, frameC, g.Image[1])
+	assertImagesSimilar(t, frameB, g.Image[0])
+	assertImagesSimilar(t, frameC, g.Image[1])
 }
 
 func TestGIFChannelExplicitDelay(t *testing.T) {
@@ -583,7 +556,7 @@ func TestOptimizeDisposalsOverlayRevert(t *testing.T) {
 		t.Fatalf("got %d optimized frames, want >= 3 so revert is not dropped", len(g.Image))
 	}
 
-	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	replayed, err := replayGIF(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +564,7 @@ func TestOptimizeDisposalsOverlayRevert(t *testing.T) {
 		t.Fatalf("got %d replayed frames, want %d", len(replayed), len(originals))
 	}
 	for i := range originals {
-		assertPalettizedSimilar(t, originals[i], replayed[i])
+		assertImagesSimilar(t, originals[i], replayed[i])
 	}
 }
 
@@ -673,7 +646,7 @@ func TestGIFLongDelaySplits(t *testing.T) {
 		t.Fatalf("continuation bounds = %v, want 1x1", g.Image[1].Bounds())
 	}
 
-	replayed, err := ReplayGIF(bytes.NewReader(buf.Bytes()))
+	replayed, err := replayGIF(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +654,7 @@ func TestGIFLongDelaySplits(t *testing.T) {
 		t.Fatalf("replayed %d frames, gif has %d", len(replayed), len(g.Image))
 	}
 	for i := range replayed {
-		assertPalettizedSimilar(t, src, replayed[i])
+		assertImagesSimilar(t, src, replayed[i])
 	}
 }
 
@@ -765,7 +738,6 @@ func TestGIFDeltaRecordingMatchesFullFrames(t *testing.T) {
 	t.Parallel()
 
 	const w, h, n = 40, 24, 12
-	pal := palette.Default()
 	cur := solidFrame(0, w, h)
 	var frames []*image.NRGBA
 	for i := range n {
@@ -785,10 +757,10 @@ func TestGIFDeltaRecordingMatchesFullFrames(t *testing.T) {
 	for _, maxFrames := range []int{0, 1, 5, n} {
 		full, delta := gifRecording{maxFrames: maxFrames}, gifRecording{maxFrames: maxFrames}
 		for _, f := range frames {
-			if err := appendRecordingFrame(&full, pal, true, OptimizeFrames, nil, false, false, f, time.Millisecond); err != nil {
+			if err := appendRecordingFrame(&full, OptimizeFrames, nil, false, f, time.Millisecond); err != nil {
 				t.Fatal(err)
 			}
-			if err := appendRecordingFrame(&delta, pal, true, OptimizeFrames|OptimizeDirtyRects, nil, false, false, f, time.Millisecond); err != nil {
+			if err := appendRecordingFrame(&delta, OptimizeFrames|OptimizeDirtyRects, nil, false, f, time.Millisecond); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -822,7 +794,7 @@ func TestGIFDeltaFramesSizeChange(t *testing.T) {
 	sizes := []image.Point{{20, 10}, {20, 10}, {30, 16}, {30, 16}}
 	for i, s := range sizes {
 		c := color.NRGBA{R: uint8(i * 60), G: 50, B: 90, A: 255}
-		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeAll, nil, false, false, solid(s.X, s.Y, c), time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeAll, nil, false, solid(s.X, s.Y, c), time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 	}

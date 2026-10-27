@@ -144,8 +144,8 @@ func (p *Adaptive) Len() int { return p.n }
 
 // Palettize maps src into dst, first growing the palette with colors src
 // introduces. dst.Palette must be [Adaptive.Palette]. Alpha 0 writes
-// TransparentIndex; other pixels map by their color alone, matching
-// [Palettize].
+// TransparentIndex; other pixels map by their color alone, so a translucent
+// pixel becomes its opaque color.
 //
 // With rollover, a palette that has no room left for blends when src arrives
 // starts over if src maps poorly onto it, and dst.Palette is replaced with the
@@ -169,7 +169,7 @@ func (p *Adaptive) Palettize(dst *image.Paletted, src image.Image) {
 	}
 	full := p.rollover && p.blendRoom() <= 0
 
-	runPalettizeSpans(dst, px, area, p)
+	p.writeSpans(dst, px, area)
 	for _, misses := range p.spanMisses {
 		for key, use := range misses {
 			p.hist[key] = p.hist[key].add(use)
@@ -195,7 +195,7 @@ func (p *Adaptive) Palettize(dst *image.Paletted, src image.Image) {
 		p.Palettize(dst, src)
 		return
 	}
-	runPalettizeSpans(dst, px, area, p)
+	p.writeSpans(dst, px, area)
 }
 
 func (p *Adaptive) resetSpans(n int) {

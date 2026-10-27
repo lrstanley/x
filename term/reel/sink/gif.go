@@ -21,23 +21,16 @@ import (
 	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
-// TransparentPaletteIndex is the palette index reserved for transparency during
-// GIF capture and optimization. See package documentation for the full invariant.
-const TransparentPaletteIndex = palette.TransparentIndex
-
 // GIFEncoder is an [Encoder] that writes an animated GIF. It keeps every frame
 // palettized in memory, deduplicating and diffing them as they arrive, and
 // encodes the GIF on [GIFEncoder.Close]: the global palette, disposal, and
 // palette compaction passes need the whole recording.
 //
-// It reads [WithOptimize], [WithPalette], [WithBackground], [WithLoopCount],
-// [WithMaxFrames], and [WithMaxBytes]. Other options are ignored.
+// It reads [WithOptimize], [WithBackground], [WithLoopCount], [WithMaxFrames],
+// and [WithMaxBytes]. Other options are ignored.
 type GIFEncoder struct {
 	opts options
-	// palette is the capture palette; custom when WithPalette is set, otherwise
-	// the adaptive palette built from captured colors.
-	palette color.Palette
-	rec     *gifRecording
+	rec  *gifRecording
 	// w receives the GIF on Close. file, when set, is the temporary file
 	// behind w, which Close moves into place.
 	w    io.Writer
@@ -55,7 +48,7 @@ func NewGIF(w io.Writer, opts ...Option) (*GIFEncoder, error) {
 	if w == nil {
 		return nil, errors.New("sink: nil writer")
 	}
-	cfg, err := collectOptions(validateGIF, opts...)
+	cfg, err := gifOptions(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +59,7 @@ func NewGIF(w io.Writer, opts ...Option) (*GIFEncoder, error) {
 // temporary file beside path, which [GIFEncoder.Close] renames into place, so
 // a failed or discarded recording leaves an existing file alone.
 func CreateGIF(path string, opts ...Option) (*GIFEncoder, error) {
-	cfg, err := collectOptions(validateGIF, opts...)
+	cfg, err := gifOptions(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -80,20 +73,11 @@ func CreateGIF(path string, opts ...Option) (*GIFEncoder, error) {
 }
 
 func newGIFEncoder(w io.Writer, cfg options) *GIFEncoder {
-	var adaptive *palette.Adaptive
-	pal := cfg.palette
-	if !cfg.paletteSet {
-		adaptive = palette.NewAdaptive(true, true)
-		pal = adaptive.Palette()
-	}
 	return &GIFEncoder{
-		opts:    cfg,
-		palette: pal,
-		w:       w,
+		opts: cfg,
+		w:    w,
 		rec: &gifRecording{
 			loopCount: cfg.loopCount,
-			config:    image.Config{ColorModel: pal},
-			adaptive:  adaptive,
 			maxFrames: cfg.maxFrames,
 			maxBytes:  cfg.maxBytes,
 		},
@@ -110,10 +94,7 @@ func (e *GIFEncoder) WriteFrame(f Frame) error {
 	case e.err != nil:
 		return e.err
 	}
-	e.err = appendRecordingFrame(
-		e.rec, e.palette, false, e.opts.optimize,
-		e.opts.background, e.opts.backgroundSet, f.Isolated, f.Image, f.Delay,
-	)
+	e.err = appendRecordingFrame(e.rec, e.opts.optimize, e.opts.background, f.Isolated, f.Image, f.Delay)
 	return e.err
 }
 
@@ -149,28 +130,25 @@ func (e *GIFEncoder) Discard() error {
 	return nil
 }
 
-// encodeGIF runs the palette, disposal, and transparency passes over rec and
+// encodeGIF runs the disposal and palette compaction passes over rec and
 // writes the GIF to w.
 func encodeGIF(w io.Writer, rec *gifRecording, opts options) error {
-	if !opts.paletteSet {
-		// Frames on any other palette carry a local color table, so the
-		// global one goes to the palette the most frames use.
-		rec.config.ColorModel = busiestPalette(rec.images)
-	}
+	// Frames on any other palette carry a local color table, so the global
+	// one goes to the palette the most captured frames use.
+	global := busiestPalette(rec.images)
 	if opts.optimize.has(OptimizeDirtyRects) {
-		optimizeDisposals(rec, opts.background, opts.backgroundSet)
+		optimizeDisposals(rec)
 	}
-	out := buildGIF(rec)
+	out := buildGIF(rec, global)
 	if opts.optimize.has(OptimizeColorQuantization) {
-		palette.CompactGIF(out, opts.paletteSet)
+		palette.CompactGIF(out)
 	}
-	palette.MarkTransparent(out)
 	return gif.EncodeAll(w, out)
 }
 
 // optimizeDisposals rewrites rec in place with [gifopt.Optimize]. A single
 // frame only gets its disposal method, and an empty canvas is left alone.
-func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
+func optimizeDisposals(rec *gifRecording) {
 	n := len(rec.images)
 	if n <= 1 {
 		if n == 1 && len(rec.disposal) == 0 {
@@ -178,18 +156,15 @@ func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
 		}
 		return
 	}
-	w, h := rec.config.Width, rec.config.Height
-	if w <= 0 || h <= 0 {
+	screen := image.Rectangle{Max: rec.size}
+	if screen.Empty() {
 		return
 	}
 	deltaAt := -1
 	if rec.last != nil {
 		deltaAt = rec.deltaAt
 	}
-	rec.images, rec.delays, rec.disposal, rec.backgroundIndex = gifopt.Optimize(
-		image.Rect(0, 0, w, h), palette.From(rec.config.ColorModel, rec.images),
-		rec.images, rec.delays, deltaAt, bg, bgSet,
-	)
+	rec.images, rec.delays, rec.disposal = gifopt.Optimize(screen, rec.images, rec.delays, deltaAt)
 	rec.last, rec.spare = nil, nil
 }
 
@@ -198,8 +173,8 @@ func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
 type gifRecording struct {
 	// loopCount is the GIF loop count copied to the encoded output.
 	loopCount int
-	// config holds canvas dimensions and the capture palette.
-	config image.Config
+	// size is the canvas size, which the newest frame sets.
+	size image.Point
 	// images are palettized frames accumulated during capture.
 	images []*image.Paletted
 	// delays are per-frame durations accumulated before centisecond conversion.
@@ -213,9 +188,6 @@ type gifRecording struct {
 	maxBytes  int64
 	// disposal is per-frame disposal metadata; set by [optimizeDisposals].
 	disposal []byte
-	// backgroundIndex is the disposal background palette index; set by
-	// [optimizeDisposals].
-	backgroundIndex uint8
 	// last is the newest full frame and spare a recycled capture buffer. When
 	// last is set, images[deltaAt] is the full base of the current segment and
 	// later images are bbox crops of what changed since the previous frame
@@ -225,8 +197,8 @@ type gifRecording struct {
 	// 0 for a recording that never changes palette, which stores one segment
 	// from the first frame.
 	deltaAt int
-	// adaptive grows config.ColorModel from captured colors when no capture
-	// palette was given. Nil uses the palette passed to [appendRecordingFrame].
+	// adaptive is the shared palette, grown from captured colors. It is
+	// created with the first frame that uses it.
 	adaptive *palette.Adaptive
 	// isolated is the palette of the current run of [Frame.Isolated] frames.
 	// It is nil while the newest frame uses the shared palette, and it never
@@ -279,21 +251,21 @@ func (rec *gifRecording) activePalette() color.Palette {
 	return nil
 }
 
-// capturePalette returns the palette and, when it is adaptive, the builder
-// for this frame. Isolated frames use a palette of their own, sized with no
-// reserve, and a run of them reuses one builder.
-func (rec *gifRecording) capturePalette(shared color.Palette, isolated bool) (color.Palette, *palette.Adaptive) {
+// capturePalette returns the palette builder for this frame. Isolated frames
+// use a palette of their own, sized with no reserve, and a run of them reuses
+// one builder.
+func (rec *gifRecording) capturePalette(isolated bool) *palette.Adaptive {
 	if !isolated {
 		rec.isolated = nil
-		if rec.adaptive != nil {
-			return rec.adaptive.Palette(), rec.adaptive
+		if rec.adaptive == nil {
+			rec.adaptive = palette.NewAdaptive(true, true)
 		}
-		return shared, nil
+		return rec.adaptive
 	}
 	if rec.isolated == nil {
 		rec.isolated = palette.NewAdaptive(false, false)
 	}
-	return rec.isolated.Palette(), rec.isolated
+	return rec.isolated
 }
 
 // truncateRecording drops the oldest stored frames until the recording fits
@@ -366,11 +338,8 @@ func (rec *gifRecording) recount() {
 // the shared one. A run of isolated frames shares that palette.
 func appendRecordingFrame(
 	rec *gifRecording,
-	pal color.Palette,
-	useLUT bool,
 	optimize OptimizeFlags,
 	background color.Color,
-	backgroundSet bool,
 	isolated bool,
 	frame image.Image,
 	delay time.Duration,
@@ -383,22 +352,19 @@ func appendRecordingFrame(
 		return errEmptyFrame
 	}
 
-	if rec.config.Width != bounds.Dx() || rec.config.Height != bounds.Dy() {
-		rec.config.Width = bounds.Dx()
-		rec.config.Height = bounds.Dy()
-	}
-	if rec.config.ColorModel == nil {
-		rec.config.ColorModel = pal
-	}
+	rec.size = bounds.Size()
 
-	pal, adaptive := rec.capturePalette(pal, isolated)
+	adaptive := rec.capturePalette(isolated)
 	pm := rec.spare
 	rec.spare = nil
 	if pm == nil || pm.Rect != bounds {
-		pm = image.NewPaletted(bounds, pal)
+		pm = image.NewPaletted(bounds, nil)
 	}
-	pm.Palette = pal
-	palettizeCaptureFrame(pm, frame, adaptive, useLUT, background, backgroundSet)
+	pm.Palette = adaptive.Palette()
+	if background != nil {
+		frame = compositeBackgroundNRGBA(asNRGBA(frame), background)
+	}
+	adaptive.Palettize(pm, frame) // replaces pm.Palette if adaptive rolls over
 
 	// A palette change closes the open segment and this frame starts a new one,
 	// so later diffs never compare indices across palettes. A canvas size change
@@ -450,25 +416,6 @@ func appendRecordingFrame(
 	return nil
 }
 
-// palettizeCaptureFrame writes src into pm, compositing onto background when
-// configured. It uses adaptive when non-nil, otherwise the LUT or draw.Draw
-// path per useLUT. An adaptive palette that rolls over replaces pm.Palette.
-func palettizeCaptureFrame(pm *image.Paletted, frame image.Image, adaptive *palette.Adaptive, useLUT bool, background color.Color, backgroundSet bool) {
-	src := frame
-	if backgroundSet {
-		src = compositeBackgroundNRGBA(asNRGBA(frame), background)
-	}
-	switch {
-	case adaptive != nil:
-		adaptive.Palettize(pm, src)
-		return
-	case useLUT:
-		palette.Palettize(pm, src)
-		return
-	}
-	draw.Draw(pm, frame.Bounds(), src, src.Bounds().Min, draw.Src)
-}
-
 // asNRGBA returns img as *image.NRGBA. The render package returns NRGBA; foreign
 // types are converted once at the capture boundary via draw.Draw.
 func asNRGBA(img image.Image) *image.NRGBA {
@@ -494,16 +441,15 @@ func busiestPalette(frames []*image.Paletted) color.Palette {
 }
 
 // buildGIF converts a finalized recording into a gif.GIF with its delays in
-// centiseconds.
-func buildGIF(rec *gifRecording) *gif.GIF {
+// centiseconds and global as its global color table.
+func buildGIF(rec *gifRecording, global color.Palette) *gif.GIF {
 	images, delays, disposals := splitLongDelays(rec.images, quantizeDelays(rec.delays), rec.disposal)
 	return &gif.GIF{
-		LoopCount:       rec.loopCount,
-		Config:          rec.config,
-		Image:           images,
-		Delay:           delays,
-		Disposal:        disposals,
-		BackgroundIndex: rec.backgroundIndex,
+		LoopCount: rec.loopCount,
+		Config:    image.Config{Width: rec.size.X, Height: rec.size.Y, ColorModel: global},
+		Image:     images,
+		Delay:     delays,
+		Disposal:  disposals,
 	}
 }
 
@@ -574,15 +520,10 @@ func splitLongDelays(images []*image.Paletted, delays []int, disposals []byte) (
 }
 
 // holdFrame is a 1×1 transparent patch on src's own palette. With DisposalNone
-// it adds delay without changing the canvas. Palettes without a transparent
-// slot at [TransparentPaletteIndex] repeat the full frame instead, so an
-// isolated palette only keeps that slot when a later frame on it uses one.
+// it adds delay without changing the canvas.
 func holdFrame(src *image.Paletted) *image.Paletted {
-	if src == nil || len(src.Palette) <= int(TransparentPaletteIndex) {
-		return src
-	}
 	p := image.NewPaletted(image.Rect(0, 0, 1, 1), src.Palette)
-	p.Pix[0] = TransparentPaletteIndex
+	p.Pix[0] = palette.TransparentIndex
 	return p
 }
 

@@ -46,7 +46,7 @@ func BenchmarkGIFAddFrame(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeFrames, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -65,7 +65,7 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeFrames, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -78,7 +78,7 @@ func BenchmarkGIFAddFrameSteadyState(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeFrames, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -99,7 +99,7 @@ func BenchmarkGIFAddFrameAdaptive(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -110,7 +110,7 @@ func BenchmarkGIFAddFrameAdaptive(b *testing.B) {
 
 func BenchmarkOptimizeDisposals(b *testing.B) {
 	const w, h = testutil.TerminalWidth, testutil.TerminalHeight
-	pal := palette.Default()
+	pal := testutil.GrayPalette()
 	base := image.NewPaletted(image.Rect(0, 0, w, h), pal)
 	for i := range base.Pix {
 		base.Pix[i] = 16
@@ -134,7 +134,7 @@ func BenchmarkOptimizeDisposals(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		rec := &gifRecording{
-			config: image.Config{Width: w, Height: h, ColorModel: pal},
+			size:   image.Pt(w, h),
 			images: make([]*image.Paletted, len(frames)),
 			delays: make([]time.Duration, len(frames)),
 		}
@@ -142,7 +142,7 @@ func BenchmarkOptimizeDisposals(b *testing.B) {
 			rec.images[i] = gifopt.Clone(frame)
 			rec.delays[i] = 50 * time.Millisecond
 		}
-		optimizeDisposals(rec, nil, false)
+		optimizeDisposals(rec)
 	}
 }
 
@@ -176,28 +176,11 @@ func BenchmarkGIFAddFrameSource(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				rec := &gifRecording{}
-				if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeFrames, nil, false, false, src.img, time.Millisecond); err != nil {
+				if err := appendRecordingFrame(rec, OptimizeFrames, nil, false, src.img, time.Millisecond); err != nil {
 					b.Fatal(err)
 				}
 			}
 			b.ReportMetric(float64(b.Elapsed())/float64(b.N)/float64(time.Second/MaxFrameRate)*100, "%budget")
-		})
-	}
-}
-
-// BenchmarkGIFAddFrameCustomPalette is BenchmarkGIFAddFrameSource with a
-// custom palette, which skips the default palette lookup table.
-func BenchmarkGIFAddFrameCustomPalette(b *testing.B) {
-	pal := append(color.Palette(nil), palette.Default()[:128]...)
-	for _, src := range benchmarkSources()[:2] {
-		b.Run(src.name, func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				rec := &gifRecording{}
-				if err := appendRecordingFrame(rec, pal, false, OptimizeFrames, nil, false, false, src.img, time.Millisecond); err != nil {
-					b.Fatal(err)
-				}
-			}
 		})
 	}
 }
@@ -226,7 +209,7 @@ func BenchmarkGIFAddFrameLimited(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			rec := &gifRecording{adaptive: palette.NewAdaptive(true, false), maxFrames: tc.maxFrame, maxBytes: tc.maxBytes}
 			add := func(i int) {
-				if err := appendRecordingFrame(rec, nil, false, OptimizeFrames|OptimizeDirtyRects, nil, false, false, frames[i%variants], time.Millisecond); err != nil {
+				if err := appendRecordingFrame(rec, OptimizeFrames|OptimizeDirtyRects, nil, false, frames[i%variants], time.Millisecond); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -258,7 +241,7 @@ func BenchmarkGIFAddFrameDense(b *testing.B) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, nil, false, OptimizeFrames, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, OptimizeFrames, nil, false, frame, time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
 	}

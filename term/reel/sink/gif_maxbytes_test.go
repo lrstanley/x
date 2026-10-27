@@ -8,8 +8,6 @@ import (
 	"image"
 	"testing"
 	"time"
-
-	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
 func storedBytes(rec *gifRecording) int64 {
@@ -55,7 +53,7 @@ func TestGIFMaxBytesRetention(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i := range 3 {
-				assertPalettizedSimilar(t, frames[n-3+i], replayed[i])
+				assertImagesSimilar(t, frames[n-3+i], replayed[i])
 			}
 		})
 	}
@@ -76,7 +74,7 @@ func TestGIFMaxBytesKeepsNewestFrame(t *testing.T) {
 	if len(replayed) != 1 {
 		t.Fatalf("got %d frames, want only the newest", len(replayed))
 	}
-	assertPalettizedSimilar(t, frames[2], replayed[0])
+	assertImagesSimilar(t, frames[2], replayed[0])
 }
 
 func TestGIFMaxBytesUnlimited(t *testing.T) {
@@ -120,7 +118,7 @@ func TestGIFMaxBytesAccounting(t *testing.T) {
 					if i%5 == 0 { // A partial change, so deltas are smaller than a frame.
 						frame.SetNRGBA(1, 1, solidFrame(i+1, 1, 1).NRGBAAt(0, 0))
 					}
-					err := appendRecordingFrame(rec, palette.Default(), true, optimize, nil, false, false, frame, time.Millisecond)
+					err := appendRecordingFrame(rec, optimize, nil, false, frame, time.Millisecond)
 					if err != nil {
 						t.Fatal(err)
 					}

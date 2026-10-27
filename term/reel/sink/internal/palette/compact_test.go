@@ -9,70 +9,16 @@ import (
 	"image"
 	"image/color"
 	"math/rand/v2"
-	"sort"
 	"testing"
 
 	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
-// compactPaletteReference is the original map-based implementation, kept to
-// verify the array-based Compact is output-identical.
-func compactPaletteReference(frames []*image.Paletted, oldPal color.Palette) color.Palette {
-	freq := make(map[uint8]int)
-	usesTransparent := false
-	for _, frame := range frames {
-		for _, idx := range frame.Pix {
-			if idx == TransparentIndex {
-				usesTransparent = true
-				continue
-			}
-			freq[idx]++
-		}
-	}
-	type colorFreq struct {
-		idx   uint8
-		count int
-	}
-	used := make([]colorFreq, 0, len(freq))
-	for idx, count := range freq {
-		used = append(used, colorFreq{idx: idx, count: count})
-	}
-	sort.Slice(used, func(i, j int) bool {
-		if used[i].count != used[j].count {
-			return used[i].count > used[j].count
-		}
-		return used[i].idx < used[j].idx
-	})
-	newPal := make(color.Palette, 0, len(used)+1)
-	remap := make(map[uint8]uint8, len(used)+1)
-	for i, cf := range used {
-		newPal = append(newPal, oldPal[cf.idx])
-		remap[cf.idx] = uint8(i)
-	}
-	newTransparentIdx := uint8(0)
-	if usesTransparent {
-		newTransparentIdx = uint8(len(newPal))
-		newPal = append(newPal, transparentMarkerColor())
-		remap[TransparentIndex] = newTransparentIdx
-	}
-	for _, frame := range frames {
-		frame.Palette = newPal
-		for i, idx := range frame.Pix {
-			if idx == TransparentIndex {
-				frame.Pix[i] = newTransparentIdx
-				continue
-			}
-			frame.Pix[i] = remap[idx]
-		}
-	}
-	return newPal
-}
-
 // syntheticPalettedFrames returns deterministic frames using a skewed spread of
 // palette indices, with transparent pixels when transparent is true.
 func syntheticPalettedFrames(w, h, n int, transparent bool) []*image.Paletted {
 	rng := rand.New(rand.NewPCG(1, 2))
-	pal := Default()
+	pal := testutil.GrayPalette()
 	frames := make([]*image.Paletted, n)
 	for i := range frames {
 		pm := image.NewPaletted(image.Rect(0, 0, w, h), pal)
@@ -99,24 +45,55 @@ func cloneFrames(frames []*image.Paletted) []*image.Paletted {
 	return out
 }
 
-func TestCompactPaletteMatchesReference(t *testing.T) {
+func gray(c color.Color) uint32 {
+	y, _, _, _ := c.RGBA()
+	return y
+}
+
+// handFrame is a w×1 frame on pal showing the indices given.
+func handFrame(pal color.Palette, indices ...uint8) *image.Paletted {
+	pm := image.NewPaletted(image.Rect(0, 0, len(indices), 1), pal)
+	copy(pm.Pix, indices)
+	return pm
+}
+
+// TestCompactKeepsColors checks that Compact keeps the colors every pixel
+// shows, keeps the used entries in order, and keeps a zero-alpha slot last
+// only when a frame uses it.
+func TestCompactKeepsColors(t *testing.T) {
 	t.Parallel()
-	for _, transparent := range []bool{false, true} {
-		src := syntheticPalettedFrames(97, 31, 4, transparent)
-		want, got := cloneFrames(src), cloneFrames(src)
-		wantPal := compactPaletteReference(want, Default())
-		gotPal := Compact(got, Default())
-		if len(wantPal) != len(gotPal) {
-			t.Fatalf("transparent=%v: palette len = %d, want %d", transparent, len(gotPal), len(wantPal))
+	pal := testutil.GrayPalette()
+	for _, tc := range []struct {
+		name        string
+		frames      []*image.Paletted
+		transparent bool
+	}{
+		{"opaque", syntheticPalettedFrames(97, 31, 4, false), false},
+		{"transparent", syntheticPalettedFrames(97, 31, 4, true), true},
+		// The keyframe uses only indices compaction leaves in place.
+		{"keyframe", []*image.Paletted{handFrame(pal, 0, 1, 2), handFrame(pal, 2, TransparentIndex)}, true},
+		{"gap", []*image.Paletted{handFrame(pal, 0, 7), handFrame(pal, 3, TransparentIndex)}, true},
+	} {
+		got := cloneFrames(tc.frames)
+		cpal := Compact(got)
+
+		_, _, _, a := cpal[len(cpal)-1].RGBA()
+		if hasSlot := a == 0; hasSlot != tc.transparent {
+			t.Fatalf("%s: zero-alpha last slot = %v", tc.name, hasSlot)
 		}
-		for i := range wantPal {
-			if wantPal[i] != gotPal[i] {
-				t.Fatalf("transparent=%v: palette[%d] = %v, want %v", transparent, i, gotPal[i], wantPal[i])
+		for i := 1; i < len(cpal)-1; i++ {
+			if gray(cpal[i]) <= gray(cpal[i-1]) {
+				t.Fatalf("%s: palette[%d] = %v after %v, want used entries in order", tc.name, i, cpal[i], cpal[i-1])
 			}
 		}
-		for i := range want {
-			if !bytes.Equal(want[i].Pix, got[i].Pix) {
-				t.Fatalf("transparent=%v: frame %d pixels differ", transparent, i)
+		for i, src := range tc.frames {
+			if !Same(got[i].Palette, cpal) {
+				t.Fatalf("%s: frame %d not on the compacted palette", tc.name, i)
+			}
+			for j, idx := range src.Pix {
+				if want, have := src.Palette[idx], cpal[got[i].Pix[j]]; want != have {
+					t.Fatalf("%s: frame %d pixel %d = %v, want %v", tc.name, i, j, have, want)
+				}
 			}
 		}
 	}
@@ -131,14 +108,13 @@ func BenchmarkCompactPalette(b *testing.B) {
 		{"240x72", testutil.TerminalWidth * 3, testutil.TerminalHeight * 3},
 	} {
 		src := syntheticPalettedFrames(tc.w, tc.h, 1, true)
-		pal := Default()
 		b.Run(tc.name, func(b *testing.B) {
 			work := cloneFrames(src[:1])[0]
 			b.ReportAllocs()
 			b.SetBytes(int64(len(work.Pix)))
 			for b.Loop() {
 				copy(work.Pix, src[0].Pix)
-				Compact([]*image.Paletted{work}, pal)
+				Compact([]*image.Paletted{work})
 			}
 		})
 	}
