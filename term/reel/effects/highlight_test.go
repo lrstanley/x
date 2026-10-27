@@ -181,6 +181,7 @@ func TestHighlightErrors(t *testing.T) {
 		{"dim above 1", Highlight(Row(0), DimOthers(1.5)), nil},
 		{"dim NaN", Highlight(Row(0), DimOthers(math.NaN())), nil},
 		{"outline width", Highlight(Row(0), Outline(red, -1)), nil},
+		{"padding", Highlight(Row(0), Padding(-1)), nil},
 		{"ease", Highlight(Row(0), Ease(-ms)), nil},
 		{"unknown mark", Highlight(Row(0), Between("m", "nope")), reel.ErrNoMark},
 	} {
@@ -205,20 +206,73 @@ func TestHighlightErrors(t *testing.T) {
 func TestHighlightOutlineOnly(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(t, 6, 2, "", output(0, "abc"))
-	in, out := highlightFrames(t, tl, Highlight(Text("b"), DimOthers(0), Outline(red, 1)))
+	in, out := highlightFrames(t, tl, Highlight(Text("b"), DimOthers(0), Outline(red, 1), Padding(0)))
 	if len(out) != 1 || out[0].Isolated || out[0].Image == in[0].Image {
 		t.Fatalf("frames %+v, want one outlined frame on the shared palette", infoOf(out))
 	}
 	// Cell (1, 0) is pixels 5 to 8 by 2 to 6; the outline is one pixel
 	// around it, and nothing else changes.
-	b := out[0].Image.Rect
+	cell := image.Rect(5, 2, 8, 6)
+	assertPixels(t, in[0].Image, out[0].Image, func(p image.Point, was color.NRGBA) color.NRGBA {
+		if p.In(cell.Inset(-1)) && !p.In(cell) {
+			return red
+		}
+		return was
+	})
+}
+
+// TestHighlightPadding checks the padding left undimmed around the cells,
+// the outline outside it, and the padding shrinking at the edge of the
+// image so the outline still fits.
+func TestHighlightPadding(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 6, 2, "", output(0, "abc"))
+	// The image is 22 by 12 pixels, and cell (1, 0) is pixels 5 to 8 by 2
+	// to 6, two pixels below its top.
+	for _, tc := range []struct {
+		name string
+		opts []HighlightOption
+		// room is the undimmed pixels, and outline the width of the
+		// outline around them.
+		room    image.Rectangle
+		outline int
+	}{
+		{"none", []HighlightOption{Outline(red, 1), Padding(0)}, image.Rect(5, 2, 8, 6), 1},
+		{"default", []HighlightOption{Outline(red, 1)}, image.Rect(4, 1, 9, 7), 1},
+		{"edge", []HighlightOption{Outline(red, 1), Padding(2)}, image.Rect(3, 1, 10, 8), 1},
+		{"cells at edge", []HighlightOption{Outline(red, 3), Padding(1)}, image.Rect(4, 2, 9, 7), 3},
+		{"no outline", []HighlightOption{Padding(3)}, image.Rect(2, 0, 11, 9), 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			opts := append([]HighlightOption{DimOthers(1)}, tc.opts...)
+			in, out := highlightFrames(t, tl, Highlight(Text("b"), opts...))
+			if len(out) != 1 {
+				t.Fatalf("%d frames, want 1", len(out))
+			}
+			assertPixels(t, in[0].Image, out[0].Image, func(p image.Point, was color.NRGBA) color.NRGBA {
+				switch {
+				case p.In(tc.room):
+					return was
+				case p.In(tc.room.Inset(-tc.outline)):
+					return red
+				}
+				return color.NRGBA{A: 0xff}
+			})
+		})
+	}
+}
+
+// assertPixels checks that each pixel of out is want of its place and the
+// pixel of in there.
+func assertPixels(t *testing.T, in, out *image.NRGBA, want func(p image.Point, was color.NRGBA) color.NRGBA) {
+	t.Helper()
+	b := out.Rect
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			p := image.Pt(x, y)
-			onOutline := p.In(image.Rect(4, 1, 9, 7)) && !p.In(image.Rect(5, 2, 8, 6))
-			got, was := out[0].Image.NRGBAAt(x, y), in[0].Image.NRGBAAt(x, y)
-			if onOutline && got != red || !onOutline && got != was {
-				t.Fatalf("pixel %v = %v, want %v", p, got, map[bool]color.NRGBA{true: red, false: was}[onOutline])
+			if got, w := out.NRGBAAt(x, y), want(p, in.NRGBAAt(x, y)); got != w {
+				t.Fatalf("pixel %v = %v, want %v", p, got, w)
 			}
 		}
 	}

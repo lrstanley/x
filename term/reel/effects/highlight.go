@@ -5,6 +5,7 @@
 package effects
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"image"
@@ -24,8 +25,8 @@ const highlightDim = 0.5
 // 221.
 var outlineColor = color.NRGBA{R: 0xff, G: 0xd7, B: 0x5f, A: 0xff}
 
-// HighlightOption configures [Highlight]: [DimOthers], [Outline], and the
-// [Timing] options every region effect takes.
+// HighlightOption configures [Highlight]: [DimOthers], [Outline],
+// [Padding], and the [Timing] options every region effect takes.
 type HighlightOption interface {
 	applyHighlight(h *highlight)
 }
@@ -44,9 +45,10 @@ func DimOthers(factor float64) HighlightOption {
 }
 
 // Outline draws a border px pixels wide around each rectangle of cells the
-// [Highlight] region covers, outside it, so it hides none of the region. A
-// nil c is a warm yellow. A px of zero scales with the font: an eighth of a
-// cell's height, at least 1. A px below zero is an error from Start.
+// [Highlight] region covers, outside it and its [Padding], so it hides none
+// of the region. A nil c is a warm yellow. A px of zero scales with the
+// font: an eighth of a cell's height, at least 1. A px below zero is an
+// error from Start.
 func Outline(c color.Color, px int) HighlightOption {
 	return highlightOption(func(h *highlight) {
 		h.outline, h.outlinePx = outlineColor, px
@@ -56,13 +58,26 @@ func Outline(c color.Color, px int) HighlightOption {
 	})
 }
 
+// Padding sets how many pixels around each rectangle of cells the
+// [Highlight] region covers it keeps with the region, on every side: they
+// are left undimmed, over neighboring cells too, and the [Outline] is drawn
+// outside them. A px of zero keeps none, so the outline sits against the
+// cells. The default scales with the font: a third of a cell's width, at
+// least 1. Near the edges of the image, the padding shrinks so the outline
+// still fits, but never into the cells. A px below zero is an error from
+// Start.
+func Padding(px int) HighlightOption {
+	return highlightOption(func(h *highlight) { h.pad, h.padSet = px, true })
+}
+
 // Highlight returns an effect that draws attention to the cells of region:
-// it darkens the rest of the frame (see [DimOthers]), and can draw an
-// [Outline] around the region. The region is matched on each terminal frame,
-// from its cells, so a [Text] region follows its text as it moves. A frame
-// the region covers no cells of is left alone, as are frames without a
-// terminal, such as cards. [Between] limits the highlight to a window of
-// the timeline, and [Ease], [EaseIn], and [EaseOut] fade it in and out.
+// it darkens all of the frame but the region and its [Padding] (see
+// [DimOthers]), and can draw an [Outline] around them. The region is matched
+// on each terminal frame, from its cells, so a [Text] region follows its
+// text as it moves. A frame the region covers no cells of is left alone, as
+// are frames without a terminal, such as cards. [Between] limits the
+// highlight to a window of the timeline, and [Ease], [EaseIn], and [EaseOut]
+// fade it in and out.
 //
 // The cells are mapped to pixels with the layout of the recording's
 // rasterizer, so it works with any [reel.Rasterizer]. The highlight is drawn
@@ -89,6 +104,9 @@ type highlight struct {
 	dim       float64
 	outline   color.NRGBA
 	outlinePx int
+	// pad is the padding when padSet, and scales with the font otherwise.
+	pad    int
+	padSet bool
 }
 
 func (e highlight) Start(ctx *reel.Context) (reel.Stage, error) {
@@ -99,6 +117,8 @@ func (e highlight) Start(ctx *reel.Context) (reel.Stage, error) {
 		return nil, fmt.Errorf("effects: highlight dim %v is outside 0 to 1", e.dim)
 	case e.outlinePx < 0:
 		return nil, fmt.Errorf("effects: highlight outline width %d is below zero", e.outlinePx)
+	case e.pad < 0:
+		return nil, fmt.Errorf("effects: highlight padding %d is below zero", e.pad)
 	}
 	w, err := e.timing.start(ctx, easeAfterMark)
 	if err != nil {
@@ -107,16 +127,18 @@ func (e highlight) Start(ctx *reel.Context) (reel.Stage, error) {
 	if e.dim == 0 && e.outline.A == 0 {
 		return nil, nil //nolint:nilnil // A nil stage leaves the recording alone.
 	}
-	px := e.outlinePx
-	if px == 0 {
-		px = max(1, ctx.Layout.Cell.Y/8)
-	}
 	s := &highlightStage{
-		pixels:    regionPixels{region: e.region, rast: ctx.Rasterizer},
-		window:    w,
-		dim:       e.dim,
-		outline:   e.outline,
-		outlinePx: px,
+		pixels:  regionPixels{region: e.region, rast: ctx.Rasterizer},
+		window:  w,
+		dim:     e.dim,
+		outline: e.outline,
+		pad:     e.pad,
+	}
+	if e.outline.A > 0 {
+		s.outlinePx = cmp.Or(e.outlinePx, max(1, ctx.Layout.Cell.Y/8))
+	}
+	if !e.padSet {
+		s.pad = max(1, ctx.Layout.Cell.X/3)
 	}
 	return s.run, nil
 }
@@ -127,7 +149,8 @@ type highlightStage struct {
 	window    *window
 	dim       float64
 	outline   color.NRGBA
-	outlinePx int
+	outlinePx int // Zero without an outline.
+	pad       int
 }
 
 func (s *highlightStage) run(f reel.Frame, emit func(reel.Frame)) {
@@ -140,10 +163,16 @@ func (s *highlightStage) run(f reel.Frame, emit func(reel.Frame)) {
 		emit(f)
 		return
 	}
-	rects := s.pixels.find(f.Cells)
-	if len(rects) == 0 {
+	cells := s.pixels.find(f.Cells)
+	if len(cells) == 0 {
 		emit(f)
 		return
+	}
+	rects := make([]image.Rectangle, len(cells))
+	for i, r := range cells {
+		// Union keeps the cells whole where the image's edge cuts into
+		// the padding.
+		rects[i] = r.Inset(-s.pad).Intersect(f.Image.Rect.Inset(s.outlinePx)).Union(r)
 	}
 	for _, p := range pieces {
 		out := f
@@ -158,8 +187,9 @@ func (s *highlightStage) run(f reel.Frame, emit func(reel.Frame)) {
 }
 
 // draw returns a copy of src with the highlight at strength level drawn
-// over rects: the rest dimmed, the outlines drawn around rects, and then
-// rects as src has them, so neither covers them.
+// over rects, the region's cells with their padding: the rest dimmed, the
+// outlines drawn around rects, and then rects as src has them, so neither
+// covers them.
 func (s *highlightStage) draw(src *image.NRGBA, rects []image.Rectangle, level float64) *image.NRGBA {
 	img := cloneNRGBA(src)
 	if s.dim > 0 {
