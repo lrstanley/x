@@ -6,20 +6,19 @@ package asciicast
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"time"
 	"unicode/utf8"
 )
 
-// Writer writes the event lines of a file, each with one call to the
-// underlying writer.
+// Writer writes the event lines of a file.
 type Writer struct {
-	enc  *json.Encoder
+	enc  *jsontext.Encoder
 	v3   bool
 	prev time.Duration
-	line []any
 }
 
 // NewWriter writes h to w as a header line, and returns a Writer of the
@@ -30,12 +29,13 @@ func NewWriter(w io.Writer, h Header) (*Writer, error) {
 	if h.Version != 2 && h.Version != 3 {
 		return nil, fmt.Errorf("unsupported asciicast version %d", h.Version)
 	}
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(headerOf(h)); err != nil {
+	// Bytes that are not UTF-8 are written as U+FFFD, as asciinema writes
+	// them.
+	enc := jsontext.NewEncoder(w, jsontext.AllowInvalidUTF8(true))
+	if err := json.MarshalEncode(enc, headerOf(h)); err != nil {
 		return nil, err
 	}
-	return &Writer{enc: enc, v3: h.Version == 3, line: make([]any, 3)}, nil
+	return &Writer{enc: enc, v3: h.Version == 3}, nil
 }
 
 // headerOf returns the JSON of h.
@@ -78,14 +78,13 @@ func (w *Writer) WriteEvent(ev Event) error {
 		from = w.prev
 	}
 	w.prev = ev.Time
-	w.line[0], w.line[1], w.line[2] = formatTime(ev.Time-from), ev.Code, ev.Data
-	return w.enc.Encode(w.line)
+	return json.MarshalEncode(w.enc, [3]any{formatTime(ev.Time - from), ev.Code, ev.Data})
 }
 
 // formatTime formats an offset in whole milliseconds as seconds.
-func formatTime(d time.Duration) json.Number {
+func formatTime(d time.Duration) jsontext.Value {
 	ms := d.Milliseconds()
-	return json.Number(fmt.Sprintf("%d.%03d", ms/1000, ms%1000))
+	return jsontext.Value(fmt.Sprintf("%d.%03d", ms/1000, ms%1000))
 }
 
 // CarryRune returns data after tail as a string, for the data of an event,

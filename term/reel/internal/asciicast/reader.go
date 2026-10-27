@@ -7,7 +7,8 @@ package asciicast
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,10 @@ import (
 )
 
 var errV1 = errors.New("asciicast v1 is not supported")
+
+// readOptions read JSON as asciinema does: a name given twice takes its last
+// value, and bytes that are not UTF-8 read as U+FFFD.
+var readOptions = json.JoinOptions(jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))
 
 // Reader reads the event lines of a file. Lines starting with "#" after the
 // header are comments, and blank lines are skipped, as are header fields
@@ -60,7 +65,7 @@ func NewReader(r io.Reader, codes ...string) (*Reader, error) {
 	}
 
 	var hl castHeader
-	if jerr := json.Unmarshal(line, &hl); jerr != nil {
+	if jerr := json.Unmarshal(line, &hl, readOptions); jerr != nil {
 		if isV1(line, cr.br) {
 			return nil, errV1
 		}
@@ -117,22 +122,25 @@ func (r *Reader) Next() (Event, error) {
 // offset from the start in v2. Data is left empty for the other codes.
 func (r *Reader) parseEvent(line []byte) (Event, bool, error) {
 	var ev Event
-	var fields []json.RawMessage
-	if err := json.Unmarshal(line, &fields); err != nil {
+	if bytes.TrimSpace(line)[0] != '[' {
+		return ev, false, errors.New("event is not a JSON array")
+	}
+	var fields []jsontext.Value
+	if err := json.Unmarshal(line, &fields, readOptions); err != nil {
 		return ev, false, err
 	}
 	if len(fields) != 3 {
 		return ev, false, fmt.Errorf("event has %d fields, want time, code, and data", len(fields))
 	}
 	var secs *float64
-	if err := json.Unmarshal(fields[0], &secs); err != nil || secs == nil {
+	if err := json.Unmarshal(fields[0], &secs, readOptions); err != nil || secs == nil {
 		return ev, false, fmt.Errorf("event time %s is not a number", fields[0])
 	}
 	if *secs < 0 || *secs > MaxTime.Seconds() {
 		return ev, false, fmt.Errorf("event time %v is out of range", *secs)
 	}
 	ev.Time = time.Duration(math.Round(*secs * float64(time.Second)))
-	if err := json.Unmarshal(fields[1], &ev.Code); err != nil {
+	if err := json.Unmarshal(fields[1], &ev.Code, readOptions); err != nil {
 		return ev, false, fmt.Errorf("event code: %w", err)
 	}
 	if ev.Code == "" {
@@ -142,7 +150,7 @@ func (r *Reader) parseEvent(line []byte) (Event, bool, error) {
 		return ev, false, nil
 	}
 	var data *string
-	if err := json.Unmarshal(fields[2], &data); err != nil || data == nil {
+	if err := json.Unmarshal(fields[2], &data, readOptions); err != nil || data == nil {
 		return ev, false, fmt.Errorf("%q event: data %s is not a string", ev.Code, fields[2])
 	}
 	ev.Data = *data
@@ -162,21 +170,20 @@ func readLine(br *bufio.Reader) ([]byte, error) {
 // for the version among the object's fields in the first MiB, where v1
 // files have it first.
 func isV1(first []byte, br *bufio.Reader) bool {
-	dec := json.NewDecoder(io.MultiReader(bytes.NewReader(first), io.LimitReader(br, 1<<20)))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+	dec := jsontext.NewDecoder(io.MultiReader(bytes.NewReader(first), io.LimitReader(br, 1<<20)), readOptions)
+	if tok, err := dec.ReadToken(); err != nil || tok.Kind() != '{' {
 		return false
 	}
-	for dec.More() {
-		key, err := dec.Token()
+	for dec.PeekKind() == '"' {
+		key, err := dec.ReadToken()
 		if err != nil {
 			return false
 		}
-		if key == "version" {
+		if key.String() == "version" {
 			var v int
-			return dec.Decode(&v) == nil && v == 1
+			return json.UnmarshalDecode(dec, &v) == nil && v == 1
 		}
-		var skip json.RawMessage
-		if dec.Decode(&skip) != nil {
+		if dec.SkipValue() != nil {
 			return false
 		}
 	}

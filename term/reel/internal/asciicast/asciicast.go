@@ -80,21 +80,21 @@ type Event struct {
 // Height, Env, and Theme in v2.
 type castHeader struct {
 	Version      int            `json:"version"`
-	Term         *castTerm      `json:"term,omitempty"`
-	Width        int            `json:"width,omitempty"`
-	Height       int            `json:"height,omitempty"`
-	Timestamp    int64          `json:"timestamp,omitempty"`
-	Title        string         `json:"title,omitempty"`
-	Env          map[string]any `json:"env,omitempty"`
-	Theme        *castTheme     `json:"theme,omitempty"`
-	SkipPristine bool           `json:"skip_pristine,omitempty"`
+	Term         *castTerm      `json:"term,omitzero"`
+	Width        int            `json:"width,omitzero"`
+	Height       int            `json:"height,omitzero"`
+	Timestamp    int64          `json:"timestamp,omitzero"`
+	Title        string         `json:"title,omitzero"`
+	Env          map[string]any `json:"env,omitzero"`
+	Theme        *castTheme     `json:"theme,omitzero"`
+	SkipPristine bool           `json:"skip_pristine,omitzero"`
 }
 
 type castTerm struct {
 	Cols  int        `json:"cols"`
 	Rows  int        `json:"rows"`
-	Type  string     `json:"type,omitempty"`
-	Theme *castTheme `json:"theme,omitempty"`
+	Type  string     `json:"type,omitzero"`
+	Theme *castTheme `json:"theme,omitzero"`
 }
 
 // castTheme is the JSON of a header's colors. Fg, Bg, and Palette are
@@ -103,7 +103,7 @@ type castTheme struct {
 	Fg      string `json:"fg"`
 	Bg      string `json:"bg"`
 	Palette string `json:"palette"`
-	Cursor  string `json:"cursor,omitempty"`
+	Cursor  string `json:"cursor,omitzero"`
 }
 
 // ParseSize parses a terminal width or height: digits, from 1 to
