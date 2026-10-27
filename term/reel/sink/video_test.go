@@ -63,7 +63,7 @@ func useFakeFFmpeg(t *testing.T) Option {
 }
 
 // requireVideo skips the test unless ffmpeg can encode format.
-func requireVideo(t *testing.T, format VideoFormat) *ffmpegInfo {
+func requireVideo(t *testing.T, format Format) *ffmpegInfo {
 	t.Helper()
 	if err := CheckVideo(format); err != nil {
 		t.Skipf("skipping %s: %v", format, err)
@@ -178,7 +178,7 @@ var videoTestColors = []color.NRGBA{
 var videoTestDelays = []time.Duration{2 * time.Second, 30 * time.Millisecond, 500 * time.Millisecond, 1500 * time.Millisecond}
 
 // writeTestVideo encodes videoTestColors as w×h frames for videoTestDelays.
-func writeTestVideo(t *testing.T, format VideoFormat, w, h int, opts ...Option) string {
+func writeTestVideo(t *testing.T, format Format, w, h int, opts ...Option) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "out."+string(format))
 	enc, err := CreateVideo(path, format, opts...)
@@ -217,7 +217,7 @@ func assertOnlyFile(t *testing.T, path string) {
 func TestVideoTimelineFollowsDelays(t *testing.T) {
 	t.Parallel()
 
-	for _, format := range []VideoFormat{VideoMP4, VideoWebM} {
+	for _, format := range []Format{FormatMP4, FormatWebM} {
 		t.Run(string(format), func(t *testing.T) {
 			t.Parallel()
 			info := requireVideo(t, format)
@@ -239,7 +239,7 @@ func TestVideoTimelineFollowsDelays(t *testing.T) {
 
 func TestVideoWebPDelaysAndLoop(t *testing.T) {
 	t.Parallel()
-	requireVideo(t, VideoWebP)
+	requireVideo(t, FormatWebP)
 
 	for _, tc := range []struct {
 		loop, want int
@@ -248,7 +248,7 @@ func TestVideoWebPDelaysAndLoop(t *testing.T) {
 		{LoopOnce, 1},
 		{2, 3},
 	} {
-		path := writeTestVideo(t, VideoWebP, 63, 31, WithLoopCount(tc.loop))
+		path := writeTestVideo(t, FormatWebP, 63, 31, WithLoopCount(tc.loop))
 		delays, loops := webpDelays(t, path)
 		if !slices.Equal(delays, videoTestDelays) {
 			t.Fatalf("delays = %v, want %v", delays, videoTestDelays)
@@ -263,10 +263,10 @@ func TestVideoWebPDelaysAndLoop(t *testing.T) {
 // one: the last frame still ends at the total of every delay.
 func TestVideoWebPMergedFrames(t *testing.T) {
 	t.Parallel()
-	requireVideo(t, VideoWebP)
+	requireVideo(t, FormatWebP)
 
 	path := filepath.Join(t.TempDir(), "merged.webp")
-	enc, err := CreateVideo(path, VideoWebP, WithQuality(60))
+	enc, err := CreateVideo(path, FormatWebP, WithQuality(60))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,13 +299,13 @@ func TestVideoColors(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		format VideoFormat
+		format Format
 		opts   []Option
 	}{
-		{VideoMP4, nil},
-		{VideoMP4, []Option{WithFullChroma(true)}},
-		{VideoWebM, nil},
-		{VideoWebM, []Option{WithQuality(MaxQuality), WithFullChroma(true)}},
+		{FormatMP4, nil},
+		{FormatMP4, []Option{WithFullChroma(true)}},
+		{FormatWebM, nil},
+		{FormatWebM, []Option{WithQuality(MaxQuality), WithFullChroma(true)}},
 	} {
 		t.Run(fmt.Sprintf("%s/%d", tc.format, len(tc.opts)), func(t *testing.T) {
 			t.Parallel()
@@ -332,10 +332,10 @@ func TestVideoColors(t *testing.T) {
 // drawn at the top left of the first frame's canvas and the rest padded.
 func TestVideoCanvasFollowsFirstFrame(t *testing.T) {
 	t.Parallel()
-	info := requireVideo(t, VideoMP4)
+	info := requireVideo(t, FormatMP4)
 
 	path := filepath.Join(t.TempDir(), "resize.mp4")
-	enc, err := CreateVideo(path, VideoMP4, WithBackground(color.White), WithFullChroma(true))
+	enc, err := CreateVideo(path, FormatMP4, WithBackground(color.White), WithFullChroma(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,10 +382,10 @@ func TestVideoCanvasFollowsFirstFrame(t *testing.T) {
 
 func TestVideoThroughRecorder(t *testing.T) {
 	t.Parallel()
-	info := requireVideo(t, VideoWebM)
+	info := requireVideo(t, FormatWebM)
 
 	path := filepath.Join(t.TempDir(), "rec.webm")
-	enc, err := CreateVideo(path, VideoWebM)
+	enc, err := CreateVideo(path, FormatWebM)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,10 +423,10 @@ func TestVideoThroughRecorder(t *testing.T) {
 
 func TestVideoNoFramesWritesNothing(t *testing.T) {
 	t.Parallel()
-	requireVideo(t, VideoMP4)
+	requireVideo(t, FormatMP4)
 
 	dir := t.TempDir()
-	enc, err := CreateVideo(filepath.Join(dir, "empty.mp4"), VideoMP4)
+	enc, err := CreateVideo(filepath.Join(dir, "empty.mp4"), FormatMP4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,13 +440,13 @@ func TestVideoNoFramesWritesNothing(t *testing.T) {
 
 func TestVideoDiscardKeepsExistingFile(t *testing.T) {
 	t.Parallel()
-	requireVideo(t, VideoMP4)
+	requireVideo(t, FormatMP4)
 
 	path := filepath.Join(t.TempDir(), "keep.mp4")
 	if err := os.WriteFile(path, []byte("previous"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	enc, err := CreateVideo(path, VideoMP4)
+	enc, err := CreateVideo(path, FormatMP4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestVideoMissingEncoder(t *testing.T) {
 	fake := useFakeFFmpeg(t)
 
 	dir := t.TempDir()
-	_, err := CreateVideo(filepath.Join(dir, "out.webp"), VideoWebP, fake)
+	_, err := CreateVideo(filepath.Join(dir, "out.webp"), FormatWebP, fake)
 	var missing *MissingEncoderError
 	if !errors.As(err, &missing) {
 		t.Fatalf("CreateVideo = %v, want MissingEncoderError", err)
@@ -506,7 +506,7 @@ func TestVideoMissingEncoder(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("dir holds %d entries, want none", len(entries))
 	}
-	if err := CheckVideo(VideoMP4, fake); err != nil {
+	if err := CheckVideo(FormatMP4, fake); err != nil {
 		t.Fatalf("CheckVideo(mp4) with libx264 = %v", err)
 	}
 }
@@ -520,7 +520,7 @@ func TestVideoFailedEncodeKeepsExistingFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("previous"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	enc, err := CreateVideo(path, VideoMP4, fake)
+	enc, err := CreateVideo(path, FormatMP4, fake)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestVideoRejectsBadOptions(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "out.mp4")
 	for _, opt := range []Option{WithQuality(-1), WithQuality(MaxQuality + 1), WithLoopCount(LoopOnce - 1)} {
-		if _, err := CreateVideo(path, VideoMP4, opt); err == nil {
+		if _, err := CreateVideo(path, FormatMP4, opt); err == nil {
 			t.Fatal("expected error for out-of-range option")
 		}
 	}
@@ -569,18 +569,18 @@ func TestVideoQualityArgs(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		format VideoFormat
+		format Format
 		opts   []Option
 		want   []string
 	}{
-		{VideoMP4, nil, []string{"-crf", "18"}},
-		{VideoMP4, []Option{WithQuality(0)}, []string{"-crf", "51"}},
-		{VideoMP4, []Option{WithQuality(MaxQuality)}, []string{"-crf", "0"}},
-		{VideoWebM, nil, []string{"-crf", "30"}},
-		{VideoWebM, []Option{WithQuality(MaxQuality)}, []string{"-lossless", "1"}},
-		{VideoWebP, nil, []string{"-lossless", "1"}},
-		{VideoWebP, []Option{WithQuality(MaxQuality)}, []string{"-lossless", "1"}},
-		{VideoWebP, []Option{WithQuality(50)}, []string{"-lossless", "0", "-quality", "50"}},
+		{FormatMP4, nil, []string{"-crf", "18"}},
+		{FormatMP4, []Option{WithQuality(0)}, []string{"-crf", "51"}},
+		{FormatMP4, []Option{WithQuality(MaxQuality)}, []string{"-crf", "0"}},
+		{FormatWebM, nil, []string{"-crf", "30"}},
+		{FormatWebM, []Option{WithQuality(MaxQuality)}, []string{"-lossless", "1"}},
+		{FormatWebP, nil, []string{"-lossless", "1"}},
+		{FormatWebP, []Option{WithQuality(MaxQuality)}, []string{"-lossless", "1"}},
+		{FormatWebP, []Option{WithQuality(50)}, []string{"-lossless", "0", "-quality", "50"}},
 	} {
 		cfg, err := collectOptions(validateVideo, tc.opts...)
 		if err != nil {

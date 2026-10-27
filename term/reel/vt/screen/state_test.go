@@ -97,6 +97,36 @@ func TestStateSameCommit(t *testing.T) {
 	}
 }
 
+// TestStateSameLook checks that SameLook is SameCommit, with focus and colors
+// compared too.
+func TestStateSameLook(t *testing.T) {
+	t.Parallel()
+
+	a := State{Generation: 3, Title: "t", Focused: true}
+	if !a.SameLook(a) {
+		t.Fatal("a state does not look the same as itself")
+	}
+	for name, change := range map[string]func(*State){
+		"generation":       func(s *State) { s.Generation++ },
+		"focus":            func(s *State) { s.Focused = false },
+		"foreground":       func(s *State) { s.Foreground = color.NRGBA{R: 1, A: 0xff} },
+		"background":       func(s *State) { s.Background = color.NRGBA{G: 1, A: 0xff} },
+		"cursor color":     func(s *State) { s.CursorColor = color.NRGBA{B: 1, A: 0xff} },
+		"cursor color set": func(s *State) { s.CursorColorSet = true },
+	} {
+		b := a
+		change(&b)
+		if a.SameLook(b) {
+			t.Errorf("states that differ only in %s look the same", name)
+		}
+	}
+	b := a
+	b.ScrollbackLen = 5
+	if !a.SameLook(b) {
+		t.Error("scrollback changed the look")
+	}
+}
+
 func TestStateShownProgress(t *testing.T) {
 	t.Parallel()
 

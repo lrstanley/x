@@ -5,6 +5,7 @@
 package render
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"maps"
@@ -231,6 +232,21 @@ func WithPalette(palette Palette) Option {
 		d.opts.Palette = config.ClonePalette(palette)
 		return nil
 	}
+}
+
+// PaletteOf returns the palette opts set with [WithPalette], the last one
+// winning, or the zero palette, which draws with the built-in defaults,
+// without one. It only applies opts, without loading fonts, and returns
+// their errors.
+func PaletteOf(opts ...Option) (Palette, error) {
+	d := &Renderer{opts: config.DefaultOptions()}
+	var errs []error
+	for _, opt := range opts {
+		if opt != nil {
+			errs = append(errs, opt(d))
+		}
+	}
+	return config.ClonePalette(d.opts.Palette), errors.Join(errs...)
 }
 
 // WithScrollbar sets whether to draw a scrollbar.

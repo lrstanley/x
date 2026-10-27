@@ -41,7 +41,7 @@ type GIFEncoder struct {
 	done bool
 }
 
-var _ Encoder = (*GIFEncoder)(nil)
+var _ Sink = (*GIFEncoder)(nil)
 
 // NewGIF returns an encoder that writes the GIF to w on [GIFEncoder.Close].
 func NewGIF(w io.Writer, opts ...Option) (*GIFEncoder, error) {

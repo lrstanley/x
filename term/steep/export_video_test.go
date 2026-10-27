@@ -21,7 +21,7 @@ import (
 )
 
 // requireVideo skips the test unless ffmpeg can encode format.
-func requireVideo(t *testing.T, format sink.VideoFormat) {
+func requireVideo(t *testing.T, format sink.Format) {
 	t.Helper()
 	if err := sink.CheckVideo(format); err != nil {
 		t.Skipf("cannot encode %s: %v", format, err)
@@ -260,7 +260,7 @@ func TestExportTypeAllWithoutFFmpeg(t *testing.T) {
 }
 
 func TestExportGIFAndVideo(t *testing.T) {
-	requireVideo(t, sink.VideoMP4)
+	requireVideo(t, sink.FormatMP4)
 	dir := t.TempDir()
 	h := videoHarness(t, dir, ExportOn, ExportTypeGIF|ExportTypeMP4)
 	h.Type("a").Type("b").Type("c")
@@ -279,11 +279,11 @@ func TestExportGIFAndVideo(t *testing.T) {
 func TestExportEveryVideoFormat(t *testing.T) {
 	for _, v := range []struct {
 		typ    ExportType
-		format sink.VideoFormat
+		format sink.Format
 	}{
-		{ExportTypeMP4, sink.VideoMP4},
-		{ExportTypeWebM, sink.VideoWebM},
-		{ExportTypeWebP, sink.VideoWebP},
+		{ExportTypeMP4, sink.FormatMP4},
+		{ExportTypeWebM, sink.FormatWebM},
+		{ExportTypeWebP, sink.FormatWebP},
 	} {
 		t.Run(string(v.format), func(t *testing.T) {
 			requireVideo(t, v.format)
@@ -302,7 +302,7 @@ func TestExportEveryVideoFormat(t *testing.T) {
 // TestExportVideoOnly checks that a recording without a GIF still gets
 // commit-driven frames and the key overlay.
 func TestExportVideoOnly(t *testing.T) {
-	requireVideo(t, sink.VideoMP4)
+	requireVideo(t, sink.FormatMP4)
 	dir := t.TempDir()
 	h := videoHarness(t, dir, ExportOn, ExportTypeMP4, WithExportKeys(time.Second))
 	if h.export.keys == nil {
@@ -321,7 +321,7 @@ func TestExportVideoOnly(t *testing.T) {
 }
 
 func TestExportVideoOnFailure(t *testing.T) {
-	requireVideo(t, sink.VideoMP4)
+	requireVideo(t, sink.FormatMP4)
 	t.Run("passing", func(t *testing.T) {
 		dir := t.TempDir()
 		h := videoHarness(t, dir, ExportOnFailure, ExportTypeGIF|ExportTypeMP4)
@@ -344,7 +344,7 @@ func TestExportVideoOnFailure(t *testing.T) {
 }
 
 func TestExportVideoOnCopiesFailed(t *testing.T) {
-	requireVideo(t, sink.VideoMP4)
+	requireVideo(t, sink.FormatMP4)
 	dir := t.TempDir()
 	h := videoHarness(t, dir, ExportOn, ExportTypeMP4)
 	h.Type("a").Type("b")

@@ -6,60 +6,20 @@ package sink
 
 import (
 	"errors"
-	"image"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// Frame is one frame of a recording: what [WithChannel] receives, and what an
-// [Encoder] is given.
-type Frame struct {
-	Image image.Image
-	// Delay is how long the frame plays. Sent to a [Recorder], zero means the
-	// time since the previous frame was read. Given to an [Encoder], it is
-	// always positive.
-	Delay time.Duration
-	// Isolated palettizes this frame on its own palette. It adds no colors to
-	// the shared recording palette, and consecutive isolated frames share one
-	// palette so they stay comparable to each other. GIF stores that palette
-	// as a local color table on each of those frames, and other formats
-	// ignore it. Terminal frames leave it false.
-	Isolated bool
-	// Done, when set, is called from the recorder's goroutine once the encoder
-	// has returned from the frame. Image is then handed back to the sender,
-	// which may reuse it, so the sender must not share it with anything else.
-	// An [Encoder] is never given a Done.
-	Done func()
-}
-
-var (
-	errNilFrame   = errors.New("sink: nil frame")
-	errEmptyFrame = errors.New("sink: empty frame bounds")
-)
-
-// Encoder writes frames into one output, such as [GIFEncoder] or
-// [VideoEncoder]. A [Recorder] calls it from a single goroutine, so encoders
-// need not be safe for concurrent use.
-type Encoder interface {
-	// WriteFrame adds the next frame, which plays for f.Delay. f.Image is only
-	// valid until WriteFrame returns, so an encoder that keeps it must copy it.
-	WriteFrame(f Frame) error
-	// Close finishes the output. With no frames written, it writes nothing.
-	Close() error
-	// Discard abandons the output, leaving any existing destination alone.
-	Discard() error
-}
-
 // Recorder reads frames from [WithChannel], or captures them with
-// [WithFrameRate], and writes them to an [Encoder] with resolved delays. Every
+// [WithFrameRate], and writes them to a [Sink] with resolved delays. Every
 // encoder fed the same frames plays on the same timeline: a zero
 // [Frame.Delay] becomes the time since the previous frame was read, and each
 // delay is rounded to whole steps of the delay grid ([WithDelayGrid] or the
 // [WithFrameRate] FPS), or of 10ms without one, at least one step.
 type Recorder struct {
-	enc  Encoder
+	enc  Sink
 	opts options
 	// step is the delay grid.
 	step time.Duration
@@ -82,7 +42,7 @@ type Recorder struct {
 // [WithFrameRate], and reads [WithDelayGrid]. Other options are ignored, so
 // the option list of the encoder can be shared. Call [Recorder.Close] to
 // finish the output.
-func Record(enc Encoder, opts ...Option) (*Recorder, error) {
+func Record(enc Sink, opts ...Option) (*Recorder, error) {
 	if enc == nil {
 		return nil, errors.New("sink: nil encoder")
 	}

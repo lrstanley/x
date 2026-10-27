@@ -18,18 +18,18 @@ import (
 var mediaTypes = []struct {
 	typ    ExportType
 	ext    string
-	create func(path string, opts ...sink.Option) (sink.Encoder, error)
+	create func(path string, opts ...sink.Option) (sink.Sink, error)
 }{
-	{ExportTypeGIF, "gif", func(path string, opts ...sink.Option) (sink.Encoder, error) {
+	{ExportTypeGIF, "gif", func(path string, opts ...sink.Option) (sink.Sink, error) {
 		return sink.CreateGIF(path, opts...)
 	}},
-	{ExportTypeMP4, "mp4", createVideo(sink.VideoMP4)},
-	{ExportTypeWebM, "webm", createVideo(sink.VideoWebM)},
-	{ExportTypeWebP, "webp", createVideo(sink.VideoWebP)},
+	{ExportTypeMP4, "mp4", createVideo(sink.FormatMP4)},
+	{ExportTypeWebM, "webm", createVideo(sink.FormatWebM)},
+	{ExportTypeWebP, "webp", createVideo(sink.FormatWebP)},
 }
 
-func createVideo(format sink.VideoFormat) func(string, ...sink.Option) (sink.Encoder, error) {
-	return func(path string, opts ...sink.Option) (sink.Encoder, error) {
+func createVideo(format sink.Format) func(string, ...sink.Option) (sink.Sink, error) {
+	return func(path string, opts ...sink.Option) (sink.Sink, error) {
 		enc, err := sink.CreateVideo(path, format, opts...)
 		if err != nil {
 			return nil, fmt.Errorf(

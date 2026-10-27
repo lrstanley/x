@@ -15,22 +15,7 @@ import (
 	"time"
 )
 
-// VideoFormat is a recording format [CreateVideo] encodes through ffmpeg.
-type VideoFormat string
-
-const (
-	// VideoMP4 is H.264 in MP4 (libx264), which plays nearly everywhere.
-	VideoMP4 VideoFormat = "mp4"
-	// VideoWebM is VP9 in WebM (libvpx-vp9).
-	VideoWebM VideoFormat = "webm"
-	// VideoWebP is animated WebP (libwebp). It keeps transparency and
-	// [WithLoopCount], but ffmpeg builds without libwebp are common.
-	VideoWebP VideoFormat = "webp"
-)
-
-var videoFormats = []VideoFormat{VideoMP4, VideoWebM, VideoWebP}
-
-// videoProfile is how one [VideoFormat] is encoded.
+// videoProfile is how one [Format] is encoded.
 type videoProfile struct {
 	// muxer is ffmpeg's output format name.
 	muxer string
@@ -44,8 +29,8 @@ type videoProfile struct {
 	args func(o options) []string
 }
 
-var videoProfiles = map[VideoFormat]videoProfile{
-	VideoMP4: {
+var videoProfiles = map[Format]videoProfile{ //nolint:exhaustive // GIF and PNG are not video.
+	FormatMP4: {
 		muxer:    "mp4",
 		encoders: []string{"libx264"},
 		args: func(o options) []string {
@@ -62,7 +47,7 @@ var videoProfiles = map[VideoFormat]videoProfile{
 			}
 		},
 	},
-	VideoWebM: {
+	FormatWebM: {
 		muxer:    "webm",
 		encoders: []string{"libvpx-vp9"},
 		args: func(o options) []string {
@@ -77,7 +62,7 @@ var videoProfiles = map[VideoFormat]videoProfile{
 			return args
 		},
 	},
-	VideoWebP: {
+	FormatWebP: {
 		muxer: "webp",
 		// libwebp_anim stores only what changed between frames, which makes
 		// a terminal recording about a seventh the size of libwebp's full
@@ -116,7 +101,7 @@ func webpLoopCount(n int) int {
 	return min(n+1, maxGIFLoopCount)
 }
 
-func lookupVideoProfile(format VideoFormat) (videoProfile, error) {
+func lookupVideoProfile(format Format) (videoProfile, error) {
 	p, ok := videoProfiles[format]
 	if !ok {
 		return videoProfile{}, fmt.Errorf("sink: unknown video format %q", format)
@@ -125,7 +110,7 @@ func lookupVideoProfile(format VideoFormat) (videoProfile, error) {
 }
 
 // findVideoEncoder probes ffmpeg and picks the first encoder p can use.
-func findVideoEncoder(format VideoFormat, p videoProfile, o options) (*ffmpegInfo, string, error) {
+func findVideoEncoder(format Format, p videoProfile, o options) (*ffmpegInfo, string, error) {
 	info, err := findFFmpeg(o.ffmpeg, format)
 	if err != nil {
 		return nil, "", err
@@ -141,7 +126,7 @@ func findVideoEncoder(format VideoFormat, p videoProfile, o options) (*ffmpegInf
 // CheckVideo reports whether [CreateVideo] can encode format with opts: that
 // ffmpeg is installed and has an encoder for it. It runs ffmpeg only to probe
 // it, once per binary.
-func CheckVideo(format VideoFormat, opts ...Option) error {
+func CheckVideo(format Format, opts ...Option) error {
 	cfg, err := collectOptions(validateVideo, opts...)
 	if err != nil {
 		return err
@@ -165,7 +150,7 @@ func CheckVideo(format VideoFormat, opts ...Option) error {
 // failed or discarded encode leaves an existing file alone.
 type VideoEncoder struct {
 	opts    options
-	format  VideoFormat
+	format  Format
 	profile videoProfile
 	info    *ffmpegInfo
 	encoder string
@@ -184,7 +169,7 @@ type VideoEncoder struct {
 	done bool
 }
 
-var _ Encoder = (*VideoEncoder)(nil)
+var _ Sink = (*VideoEncoder)(nil)
 
 // CreateVideo returns an encoder that writes frames to path as format. It
 // finds and probes ffmpeg first, so a missing binary (wrapping
@@ -193,7 +178,22 @@ var _ Encoder = (*VideoEncoder)(nil)
 //
 // It reads [WithQuality], [WithFullChroma], [WithBackground], [WithFFmpeg],
 // and, for WebP, [WithLoopCount]. Other options are ignored.
-func CreateVideo(path string, format VideoFormat, opts ...Option) (*VideoEncoder, error) {
+func CreateVideo(path string, format Format, opts ...Option) (*VideoEncoder, error) {
+	return newVideo(func() (*pendingFile, error) { return createPending(path) }, format, opts)
+}
+
+// NewVideo is [CreateVideo] writing to w instead of a file. ffmpeg encodes
+// into a temporary file, as MP4 and WebP need a seekable output, which
+// [VideoEncoder.Close] copies to w; nothing is written to w before then.
+func NewVideo(w io.Writer, format Format, opts ...Option) (*VideoEncoder, error) {
+	if w == nil {
+		return nil, errors.New("sink: nil writer")
+	}
+	return newVideo(func() (*pendingFile, error) { return createPendingWriter(w) }, format, opts)
+}
+
+// newVideo probes ffmpeg for format, then creates the output with create.
+func newVideo(create func() (*pendingFile, error), format Format, opts []Option) (*VideoEncoder, error) {
 	cfg, err := collectOptions(validateVideo, opts...)
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func CreateVideo(path string, format VideoFormat, opts ...Option) (*VideoEncoder
 	if err != nil {
 		return nil, err
 	}
-	file, err := createPending(path)
+	file, err := create()
 	if err != nil {
 		return nil, fmt.Errorf("sink: creating %s output: %w", format, err)
 	}
@@ -416,7 +416,7 @@ func (s *VideoEncoder) Close() error {
 		_ = s.file.abort()
 		return s.err
 	}
-	if s.format == VideoWebP {
+	if s.format == FormatWebP {
 		total := time.Duration(s.mkv.pts) * mkvTick //nolint:gosec // milliseconds of recording.
 		if err := fixWebP(s.file.f.Name(), s.opts.loopCount, total); err != nil {
 			_ = s.file.abort()

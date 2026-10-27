@@ -35,7 +35,7 @@ const ffmpegStderrLimit = 16 << 10
 // can use.
 type MissingEncoderError struct {
 	// Format is the requested video format.
-	Format VideoFormat
+	Format Format
 	// Encoders are the ffmpeg encoders the format can use, preferred first.
 	Encoders []string
 	// FFmpeg is the path of the ffmpeg binary that was probed.
@@ -73,7 +73,7 @@ var (
 
 // findFFmpeg resolves the ffmpeg binary (name on PATH, or a path) and probes
 // it once.
-func findFFmpeg(name string, format VideoFormat) (*ffmpegInfo, error) {
+func findFFmpeg(name string, format Format) (*ffmpegInfo, error) {
 	if name == "" {
 		name = "ffmpeg"
 	}

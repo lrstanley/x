@@ -18,6 +18,15 @@
 // [Timeline.WriteTo], which asciinema plays, and read back, or read from a
 // file asciinema recorded, with [ReadTimeline].
 //
+// [Export] turns a timeline into files: GIF, MP4, WebM, animated WebP, a PNG
+// of the last frame, per-mark stills, and asciicast. It replays the timeline
+// into a fresh terminal, draws each change the terminal shows as a frame,
+// runs the frames through the [Effect] stages of a [Profile], and writes them
+// to the [Sink] of every output, with delays taken from the timeline, never
+// the wall clock, so exporting a timeline twice writes the same bytes.
+// [Record] runs the same pipeline on a [Session] while it runs, tailing its
+// timeline with [Timeline.Updated], and writes the files Export would.
+//
 // Input is recorded as the exact bytes the terminal sent the program, encoded
 // in whatever keyboard and mouse modes the program had set.
 // [Input.Strokes] decodes them back into key names, typed text, pastes, and

@@ -275,6 +275,26 @@ func TestRendererPaletteFrozenAtNew(t *testing.T) {
 	}
 }
 
+func TestPaletteOf(t *testing.T) {
+	t.Parallel()
+
+	blue := color.NRGBA{B: 0xff, A: 0xff}
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	if p, err := PaletteOf(WithScale(2)); err != nil || p.Indexed != nil {
+		t.Fatalf("PaletteOf without a palette = %+v, %v", p, err)
+	}
+	p, err := PaletteOf(
+		WithPalette(Palette{Indexed: map[int]color.Color{1: blue}}),
+		WithPalette(Palette{Indexed: map[int]color.Color{2: red}}),
+	)
+	if err != nil || p.Indexed[1] != nil || p.Indexed[2] != red {
+		t.Fatalf("PaletteOf = %+v, %v; want the last palette", p, err)
+	}
+	if _, err = PaletteOf(WithScale(-1)); err == nil {
+		t.Fatal("PaletteOf with an invalid option succeeded")
+	}
+}
+
 func TestWithFontFamilyName(t *testing.T) {
 	t.Parallel()
 

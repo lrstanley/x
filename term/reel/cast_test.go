@@ -7,6 +7,7 @@ package reel
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image/color"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 var (
@@ -64,6 +67,17 @@ func rounded(tl *Timeline) []Event {
 	return out
 }
 
+// withDefaultPalette returns h with the palette a file without one of its
+// own is written with, which it reads back with.
+func withDefaultPalette(h Header) Header {
+	for i := range h.Palette {
+		if h.Palette[i] == nil {
+			h.Palette[i] = color.NRGBAModel.Convert(screen.Indexed(i))
+		}
+	}
+	return h
+}
+
 func TestCastRoundTrip(t *testing.T) {
 	t.Parallel()
 	tl := newTimeline(Header{
@@ -90,8 +104,8 @@ func TestCastRoundTrip(t *testing.T) {
 	}
 
 	got := readCast(t, writeCast(t, tl, CastV3))
-	if got.Header() != tl.Header() {
-		t.Fatalf("Header = %+v, want %+v", got.Header(), tl.Header())
+	if want := withDefaultPalette(tl.Header()); got.Header() != want {
+		t.Fatalf("Header = %+v, want %+v", got.Header(), want)
 	}
 	if !got.start.Equal(tl.start) {
 		t.Fatalf("start = %v, want %v", got.start, tl.start)
@@ -199,7 +213,7 @@ func TestCastV2RoundTrip(t *testing.T) {
 	}
 	got := readCast(t, writeCast(t, tl, CastV2))
 	// v2 has no slot for the cursor color.
-	if want := (Header{Cols: 80, Rows: 24, Title: "v2", Theme: Colors{Fg: castFg, Bg: castBg}}); got.Header() != want {
+	if want := withDefaultPalette(Header{Cols: 80, Rows: 24, Title: "v2", Theme: Colors{Fg: castFg, Bg: castBg}}); got.Header() != want {
 		t.Fatalf("Header = %+v, want %+v", got.Header(), want)
 	}
 	assertEvents(t, got,
@@ -288,8 +302,8 @@ func TestCastSession(t *testing.T) {
 
 	tl := s.Timeline()
 	got := readCast(t, writeCast(t, tl, CastV3))
-	if got.Header() != tl.Header() {
-		t.Fatalf("Header = %+v, want %+v", got.Header(), tl.Header())
+	if want := withDefaultPalette(tl.Header()); got.Header() != want {
+		t.Fatalf("Header = %+v, want %+v", got.Header(), want)
 	}
 	assertEvents(t, got, describe(rounded(tl))...)
 	if got.start.Unix() != tl.start.Unix() {
@@ -318,6 +332,11 @@ func TestReadTimelineAsciinema(t *testing.T) {
 	}
 }
 
+// hexNRGBA returns the opaque color 0xrrggbb.
+func hexNRGBA(rgb uint32) color.NRGBA {
+	return color.NRGBA{R: uint8(rgb >> 16), G: uint8(rgb >> 8), B: uint8(rgb), A: 0xff}
+}
+
 func TestReadTimelineSpec(t *testing.T) {
 	t.Parallel()
 	theme := Colors{Fg: castFg, Bg: castBg}
@@ -325,7 +344,14 @@ func TestReadTimelineSpec(t *testing.T) {
 	// Written by hand from the v3 spec: comments, blank lines, extra header
 	// fields, unknown codes, and intervals in microseconds.
 	tl := readCastFile(t, "spec-v3.cast")
-	if h := tl.Header(); h != (Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme}) {
+	want := Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme}
+	want.Palette[0], want.Palette[7], want.Palette[15] = hexNRGBA(0x151515), hexNRGBA(0xd0d0d0), hexNRGBA(0xf5f5f5)
+	if h := tl.Header(); h.Palette[0] != want.Palette[0] || h.Palette[7] != want.Palette[7] || h.Palette[15] != want.Palette[15] {
+		t.Fatalf("v3 palette = %v", h.Palette)
+	}
+	want.Palette, _ = parseCastPalette("#151515:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#d0d0d0:" +
+		"#505050:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#f5f5f5")
+	if h := tl.Header(); h != want {
 		t.Fatalf("v3 Header = %+v", h)
 	}
 	assertEvents(t, tl,
@@ -346,7 +372,12 @@ func TestReadTimelineSpec(t *testing.T) {
 	// And from the v2 spec, with an 8 color palette and an event out of
 	// order, which is raised to the one before.
 	tl = readCastFile(t, "spec-v2.cast")
-	if h := tl.Header(); h != (Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme}) {
+	want = Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme}
+	copy(want.Palette[:8], []color.Color{
+		hexNRGBA(0x151515), hexNRGBA(0xac4142), hexNRGBA(0x7e8e50), hexNRGBA(0xe5b567),
+		hexNRGBA(0x6c99bb), hexNRGBA(0x9f4e85), hexNRGBA(0x7dd6cf), hexNRGBA(0xd0d0d0),
+	})
+	if h := tl.Header(); h != want {
 		t.Fatalf("v2 Header = %+v", h)
 	}
 	assertEvents(t, tl,
@@ -361,7 +392,7 @@ func TestReadTimelineSpec(t *testing.T) {
 
 func TestReadTimelineLenient(t *testing.T) {
 	t.Parallel()
-	in := "\ufeff" + `{"version":3,"term":{"cols":3,"rows":2,"theme":{"fg":"#000000","bg":"#ffffff","palette":"bad"}},"env":{"N":1},"x":[1]}` + "\r\n" +
+	in := "\ufeff" + `{"version":3,"term":{"cols":3,"rows":2,"theme":{"fg":"#000000","bg":"#ffffff","palette":""}},"env":{"N":1},"x":[1]}` + "\r\n" +
 		`[0.5,"z",{"not":"a string"}]` + "\r\n" +
 		`[0.5,"t","fg=#010203,bg=,shadow=#ffffff"]` + "\r\n" +
 		`  ` + "\n" +
@@ -412,6 +443,8 @@ func TestReadTimelineErrors(t *testing.T) {
 		{"huge size", `{"version":3,"term":{"cols":65536,"rows":24}}`, "terminal size 65536x24"},
 		{"signed resize", header + `[1, "r", "+80x24"]`, "is not COLSxROWS"},
 		{"huge resize", header + `[1, "r", "80x65536"]`, "is not COLSxROWS"},
+		{"bad palette", `{"version":3,"term":{"cols":1,"rows":1,"theme":{"fg":"#000000","bg":"#000000","palette":"bad"}}}`, `theme palette has 1 colors`},
+		{"bad palette color", `{"version":3,"term":{"cols":1,"rows":1,"theme":{"fg":"#000000","bg":"#000000","palette":"#000000:#000000:#000000:#000000:#000000:#000000:#000000:red"}}}`, `color "red"`},
 		{"bad theme bg", `{"version":3,"term":{"cols":1,"rows":1,"theme":{"fg":"#000000","bg":"","palette":""}}}`, `theme bg: color ""`},
 		{"bad theme cursor", `{"version":3,"term":{"cols":1,"rows":1,"theme":{"fg":"#000000","bg":"#000000","palette":"","cursor":"#00"}}}`, `theme cursor: color "#00"`},
 		{"bad resize", header + "# comment\n\n" + `[1, "r", "80"]`, `line 4: "r" event: size "80" is not COLSxROWS`},
@@ -455,12 +488,116 @@ func TestCastBetween(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The cut keeps the events before its window, and the timestamp.
+	// The cut starts at its window, with a redraw of what came before.
 	got := readCast(t, writeCast(t, part, CastV3))
-	if got.start.Unix() != 1700000000 {
-		t.Fatalf("start = %v", got.start)
+	if got.start.Unix() != 1700000001 {
+		t.Fatalf("start = %v, want the window's start", got.start)
 	}
-	assertEvents(t, got, `0 output "setup"`, `1000 mark a`, `2000 output "shown"`)
+	events := slices.Collect(got.Events())
+	if len(events) != 3 {
+		t.Fatalf("events = %v, want the redraw and the window", describe(events))
+	}
+	if o, ok := events[0].(Output); !ok || o.At() != 0 || !bytes.Contains(o.Data, []byte("setup")) {
+		t.Fatalf("first event = %v, want a redraw of the setup at 0", describe(events[:1]))
+	}
+	assertEvents(t, got.fixed(got.header, -1).cutAt(1), `0 mark a`, `1000 output "shown"`)
+
+	// A cut from the first event has nothing to redraw.
+	part, err = tl.Between("", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEvents(t, readCast(t, writeCast(t, part, CastV2)), `0 output "setup"`, `1000 mark a`)
+}
+
+// cutAt returns t without its first n events, for comparing the rest.
+func (t *Timeline) cutAt(n int) *Timeline {
+	return &Timeline{header: t.header, events: t.events[n:], from: -1}
+}
+
+// TestCastBetweenReplays checks that a cut written as a file replays to the
+// terminal the cut shows: at its start, from the redraw, and at its end.
+func TestCastBetweenReplays(t *testing.T) {
+	t.Parallel()
+	tl := newTimeline(Header{Cols: 30, Rows: 5, Theme: Colors{Fg: castFg, Bg: castBg}})
+	for _, ev := range []Event{
+		Output{event: at(0), Data: []byte("\x1b]2;title\x07\x1b[1;31mred\x1b[0m line\r\n\x1b[4munder\x1b[0m")},
+		Resize{event: at(10), Cols: 32, Rows: 6},
+		Theme{event: at(20), Colors: Colors{Bg: castCursor}},
+		Output{event: at(30), Data: []byte("\r\n\x1b]9;4;3\x07\x1b[?2004h\x1b[?25l\x1b[3 q\x1b[3;7Hcursor")},
+		Focus{event: at(40)},
+		Mark{event: at(50), Label: "cut"},
+		Output{event: at(60), Data: []byte("\x1b[?25h more\x1b]9;4;0\x07")},
+		Focus{event: at(70), On: true},
+		// Clearing the host colors in the window falls back to the
+		// header's, not to those the cut starts with.
+		Theme{event: at(75)},
+		Output{event: at(80), Data: []byte("\x1b[?1049h\x1b[Halt")},
+	} {
+		tl.appendAt(ev, ev.At())
+	}
+	cut, err := tl.Between("cut", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []CastVersion{CastV3, CastV2} {
+		back := readCast(t, writeCast(t, cut, v))
+		// The redraw, then in v3 the theme and focus events. v2 has neither,
+		// so the source is compared without them.
+		redraw, src := 3, tl.events
+		if v == CastV2 {
+			redraw = 1
+			src = slices.DeleteFunc(slices.Clone(src), func(ev Event) bool {
+				switch ev.(type) {
+				case Focus, Theme:
+					return true
+				}
+				return false
+			})
+		}
+		// At the start, the source replays the events before the window,
+		// and the file its redraw.
+		before := slices.IndexFunc(src, func(ev Event) bool { m, ok := ev.(Mark); return ok && m.Label == "cut" })
+		assertSameReplay(t, tl.header, src[:before], back.header, back.events[:redraw])
+		assertSameReplay(t, tl.header, src, back.header, back.events)
+	}
+}
+
+// assertSameReplay fails unless replaying a and b leaves the same terminal.
+func assertSameReplay(t *testing.T, ha Header, a []Event, hb Header, b []Event) {
+	t.Helper()
+	replayAll := func(h Header, events []Event) (screen.State, string) {
+		r, err := newReplay(t.Context(), replayRuntime, h, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.close()
+		for _, ev := range events {
+			if err = r.apply(ev); err != nil {
+				t.Fatal(err)
+			}
+		}
+		st := r.state()
+		st.Generation, st.ProgramStatusGeneration = 0, 0
+		var cells strings.Builder
+		scr := r.term.Screen()
+		for y := range scr.Height() {
+			for x := range scr.Width() {
+				c := scr.CellAt(x, y)
+				fmt.Fprintf(&cells, "%q%+v|", c.Content, c.Style)
+			}
+			cells.WriteByte('\n')
+		}
+		return st, cells.String()
+	}
+	sa, ca := replayAll(ha, a)
+	sb, cb := replayAll(hb, b)
+	if !sa.Equal(sb) {
+		t.Errorf("state:\n%+v\nwant:\n%+v", sb, sa)
+	}
+	if ca != cb {
+		t.Errorf("screen:\n%s\nwant:\n%s", cb, ca)
+	}
 }
 
 func FuzzReadTimeline(f *testing.F) {
@@ -488,4 +625,24 @@ func FuzzReadTimeline(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestCastPalette(t *testing.T) {
+	t.Parallel()
+	h := Header{Cols: 2, Rows: 1, Theme: Colors{Fg: castFg, Bg: castBg}}
+	h.Palette[1] = hexNRGBA(0xff0000)
+	h.Palette[12] = hexNRGBA(0x0000aa)
+	tl := newTimeline(h)
+	for _, v := range []CastVersion{CastV3, CastV2} {
+		data := writeCast(t, tl, v)
+		// Nil entries are written as the defaults.
+		if !bytes.Contains(data, []byte(`"palette":"#000000:#ff0000:#00cd00:`)) ||
+			!bytes.Contains(data, []byte(`:#ffff00:#0000aa:#ff00ff:`)) {
+			t.Fatalf("v%d header: %s", v, data)
+		}
+		got := readCast(t, data).Header()
+		if want := withDefaultPalette(h); got != want {
+			t.Fatalf("v%d Header = %+v, want %+v", v, got, want)
+		}
+	}
 }

@@ -7,6 +7,7 @@ package reel
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -85,8 +86,22 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 
 // WriteCast writes the timeline to w as asciicast version v, and returns the
 // number of bytes written. [ReadTimeline] reads it back. The file holds the
-// events appended before the call. A timeline returned by [Timeline.Between]
-// is written with every event it keeps, from the first; its window is not.
+// events appended before the call.
+//
+// A timeline returned by [Timeline.Between] is written as its window, so any
+// player shows only the cut. The events before the window are replayed into
+// a fresh terminal and replaced by one output event at the start, which
+// redraws what they left on it (see [vt.Terminal.Redraw] for what that
+// covers), followed by a theme and a focus event for the host colors and
+// focus they left, when they changed them. The header has the size they
+// left. Times count from the window's start, and the header's timestamp is
+// when the window started.
+//
+// The redraw holds only the screen shown at the window's start. A cut that
+// starts on the alternate screen, such as inside a full-screen program, and
+// later leaves it, shows a blank primary screen from then on, where the
+// source showed what was there before the program started. [Export] of the
+// cut replays every event, so its frames are unaffected.
 //
 // Event times are rounded to milliseconds. In v3, where each is written as
 // the interval since the one before, the intervals add up to the rounded
@@ -100,8 +115,8 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // them.
 //
 // The header has the size, the title, the time of the first event, and the
-// header colors with asciicast's 16 color palette, which is the one reel
-// draws with by default: the timeline has none of its own. The colors are
+// header colors with asciicast's 16 color palette: [Header.Palette], with
+// the colors reel draws with by default for its nil entries. The colors are
 // left out unless Fg and Bg are set. Events are asciicast's output ("o"),
 // input ("i"), resize ("r", as "COLSxROWS"), marker ("m"), and exit ("x"),
 // and two of reel's own, which other readers ignore: focus ("f", as "1" or
@@ -110,6 +125,13 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 func (t *Timeline) WriteCast(w io.Writer, v CastVersion) (int64, error) {
 	if v != CastV3 && v != CastV2 {
 		return 0, fmt.Errorf("reel: unknown asciicast version %d", v)
+	}
+	if t.from >= 0 {
+		c, err := t.cut()
+		if err != nil {
+			return 0, err
+		}
+		return c.WriteCast(w, v)
 	}
 	events := t.snapshot()
 	start := t.started()
@@ -129,6 +151,54 @@ func (t *Timeline) WriteCast(w io.Writer, v CastVersion) (int64, error) {
 	return cw.n, err
 }
 
+// cut returns the window of t as a timeline of its own, which starts at the
+// window's start: the events before the window are replaced by an output
+// event that redraws the terminal they leave, and the host colors and focus
+// they leave, at offset zero.
+func (t *Timeline) cut() (*Timeline, error) {
+	events := t.snapshot()
+	h, start := t.header, t.started()
+	from := max(t.from, 0)
+	before, window := events[:from], events[from:]
+	at := window[0].At()
+	out := make([]Event, 0, len(window)+3)
+	if len(before) > 0 {
+		r, err := newReplay(context.Background(), replayRuntime, h, from, 0)
+		if err != nil {
+			return nil, err
+		}
+		defer r.close()
+		var theme *Theme
+		for _, ev := range before {
+			if aerr := r.apply(ev); aerr != nil {
+				return nil, aerr
+			}
+			if th, ok := ev.(Theme); ok {
+				theme = &th
+			}
+		}
+		redraw, err := r.term.Redraw()
+		if err != nil {
+			return nil, err
+		}
+		h.Cols, h.Rows = r.term.Size()
+		out = append(out, Output{Data: redraw})
+		if theme != nil {
+			out = append(out, Theme{Colors: theme.Colors})
+		}
+		if !r.focused {
+			out = append(out, Focus{})
+		}
+	}
+	for _, ev := range window {
+		out = append(out, ev.stamp(ev.At()-at))
+	}
+	if !start.IsZero() {
+		start = start.Add(at)
+	}
+	return &Timeline{header: h, start: start, events: out, from: -1}, nil
+}
+
 // castHeaderOf returns the header line for a timeline with header h whose
 // first event was appended at start.
 func castHeaderOf(h Header, start time.Time, v CastVersion) castHeader {
@@ -141,7 +211,7 @@ func castHeaderOf(h Header, start time.Time, v CastVersion) castHeader {
 		theme = &castTheme{
 			Fg:      hexColor(h.Theme.Fg),
 			Bg:      hexColor(h.Theme.Bg),
-			Palette: defaultCastPalette(),
+			Palette: castPalette(h.Palette),
 		}
 	}
 	if v == CastV2 {
@@ -157,14 +227,38 @@ func castHeaderOf(h Header, start time.Time, v CastVersion) castHeader {
 	return ch
 }
 
-// defaultCastPalette returns the 16 colors indexed colors are drawn with
-// when no palette is set, in asciicast's form.
-func defaultCastPalette() string {
-	colors := make([]string, 16)
-	for i := range colors {
-		colors[i] = hexColor(screen.Indexed(i))
+// castPalette returns p in asciicast's form, with the colors indexed colors
+// are drawn with by default for its nil entries.
+func castPalette(p [16]color.Color) string {
+	colors := make([]string, len(p))
+	for i, c := range p {
+		if c == nil {
+			c = screen.Indexed(i)
+		}
+		colors[i] = hexColor(c)
 	}
 	return strings.Join(colors, ":")
+}
+
+// parseCastPalette parses an asciicast palette of 8 or 16 colors. An empty
+// palette is none.
+func parseCastPalette(s string) ([16]color.Color, error) {
+	var p [16]color.Color
+	if s == "" {
+		return p, nil
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) != 8 && len(parts) != 16 {
+		return p, fmt.Errorf("palette has %d colors, want 8 or 16", len(parts))
+	}
+	for i, part := range parts {
+		c, err := parseHexColor(part)
+		if err != nil {
+			return p, err
+		}
+		p[i] = c
+	}
+	return p, nil
 }
 
 // writeCastEvents writes one line per event.
@@ -279,7 +373,7 @@ func formatCastColors(c Colors) string {
 
 // hexColor formats c as "#rrggbb", dropping its alpha.
 func hexColor(c color.Color) string {
-	n, _ := color.NRGBAModel.Convert(c).(color.NRGBA)
+	n := nrgba(c)
 	return fmt.Sprintf("#%02x%02x%02x", n.R, n.G, n.B)
 }
 
@@ -300,8 +394,8 @@ func (cw *countWriter) Write(p []byte) (int, error) {
 // not grow.
 //
 // Lines starting with "#" after the header are comments, and blank lines are
-// skipped. Header fields and event codes reel does not use are ignored, and
-// so is the header's palette: [Header] has none. Times in a v2 file are from
+// skipped. Header fields and event codes reel does not use are ignored. The
+// header's palette is read into [Header.Palette]. Times in a v2 file are from
 // the start rather than from the event before; a time before the previous
 // event's is raised to it. A marker with no label reads as a [Mark] with an
 // empty Label, which [Timeline.Between] cannot cut at.
@@ -428,6 +522,9 @@ func timelineOf(ch castHeader) (*Timeline, error) {
 		var err error
 		if h.Theme, err = parseCastTheme(theme); err != nil {
 			return nil, fmt.Errorf("reel: asciicast line 1: header: %w", err)
+		}
+		if h.Palette, err = parseCastPalette(theme.Palette); err != nil {
+			return nil, fmt.Errorf("reel: asciicast line 1: header: theme %w", err)
 		}
 	}
 	t := newTimeline(h)

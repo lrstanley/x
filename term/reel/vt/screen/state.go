@@ -118,3 +118,15 @@ func (s State) SameCommit(o State) bool {
 		s.ShownProgress() == o.ShownProgress() &&
 		s.ProgramStatusGeneration == o.ProgramStatusGeneration
 }
+
+// SameLook reports whether s and o, two states of one terminal, are drawn
+// the same: they are the same commit (see [State.SameCommit]), with the same
+// focus and colors. Like SameCommit, it ignores scrollback.
+func (s State) SameLook(o State) bool {
+	return s.SameCommit(o) &&
+		s.Focused == o.Focused &&
+		s.Foreground == o.Foreground &&
+		s.Background == o.Background &&
+		s.CursorColor == o.CursorColor &&
+		s.CursorColorSet == o.CursorColorSet
+}

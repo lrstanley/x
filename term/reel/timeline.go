@@ -49,6 +49,9 @@ type Timeline struct {
 	// or -1 when it starts before the first event. A timeline that is not a
 	// window has from -1 and ends at its last event.
 	from int
+	// updated is closed, and cleared, by the next append. It is created by
+	// [Timeline.Updated], and guarded by mu.
+	updated chan struct{}
 }
 
 // newTimeline returns an empty timeline with header.
@@ -67,6 +70,12 @@ type Header struct {
 	// shows the same colors, so a replay need not apply them; [Theme]
 	// events then set the host's colors over them.
 	Theme Colors
+	// Palette is the 16 ANSI colors the terminal starts with, the 8 normal
+	// colors and then their bright variants. A nil entry is the renderer's
+	// default for its index. A session leaves every entry nil; a timeline
+	// read from a file with a palette has its colors, and an 8 color palette
+	// sets the first 8.
+	Palette [16]color.Color
 	// Title is a name for the recording, which is not the window title the
 	// program sets. It is empty unless [WithTitle] set it, or the file the
 	// timeline was read from had one.
@@ -185,6 +194,42 @@ func (t *Timeline) appendLocked(ev Event, at time.Duration) {
 		at = max(at, t.events[n-1].At())
 	}
 	t.events = append(t.events, ev.stamp(at))
+	if t.updated != nil {
+		close(t.updated)
+		t.updated = nil
+	}
+}
+
+// Updated returns a channel that is closed once an event is appended after
+// the call, so a reader of a growing timeline can wait for more events
+// without polling. Taking the channel before reading the events makes sure
+// no event is missed:
+//
+//	for {
+//		updated := tl.Updated()
+//		// Read the events appended so far.
+//		<-updated
+//	}
+//
+// The channel of a timeline that does not grow is never closed.
+func (t *Timeline) Updated() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.updated == nil {
+		t.updated = make(chan struct{})
+	}
+	return t.updated
+}
+
+// fixed returns a timeline with header h that holds the first n events of t
+// as of the call, or all of them when n is negative, and keeps t's window.
+// It does not grow.
+func (t *Timeline) fixed(h Header, n int) *Timeline {
+	events := t.snapshot()
+	if n >= 0 {
+		events = events[:n:n]
+	}
+	return &Timeline{header: h, start: t.started(), events: events, from: t.from}
 }
 
 // snapshot returns the events appended so far. The caller must not modify
@@ -269,7 +314,8 @@ func eventsOf[E Event](t *Timeline) iter.Seq[E] {
 // start, because replaying them is what puts the terminal in the state the
 // window starts in. Its Events, Inputs, Marks, Len, and Duration cover all of
 // them; [Timeline.Window] reports the span to show. Its events are fixed as of
-// the call, even when t is still growing.
+// the call, even when t is still growing. See [Timeline.WriteCast] for how
+// it is written as a file.
 //
 // Between returns an error wrapping [ErrNoMark] when either label names no
 // mark in the window. When from and to are the same label, the window runs

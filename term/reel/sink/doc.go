@@ -5,18 +5,21 @@
 // Package sink encodes frames, such as render package output, to PNG and
 // GIF, and through ffmpeg to MP4, WebM, and animated WebP.
 //
-// An animation is a [Recorder] writing into an [Encoder]: [CreateGIF] or
-// [NewGIF] for GIF, [CreateVideo] for video. The recorder reads [Frame] values
-// from [WithChannel], or captures them with [WithFrameRate], and resolves
-// every delay before the encoder sees it: a zero [Frame.Delay] becomes the
-// time since the previous frame, and each delay is rounded to whole steps of
-// the delay grid ([WithDelayGrid], the [WithFrameRate] FPS, or 10ms), at least
-// one step. Encoders fed the same frames therefore play on the same timeline.
-// [Recorder.Close] finishes the output; a recording with an invalid frame or
-// an encoder error is discarded instead. Encoders can also be written to
-// directly with [Encoder.WriteFrame].
+// Every output is a [Sink], which is given frames with resolved delays and
+// finishes the output on [Sink.Close]: [CreateGIF] or [NewGIF] for GIF,
+// [CreateVideo] or [NewVideo] for video. [File] picks the sink by the
+// extension of a path, and [Writer] by a [Format], for PNG of the last frame
+// too. [Chan] hands frames to a channel and [Tee] writes one stream into
+// several sinks. A sink with an invalid frame or an encoder error should be
+// discarded with [Sink.Discard] instead of closed.
 //
-// Options are shared: the recorder, every encoder, and [PNG] each check the
+// A [Recorder] feeds a sink from [WithChannel], or captures frames with
+// [WithFrameRate], and resolves every delay before the sink sees it: a zero
+// [Frame.Delay] becomes the time since the previous frame, and each delay is
+// rounded to whole steps of the delay grid ([WithDelayGrid], the
+// [WithFrameRate] FPS, or 10ms), at least one step.
+//
+// Options are shared: the recorder, every sink, and [PNG] each check the
 // options they read and ignore the rest, so one list can configure them all.
 //
 // # Video
