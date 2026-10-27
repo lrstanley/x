@@ -9,22 +9,22 @@
 //
 //	script -q --timing=demo.timing -c 'bash --norc --noprofile demo.sh' demo.typescript
 //
-// on a terminal of 48 by 6 cells. Pass -typescript and -timing to replay
-// another, and -cols and -rows for the size of the terminal it was recorded
-// on.
+// on a terminal of 48 by 6 cells. Pass --typescript and --timing to replay
+// another, and --cols and --rows for the size of the terminal it was
+// recorded on.
 package main
 
 import (
 	"bytes"
 	"context"
 	_ "embed"
-	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/lrstanley/clix/v2"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/effects"
 	"github.com/lrstanley/x/term/reel/render"
@@ -37,35 +37,41 @@ var (
 	demoTiming []byte
 )
 
-func main() {
-	dir := flag.String("dir", ".", "directory to write the files to")
-	typescript := flag.String("typescript", "", "typescript to replay instead of the bundled one")
-	timing := flag.String("timing", "", "timing file of -typescript")
-	cols := flag.Int("cols", 48, "terminal width the recording was made on")
-	rows := flag.Int("rows", 6, "terminal height the recording was made on")
-	flag.Parse()
+// Flags are the command's flags.
+type Flags struct {
+	Dir        string `name:"dir" type:"path" default:"." help:"Directory to write the files to."`
+	Typescript string `name:"typescript" type:"existingfile" and:"recording" help:"Typescript to replay instead of the bundled one."`
+	Timing     string `name:"timing" type:"existingfile" and:"recording" help:"Timing file of --typescript."`
+	Cols       int    `name:"cols" default:"48" help:"Terminal width the recording was made on."`
+	Rows       int    `name:"rows" default:"6" help:"Terminal height the recording was made on."`
+}
 
-	ts, tm := io.Reader(bytes.NewReader(demoTypescript)), io.Reader(bytes.NewReader(demoTiming))
-	if *typescript != "" {
-		f, err := os.Open(*typescript)
-		if err != nil {
-			log.Fatal(err)
+func main() {
+	cli := clix.NewWithDefaults[Flags]()
+	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
+		ts, tm := io.Reader(bytes.NewReader(demoTypescript)), io.Reader(bytes.NewReader(demoTiming))
+		if cli.Flags.Typescript != "" {
+			f, err := os.Open(cli.Flags.Typescript)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			g, err := os.Open(cli.Flags.Timing)
+			if err != nil {
+				return err
+			}
+			defer g.Close()
+			ts, tm = f, g
 		}
-		defer f.Close()
-		g, err := os.Open(*timing)
+		files, err := run(ctx, cli.Flags.Dir, cli.Flags.Cols, cli.Flags.Rows, ts, tm)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-		defer g.Close()
-		ts, tm = f, g
-	}
-	files, err := run(context.Background(), *dir, *cols, *rows, ts, tm)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, f := range files {
-		fmt.Println(f)
-	}
+		for _, f := range files {
+			fmt.Println(f)
+		}
+		return nil
+	})
 }
 
 // run replays the typescript ts, timed by tm, on a terminal of cols by rows

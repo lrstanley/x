@@ -14,13 +14,13 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/lrstanley/clix/v2"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/effects"
 	"github.com/lrstanley/x/term/reel/render"
@@ -29,21 +29,28 @@ import (
 // tokenEnv is the environment variable that holds the token.
 const tokenEnv = "REEL_DEMO_TOKEN"
 
+// Flags are the command's flags.
+type Flags struct {
+	Dir string `name:"dir" type:"path" default:"." help:"Directory to write the files to."`
+}
+
 func main() {
-	dir := flag.String("dir", ".", "directory to write the files to")
-	flag.Parse()
-	if os.Getenv(tokenEnv) == "" {
-		if err := os.Setenv(tokenEnv, "ghp_r33lD3m0T0k3n4U"); err != nil {
-			log.Fatal(err)
+	cli := clix.NewWithDefaults[Flags]()
+	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
+		if os.Getenv(tokenEnv) == "" {
+			if err := os.Setenv(tokenEnv, "ghp_r33lD3m0T0k3n4U"); err != nil {
+				return err
+			}
 		}
-	}
-	files, err := run(context.Background(), *dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, f := range files {
-		fmt.Println(f)
-	}
+		files, err := run(ctx, cli.Flags.Dir)
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			fmt.Println(f)
+		}
+		return nil
+	})
 }
 
 // run records the login and exports it into dir, returning the paths

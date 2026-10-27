@@ -10,30 +10,37 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/lrstanley/clix/v2"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/effects"
 	"github.com/lrstanley/x/term/reel/render"
 )
 
+// Flags are the command's flags.
+type Flags struct {
+	Dir string `name:"dir" type:"path" default:"." help:"Directory to write the files to."`
+}
+
 func main() {
-	dir := flag.String("dir", ".", "directory to write the files to")
-	flag.Parse()
-	files, err := run(context.Background(), *dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, f := range files {
-		fmt.Println(f)
-	}
+	cli := clix.NewWithDefaults[Flags]()
+	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
+		files, err := run(ctx, cli.Flags.Dir)
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			fmt.Println(f)
+		}
+		return nil
+	})
 }
 
 // commands are typed at the prompt, each once the one before has finished.
