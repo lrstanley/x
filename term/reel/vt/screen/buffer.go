@@ -34,6 +34,8 @@ type Buffer struct {
 	// slice means every row is dirty. The index matches the row, not the
 	// absolute Y coordinate.
 	Dirty []bool
+	// wrapped marks the rows that are soft-wrapped, by row index.
+	wrapped []bool
 	// gen identifies cell contents. It changes when cells change and stays
 	// put across ClearDirty. Clones copy it.
 	gen uint64
@@ -51,10 +53,11 @@ func NewBuffer(width, height int) *Buffer {
 		w = 0
 	}
 	b := &Buffer{
-		cells:  make([]Cell, w*height),
-		width:  w,
-		height: height,
-		Dirty:  dirty,
+		cells:   make([]Cell, w*height),
+		width:   w,
+		height:  height,
+		Dirty:   dirty,
+		wrapped: make([]bool, height),
 	}
 	for i := range b.cells {
 		b.cells[i] = EmptyCell
@@ -193,6 +196,28 @@ func (b *Buffer) SetCell(x, y int, c *Cell) {
 	b.advanceGen()
 }
 
+// Wrapped reports whether row y is soft-wrapped: its line ran past the
+// last column and goes on at the start of the row below, rather than
+// ending there. Rows outside the grid are not.
+func (b *Buffer) Wrapped(y int) bool {
+	if b == nil {
+		return false
+	}
+	row := y - b.origin.Y
+	return row >= 0 && row < len(b.wrapped) && b.wrapped[row]
+}
+
+// SetWrapped sets whether row y is soft-wrapped (see [Buffer.Wrapped]). It
+// changes no cell, so it leaves the dirty flags and the generation alone.
+func (b *Buffer) SetWrapped(y int, on bool) {
+	if b == nil {
+		return
+	}
+	if row := y - b.origin.Y; row >= 0 && row < len(b.wrapped) {
+		b.wrapped[row] = on
+	}
+}
+
 // RowDirty reports whether row y should be redrawn. Rows are dirty when
 // Dirty is nil or the flag is set.
 func (b *Buffer) RowDirty(y int) bool {
@@ -212,12 +237,13 @@ func (b *Buffer) Clone() *Buffer {
 		return nil
 	}
 	return &Buffer{
-		origin: b.origin,
-		cells:  append([]Cell(nil), b.cells...),
-		width:  b.width,
-		height: b.height,
-		Dirty:  append([]bool(nil), b.Dirty...),
-		gen:    b.gen,
+		origin:  b.origin,
+		cells:   append([]Cell(nil), b.cells...),
+		width:   b.width,
+		height:  b.height,
+		Dirty:   append([]bool(nil), b.Dirty...),
+		wrapped: append([]bool(nil), b.wrapped...),
+		gen:     b.gen,
 	}
 }
 

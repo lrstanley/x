@@ -648,3 +648,149 @@ func readCastHeader(t *testing.T, path string) Header {
 	}
 	return readCast(t, data).Header()
 }
+
+// redactor is a [Redactor] that passes frames on, and redacts when on is
+// set.
+type redactor struct{ on bool }
+
+func (redactor) Start(*Context) (Stage, error) {
+	return func(f Frame, emit func(Frame)) { emit(f) }, nil
+}
+
+func (r redactor) Redacts() bool { return r.on }
+
+// TestExportRedactor checks that a profile with a [Redactor] lists it
+// first, and writes no output that skips the effects, failing before it
+// writes anything.
+func TestExportRedactor(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"), Mark{event: at(10), Label: "m"})
+	keep := effectFunc(func(f Frame, emit func(Frame)) { emit(f) })
+	for _, tc := range []struct {
+		name    string
+		outputs []File
+		effects []Effect
+		is      error
+		want    string
+	}{
+		{"cast", Files("x.gif", "x.cast"), []Effect{redactor{true}}, ErrUnredacted, "asciicast"},
+		{"cast only", Files("x.cast"), []Effect{redactor{true}, keep}, ErrUnredacted, "asciicast"},
+		{"order", Files("x.gif"), []Effect{redactor{true}, keep, redactor{true}}, nil, "effect 2 (reel.redactor) redacts, so it must come before effect 1"},
+	} {
+		dir := t.TempDir()
+		var outputs []File
+		for _, o := range tc.outputs {
+			o.Path = filepath.Join(dir, o.Path)
+			outputs = append(outputs, o)
+		}
+		err := Export(t.Context(), tl, Profile{Outputs: outputs, Rasterizer: testutil.Rasterizer{}, Effects: tc.effects})
+		if err == nil || !strings.Contains(err.Error(), tc.want) || (tc.is != nil && !errors.Is(err, tc.is)) {
+			t.Errorf("%s: Export = %v, want an error containing %q", tc.name, err, tc.want)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("%s: wrote %d files", tc.name, len(entries))
+		}
+	}
+	// One that does not redact may come anywhere, and one that does may
+	// write the other outputs.
+	dir := t.TempDir()
+	for _, effects := range [][]Effect{
+		{keep, redactor{false}},
+		{redactor{true}, redactor{true}, keep},
+	} {
+		if err := Export(t.Context(), tl, Profile{Outputs: Files(filepath.Join(dir, "x.gif")), Rasterizer: testutil.Rasterizer{}, Effects: effects}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestExportRedactorStills checks that a still runs through the
+// [Redactor] values alone, as a recording of its one frame, and that one
+// the redactors drop is an error.
+func TestExportRedactorStills(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"), Mark{event: at(10), Label: "m"})
+	var got []Frame
+	hide := effectFunc(func(f Frame, emit func(Frame)) {
+		got = append(got, f)
+		img := image.NewNRGBA(f.Image.Rect)
+		copy(img.Pix, f.Image.Pix)
+		img.Pix[0] = 'x'
+		f.Image = img
+		emit(f)
+	})
+	other := effectFunc(func(f Frame, emit func(Frame)) {
+		f.Image = image.NewNRGBA(f.Image.Rect)
+		emit(f)
+	})
+	dir := t.TempDir()
+	p := Profile{
+		Outputs:    []File{{Path: filepath.Join(dir, "{mark}.png"), Marks: []string{"m"}}},
+		Rasterizer: testutil.Rasterizer{},
+		Effects:    []Effect{redactorEffect{hide}, other},
+	}
+	if err := Export(t.Context(), tl, p); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].First || !got[0].Last || got[0].At != 10*time.Millisecond || got[0].Cells == nil {
+		t.Fatalf("redactor given %+v, want the still's one frame", got)
+	}
+	if text := testutil.Text(readPNG(t, filepath.Join(dir, "m.png"))); text != "x" {
+		t.Fatalf("still shows %q, want %q", text, "x")
+	}
+	// A redactor after one that emits two frames is given them as a
+	// recording of two, and the first it emits is the still.
+	twice := effectFunc(func(f Frame, emit func(Frame)) {
+		emit(f)
+		emit(f)
+	})
+	var flags [][2]bool
+	mark := effectFunc(func(f Frame, emit func(Frame)) {
+		flags = append(flags, [2]bool{f.First, f.Last})
+		hide(f, emit)
+	})
+	p.Effects = []Effect{redactorEffect{twice}, redactorEffect{mark}}
+	p.Outputs[0].Path = filepath.Join(t.TempDir(), "{mark}.png")
+	if err := Export(t.Context(), tl, p); err != nil {
+		t.Fatal(err)
+	}
+	if want := [][2]bool{{true, false}, {false, true}}; !slices.Equal(flags, want) {
+		t.Fatalf("First and Last %v, want %v", flags, want)
+	}
+	drop := effectFunc(func(Frame, func(Frame)) {})
+	p.Effects = []Effect{redactorEffect{drop}}
+	p.Outputs[0].Path = filepath.Join(t.TempDir(), "{mark}.png")
+	if err := Export(t.Context(), tl, p); err == nil || !strings.Contains(err.Error(), "dropped the still") {
+		t.Fatalf("Export = %v, want an error for the dropped still", err)
+	}
+}
+
+// redactorEffect is a [Redactor] that runs its stage.
+type redactorEffect struct{ stage effectFunc }
+
+func (e redactorEffect) Start(ctx *Context) (Stage, error) { return e.stage.Start(ctx) }
+
+func (redactorEffect) Redacts() bool { return true }
+
+// TestContextValues checks that a value one effect stores is read by the
+// effects started after it.
+func TestContextValues(t *testing.T) {
+	t.Parallel()
+	type key struct{}
+	var got []any
+	store := startFunc(func(ctx *Context) { got = append(got, ctx.Value(key{})); ctx.SetValue(key{}, 1) })
+	read := startFunc(func(ctx *Context) { got = append(got, ctx.Value(key{})) })
+	exportFrames(t, buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a")), Profile{Effects: []Effect{store, read}})
+	if !slices.Equal(got, []any{nil, 1}) {
+		t.Fatalf("values %v, want [<nil> 1]", got)
+	}
+}
+
+// startFunc is an [Effect] that calls fn when it starts, and changes no
+// frame.
+type startFunc func(*Context)
+
+func (e startFunc) Start(ctx *Context) (Stage, error) {
+	e(ctx)
+	return nil, nil //nolint:nilnil // It changes no frame.
+}

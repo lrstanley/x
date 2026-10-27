@@ -109,6 +109,38 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 	return o, nil
 }
 
+// checkRedaction checks that every [Redactor] among effects comes before
+// every other effect, and when there is one, that no output is written
+// without the effects.
+func (o *outputs) checkRedaction(effects []Effect) error {
+	n := len(redactors(effects))
+	for i := n + 1; i < len(effects); i++ {
+		if redacts(effects[i]) {
+			return fmt.Errorf("reel: effect %d (%T) redacts, so it must come before effect %d (%T), which does not", i, effects[i], n, effects[n])
+		}
+	}
+	if n > 0 && len(o.casts) > 0 {
+		return fmt.Errorf("%w: %q is an asciicast file, the timeline as recorded", ErrUnredacted, o.casts[0].path)
+	}
+	return nil
+}
+
+// redactors returns the effects effects starts with that are a [Redactor]
+// that redacts.
+func redactors(effects []Effect) []Effect {
+	n := 0
+	for n < len(effects) && redacts(effects[n]) {
+		n++
+	}
+	return effects[:n]
+}
+
+// redacts reports whether e is a [Redactor] that redacts.
+func redacts(e Effect) bool {
+	r, ok := e.(Redactor)
+	return ok && r.Redacts()
+}
+
 // hasRecording reports whether any output records frames, rather than
 // stills.
 func (o *outputs) hasRecording() bool {

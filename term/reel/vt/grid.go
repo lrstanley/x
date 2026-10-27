@@ -96,6 +96,9 @@ func (t *Terminal) refreshLocked() *screen.Buffer {
 		if dirty == 1 && !rowDirty {
 			continue
 		}
+		// Before decodeRow, which skips a row whose cells are unchanged:
+		// writing past a full row wraps it without changing its cells.
+		t.grid.SetWrapped(y, t.rowWrapped())
 		if t.decodeRow(y) && y < len(t.grid.Dirty) {
 			t.grid.Dirty[y] = true
 			changed = true
@@ -492,6 +495,21 @@ func (t *Terminal) rowBool(data int32) bool {
 		return false
 	}
 	return t.mod.U8(t.scratch, 0) != 0
+}
+
+// rowWrapped reports whether the current iterator row is soft-wrapped,
+// from the GhosttyRow word RenderStateRowDataRaw holds. A failed get
+// reports a row that is not.
+func (t *Terminal) rowWrapped() bool {
+	t.mod.Zero(t.scratch, 16)
+	if t.mod.Xghostty_render_state_row_get(t.rowsIt, wasmvt.RenderStateRowDataRaw, t.scratch) != 0 {
+		return false
+	}
+	row := int64(t.mod.U64(t.scratch, 0)) //nolint:gosec // A bit field, passed back as it is.
+	if t.mod.Xghostty_row_get(row, wasmvt.RowDataWrap, t.scratch+8) != 0 {
+		return false
+	}
+	return t.mod.U8(t.scratch, 8) != 0
 }
 
 // activeAlt reports whether TerminalDataActiveScreen is the

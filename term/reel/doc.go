@@ -34,7 +34,10 @@
 // to the [Sink] of every output, with delays taken from the timeline, never
 // the wall clock, so exporting a timeline twice writes the same bytes.
 // [Record] runs the same pipeline on a [Session] while it runs, tailing its
-// timeline with [Timeline.Updated], and writes the files Export would.
+// timeline with [Timeline.Updated], and writes the files Export would. An
+// effect that hides secrets is a [Redactor], which runs before every other
+// effect, and on stills too, which skip the others, and makes asciicast
+// outputs, the timeline as recorded, an error.
 //
 // Input is recorded as the exact bytes the terminal sent the program, encoded
 // in whatever keyboard and mouse modes the program had set.
@@ -54,8 +57,10 @@
 //     and animated WebP.
 //   - effects has [Effect] values: an overlay of the keys pressed, a title
 //     card before the first frame, drawn with a card renderer that effects
-//     of a caller's own can use too, and a pause badge on the held last
-//     frame.
+//     of a caller's own can use too, a pause badge on the held last frame,
+//     a highlight of cells, and a zoom on them, drawn sharp, found by
+//     position or by the text they show, between two marks, and redaction
+//     of secrets, from the screen and from the keys shown.
 //
 // Apart from internal test helpers, no package in the module imports testing,
 // Bubble Tea, or steep, so any program can link them.

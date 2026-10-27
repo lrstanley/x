@@ -38,6 +38,50 @@ func TestWriteTextAndLinefeed(t *testing.T) {
 	}
 }
 
+// TestScreenWrapped checks that the screen marks the rows a line wrapped
+// past, and only those.
+func TestScreenWrapped(t *testing.T) {
+	t.Parallel()
+	wrapped := func(scr *screen.Buffer) []bool {
+		var out []bool
+		for y := range scr.Height() {
+			out = append(out, scr.Wrapped(y))
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name   string
+		writes []string
+		want   []bool
+	}{
+		// A full row waits to wrap until the next character.
+		{"full row", []string{"abcd"}, []bool{false, false, false}},
+		// Its cells are unchanged when it wraps, in a second write.
+		{"wrapped later", []string{"abcd", "e"}, []bool{true, false, false}},
+		{"two rows", []string{"abcdefghij"}, []bool{true, true, false}},
+		{"newline", []string{"abcd\r\nefgh"}, []bool{false, false, false}},
+		// A wide character that does not fit leaves a spacer at the end
+		// of the row it wraps from.
+		{"wide", []string{"abc\u4e2d"}, []bool{true, false, false}},
+		{"cleared", []string{"abcdef", "\x1b[H\x1b[2J"}, []bool{false, false, false}},
+	} {
+		term := openTest(t, 4, 3)
+		for _, w := range tc.writes {
+			if _, err := term.Write([]byte(w)); err != nil {
+				t.Fatal(err)
+			}
+			_ = term.Screen()
+		}
+		scr := term.Screen()
+		if got := wrapped(scr); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: wrapped rows %v, want %v", tc.name, got, tc.want)
+		}
+		if got := wrapped(scr.Clone()); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: clone's wrapped rows %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestOutputSeq(t *testing.T) {
 	t.Parallel()
 	term := openTest(t, 8, 2)

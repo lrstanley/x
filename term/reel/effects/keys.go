@@ -65,7 +65,8 @@ var keyGlyphs = map[string]string{
 //
 // The overlay splits frames on the delay grid wherever it changes, which
 // adds a few frames per burst of keys. Frames without a terminal, such as
-// cards, are left alone.
+// cards, are left alone. A [RedactInputs] listed before Keys hides typed
+// text from it.
 func Keys(shown time.Duration) reel.Effect {
 	return keys{shown: shown}
 }
@@ -82,14 +83,29 @@ func (e keys) Start(ctx *reel.Context) (reel.Stage, error) {
 	}
 	from, _ := ctx.Timeline.Window()
 	k := &keysStage{ctx: ctx, shown: e.shown, cards: cards, from: from}
+	if rs, ok := ctx.Value(typedRedactionKey{}).([]typedRedaction); ok {
+		k.mask = &typedMask{redactions: rs}
+	}
 	return k.run, nil
 }
 
 // keyPress is a key pressed, as the overlay shows it.
 type keyPress struct {
 	// at is the offset into the timeline.
-	at    time.Duration
+	at time.Duration
+	// label is the label of a key, and typed is nil for one. A run of typed
+	// text has its characters in typed instead, with the glyphs of enter
+	// and tab, and a • for each that [RedactInputs] hides.
 	label string
+	typed []rune
+}
+
+// shownLabel is the label the overlay shows for p.
+func (p keyPress) shownLabel() string {
+	if p.typed != nil {
+		return typedLabel(string(p.typed))
+	}
+	return p.label
 }
 
 // keysStage is the overlay for one recording.
@@ -105,6 +121,8 @@ type keysStage struct {
 	// read is the number of events of the timeline read into presses, which
 	// grows while a [reel.Record] runs.
 	read int
+	// mask hides typed text, for [RedactInputs], or is nil.
+	mask *typedMask
 	// start is the first press a frame can show: the ones before it ended
 	// a burst that is gone.
 	start int
@@ -133,54 +151,71 @@ func (k *keysStage) run(f reel.Frame, emit func(reel.Frame)) {
 }
 
 // readPresses adds the presses of the inputs appended to the timeline since
-// it last read.
+// it last read, and moves start past those before the window, which are
+// read only for the mask, so it can hide text typed on in the window.
 func (k *keysStage) readPresses() {
 	for ev := range k.ctx.Timeline.EventsFrom(k.read) {
 		k.read++
-		if in, ok := ev.(reel.Input); ok && in.At() >= k.from {
-			for _, label := range keyLabels(in) {
-				k.presses = append(k.presses, keyPress{at: in.At(), label: label})
-			}
+		if in, ok := ev.(reel.Input); ok {
+			k.presses = addPresses(k.presses, in, k.mask)
 		}
+	}
+	for k.start < len(k.presses) && k.presses[k.start].at < k.from {
+		k.start++
 	}
 }
 
-// keyLabels returns the overlay labels of the strokes in, in order: one per
-// key, and one per run of typed text (see [Keys]). Paste and mouse are left
-// out.
-func keyLabels(in reel.Input) []string {
-	var (
-		out []string
-		run strings.Builder
-	)
-	flush := func() {
-		if run.Len() > 0 {
-			out = append(out, typedLabel(run.String()))
-			run.Reset()
+// addPresses appends the presses of the strokes of in to presses, as the
+// overlay shows them: one per key, and one per run of typed text (see
+// [Keys]). Paste and mouse are left out. mask, which may be nil, is given
+// the typed text, and hides what it matches.
+func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
+	// run is the index of the press of the typed text being added to, or
+	// -1.
+	run := -1
+	typed := func(r rune) {
+		if run < 0 {
+			run = len(presses)
+			presses = append(presses, keyPress{at: in.At()})
 		}
+		presses[run].typed = append(presses[run].typed, r)
 	}
 	for _, s := range in.Strokes() {
 		switch s.Kind {
 		case reel.StrokeText:
-			run.WriteString(s.Text)
+			for _, r := range s.Text {
+				typed(r)
+				mask.add(r, run, len(presses[run].typed)-1)
+			}
 		case reel.StrokeKey:
 			switch {
-			case s.Key == "enter" || s.Key == "tab":
-				run.WriteString(keyGlyphs[s.Key])
-			case s.Key == "ctrl+j" && run.Len() > 0:
-				// A typed "\n", which decodes as ctrl+j.
-				run.WriteString(keyGlyphs["enter"])
+			case s.Key == "enter" || s.Key == "tab" || (s.Key == "ctrl+j" && run >= 0):
+				mask.end(presses)
+				glyph := keyGlyphs[s.Key]
+				if s.Key == "ctrl+j" {
+					// A typed "\n", which decodes as ctrl+j.
+					glyph = keyGlyphs["enter"]
+				}
+				for _, r := range glyph {
+					typed(r)
+				}
 			case modifierKey(s.Key):
 			default:
-				flush()
-				out = append(out, keyLabel(s.Key))
+				if s.Key == "backspace" {
+					mask.backspace()
+				} else {
+					mask.end(presses)
+				}
+				run = -1
+				presses = append(presses, keyPress{at: in.At(), label: keyLabel(s.Key)})
 			}
 		case reel.StrokePaste, reel.StrokeMouse:
-			flush()
+			mask.end(presses)
+			run = -1
 		}
 	}
-	flush()
-	return out
+	mask.hide(presses)
+	return presses
 }
 
 // modifierKeys are the keys whose press only holds a modifier, which the
@@ -245,7 +280,7 @@ func (k *keysStage) timeline(f reel.Frame) keyTimeline {
 			break
 		}
 		t.at = append(t.at, at)
-		t.labels = append(t.labels, p.label)
+		t.labels = append(t.labels, p.shownLabel())
 	}
 	return t
 }

@@ -8,8 +8,10 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
+	"slices"
 	"time"
 
 	"github.com/lrstanley/x/term/reel/render"
@@ -48,7 +50,10 @@ import (
 // An asciicast output is the timeline itself, written with
 // [Timeline.WriteCast], with the [Profile.Title] and the palette the frames
 // are drawn with in its header. When every output is asciicast, nothing is
-// drawn and no renderer is built.
+// drawn and no renderer is built. It does not run through the effects, so
+// a profile with a [Redactor] and an asciicast output is an error wrapping
+// [ErrUnredacted]. A still of [File.Marks] runs through the Redactors
+// alone (see [Redactor]).
 //
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
@@ -63,7 +68,7 @@ func Export(ctx context.Context, tl *Timeline, p Profile) error {
 		return err
 	}
 	vars[varDuration] = (to - from).Round(100 * time.Millisecond).String()
-	rec, err := newRecorder(ctx, replayRuntime, tl, p, vars)
+	rec, err := newRecorder(ctx, replayRuntime, tl, false, p, vars)
 	if err != nil {
 		return err
 	}
@@ -96,16 +101,46 @@ type recorder struct {
 	// effects is the context the effects were started with, closed with
 	// the recorder.
 	effects *Context
+	// stills redacts the stills, when there are both stills and
+	// [Redactor] values.
+	stills *stillRedaction
+}
+
+// stillRedaction runs the stills of a recording through its [Redactor]
+// values, started for the stills alone.
+type stillRedaction struct {
+	// ctx is the context the Redactors were started with, and stages are
+	// their stages.
+	ctx    *Context
+	stages []Stage
+	// span is the timeline time a still plays for, a step of playback,
+	// which the Redactors may look at past its offset.
+	span time.Duration
+	// held are the stills drawn, in order, held until the timeline is
+	// known past their span.
+	held []heldStill
+}
+
+// heldStill is a still drawn, and the sinks to write it to.
+type heldStill struct {
+	frame Frame
+	label string
+	sinks []sink.Sink
 }
 
 // newRecorder checks p and opens its outputs for tl, with a replay terminal
-// from rt. It draws nothing when every output is asciicast.
-func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, p Profile, vars map[string]string) (*recorder, error) {
+// from rt. live is set when tl grows while the recorder runs. It draws
+// nothing when every output is asciicast.
+func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p Profile, vars map[string]string) (*recorder, error) {
 	s, err := p.settings()
 	if err != nil {
 		return nil, err
 	}
 	outs, err := planOutputs(p, vars)
+	if err != nil {
+		return nil, err
+	}
+	err = outs.checkRedaction(p.Effects)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +161,7 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, p Profile, v
 	if len(outs.files) == 0 {
 		return r, nil
 	}
-	if err = r.openDrawn(ctx, rt, tl, p, opts, title); err != nil {
+	if err = r.openDrawn(ctx, rt, tl, live, p, opts, title); err != nil {
 		r.abort()
 		return nil, err
 	}
@@ -135,7 +170,7 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, p Profile, v
 
 // openDrawn builds the rasterizer, opens the frame outputs, and starts the
 // replay and the pipeline.
-func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, p Profile, opts []render.Option, title string) error {
+func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p Profile, opts []render.Option, title string) error {
 	r.rast = p.Rasterizer
 	if r.rast == nil {
 		rend, err := render.New(opts...)
@@ -153,23 +188,36 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 		return err
 	}
 	r.replay = replay
+	newContext := func() *Context {
+		return &Context{
+			Timeline:   tl,
+			Live:       live,
+			Rasterizer: r.rast,
+			Layout:     r.rast.Layout(tl.header.Cols, tl.header.Rows),
+			Render:     opts,
+			Step:       r.s.step,
+			Speed:      r.s.speed,
+			Hold:       r.s.hold,
+			Title:      title,
+			Meta:       p.Meta,
+		}
+	}
 	if r.outs.hasStills() {
 		r.replay.mark = r.still
+		if red := redactors(p.Effects); len(red) > 0 {
+			// A still plays for no longer than its step.
+			ctx := newContext()
+			ctx.Hold = 0
+			r.stills = &stillRedaction{ctx: ctx, span: time.Duration(float64(r.s.step) * r.s.speed)}
+			if r.stills.stages, err = startEffects(red, ctx); err != nil {
+				return err
+			}
+		}
 	}
 	if !r.outs.hasRecording() {
 		return nil
 	}
-	r.effects = &Context{
-		Timeline:   tl,
-		Rasterizer: r.rast,
-		Layout:     r.rast.Layout(tl.header.Cols, tl.header.Rows),
-		Render:     opts,
-		Step:       r.s.step,
-		Speed:      r.s.speed,
-		Hold:       r.s.hold,
-		Title:      title,
-		Meta:       p.Meta,
-	}
+	r.effects = newContext()
 	stages, err := startEffects(p.Effects, r.effects)
 	if err != nil {
 		return err
@@ -177,6 +225,16 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 	r.pipe = newPipeline(r.rast, r.s, stages, r.outs.sink)
 	r.replay.frame = r.pipe.record
 	return nil
+}
+
+// withoutNoMark returns err, or the errors it joins, without those that
+// wrap [ErrNoMark].
+func withoutNoMark(err error) error {
+	errs := []error{err}
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = j.Unwrap()
+	}
+	return errors.Join(slices.DeleteFunc(slices.Clone(errs), func(e error) bool { return errors.Is(e, ErrNoMark) })...)
 }
 
 // startEffects starts each effect for a recording, leaving out those that
@@ -256,26 +314,93 @@ func (r *recorder) apply(ev Event) error {
 	if r.replay == nil {
 		return nil
 	}
+	// The timeline is known up to ev, which a live one may not have held
+	// when a still was drawn.
+	if err := r.writeHeld(ev.At(), false); err != nil {
+		return err
+	}
 	return r.replay.apply(ev)
 }
 
 // still writes the terminal as it is at m to the stills of its label not
-// yet written.
+// yet written. With Redactors, it is held until the timeline is known past
+// the still's span, so the Redactors see the marks that fall in it, as
+// they would for a frame of the recording.
 func (r *recorder) still(m Mark) error {
 	sinks := r.outs.stillsAt(m.Label)
 	if len(sinks) == 0 {
 		return nil
 	}
-	cf := r.replay.current(m.At())
+	f := r.drawCurrent(m.At())
+	if r.stills == nil {
+		return writeStill(sinks, f, r.s.step)
+	}
+	r.stills.held = append(r.stills.held, heldStill{frame: f, label: m.Label, sinks: sinks})
+	return nil
+}
+
+// drawCurrent returns the terminal as it is now, as of at, as a frame a
+// step long.
+func (r *recorder) drawCurrent(at time.Duration) Frame {
+	cf := r.replay.current(at)
 	b := cf.Screen.Bounds()
 	img := image.NewNRGBA(r.rast.Layout(b.Dx(), b.Dy()).Image)
 	r.rast.Draw(img, cf.Screen, cf.State, cf.At)
-	for _, s := range sinks {
-		if err := s.WriteFrame(sink.Frame{Image: img, Delay: r.s.step}); err != nil {
+	return Frame{Image: img, Cells: &cf, At: cf.At, Delay: r.s.step}
+}
+
+// writeHeld redacts and writes the stills held whose span ends before
+// offset at, or every one when all is set.
+func (r *recorder) writeHeld(at time.Duration, all bool) error {
+	sr := r.stills
+	if sr == nil {
+		return nil
+	}
+	for len(sr.held) > 0 && (all || sr.held[0].frame.At+sr.span < at) {
+		h := sr.held[0]
+		sr.held = sr.held[1:]
+		f, ok := runAlone(sr.stages, h.frame)
+		if !ok {
+			return fmt.Errorf("reel: the redacting effects dropped the still at mark %q", h.label)
+		}
+		if err := writeStill(h.sinks, f, r.s.step); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeStill writes f, a still, to sinks.
+func writeStill(sinks []sink.Sink, f Frame, step time.Duration) error {
+	for _, s := range sinks {
+		if err := s.WriteFrame(sink.Frame{Image: f.Image, Delay: step, Isolated: f.Isolated}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runAlone runs f through stages, giving each the frames the one before it
+// emitted as a recording of their own, and returns the first frame the last
+// emits, or false when none does.
+func runAlone(stages []Stage, f Frame) (Frame, bool) {
+	frames := []Frame{f}
+	for _, run := range stages {
+		var out []Frame
+		for i, in := range frames {
+			in.First, in.Last = i == 0, i == len(frames)-1
+			run(in, func(e Frame) {
+				if e.Image != nil {
+					out = append(out, e)
+				}
+			})
+		}
+		frames = out
+	}
+	if len(frames) == 0 {
+		return Frame{}, false
+	}
+	return frames[0], true
 }
 
 // end ends the recording at offset end, sending every frame on.
@@ -285,6 +410,16 @@ func (r *recorder) end(end time.Duration) error {
 	}
 	if err := r.replay.finish(); err != nil {
 		return err
+	}
+	if err := r.writeHeld(0, true); err != nil {
+		return err
+	}
+	if r.stills != nil && r.stills.ctx.Live && r.pipe == nil {
+		// The Redactors have seen a live timeline up to the last still.
+		// Without a recording to show them the rest, a frame of the end,
+		// which is dropped, does, so they report the marks that never
+		// came, and only those.
+		runAlone(r.stills.stages, r.drawCurrent(end))
 	}
 	if r.pipe == nil {
 		return nil
@@ -315,6 +450,16 @@ func (r *recorder) abort() {
 // the rasterizer the recorder built.
 func (r *recorder) release() error {
 	var errs []error
+	if r.stills != nil {
+		err := r.stills.ctx.close()
+		if r.effects != nil {
+			// The recording's effects hold the same Redactors, which
+			// report the same marks that never came.
+			err = withoutNoMark(err)
+		}
+		errs = append(errs, err)
+		r.stills = nil
+	}
 	if r.effects != nil {
 		errs = append(errs, r.effects.close())
 		r.effects = nil

@@ -30,7 +30,10 @@ type Recording struct {
 // at the end, is an error, and {timestamp} is when the timeline started, or
 // now when nothing has been appended yet. A still whose mark never comes
 // writes nothing, and Stop reports it as an error wrapping [ErrNoMark]; the
-// other outputs are still written.
+// other outputs are still written. Effects are started with [Context.Live]
+// set, so those that look for marks, such as the effects package's Between,
+// find them as they are appended, and report those that never come the same
+// way.
 //
 // Canceling ctx abandons the recording: its outputs are discarded, and Stop
 // returns ctx's error.
@@ -40,7 +43,7 @@ func Record(ctx context.Context, s *Session, p Profile) (*Recording, error) {
 	if err != nil {
 		return nil, err
 	}
-	rec, err := newRecorder(ctx, recordRuntime, tl, p, vars)
+	rec, err := newRecorder(ctx, recordRuntime, tl, true, p, vars)
 	if err != nil {
 		return nil, err
 	}

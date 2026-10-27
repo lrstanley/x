@@ -18,6 +18,15 @@ import (
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 )
 
+// keyLabels returns the labels of the presses of in.
+func keyLabels(in reel.Input) []string {
+	var out []string
+	for _, p := range addPresses(nil, in, nil) {
+		out = append(out, p.shownLabel())
+	}
+	return out
+}
+
 func TestKeyLabels(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

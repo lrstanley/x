@@ -68,7 +68,9 @@
 // The ".cast" output is the recording itself: [reel.ReadTimeline] and
 // [reel.Export] with the same profile and [Result], and for a failed test the
 // 3s hold, write the same files again, byte for byte, but for the exceptions
-// [reel.Timeline] lists.
+// [reel.Timeline] lists. So a profile with [effects.Redact] or
+// [effects.RedactInputs] must set outputs without ".cast". Stills run
+// through them, and no other effect.
 //
 // Environment variables override these options unless [WithIgnoreEnv] is
 // set: STEEP_EXPORT_MODE (on, failure, or off) sets the policy,
