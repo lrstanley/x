@@ -12,7 +12,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel/render/internal/config"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -20,7 +20,7 @@ import (
 
 // FallbackGlyphTarget returns the vertical band that fallback glyphs (Nerd Font
 // icons, fallback fonts) are fitted into.
-func FallbackGlyphTarget(ctx config.CellFrameSource, area image.Rectangle, cell *screen.Cell) image.Rectangle {
+func FallbackGlyphTarget(ctx config.CellFrameSource, area image.Rectangle, cell *vt.Cell) image.Rectangle {
 	return fallbackBand(ctx, area, cell != nil && cell.Width > 1)
 }
 

@@ -14,7 +14,7 @@ import (
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Program status colors when the palette does not set them. Working, blocked,
@@ -50,17 +50,17 @@ const (
 )
 
 // statusColor is the color of a state: its outline, icon, and dot.
-func (f *renderFrame) statusColor(s screen.ProgramState) color.NRGBA {
+func (f *renderFrame) statusColor(s vt.ProgramState) color.NRGBA {
 	switch s {
-	case screen.ProgramWorking:
-		return f.progressColor(screen.ProgressSet)
-	case screen.ProgramBlocked:
-		return f.progressColor(screen.ProgressPause)
-	case screen.ProgramError:
-		return f.progressColor(screen.ProgressError)
-	case screen.ProgramDone:
+	case vt.ProgramWorking:
+		return f.progressColor(vt.ProgressSet)
+	case vt.ProgramBlocked:
+		return f.progressColor(vt.ProgressPause)
+	case vt.ProgramError:
+		return f.progressColor(vt.ProgressError)
+	case vt.ProgramDone:
 		return paletteNRGBA(f.palette.ProgramDone, defaultProgramDone)
-	case screen.ProgramIdle:
+	case vt.ProgramIdle:
 	}
 	return icol.BlendNRGBA(f.backgroundNRGBA(nil), f.foregroundNRGBA(nil), statusIdleTint)
 }
@@ -219,7 +219,7 @@ type statusPaint struct {
 // so a look that does not move with it is built once and reused across
 // frames.
 type statusLUTKey struct {
-	state    screen.ProgramState
+	state    vt.ProgramState
 	progress int  // working only
 	breath   int8 // blocked only
 	col      color.NRGBA
@@ -238,7 +238,7 @@ func (d *Renderer) statusPaints(f *renderFrame) []statusPaint {
 	}
 	v, perim := &f.status.view, f.status.ring.shape.perim
 	key := statusLUTKey{state: v.drv.State, breath: v.breath, col: f.statusColor(v.drv.State), perim: perim}
-	if v.drv.State == screen.ProgramWorking {
+	if v.drv.State == vt.ProgramWorking {
 		key.progress = v.drv.Progress
 	}
 	if !f.st.Focused {
@@ -252,21 +252,21 @@ func (d *Renderer) statusPaints(f *renderFrame) []statusPaint {
 
 	lut, base := c.lut[:0], key.col
 	switch v.drv.State {
-	case screen.ProgramDone:
+	case vt.ProgramDone:
 		// A steady outline.
 		lut = append(lut, statusPaint{col: base, stroke: 0.95})
-	case screen.ProgramError:
+	case vt.ProgramError:
 		// A steady, slightly heavier outline.
 		lut = append(lut, statusPaint{col: base, stroke: 1, width: 0.5})
-	case screen.ProgramBlocked:
+	case vt.ProgramBlocked:
 		lut = append(lut, blockedPaint(base, v.breath))
-	case screen.ProgramWorking:
+	case vt.ProgramWorking:
 		if v.drv.Progress >= 0 {
 			lut = progressPaints(lut, base, perim, v.drv.Progress)
 		} else {
 			lut = cometPaints(lut, base, perim, f.at)
 		}
-	case screen.ProgramIdle:
+	case vt.ProgramIdle:
 	}
 	if len(lut) == 0 { // idle, and states this renderer does not know
 		// A faint neutral outline.

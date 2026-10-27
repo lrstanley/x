@@ -10,7 +10,7 @@ import (
 
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/types"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 type testFrameSource struct {
@@ -23,7 +23,7 @@ func (t testFrameSource) CursorBlinkSpeed() time.Duration {
 	return t.cursorBlinkSpeed
 }
 func (t testFrameSource) Palette() types.Palette       { return types.Palette{} }
-func (t testFrameSource) State() screen.State          { return screen.State{} }
+func (t testFrameSource) State() vt.State              { return vt.State{} }
 func (t testFrameSource) FaintFactor() float64         { return 0 }
 func (t testFrameSource) BackgroundOpacity() float64   { return 1 }
 func (t testFrameSource) BackgroundOpacityCells() bool { return false }
@@ -70,11 +70,11 @@ func TestTextVisible(t *testing.T) {
 	if !idraw.TextVisible(src, nil) {
 		t.Fatal("nil cell should be visible")
 	}
-	if !idraw.TextVisible(src, &screen.Cell{}) {
+	if !idraw.TextVisible(src, &vt.Cell{}) {
 		t.Fatal("plain cell should be visible")
 	}
 
-	blink := &screen.Cell{Style: screen.Style{Attrs: screen.AttrBlink}}
+	blink := &vt.Cell{Style: vt.Style{Attrs: vt.AttrBlink}}
 	if !idraw.TextVisible(src, blink) {
 		t.Fatal("blink cell at phase 0 should be visible")
 	}
@@ -88,7 +88,7 @@ func TestCursorVisible(t *testing.T) {
 	t.Parallel()
 
 	src := testFrameSource{cursorBlinkSpeed: 500 * time.Millisecond}
-	var cur screen.Cursor
+	var cur vt.Cursor
 	if !idraw.CursorVisible(src, cur) {
 		t.Fatal("cursor blink disabled should always be visible")
 	}

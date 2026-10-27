@@ -2,10 +2,17 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+// Package palette maps frames to palettes of at most 256 colors for GIF and
+// PNG: through the xterm-256color palette ([Default], [Palettize]), or
+// through one built from the colors a recording uses ([Adaptive]). It also
+// compacts palettes to the colors their frames use ([Compact]).
+//
+// Index 255, [TransparentIndex], is reserved for transparency: fully
+// transparent pixels map to it, and opaque pixels never do. The palettes it
+// builds fill that slot with a zero-alpha marker.
+package palette
 
 import (
-	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
@@ -13,9 +20,9 @@ import (
 	"sync"
 )
 
-// TransparentPaletteIndex is the palette index reserved for transparency during
-// GIF capture and optimization. See package documentation for the full invariant.
-const TransparentPaletteIndex uint8 = 255
+// TransparentIndex is the palette index reserved for transparency during
+// GIF capture and optimization.
+const TransparentIndex uint8 = 255
 
 const (
 	palettizeParallelMinBytes       = 1 << 20
@@ -33,7 +40,7 @@ type palettizeJob struct {
 	wg   *sync.WaitGroup
 	// adaptive, when non-nil, maps through its cache instead of the LUT and
 	// records uncached colors for span.
-	adaptive *adaptivePalette
+	adaptive *Adaptive
 	span     int
 }
 
@@ -73,11 +80,11 @@ func palettizeWorker() {
 	}
 }
 
-// defaultGIFPalette returns the standard xterm-256color palette for GIF
+// Default returns the standard xterm-256color palette for GIF
 // encoding. Terminal renders mostly use ANSI, cube, and grayscale slots;
 // mapping through this palette preserves lipgloss and emulator colors better
 // than generic palettes such as Plan9.
-func defaultGIFPalette() color.Palette {
+func Default() color.Palette {
 	p := make(color.Palette, 256)
 
 	ansi := [16]color.RGBA{
@@ -121,8 +128,8 @@ func defaultGIFPalette() color.Palette {
 		p[232+i] = color.RGBA{R: v, G: v, B: v, A: 0xff}
 	}
 
-	// Reserve the last slot for GIF transparency (see TransparentPaletteIndex).
-	p[TransparentPaletteIndex] = transparentMarkerColor()
+	// Reserve the last slot for GIF transparency (see TransparentIndex).
+	p[TransparentIndex] = transparentMarkerColor()
 
 	return p
 }
@@ -135,12 +142,12 @@ func cubeComponent(v int) uint8 {
 }
 
 // defaultGIFLUT maps 5-bit-per-channel RGB to the nearest xterm-256 palette
-// index. Built once from defaultGIFPalette; avoids draw.Draw's per-pixel
+// index. Built once from Default; avoids draw.Draw's per-pixel
 // palette search when targeting image.Paletted.
 var (
 	defaultGIFLUT     [32][32][32]uint8
 	initDefaultGIFLUT = sync.OnceFunc(func() {
-		pal := defaultGIFPalette()
+		pal := Default()
 		for ri := range 32 {
 			r := uint8(ri * 255 / 31) //nolint:gosec // ri is bounded.
 			for gi := range 32 {
@@ -154,11 +161,11 @@ var (
 	})
 )
 
-// palettizeInto maps src onto dst's palette. NRGBA sources (what the render
+// Palettize maps src onto dst's palette. NRGBA sources (what the render
 // package draws) and RGBA sources (what image/draw callers usually produce) use
 // defaultGIFLUT; anything else falls back to draw.Draw's per-pixel palette
 // search, which is hundreds of times slower.
-func palettizeInto(dst *image.Paletted, src image.Image) {
+func Palettize(dst *image.Paletted, src image.Image) {
 	switch src := src.(type) {
 	case *image.NRGBA:
 		palettizePixels(dst, rgbaPixels{pix: src.Pix, stride: src.Stride, rect: src.Rect})
@@ -194,7 +201,7 @@ func palettizeSpanCount(area image.Rectangle) int {
 // runPalettizeSpans maps area of src into dst, through adaptive when non-nil
 // and defaultGIFLUT otherwise, splitting large frames across the palettize
 // workers.
-func runPalettizeSpans(dst *image.Paletted, src rgbaPixels, area image.Rectangle, adaptive *adaptivePalette) {
+func runPalettizeSpans(dst *image.Paletted, src rgbaPixels, area image.Rectangle, adaptive *Adaptive) {
 	spans := palettizeSpanCount(area)
 	if adaptive != nil {
 		adaptive.resetSpans(spans)
@@ -253,10 +260,10 @@ func palettizeWorkerCount(area image.Rectangle) int {
 }
 
 // palettizeRows maps rows minY through maxY of src through defaultGIFLUT.
-// Alpha 0 writes TransparentPaletteIndex. Other pixels map by their color
+// Alpha 0 writes TransparentIndex. Other pixels map by their color
 // alone, so a translucent pixel becomes its opaque color; premultiplied
 // colors are restored first so RGBA and NRGBA sources match. Opaque LUT hits
-// on TransparentPaletteIndex are remapped to TransparentPaletteIndex-1 so the
+// on TransparentIndex are remapped to TransparentIndex-1 so the
 // transparent slot stays reserved.
 func palettizeRows(dst *image.Paletted, src rgbaPixels, area image.Rectangle, minY, maxY int) {
 	width := area.Dx()
@@ -269,7 +276,7 @@ func palettizeRows(dst *image.Paletted, src rgbaPixels, area image.Rectangle, mi
 			sx := x * 4
 			a := srcPix[sx+3]
 			if a == 0 {
-				dstPix[x] = TransparentPaletteIndex
+				dstPix[x] = TransparentIndex
 				continue
 			}
 			r, g, b := srcPix[sx], srcPix[sx+1], srcPix[sx+2]
@@ -277,8 +284,8 @@ func palettizeRows(dst *image.Paletted, src rgbaPixels, area image.Rectangle, mi
 				r, g, b = unpremultiply(r, a), unpremultiply(g, a), unpremultiply(b, a)
 			}
 			idx := defaultGIFLUT[r>>3][g>>3][b>>3]
-			if idx == TransparentPaletteIndex {
-				idx = TransparentPaletteIndex - 1
+			if idx == TransparentIndex {
+				idx = TransparentIndex - 1
 			}
 			dstPix[x] = idx
 		}
@@ -289,13 +296,4 @@ func palettizeRows(dst *image.Paletted, src rgbaPixels, area image.Rectangle, mi
 // not be zero, rounding like [color.NRGBAModel].
 func unpremultiply(c, a uint8) uint8 {
 	return uint8(min(uint32(c)*0xffff/uint32(a)>>8, 0xff)) //nolint:gosec // clamped.
-}
-
-func clonePaletted(src *image.Paletted) *image.Paletted {
-	return &image.Paletted{
-		Pix:     bytes.Clone(src.Pix),
-		Stride:  src.Stride,
-		Rect:    src.Rect,
-		Palette: src.Palette,
-	}
 }

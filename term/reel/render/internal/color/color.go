@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/render/internal/config"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 var (
@@ -21,35 +21,31 @@ var (
 	defaultBackground = color.NRGBA{A: 0xff}
 )
 
-// resolveCellColors is the canonical fg/bg resolver (reverse, faint, conceal).
-func resolveCellColors(src config.ColorSource, cell *screen.Cell) (fg, bg color.NRGBA) {
-	var style *screen.Style
+// ResolveCellColorsNRGBA returns foreground and background as concrete NRGBA
+// values, after reverse, faint, and conceal.
+func ResolveCellColorsNRGBA(src config.ColorSource, cell *vt.Cell) (fg, bg color.NRGBA) {
+	var style *vt.Style
 	if cell != nil {
 		style = &cell.Style
 	}
 
 	fg = ResolveForegroundNRGBA(src, style)
 	bg = ResolveBackgroundNRGBA(src, style)
-	if style != nil && style.Attrs&screen.AttrReverse != 0 {
+	if style != nil && style.Attrs&vt.AttrReverse != 0 {
 		fg, bg = bg, fg
 	}
-	if style != nil && style.Attrs&screen.AttrFaint != 0 {
+	if style != nil && style.Attrs&vt.AttrFaint != 0 {
 		fg = BlendNRGBA(fg, bg, src.FaintFactor())
 	}
-	if style != nil && style.Attrs&screen.AttrConceal != 0 {
+	if style != nil && style.Attrs&vt.AttrConceal != 0 {
 		fg = bg
 	}
 	return fg, bg
 }
 
-// ResolveCellColorsNRGBA returns foreground and background as concrete NRGBA values.
-func ResolveCellColorsNRGBA(src config.ColorSource, cell *screen.Cell) (fg, bg color.NRGBA) {
-	return resolveCellColors(src, cell)
-}
-
 // ResolveCellBackgroundNRGBA returns the NRGBA fill for a cell background.
-func ResolveCellBackgroundNRGBA(src config.ColorSource, cell *screen.Cell) color.NRGBA {
-	_, bg := resolveCellColors(src, cell)
+func ResolveCellBackgroundNRGBA(src config.ColorSource, cell *vt.Cell) color.NRGBA {
+	_, bg := ResolveCellColorsNRGBA(src, cell)
 	if CellHasExplicitBackground(cell) && !src.BackgroundOpacityCells() {
 		return bg
 	}
@@ -57,7 +53,7 @@ func ResolveCellBackgroundNRGBA(src config.ColorSource, cell *screen.Cell) color
 }
 
 // ResolveForegroundNRGBA returns the color for text and decorations without interface boxing.
-func ResolveForegroundNRGBA(src config.ColorSource, style *screen.Style) color.NRGBA {
+func ResolveForegroundNRGBA(src config.ColorSource, style *vt.Style) color.NRGBA {
 	if style != nil && style.Fg != nil {
 		return NRGBA(ResolvePaletteColor(src, style.Fg))
 	}
@@ -72,7 +68,7 @@ func ResolveForegroundNRGBA(src config.ColorSource, style *screen.Style) color.N
 }
 
 // ResolveBackgroundNRGBA returns the cell background color before reverse-video swap.
-func ResolveBackgroundNRGBA(src config.ColorSource, style *screen.Style) color.NRGBA {
+func ResolveBackgroundNRGBA(src config.ColorSource, style *vt.Style) color.NRGBA {
 	if style != nil && style.Bg != nil {
 		return NRGBA(ResolvePaletteColor(src, style.Bg))
 	}
@@ -98,7 +94,7 @@ func ResolvePaletteColor(src config.ColorSource, c color.Color) color.Color {
 		if mapped := palette.Indexed[int(v)]; mapped != nil {
 			return mapped
 		}
-	case screen.Indexed:
+	case vt.Indexed:
 		if mapped := palette.Indexed[int(v)]; mapped != nil {
 			return mapped
 		}
@@ -119,7 +115,7 @@ func ResolveCursorNRGBA(src config.ColorSource, defaultForeground color.NRGBA) c
 }
 
 // CellHasExplicitBackground reports whether the cell carries an explicit background.
-func CellHasExplicitBackground(cell *screen.Cell) bool {
+func CellHasExplicitBackground(cell *vt.Cell) bool {
 	if cell == nil {
 		return false
 	}
@@ -127,7 +123,7 @@ func CellHasExplicitBackground(cell *screen.Cell) bool {
 	if style.Bg != nil {
 		return true
 	}
-	if style.Attrs&screen.AttrReverse != 0 && style.Fg != nil {
+	if style.Attrs&vt.AttrReverse != 0 && style.Fg != nil {
 		return true
 	}
 	return false

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 var (
@@ -77,7 +77,7 @@ func assertSameTimes(t *testing.T, got, want *Timeline) {
 func withDefaultPalette(h Header) Header {
 	for i := range h.Palette {
 		if h.Palette[i] == nil {
-			h.Palette[i] = color.NRGBAModel.Convert(screen.Indexed(i))
+			h.Palette[i] = color.NRGBAModel.Convert(vt.Indexed(i))
 		}
 	}
 	return h
@@ -354,8 +354,12 @@ func TestReadTimelineSpec(t *testing.T) {
 	if h := tl.Header(); h.Palette[0] != want.Palette[0] || h.Palette[7] != want.Palette[7] || h.Palette[15] != want.Palette[15] {
 		t.Fatalf("v3 palette = %v", h.Palette)
 	}
-	want.Palette, _ = parseCastPalette("#151515:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#d0d0d0:" +
-		"#505050:#ac4142:#7e8e50:#e5b567:#6c99bb:#9f4e85:#7dd6cf:#f5f5f5")
+	for i, rgb := range []uint32{
+		0x151515, 0xac4142, 0x7e8e50, 0xe5b567, 0x6c99bb, 0x9f4e85, 0x7dd6cf, 0xd0d0d0,
+		0x505050, 0xac4142, 0x7e8e50, 0xe5b567, 0x6c99bb, 0x9f4e85, 0x7dd6cf, 0xf5f5f5,
+	} {
+		want.Palette[i] = hexNRGBA(rgb)
+	}
 	if h := tl.Header(); h != want {
 		t.Fatalf("v3 Header = %+v", h)
 	}
@@ -570,7 +574,7 @@ func TestCastBetweenReplays(t *testing.T) {
 // assertSameReplay fails unless replaying a and b leaves the same terminal.
 func assertSameReplay(t *testing.T, ha Header, a []Event, hb Header, b []Event) {
 	t.Helper()
-	replayAll := func(h Header, events []Event) (screen.State, string) {
+	replayAll := func(h Header, events []Event) (vt.State, string) {
 		r, err := newReplay(t.Context(), replayRuntime, h, 0, 0)
 		if err != nil {
 			t.Fatal(err)

@@ -13,7 +13,7 @@ import (
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // cardContext returns the context of a recording of an 80x24 timeline drawn
@@ -36,7 +36,7 @@ func cardContext(t *testing.T) *reel.Context {
 
 // cellsOf is a terminal frame of a blank cols by rows screen titled title.
 func cellsOf(cols, rows int, title string) *reel.CellFrame {
-	return &reel.CellFrame{Screen: screen.NewBuffer(cols, rows), State: screen.State{Title: title, Focused: true}}
+	return &reel.CellFrame{Screen: vt.NewBuffer(cols, rows), State: vt.State{Title: title, Focused: true}}
 }
 
 func TestCard(t *testing.T) {
@@ -50,13 +50,13 @@ func TestCard(t *testing.T) {
 	// A card without lines is the blank terminal, chrome and all.
 	blank := cards.Card(nil)
 	want := image.NewNRGBA(ctx.Layout.Image)
-	ctx.Rasterizer.Draw(want, screen.NewBuffer(80, 24), screen.State{Focused: true}, 0)
+	ctx.Rasterizer.Draw(want, vt.NewBuffer(80, 24), vt.State{Focused: true}, 0)
 	if blank.Rect != want.Rect || !bytes.Equal(blank.Pix, want.Pix) {
 		t.Fatal("a card without lines is not the blank terminal")
 	}
 
 	// Lines are drawn in the middle, and only there.
-	card := cards.Card(nil, Line{Text: "hello", Style: screen.Style{Attrs: screen.AttrBold}})
+	card := cards.Card(nil, Line{Text: "hello", Style: vt.Style{Attrs: vt.AttrBold}})
 	text := cards.Text(nil, Line{Text: "hello"})
 	if card.Rect != blank.Rect || text == nil {
 		t.Fatalf("card is %v with text %v, want %v with text", card.Rect, text, blank.Rect)

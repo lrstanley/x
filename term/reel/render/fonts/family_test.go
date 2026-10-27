@@ -226,7 +226,6 @@ func TestLoadFamily_Embedded(t *testing.T) {
 	if family.Regular == family.Bold || family.Regular == family.Italic || family.Bold == family.BoldItalic {
 		t.Fatal("variants must be distinct fonts")
 	}
-
 }
 
 func TestLoadFamily_OnlyRegularLeavesOthersNil(t *testing.T) {

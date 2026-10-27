@@ -9,11 +9,11 @@ import (
 	"image/color"
 	"time"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // frameSnap is everything outside the cell grid that can change pixels
-// between draws: the screen bounds and the [screen.State], as drawn at some
+// between draws: the screen bounds and the [vt.State], as drawn at some
 // offset. Draw skips a repaint only when this still matches the frame it
 // already filled. Options, palette, fonts, and metrics are fixed by [New], so
 // they are not tracked.
@@ -25,7 +25,7 @@ type frameSnap struct {
 
 	focused    bool
 	alt        bool
-	cursor     screen.Cursor
+	cursor     vt.Cursor
 	scrollback int
 	fg, bg     color.NRGBA
 	cur        color.NRGBA // zero unless the state sets a cursor color
@@ -34,11 +34,11 @@ type frameSnap struct {
 
 // reuseFrame reports whether d.frame already shows scr with st at at. Blink
 // is checked last, and only once per cell-content generation.
-func (d *Renderer) reuseFrame(scr screen.Screen, st screen.State, at time.Duration) bool {
+func (d *Renderer) reuseFrame(scr vt.Screen, st vt.State, at time.Duration) bool {
 	if !d.frameReady || d.frame == nil || scr == nil {
 		return false
 	}
-	buf, ok := scr.(*screen.Buffer)
+	buf, ok := scr.(*vt.Buffer)
 	if !ok || !bufferClean(buf) {
 		return false
 	}
@@ -61,14 +61,14 @@ func (d *Renderer) cursorBlinks(s frameSnap) bool {
 // rememberFrame records scr with st, drawn as of at, as what d.frame shows.
 // lo..hi are the cell rows that changed since the previous remembered frame;
 // they are copied to d.prev.
-func (d *Renderer) rememberFrame(scr screen.Screen, st screen.State, lo, hi int, at time.Duration) {
-	buf, ok := scr.(*screen.Buffer)
+func (d *Renderer) rememberFrame(scr vt.Screen, st vt.State, lo, hi int, at time.Duration) {
+	buf, ok := scr.(*vt.Buffer)
 	if !ok || buf == nil {
 		return
 	}
 	b, w := buf.Bounds(), buf.Width()
 	if len(d.prev) != w*b.Dy() {
-		d.prev, lo, hi = make([]screen.Cell, w*b.Dy()), 0, b.Dy()-1
+		d.prev, lo, hi = make([]vt.Cell, w*b.Dy()), 0, b.Dy()-1
 	}
 	for y := max(lo, 0); y <= min(hi, b.Dy()-1); y++ {
 		for x := range w {
@@ -80,7 +80,7 @@ func (d *Renderer) rememberFrame(scr screen.Screen, st screen.State, lo, hi int,
 	d.frameReady = true
 }
 
-func (d *Renderer) cellsBlink(buf *screen.Buffer, gen uint64) bool {
+func (d *Renderer) cellsBlink(buf *vt.Buffer, gen uint64) bool {
 	if d.blinkGen == gen {
 		return d.blinkOn
 	}
@@ -90,7 +90,7 @@ func (d *Renderer) cellsBlink(buf *screen.Buffer, gen uint64) bool {
 	return on
 }
 
-func bufferClean(b *screen.Buffer) bool {
+func bufferClean(b *vt.Buffer) bool {
 	if b == nil || b.Dirty == nil || len(b.Dirty) != b.Height() {
 		return false
 	}
@@ -109,7 +109,7 @@ func (d *Renderer) drawBounds(screen image.Rectangle) image.Rectangle {
 }
 
 // currentSnap is the frameSnap of a screen of bounds drawn with st at at.
-func (d *Renderer) currentSnap(bounds image.Rectangle, st screen.State, at time.Duration) frameSnap {
+func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Duration) frameSnap {
 	s := frameSnap{
 		screen:     bounds,
 		ind:        d.shownIndicators(st, at),
@@ -133,8 +133,8 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st screen.State, at time.
 // the cursor's old and new rows) and the indicators that changed or animate
 // into d.frame, for st as of at, reporting whether it could. Everything
 // outside those bands is untouched.
-func (d *Renderer) drawIncremental(scr screen.Screen, st screen.State, at time.Duration) bool {
-	buf, ok := scr.(*screen.Buffer)
+func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration) bool {
+	buf, ok := scr.(*vt.Buffer)
 	if !ok || !d.frameReady || d.frame == nil || buf.Generation() == 0 || len(d.prev) != buf.Width()*buf.Height() {
 		return false
 	}
@@ -187,7 +187,7 @@ func (d *Renderer) drawIncremental(scr screen.Screen, st screen.State, at time.D
 // dirtyRows returns the first and last row of buf that differs from d.prev
 // (hi < lo when none). ok is false when cells cannot be compared, which
 // happens for non-comparable color types.
-func (d *Renderer) dirtyRows(buf *screen.Buffer) (lo, hi int, ok bool) {
+func (d *Renderer) dirtyRows(buf *vt.Buffer) (lo, hi int, ok bool) {
 	defer func() {
 		if recover() != nil {
 			ok = false
@@ -209,7 +209,7 @@ func (d *Renderer) dirtyRows(buf *screen.Buffer) (lo, hi int, ok bool) {
 // sansBanded is s without the cursor, title, progress, and program status,
 // which drawIncremental repaints as bands instead of rebuilding the frame.
 func (s frameSnap) sansBanded() frameSnap {
-	s.cursor = screen.Cursor{}
+	s.cursor = vt.Cursor{}
 	s.title = ""
 	s.ind = indicators{}
 	return s

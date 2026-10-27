@@ -14,8 +14,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 func TestWriteTextAndLinefeed(t *testing.T) {
@@ -42,7 +40,7 @@ func TestWriteTextAndLinefeed(t *testing.T) {
 // past, and only those.
 func TestScreenWrapped(t *testing.T) {
 	t.Parallel()
-	wrapped := func(scr *screen.Buffer) []bool {
+	wrapped := func(scr *Buffer) []bool {
 		var out []bool
 		for y := range scr.Height() {
 			out = append(out, scr.Wrapped(y))
@@ -410,7 +408,7 @@ func TestProgramStatusAndPrompt(t *testing.T) {
 func TestStateProgramStatuses(t *testing.T) {
 	t.Parallel()
 	term := openTest(t, 8, 2)
-	write := func(seq string) screen.State {
+	write := func(seq string) State {
 		t.Helper()
 		if _, err := term.Write([]byte(seq)); err != nil {
 			t.Fatal(err)
@@ -440,7 +438,7 @@ func TestStateProgramStatuses(t *testing.T) {
 	}
 
 	done := write(osc("state=done:id=job"))
-	if working.ProgramStatuses[0].State != screen.ProgramWorking || done.ProgramStatuses[0].State != screen.ProgramDone {
+	if working.ProgramStatuses[0].State != ProgramWorking || done.ProgramStatuses[0].State != ProgramDone {
 		t.Fatalf("an earlier state changed: %+v, now %+v", working.ProgramStatuses, done.ProgramStatuses)
 	}
 
@@ -470,7 +468,7 @@ func TestProgramStatusView(t *testing.T) {
 	t.Parallel()
 
 	// want walks up each id through the records as given.
-	want := func(in []screen.ProgramStatus) []screen.ProgramStatus {
+	want := func(in []ProgramStatus) []ProgramStatus {
 		out := slices.Clone(in)
 		for i := range out {
 			for id := out[i].ID; out[i].App == "" && id != ""; {
@@ -479,20 +477,20 @@ func TestProgramStatusView(t *testing.T) {
 					prefix = ""
 				}
 				id = prefix
-				if j := slices.IndexFunc(in, func(p screen.ProgramStatus) bool { return p.ID == id }); j >= 0 {
+				if j := slices.IndexFunc(in, func(p ProgramStatus) bool { return p.ID == id }); j >= 0 {
 					out[i].App = in[j].App
 				}
 			}
 		}
-		slices.SortFunc(out, func(a, b screen.ProgramStatus) int { return strings.Compare(a.ID, b.ID) })
+		slices.SortFunc(out, func(a, b ProgramStatus) int { return strings.Compare(a.ID, b.ID) })
 		return out
 	}
 	ids := []string{"", "a", "a/b", "a/b/c", "a/b/c/d", "a/x", "a/x/y", "a-b", "a-b/c", "b/c", "b/c/d", "b", "c/d/e", "a/b/c2"}
 	rng := rand.New(rand.NewPCG(1, 2))
 	for range 500 {
-		var in []screen.ProgramStatus
+		var in []ProgramStatus
 		for _, i := range rng.Perm(len(ids))[:rng.IntN(len(ids)+1)] {
-			rec := screen.ProgramStatus{ID: ids[i], State: screen.ProgramWorking}
+			rec := ProgramStatus{ID: ids[i], State: ProgramWorking}
 			if rng.IntN(3) == 0 {
 				rec.App = "app-" + ids[i]
 			}
@@ -503,8 +501,8 @@ func TestProgramStatusView(t *testing.T) {
 		}
 	}
 
-	in := []screen.ProgramStatus{{ID: "a", State: screen.ProgramDone}, {ID: "b", State: screen.ProgramWorking}}
-	same := func(a, b []screen.ProgramStatus) bool { return len(a) == len(b) && &a[0] == &b[0] }
+	in := []ProgramStatus{{ID: "a", State: ProgramDone}, {ID: "b", State: ProgramWorking}}
+	same := func(a, b []ProgramStatus) bool { return len(a) == len(b) && &a[0] == &b[0] }
 	if !same(putProgramStatus(in, in[1]), in) {
 		t.Error("putProgramStatus copied the records for an update that changes nothing")
 	}
@@ -523,18 +521,18 @@ func TestProgramStatusView(t *testing.T) {
 // records three levels deep, newest first, where only one root sets an app,
 // so most records look for one all the way up.
 func BenchmarkProgramStatusView(b *testing.B) {
-	in := make([]screen.ProgramStatus, programStatusMax)
+	in := make([]ProgramStatus, programStatusMax)
 	for i := range in {
 		tree := "t" + strconv.Itoa(i%16)
-		rec := screen.ProgramStatus{ID: tree, State: screen.ProgramWorking}
+		rec := ProgramStatus{ID: tree, State: ProgramWorking}
 		switch {
 		case i == 0:
 			rec.App = "app"
 		case i < 16:
 		case i%2 == 1:
-			rec = screen.ProgramStatus{ID: tree + "/c" + strconv.Itoa(i), State: screen.ProgramWorking}
+			rec = ProgramStatus{ID: tree + "/c" + strconv.Itoa(i), State: ProgramWorking}
 		default:
-			rec = screen.ProgramStatus{ID: "t" + strconv.Itoa((i-1)%16) + "/c" + strconv.Itoa(i-1) + "/g" + strconv.Itoa(i), State: screen.ProgramDone}
+			rec = ProgramStatus{ID: "t" + strconv.Itoa((i-1)%16) + "/c" + strconv.Itoa(i-1) + "/g" + strconv.Itoa(i), State: ProgramDone}
 		}
 		in[len(in)-1-i] = rec
 	}
@@ -618,25 +616,25 @@ func TestCursorColorSetByProgram(t *testing.T) {
 // know.
 func TestGhosttyEnumMapping(t *testing.T) {
 	t.Parallel()
-	for v, want := range map[int32]screen.ProgressState{
-		0: screen.ProgressRemove, 1: screen.ProgressSet, 2: screen.ProgressError,
-		3: screen.ProgressIndeterminate, 4: screen.ProgressPause, 5: screen.ProgressRemove, -1: screen.ProgressRemove,
+	for v, want := range map[int32]ProgressState{
+		0: ProgressRemove, 1: ProgressSet, 2: ProgressError,
+		3: ProgressIndeterminate, 4: ProgressPause, 5: ProgressRemove, -1: ProgressRemove,
 	} {
 		if got := progressState(v); got != want {
 			t.Errorf("progressState(%d) = %v, want %v", v, got, want)
 		}
 	}
-	for v, want := range map[int32]screen.ProgramState{
-		0: screen.ProgramIdle, 1: screen.ProgramWorking, 2: screen.ProgramDone,
-		3: screen.ProgramBlocked, 4: screen.ProgramError, 6: screen.ProgramIdle, -1: screen.ProgramIdle,
+	for v, want := range map[int32]ProgramState{
+		0: ProgramIdle, 1: ProgramWorking, 2: ProgramDone,
+		3: ProgramBlocked, 4: ProgramError, 6: ProgramIdle, -1: ProgramIdle,
 	} {
 		if got := programState(v); got != want {
 			t.Errorf("programState(%d) = %v, want %v", v, got, want)
 		}
 	}
-	for v, want := range map[int32]screen.ProgramKind{
-		0: screen.ProgramKindNone, 1: screen.ProgramKindPermission, 2: screen.ProgramKindQuestion,
-		3: screen.ProgramKindAuth, 4: screen.ProgramKindNone, -1: screen.ProgramKindNone,
+	for v, want := range map[int32]ProgramKind{
+		0: ProgramKindNone, 1: ProgramKindPermission, 2: ProgramKindQuestion,
+		3: ProgramKindAuth, 4: ProgramKindNone, -1: ProgramKindNone,
 	} {
 		if got := programKind(v); got != want {
 			t.Errorf("programKind(%d) = %v, want %v", v, got, want)
@@ -658,7 +656,7 @@ func TestStateMatchesAccessors(t *testing.T) {
 	if got.Title != "snap-title" || got.Foreground != fg {
 		t.Fatalf("state title/fg = %q %#v", got.Title, got.Foreground)
 	}
-	if want := (screen.Progress{Reported: true, State: screen.ProgressSet, Percent: 42}); got.Progress != want {
+	if want := (Progress{Reported: true, State: ProgressSet, Percent: 42}); got.Progress != want {
 		t.Fatalf("state progress = %+v, want %+v", got.Progress, want)
 	}
 	if recs := got.ProgramStatuses; len(recs) != 2 || recs[0].ID != "" || recs[1].App != "a" || !got.ProgramStatusReported {

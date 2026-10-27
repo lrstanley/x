@@ -9,12 +9,14 @@ import (
 	"errors"
 	"image"
 	"image/color"
-	"image/draw"
 	"image/gif"
 	"io"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 // writeGIF writes imgs, each playing for delay, to a GIF at path encoded
@@ -87,7 +89,7 @@ func solidFrameInto(img *image.NRGBA, c int) {
 // palettize converts src through pal using the package capture path.
 func palettize(src *image.NRGBA, pal color.Palette) *image.Paletted {
 	pm := image.NewPaletted(src.Bounds(), pal)
-	palettizeInto(pm, src)
+	palette.Palettize(pm, src)
 	return pm
 }
 
@@ -103,7 +105,7 @@ func cursorBlinkSequence(w, h, n int) []image.Image {
 	for i := range n {
 		img := cloneNRGBA(base)
 		if i%2 == 1 {
-			paintRect(img, r, cursor)
+			testutil.PaintRect(img, r, cursor)
 		}
 		frames[i] = img
 	}
@@ -116,17 +118,9 @@ func cloneNRGBA(src *image.NRGBA) *image.NRGBA {
 	return dst
 }
 
-func paintRect(img *image.NRGBA, r image.Rectangle, c color.NRGBA) {
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			img.SetNRGBA(x, y, c)
-		}
-	}
-}
-
 func solidNRGBA(w, h int, c color.NRGBA) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	paintRect(img, img.Bounds(), c)
+	testutil.PaintRect(img, img.Bounds(), c)
 	return img
 }
 
@@ -134,34 +128,12 @@ func solidNRGBA(w, h int, c color.NRGBA) *image.NRGBA {
 // default internal palette — tolerates GIF quantization drift in round-trips.
 func assertPalettizedSimilar(t *testing.T, want, got image.Image) {
 	t.Helper()
-	pal := defaultGIFPalette()
-	wantP := palettize(toNRGBA(want), pal)
-	gotP := palettize(toNRGBA(got), pal)
+	pal := palette.Default()
+	wantP := palettize(testutil.ToNRGBA(want), pal)
+	gotP := palettize(testutil.ToNRGBA(got), pal)
 	if !bytes.Equal(wantP.Pix, gotP.Pix) {
 		t.Fatal("palettized pixels differ")
 	}
-}
-
-func toNRGBA(img image.Image) *image.NRGBA {
-	if nrgba, ok := img.(*image.NRGBA); ok {
-		return nrgba
-	}
-	b := img.Bounds()
-	dst := image.NewNRGBA(b)
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			dst.Set(x, y, img.At(x, y))
-		}
-	}
-	return dst
-}
-
-// toRGBA converts img to a premultiplied *image.RGBA.
-func toRGBA(img image.Image) *image.RGBA {
-	b := img.Bounds()
-	dst := image.NewRGBA(b)
-	draw.Draw(dst, b, img, b.Min, draw.Src)
-	return dst
 }
 
 // replayMismatchPct returns the percentage of non-excluded pixels that differ
@@ -171,8 +143,8 @@ func replayMismatchPct(want, got []image.Image, exclude color.NRGBA) (pct float6
 	n := min(len(got), len(want))
 	totalWrong, totalPixels := 0, 0
 	for fi := range n {
-		w := toNRGBA(want[fi])
-		g := toNRGBA(got[fi])
+		w := testutil.ToNRGBA(want[fi])
+		g := testutil.ToNRGBA(got[fi])
 		b := w.Bounds()
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			for x := b.Min.X; x < b.Max.X; x++ {

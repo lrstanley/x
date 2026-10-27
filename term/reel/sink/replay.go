@@ -129,7 +129,7 @@ func blitPalettedOntoNRGBA(canvas *image.NRGBA, frame *image.Paletted, transpare
 	r := frame.Bounds()
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		for x := r.Min.X; x < r.Max.X; x++ {
-			idx := paletteIndexAt(frame, x, y)
+			idx := frame.ColorIndexAt(x, y)
 			if transparentIdx >= 0 && int(idx) == transparentIdx {
 				continue
 			}

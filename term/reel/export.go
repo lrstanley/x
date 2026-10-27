@@ -23,6 +23,7 @@ import (
 // terminal: every event is applied in order, and each time the terminal
 // looks different (outside synchronized output) is a frame: new program
 // output, or a change of focus or colors.
+//
 // The frames of a timeline returned by [Timeline.Between] are those of its
 // window, which opens on the terminal the events before it left. Frames are
 // drawn as of their offset into the timeline, never the wall clock, so

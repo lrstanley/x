@@ -2,17 +2,21 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+// Package gifopt optimizes the frames of a GIF: it diffs palettized frames,
+// and rewrites a recording of full frames as sub-rect frames with disposal
+// methods, as gifsicle -O1/-O2 does. Unchanged pixels of a sub-rect frame
+// are [palette.TransparentIndex].
+package gifopt
 
 import (
 	"bytes"
-	"cmp"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
-	"slices"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
 const (
@@ -57,59 +61,56 @@ type disposalCanvas struct {
 // copies view so an output keyframe that aliases it stays unchanged.
 func (c *disposalCanvas) mutable() *image.Paletted {
 	if !c.owned {
-		c.view = clonePaletted(c.view)
+		c.view = Clone(c.view)
 		c.owned = true
 	}
 	return c.view
 }
 
-// optimizeDisposals rewrites rec in place with gifsicle -O1/-O2 style sub-rect
-// frames and disposal methods. Input frames are full-canvas captures; output
-// frames may be smaller offset rects with transparent unchanged pixels.
-func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
-	n := len(rec.images)
-	if n <= 1 {
-		if n == 1 && len(rec.disposal) == 0 {
-			rec.disposal = []byte{gif.DisposalNone}
-		}
-		return
-	}
-
-	w, h := rec.config.Width, rec.config.Height
-	if w <= 0 || h <= 0 {
-		return
-	}
-	screen := image.Rect(0, 0, w, h)
-	pal := paletteFrom(rec.config.ColorModel, rec.images)
+// Optimize rewrites frames, which are full frames on screen, as gifsicle
+// -O1/-O2 style sub-rect frames with disposal methods: frames that are
+// smaller offset rects, with transparent unchanged pixels. When deltaAt is
+// not negative, the frames after frames[deltaAt] are instead crops of what
+// changed since the frame before them, which [BlitOpaque] applies. screen is
+// not empty, and there are at least two frames, with a delay for each.
+//
+// It returns the new frames with their delays and disposal methods, and the
+// index in global, the global color table, that [gif.DisposalBackground]
+// clears to: bg mapped through global when bgSet, otherwise the color most
+// of the first frame on global shows.
+func Optimize(
+	screen image.Rectangle,
+	global color.Palette,
+	frames []*image.Paletted,
+	delays []time.Duration,
+	deltaAt int,
+	bg color.Color,
+	bgSet bool,
+) (outFrames []*image.Paletted, outDelays []time.Duration, disposals []byte, bgIndex uint8) {
 	// BackgroundIndex indexes the global color table, so take it from the
 	// first frame that uses that palette. A leading isolated run does not.
-	bgFrame := rec.images[0]
-	for _, img := range rec.images {
-		if samePalette(img.Palette, pal) {
+	bgFrame := frames[0]
+	for _, img := range frames {
+		if palette.Same(img.Palette, global) {
 			bgFrame = img
 			break
 		}
 	}
-	bgIdx := gifBackgroundIndex(pal, bgFrame, screen, bg, bgSet)
+	bgIndex = gifBackgroundIndex(global, bgFrame, screen, bg, bgSet)
 
 	// The first capture is the keyframe. Reuse it when it is already full-screen
 	// so a cursor-sized blink does not clone the canvas. Later mutations copy
 	// on write.
-	first := frameForDiff(rec.images[0], screen, rec.images[0].Palette)
+	first := frameForDiff(frames[0], screen, frames[0].Palette)
 	canvas := disposalCanvas{view: first}
 
-	plans, firstDelayExtra := planDisposalFrames(rec, &canvas, screen, w*h)
-	images, delays, disposals := collectDisposalOutput(plans, 1+len(plans))
+	plans, firstDelayExtra := planDisposalFrames(frames, delays, deltaAt, &canvas, screen)
+	outFrames, outDelays, disposals = collectDisposalOutput(plans, 1+len(plans))
 
-	images[0] = first
-	delays[0] = rec.delays[0] + firstDelayExtra
+	outFrames[0] = first
+	outDelays[0] = delays[0] + firstDelayExtra
 	disposals[0] = gif.DisposalNone
-
-	rec.images = images
-	rec.delays = delays
-	rec.disposal = disposals
-	rec.last, rec.spare = nil, nil
-	rec.backgroundIndex = bgIdx
+	return outFrames, outDelays, disposals, bgIndex
 }
 
 // planDisposalFrames walks input captures: diff and decide each output frame,
@@ -117,8 +118,9 @@ func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
 // Frames are only diffed by index against the canvas when both use the same
 // palette. A palette change diffs by color instead and writes what changed
 // color, or a full keyframe when most of the screen did.
-func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.Rectangle, canvasArea int) (plans []framePlan, firstDelayExtra time.Duration) {
-	n := len(rec.images)
+func planDisposalFrames(frames []*image.Paletted, delays []time.Duration, deltaAt int, canvas *disposalCanvas, screen image.Rectangle) (plans []framePlan, firstDelayExtra time.Duration) {
+	n := len(frames)
+	canvasArea := screen.Dx() * screen.Dy()
 	plans = make([]framePlan, 0, n-1)
 
 	// Delta recordings rebuild each full frame of the current segment on a
@@ -127,35 +129,35 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 	for i := 1; i < n; i++ {
 		var full *image.Paletted
 		switch {
-		case rec.last != nil && i > rec.deltaAt:
+		case deltaAt >= 0 && i > deltaAt:
 			if cur == nil {
-				base := rec.images[rec.deltaAt]
-				cur = clonePaletted(frameForDiff(base, screen, base.Palette))
+				base := frames[deltaAt]
+				cur = Clone(frameForDiff(base, screen, base.Palette))
 			}
-			blitOpaque(rec.images[i], cur)
+			BlitOpaque(frames[i], cur)
 			full = cur
 		default:
-			full = frameForDiff(rec.images[i], screen, rec.images[i].Palette)
+			full = frameForDiff(frames[i], screen, frames[i].Palette)
 		}
 		framePal := full.Palette
 		// Indices on two palettes name different colors, so a palette change
 		// diffs by color. Pixels outside what changed color already show what
 		// full has, so afterwards the screen is full, on its palette.
-		switched := !samePalette(canvas.view.Palette, framePal)
-		diff := diffBoundingBox
+		switched := !palette.Same(canvas.view.Palette, framePal)
+		diff := Diff
 		if switched {
 			diff = diffColorBoundingBox
 		}
 		bbox, diffArea := diff(canvas.view, full, screen)
 		if diffArea == 0 {
 			if switched {
-				canvas.view, canvas.owned = clonePaletted(full), true
+				canvas.view, canvas.owned = Clone(full), true
 			}
 			if len(plans) == 0 {
-				firstDelayExtra += rec.delays[i]
+				firstDelayExtra += delays[i]
 				continue
 			}
-			planIdleMergeOrReveal(&plans, framePal, rec.delays[i])
+			planIdleMergeOrReveal(&plans, framePal, delays[i])
 			continue
 		}
 
@@ -164,18 +166,18 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 		case float64(diffArea)/float64(canvasArea) >= dirtyRectThreshold:
 			plan = framePlan{
 				kind:     planFullKeyframe,
-				delay:    rec.delays[i],
+				delay:    delays[i],
 				disposal: gif.DisposalNone,
-				image:    clonePaletted(full),
+				image:    Clone(full),
 			}
 		case switched:
 			// An opaque crop: subRectFrame finds the holes by comparing
 			// indices, which name different colors on the two palettes.
 			plan = framePlan{
 				kind:     planSubRect,
-				delay:    rec.delays[i],
+				delay:    delays[i],
 				disposal: gif.DisposalNone,
-				image:    cropPaletted(full, bbox),
+				image:    Crop(full, bbox),
 			}
 		default:
 			disposal := byte(gif.DisposalNone)
@@ -195,13 +197,13 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 			bboxArea := bbox.Dx() * bbox.Dy()
 			unchanged := bboxArea - diffArea
 			if bboxArea > 0 && unchanged >= 0 && unchanged*4 < bboxArea {
-				patch = cropPaletted(full, bbox)
+				patch = Crop(full, bbox)
 			} else {
 				patch = subRectFrame(canvas.view, full, bbox, framePal)
 			}
 			plan = framePlan{
 				kind:     planSubRect,
-				delay:    rec.delays[i],
+				delay:    delays[i],
 				disposal: disposal,
 				image:    patch,
 			}
@@ -209,7 +211,7 @@ func planDisposalFrames(rec *gifRecording, canvas *disposalCanvas, screen image.
 
 		plans = append(plans, plan)
 		if switched && plan.kind == planSubRect {
-			canvas.view, canvas.owned = clonePaletted(full), true
+			canvas.view, canvas.owned = Clone(full), true
 			continue
 		}
 		applyPlanToCanvas(canvas, plan)
@@ -255,7 +257,7 @@ func planIdleMergeOrReveal(plans *[]framePlan, pal color.Palette, delay time.Dur
 }
 
 // collectDisposalOutput copies planned frames into output slices. Index 0 is
-// reserved for the initial full keyframe filled in by optimizeDisposals.
+// reserved for the initial full keyframe filled in by Optimize.
 func collectDisposalOutput(plans []framePlan, n int) (images []*image.Paletted, delays []time.Duration, disposals []byte) {
 	images = make([]*image.Paletted, n)
 	delays = make([]time.Duration, n)
@@ -266,36 +268,6 @@ func collectDisposalOutput(plans []framePlan, n int) (images []*image.Paletted, 
 		disposals[i+1] = plan.disposal
 	}
 	return images, delays, disposals
-}
-
-// ensureTransparentPaletteSlot marks TransparentPaletteIndex as a zero-alpha
-// palette color so GIF encoders emit a transparent color index for sub-rect
-// frames. Each palette is patched on its own, so an isolated frame keeps its
-// local table. Custom palettes may still use an opaque xterm slot 255. A
-// palette only needs the slot when a frame on it uses transparency; shorter
-// palettes have already dropped an unused slot during compaction.
-func ensureTransparentPaletteSlot(out *gif.GIF) {
-	if len(out.Image) == 0 {
-		return
-	}
-	global, _ := out.Config.ColorModel.(color.Palette)
-	for _, g := range paletteGroups(out.Image) {
-		if len(g.pal) <= int(TransparentPaletteIndex) {
-			continue
-		}
-		if _, _, _, a := g.pal[TransparentPaletteIndex].RGBA(); a == 0 {
-			continue
-		}
-		newPal := make(color.Palette, len(g.pal))
-		copy(newPal, g.pal)
-		newPal[TransparentPaletteIndex] = transparentMarkerColor()
-		if samePalette(g.pal, global) {
-			out.Config.ColorModel = newPal
-		}
-		for _, frame := range g.frames {
-			frame.Palette = newPal
-		}
-	}
 }
 
 // overlayEligible reports whether a diff bbox is small enough for
@@ -316,7 +288,7 @@ func overlayEligible(bbox image.Rectangle, diffArea, canvasArea int) bool {
 func gifBackgroundIndex(pal color.Palette, first *image.Paletted, screen image.Rectangle, bg color.Color, bgSet bool) uint8 {
 	if bgSet {
 		idx := uint8(pal.Index(bg)) //nolint:gosec // palette index is 0-255.
-		if idx != TransparentPaletteIndex {
+		if idx != palette.TransparentIndex {
 			return idx
 		}
 	}
@@ -338,7 +310,7 @@ func dominantPaletteIndex(first *image.Paletted, screen image.Rectangle, pal col
 		for y := screen.Min.Y; y < screen.Max.Y; y++ {
 			span, _ := palettedSpan(full, screen.Min.X, y, width)
 			for _, idx := range span {
-				if idx == TransparentPaletteIndex {
+				if idx == palette.TransparentIndex {
 					continue
 				}
 				freq[idx]++
@@ -357,8 +329,8 @@ func dominantPaletteIndex(first *image.Paletted, screen image.Rectangle, pal col
 func dominantPaletteIndexAt(full *image.Paletted, screen image.Rectangle, freq *[256]int, half int) (uint8, bool) {
 	for y := screen.Min.Y; y < screen.Max.Y; y++ {
 		for x := screen.Min.X; x < screen.Max.X; x++ {
-			idx := paletteIndexAt(full, x, y)
-			if idx == TransparentPaletteIndex {
+			idx := indexAt(full, x, y)
+			if idx == palette.TransparentIndex {
 				continue
 			}
 			freq[idx]++
@@ -383,55 +355,6 @@ func mostFrequentIndex(freq [256]int) uint8 {
 	return bestIdx
 }
 
-// samePalette reports whether a and b are the same palette slice. Equal
-// indices under two palettes are different pictures, so dedup and disposal
-// treat a different slice as a different palette even when the colors match.
-func samePalette(a, b color.Palette) bool {
-	if len(a) == 0 || len(b) == 0 {
-		return len(a) == len(b)
-	}
-	return len(a) == len(b) && &a[0] == &b[0]
-}
-
-// paletteGroup is one run of frames that share a palette slice.
-type paletteGroup struct {
-	pal    color.Palette
-	frames []*image.Paletted
-}
-
-// paletteGroups splits frames by palette identity. Frames that share a slice
-// stay in one group even when another palette sits between them.
-func paletteGroups(frames []*image.Paletted) []paletteGroup {
-	var groups []paletteGroup
-	for _, frame := range frames {
-		if frame == nil {
-			continue
-		}
-		found := false
-		for i := range groups {
-			if samePalette(groups[i].pal, frame.Palette) {
-				groups[i].frames = append(groups[i].frames, frame)
-				found = true
-				break
-			}
-		}
-		if !found {
-			groups = append(groups, paletteGroup{pal: frame.Palette, frames: []*image.Paletted{frame}})
-		}
-	}
-	return groups
-}
-
-func paletteFrom(colorModel color.Model, frames []*image.Paletted) color.Palette {
-	if p, ok := colorModel.(color.Palette); ok && p != nil {
-		return p
-	}
-	if len(frames) > 0 && frames[0].Palette != nil {
-		return frames[0].Palette
-	}
-	return defaultGIFPalette()
-}
-
 // frameForDiff returns a full-screen view of frame for diffing against canvas.
 // A frame that is already full-screen is returned as-is and must not be mutated.
 func frameForDiff(frame *image.Paletted, screen image.Rectangle, pal color.Palette) *image.Paletted {
@@ -448,20 +371,20 @@ func frameForDiff(frame *image.Paletted, screen image.Rectangle, pal color.Palet
 // It triggers disposal in viewers without changing state.
 func revealFrame(pal color.Palette) *image.Paletted {
 	sub := image.NewPaletted(image.Rect(0, 0, 1, 1), pal)
-	sub.SetColorIndex(0, 0, TransparentPaletteIndex)
+	sub.SetColorIndex(0, 0, palette.TransparentIndex)
 	return sub
 }
 
-// diffBoundingBox returns the smallest rectangle enclosing pixels that differ
+// Diff returns the smallest rectangle enclosing pixels that differ
 // between canvas and full, and the count of differing pixels.
-func diffBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
+func Diff(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
 	if canvas != nil && full != nil && canvas.Rect.Eq(screen) && full.Rect.Eq(screen) {
 		if fast, n, ok := diffBoundingBoxRows(canvas, full, screen); ok {
 			return fast, n
 		}
 	}
 	return diffBoundingBoxFunc(screen, func(x, y int) bool {
-		return paletteIndexAt(canvas, x, y) == paletteIndexAt(full, x, y)
+		return indexAt(canvas, x, y) == indexAt(full, x, y)
 	})
 }
 
@@ -534,7 +457,7 @@ func diffBoundingBoxRows(canvas, full *image.Paletted, screen image.Rectangle) (
 	return image.Rect(screen.Min.X+minX, screen.Min.Y+minY, screen.Min.X+maxX+1, screen.Min.Y+maxY+1), diff, true
 }
 
-// diffColorBoundingBox is [diffBoundingBox] for frames on different
+// diffColorBoundingBox is [Diff] for frames on different
 // palettes: a pixel differs when the colors its indices name differ.
 func diffColorBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
 	var cc, fc [256]uint32
@@ -549,13 +472,15 @@ func diffColorBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) 
 	pack(&cc, canvas.Palette)
 	pack(&fc, full.Palette)
 	return diffBoundingBoxFunc(screen, func(x, y int) bool {
-		return cc[paletteIndexAt(canvas, x, y)] == fc[paletteIndexAt(full, x, y)]
+		return cc[indexAt(canvas, x, y)] == fc[indexAt(full, x, y)]
 	})
 }
 
-func paletteIndexAt(pm *image.Paletted, x, y int) uint8 {
+// indexAt returns the palette index of pm at (x, y), or
+// [palette.TransparentIndex] outside its bounds.
+func indexAt(pm *image.Paletted, x, y int) uint8 {
 	if !image.Pt(x, y).In(pm.Bounds()) {
-		return TransparentPaletteIndex
+		return palette.TransparentIndex
 	}
 	return pm.Pix[(y-pm.Rect.Min.Y)*pm.Stride+(x-pm.Rect.Min.X)]
 }
@@ -571,17 +496,17 @@ func subRectFrame(canvas, full *image.Paletted, bbox image.Rectangle, pal color.
 		fSpan, okF := palettedSpan(full, bbox.Min.X, y, width)
 		if !okD || !okC || !okF {
 			for x := bbox.Min.X; x < bbox.Max.X; x++ {
-				if paletteIndexAt(canvas, x, y) == paletteIndexAt(full, x, y) {
-					sub.SetColorIndex(x, y, TransparentPaletteIndex)
+				if indexAt(canvas, x, y) == indexAt(full, x, y) {
+					sub.SetColorIndex(x, y, palette.TransparentIndex)
 				} else {
-					sub.SetColorIndex(x, y, paletteIndexAt(full, x, y))
+					sub.SetColorIndex(x, y, indexAt(full, x, y))
 				}
 			}
 			continue
 		}
 		for x := range width {
 			if cSpan[x] == fSpan[x] {
-				dst[x] = TransparentPaletteIndex
+				dst[x] = palette.TransparentIndex
 			} else {
 				dst[x] = fSpan[x]
 			}
@@ -590,9 +515,9 @@ func subRectFrame(canvas, full *image.Paletted, bbox image.Rectangle, pal color.
 	return sub
 }
 
-// cropPaletted copies bbox out of src into a tightly packed frame with no
+// Crop copies bbox out of src into a tightly packed frame with no
 // transparent holes. Used when almost every pixel in the bbox changed.
-func cropPaletted(src *image.Paletted, bbox image.Rectangle) *image.Paletted {
+func Crop(src *image.Paletted, bbox image.Rectangle) *image.Paletted {
 	dst := image.NewPaletted(bbox, src.Palette)
 	width := bbox.Dx()
 	for y := bbox.Min.Y; y < bbox.Max.Y; y++ {
@@ -600,7 +525,7 @@ func cropPaletted(src *image.Paletted, bbox image.Rectangle) *image.Paletted {
 		span, ok := palettedSpan(src, bbox.Min.X, y, width)
 		if !ok {
 			for x := bbox.Min.X; x < bbox.Max.X; x++ {
-				dst.SetColorIndex(x, y, paletteIndexAt(src, x, y))
+				dst.SetColorIndex(x, y, indexAt(src, x, y))
 			}
 			continue
 		}
@@ -633,90 +558,35 @@ func blitTransparent(frame, canvas *image.Paletted) {
 		dst, okD := palettedSpan(canvas, r.Min.X, y, width)
 		if !okS || !okD {
 			for x := r.Min.X; x < r.Max.X; x++ {
-				idx := paletteIndexAt(frame, x, y)
-				if idx != TransparentPaletteIndex {
+				idx := indexAt(frame, x, y)
+				if idx != palette.TransparentIndex {
 					canvas.SetColorIndex(x, y, idx)
 				}
 			}
 			continue
 		}
 		for x := range width {
-			if src[x] != TransparentPaletteIndex {
+			if src[x] != palette.TransparentIndex {
 				dst[x] = src[x]
 			}
 		}
 	}
 }
 
-// compactPalette compacts oldPal to only entries referenced across frames,
-// reordering by descending frequency so low indices dominate (gifsicle-style
-// colormap canonicalization). Transparent pixels map to a dedicated slot
-// marked with zero alpha in the palette for replay detection. Frames are
-// updated in place with remapped indices and the new palette.
-func compactPalette(frames []*image.Paletted, oldPal color.Palette) color.Palette {
-	var freq [256]int
-	for _, frame := range frames {
-		for _, idx := range frame.Pix {
-			freq[idx]++
-		}
-	}
-
-	usesTransparent := freq[TransparentPaletteIndex] > 0
-	freq[TransparentPaletteIndex] = 0
-
-	var used []uint8
-	for idx, count := range &freq {
-		if count > 0 {
-			used = append(used, uint8(idx)) //nolint:gosec // idx is 0..255.
-		}
-	}
-	slices.SortFunc(used, func(a, b uint8) int {
-		return cmp.Or(cmp.Compare(freq[b], freq[a]), cmp.Compare(a, b))
-	})
-
-	var remap [256]uint8
-	newPal := make(color.Palette, 0, len(used)+1)
-	for i, idx := range used {
-		newPal = append(newPal, oldPal[idx])
-		remap[idx] = uint8(i) //nolint:gosec // i is bounded by palette size.
-	}
-	if usesTransparent {
-		remap[TransparentPaletteIndex] = uint8(len(newPal)) //nolint:gosec // bounded by 256 colors.
-		newPal = append(newPal, transparentMarkerColor())
-	}
-
-	for _, frame := range frames {
-		frame.Palette = newPal
-		for i, idx := range frame.Pix {
-			frame.Pix[i] = remap[idx]
-		}
-	}
-	return newPal
-}
-
-// compactPalettes compacts each palette to the colors its frames use.
-// keepGlobal leaves a caller-supplied shared palette as given; isolated
-// palettes are still compacted. Otherwise the shared palette is compacted
-// over the frames that use it and becomes the global color table.
-func compactPalettes(out *gif.GIF, keepGlobal bool) {
-	global := paletteFrom(out.Config.ColorModel, out.Image)
-	var shared color.Palette
-	for _, g := range paletteGroups(out.Image) {
-		if keepGlobal && samePalette(g.pal, global) {
-			continue
-		}
-		compacted := compactPalette(g.frames, g.pal)
-		if samePalette(g.pal, global) {
-			shared = compacted
-		}
-	}
-	if shared != nil {
-		out.Config.ColorModel = shared
+// Clone returns a copy of src's pixels on the same palette.
+func Clone(src *image.Paletted) *image.Paletted {
+	return &image.Paletted{
+		Pix:     bytes.Clone(src.Pix),
+		Stride:  src.Stride,
+		Rect:    src.Rect,
+		Palette: src.Palette,
 	}
 }
 
-// transparentMarkerColor is stored in compact palettes to mark the transparent
-// slot; ReplayGIF detects it via zero alpha.
-func transparentMarkerColor() color.Color {
-	return color.RGBA{A: 0}
+// BlitOpaque copies every pixel of patch onto canvas.
+func BlitOpaque(patch, canvas *image.Paletted) {
+	r := patch.Rect.Intersect(canvas.Rect)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		copy(canvas.Pix[canvas.PixOffset(r.Min.X, y):], patch.Pix[patch.PixOffset(r.Min.X, y):][:r.Dx()])
+	}
 }

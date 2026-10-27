@@ -16,7 +16,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"github.com/lrstanley/x/term/steep/snapshot"
 )
 
@@ -75,7 +75,7 @@ func TestHarnessImageRendersLiveState(t *testing.T) {
 	if st.Focused {
 		t.Fatal("state focused = true, want false")
 	}
-	if st.Cursor.Shape != screen.CursorBar {
+	if st.Cursor.Shape != vt.CursorBar {
 		t.Fatalf("cursor style = %v, want CursorBar", st.Cursor.Shape)
 	}
 	if !st.CursorColorSet || st.CursorColor != cursorColor {
@@ -127,12 +127,12 @@ func TestHarnessImageTracksProgress(t *testing.T) {
 
 	for _, tc := range []struct {
 		seq  string
-		want screen.Progress
+		want vt.Progress
 	}{
-		{"\x1b]9;4;1;50\x07", screen.Progress{Reported: true, State: screen.ProgressSet, Percent: 50}},
-		{"\x1b]9;4;2;70\x07", screen.Progress{Reported: true, State: screen.ProgressError, Percent: 70}},
-		{"\x1b]9;4;3\x07", screen.Progress{Reported: true, State: screen.ProgressIndeterminate, Percent: -1}},
-		{"\x1b]9;4;4\x07", screen.Progress{Reported: true, State: screen.ProgressPause, Percent: -1}},
+		{"\x1b]9;4;1;50\x07", vt.Progress{Reported: true, State: vt.ProgressSet, Percent: 50}},
+		{"\x1b]9;4;2;70\x07", vt.Progress{Reported: true, State: vt.ProgressError, Percent: 70}},
+		{"\x1b]9;4;3\x07", vt.Progress{Reported: true, State: vt.ProgressIndeterminate, Percent: -1}},
+		{"\x1b]9;4;4\x07", vt.Progress{Reported: true, State: vt.ProgressPause, Percent: -1}},
 	} {
 		writeVT(t, h, tc.seq)
 		img := copyImage(t, h.Image())
@@ -171,7 +171,7 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 	h := statusHarness(t, "status")
 	agentDone := ansi.ProgramStatus{State: ansi.ProgramStateDone, App: "agent", Title: "Refactor complete"}
 	before := copyImage(t, h.Image())
-	records := func() []screen.ProgramStatus {
+	records := func() []vt.ProgramStatus {
 		t.Helper()
 		return h.session.State().ProgramStatuses
 	}
@@ -181,7 +181,7 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 	if bytes.Equal(before.Pix, rootOnly.Pix) {
 		t.Fatal("a done record did not change the image")
 	}
-	want := screen.ProgramStatus{State: screen.ProgramDone, App: "agent", Title: "Refactor complete", Progress: -1}
+	want := vt.ProgramStatus{State: vt.ProgramDone, App: "agent", Title: "Refactor complete", Progress: -1}
 	if got := records(); len(got) != 1 || got[0] != want {
 		t.Fatalf("records = %+v, want %+v", got, want)
 	}
@@ -240,12 +240,12 @@ func TestHarnessProgramStatusStopsProgress(t *testing.T) {
 	t.Parallel()
 
 	h := statusHarness(t, "rule")
-	progress := func() screen.Progress {
+	progress := func() vt.Progress {
 		t.Helper()
 		return h.session.State().ShownProgress()
 	}
-	set := func(pct int) screen.Progress {
-		return screen.Progress{Reported: true, State: screen.ProgressSet, Percent: pct}
+	set := func(pct int) vt.Progress {
+		return vt.Progress{Reported: true, State: vt.ProgressSet, Percent: pct}
 	}
 
 	writeVT(t, h, "\x1b]9;4;1;50\x07")
@@ -253,11 +253,11 @@ func TestHarnessProgramStatusStopsProgress(t *testing.T) {
 		t.Fatalf("before OSC 7501, progress = %+v", got)
 	}
 	writeVT(t, h, ansi.ClearProgramStatus)
-	if got := progress(); got != (screen.Progress{}) {
+	if got := progress(); got != (vt.Progress{}) {
 		t.Fatalf("after an OSC 7501 report, progress = %+v, want none", got)
 	}
 	writeVT(t, h, "\x1b]9;4;1;70\x07")
-	if got := progress(); got != (screen.Progress{}) {
+	if got := progress(); got != (vt.Progress{}) {
 		t.Fatalf("OSC 9;4 after OSC 7501 drew progress %+v", got)
 	}
 	writeVT(t, h, "\x1bc\x1b]9;4;1;30\x07")

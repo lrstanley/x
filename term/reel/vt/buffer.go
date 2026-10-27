@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package screen
+package vt
 
 import (
 	"image"
@@ -65,7 +65,7 @@ func NewBuffer(width, height int) *Buffer {
 	for y := range b.Dirty {
 		b.Dirty[y] = true
 	}
-	b.advanceGen()
+	b.AdvanceGeneration()
 	return b
 }
 
@@ -85,10 +85,6 @@ func (b *Buffer) AdvanceGeneration() {
 	if b == nil {
 		return
 	}
-	b.advanceGen()
-}
-
-func (b *Buffer) advanceGen() {
 	b.gen = bufGen.Add(1)
 }
 
@@ -156,7 +152,7 @@ func (b *Buffer) SetRaw(x, y int, c Cell) {
 	if row < len(b.Dirty) {
 		b.Dirty[row] = true
 	}
-	b.advanceGen()
+	b.AdvanceGeneration()
 }
 
 // SetCell writes c at x, y. A nil cell becomes an empty cell. Wide cells
@@ -193,7 +189,7 @@ func (b *Buffer) SetCell(x, y int, c *Cell) {
 	if row < len(b.Dirty) {
 		b.Dirty[row] = true
 	}
-	b.advanceGen()
+	b.AdvanceGeneration()
 }
 
 // Wrapped reports whether row y is soft-wrapped: its line ran past the
@@ -276,7 +272,7 @@ func (b *Buffer) Text() string {
 	}
 	var buf strings.Builder
 	buf.Grow(n)
-	for row := 0; row < b.height; row++ {
+	for row := range b.height {
 		if row > 0 {
 			buf.WriteByte('\n')
 		}

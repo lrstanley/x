@@ -10,16 +10,16 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // iconRow is a row of cells with the icon first, followed by text.
 func iconRow(icon, rest string, fg, bg color.NRGBA) testScreen {
 	scr := newTestScreen(len([]rune(rest))+1, 1)
-	style := screen.Style{Fg: fg, Bg: bg}
-	scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: style})
+	style := vt.Style{Fg: fg, Bg: bg}
+	scr.SetCell(0, 0, &vt.Cell{Content: icon, Width: 1, Style: style})
 	for i, r := range []rune(rest) {
-		scr.SetCell(i+1, 0, &screen.Cell{Content: string(r), Width: 1, Style: style})
+		scr.SetCell(i+1, 0, &vt.Cell{Content: string(r), Width: 1, Style: style})
 	}
 	return scr
 }
@@ -113,13 +113,13 @@ func TestIconSpanFollowingCellRepaints(t *testing.T) {
 	t.Cleanup(func() { _ = d.Close(); _ = ref.Close() })
 
 	const cols, rows = 6, 3
-	buf := screen.NewBuffer(cols, rows)
-	style := screen.Style{Fg: fg, Bg: bg}
-	buf.SetCell(1, 1, &screen.Cell{Content: "\uf059", Width: 1, Style: style})
-	buf.SetCell(2, 1, &screen.Cell{Content: "x", Width: 1, Style: style})
+	buf := vt.NewBuffer(cols, rows)
+	style := vt.Style{Fg: fg, Bg: bg}
+	buf.SetCell(1, 1, &vt.Cell{Content: "\uf059", Width: 1, Style: style})
+	buf.SetCell(2, 1, &vt.Cell{Content: "x", Width: 1, Style: style})
 	letter := bytes.Clone(drawNRGBA(t, d, buf).Pix)
 
-	buf.SetCell(2, 1, &screen.Cell{Content: " ", Width: 1, Style: style})
+	buf.SetCell(2, 1, &vt.Cell{Content: " ", Width: 1, Style: style})
 	got := drawNRGBA(t, d, buf)
 	if bytes.Equal(letter, got.Pix) {
 		t.Fatal("changing only the cell after the icon did not change the image")
@@ -128,7 +128,7 @@ func TestIconSpanFollowingCellRepaints(t *testing.T) {
 		t.Fatal("incremental draw after the following cell changed differs from a full repaint")
 	}
 
-	buf.SetCell(2, 1, &screen.Cell{Content: "x", Width: 1, Style: style})
+	buf.SetCell(2, 1, &vt.Cell{Content: "x", Width: 1, Style: style})
 	if !bytes.Equal(letter, drawNRGBA(t, d, buf).Pix) {
 		t.Fatal("restoring the following cell did not restore the image")
 	}
@@ -148,7 +148,7 @@ func TestIconSpanTitle(t *testing.T) {
 	// is the icon: what follows it is a gap of at least a cell.
 	width := func(title string) int {
 		t.Helper()
-		img := drawAt(t, d, scr, screen.State{Title: title}, 0)
+		img := drawAt(t, d, scr, vt.State{Title: title}, 0)
 		bar := d.layoutSnapshot(t, image.Point{}, scr).chromeBounds
 		run := 0
 		for x := bar.Min.X + bar.Dx()/4; x < bar.Max.X-bar.Dx()/4; x++ {

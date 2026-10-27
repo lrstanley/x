@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // TestIntro checks that an intro is a card of its own GIF palette before
@@ -77,7 +77,7 @@ func TestIntroTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := cards.Card(cellsOf(80, 24, ""), Line{Text: "my title", Style: screen.Style{Attrs: screen.AttrBold}})
+	want := cards.Card(cellsOf(80, 24, ""), Line{Text: "my title", Style: vt.Style{Attrs: vt.AttrBold}})
 	if len(out) != 2 || !bytes.Equal(out[0].Image.Pix, want.Pix) {
 		t.Fatalf("intro emitted %d frames, want the bold title card and the frame", len(out))
 	}

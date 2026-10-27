@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // cardCols and cardRows are the terminal size up to which card text is the
@@ -30,7 +30,7 @@ type Line struct {
 	// interpreted.
 	Text string
 	// Style is how the text is drawn.
-	Style screen.Style
+	Style vt.Style
 }
 
 // CardRenderer draws the cards of one recording: lines of text centered on
@@ -115,7 +115,7 @@ func (c *CardRenderer) Card(src *reel.CellFrame, lines ...Line) *image.NRGBA {
 	cols, rows, st := c.source(src)
 	card := image.NewNRGBA(c.rast.Layout(cols, rows).Image)
 	// Cards hold still, so they are drawn as of offset 0.
-	c.rast.Draw(card, screen.NewBuffer(cols, rows), st, 0)
+	c.rast.Draw(card, vt.NewBuffer(cols, rows), st, 0)
 	if text := c.drawText(cols, rows, st, lines); text != nil {
 		b, tb := card.Bounds(), text.Bounds()
 		at := b.Min.Add(image.Pt((b.Dx()-tb.Dx())/2, (b.Dy()-tb.Dy())/2))
@@ -142,15 +142,15 @@ func (c *CardRenderer) Grid(src *reel.CellFrame) (cols, rows int) {
 }
 
 // source returns the size of src and the state its cards are drawn with.
-func (c *CardRenderer) source(src *reel.CellFrame) (cols, rows int, st screen.State) {
+func (c *CardRenderer) source(src *reel.CellFrame) (cols, rows int, st vt.State) {
 	if src == nil {
-		return c.cols, c.rows, screen.State{Focused: true}
+		return c.cols, c.rows, vt.State{Focused: true}
 	}
 	b := src.Screen.Bounds()
-	return b.Dx(), b.Dy(), screen.State{Title: src.State.Title, Focused: src.State.Focused}
+	return b.Dx(), b.Dy(), vt.State{Title: src.State.Title, Focused: src.State.Focused}
 }
 
-func (c *CardRenderer) drawText(cols, rows int, st screen.State, lines []Line) *image.NRGBA {
+func (c *CardRenderer) drawText(cols, rows int, st vt.State, lines []Line) *image.NRGBA {
 	gridCols, gridRows := cardGrid(cols, rows)
 	var width int
 	for _, line := range lines {
@@ -160,7 +160,7 @@ func (c *CardRenderer) drawText(cols, rows int, st screen.State, lines []Line) *
 	if width == 0 || height == 0 {
 		return nil
 	}
-	buf := screen.NewBuffer(width, height)
+	buf := vt.NewBuffer(width, height)
 	for i, line := range lines[:height] {
 		writeCentered(buf, i, line)
 	}
@@ -221,7 +221,7 @@ func textWidth(s string) int {
 
 // writeCentered writes line into row y of buf, centered by display width,
 // and cut where it no longer fits.
-func writeCentered(buf *screen.Buffer, y int, line Line) {
+func writeCentered(buf *vt.Buffer, y int, line Line) {
 	x := max(0, (buf.Width()-textWidth(line.Text))/2)
 	for s := line.Text; s != ""; {
 		g, w := ansi.FirstGraphemeCluster(s, ansi.GraphemeWidth)
@@ -235,7 +235,7 @@ func writeCentered(buf *screen.Buffer, y int, line Line) {
 		if x+w > buf.Width() {
 			return
 		}
-		buf.SetCell(x, y, &screen.Cell{Content: g, Style: line.Style, Width: w})
+		buf.SetCell(x, y, &vt.Cell{Content: g, Style: line.Style, Width: w})
 		x += w
 	}
 }

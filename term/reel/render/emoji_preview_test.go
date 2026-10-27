@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/sink"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // TestColorEmojiGIF writes an animation of the kinds of emoji drawn through the
@@ -25,16 +25,16 @@ func TestColorEmojiGIF(t *testing.T) {
 	}
 	fg, bg, palette := blockTestPalette()
 	d := MustNew(WithScale(scaleFor(24)), palette)
-	style := screen.Style{Fg: fg, Bg: bg}
+	style := vt.Style{Fg: fg, Bg: bg}
 	dim := style
 	dim.Fg = color.NRGBA{R: 166, G: 173, B: 200, A: 255}
 	faint := style
-	faint.Attrs |= screen.AttrFaint
-	onBlue := screen.Style{Fg: fg, Bg: color.NRGBA{R: 49, G: 50, B: 90, A: 255}}
+	faint.Attrs |= vt.AttrFaint
+	onBlue := vt.Style{Fg: fg, Bg: color.NRGBA{R: 49, G: 50, B: 90, A: 255}}
 
 	rows := []struct {
 		label, text string
-		style       screen.Style
+		style       vt.Style
 	}{
 		{"single", "😀 🚀 🔥 ✅ 🎉 🦄 🍎 🐙 🌈", style},
 		{"flags", "🇺🇸 🇯🇵 🇧🇷 🇩🇪 🇰🇷 🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F 🏳️‍🌈 🏴‍☠️", style},
@@ -84,13 +84,13 @@ func TestColorEmojiPreview(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	d := MustNew(WithScale(scaleFor(18)), palette)
 	scr := newTestScreen(34, 5)
-	style := screen.Style{Fg: fg, Bg: bg}
+	style := vt.Style{Fg: fg, Bg: bg}
 	putText(scr, 0, 0, "plain text then 😀 👍 👋🏽 done", style)
 	putText(scr, 0, 1, "🇺🇸 🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F ❤️ 1️⃣ 🧑‍💻 👨‍👩‍👧‍👦 🏳️‍🌈", style)
 	putText(scr, 0, 2, "text ❤ and ✓ stay text, CJK 你好 too", style)
 	putText(scr, 0, 3, "faint: ", style)
 	faint := style
-	faint.Attrs |= screen.AttrFaint
+	faint.Attrs |= vt.AttrFaint
 	putText(scr, 7, 3, "😀 👍 🇺🇸", faint)
 	putText(scr, 0, 4, "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀", style)
 

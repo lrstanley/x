@@ -13,7 +13,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/effects"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // logoBitmap is a teacup beside "STEEP" in a 5x7 pixel font, seven pixel rows
@@ -47,15 +47,15 @@ var logoSteamX = []int{2, 5, 8}
 // logoTea is the tea gradient, top pixel row to bottom. The colors are on the
 // xterm-256 cube, so any GIF palette that includes it keeps them exact.
 var logoTea = []color.Color{
-	screen.Indexed(229), screen.Indexed(228), screen.Indexed(221), screen.Indexed(220),
-	screen.Indexed(214), screen.Indexed(208), screen.Indexed(202),
+	vt.Indexed(229), vt.Indexed(228), vt.Indexed(221), vt.Indexed(220),
+	vt.Indexed(214), vt.Indexed(208), vt.Indexed(202),
 }
 
 var (
 	// logoEmpty colors pixel rows the tea has not reached yet.
-	logoEmpty = screen.Indexed(237)
+	logoEmpty = vt.Indexed(237)
 	// logoSteam fades from the bottom of a wisp to its top.
-	logoSteam = []color.Color{screen.Indexed(245), screen.Indexed(242), screen.Indexed(239), screen.Indexed(236)}
+	logoSteam = []color.Color{vt.Indexed(245), vt.Indexed(242), vt.Indexed(239), vt.Indexed(236)}
 	// logoSway is the sideways drift of a wisp, in half logo pixels.
 	logoSway = []int{0, 0, 1, 1, 1, 0, 0, -1, -1, -1}
 )
@@ -87,7 +87,7 @@ func (e logo) Start(ctx *reel.Context) (reel.Stage, error) {
 	}
 	return func(f reel.Frame, emit func(reel.Frame)) {
 		if f.First && !logoFrames(cards, f.Cells, ctx.Title, e.d, emit) {
-			title := []effects.Line{{Text: "steep", Style: screen.Style{Attrs: screen.AttrBold}}}
+			title := []effects.Line{{Text: "steep", Style: vt.Style{Attrs: vt.AttrBold}}}
 			if ctx.Title != "" {
 				title = append(title, effects.Line{Text: ctx.Title, Style: faint})
 			}

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Rasterizer is a reel.Rasterizer that draws each cell as one flat color,
@@ -45,7 +45,7 @@ func (r Rasterizer) Layout(cols, rows int) render.Layout {
 }
 
 // Draw draws scr with st into dst at dst.Rect.Min.
-func (r Rasterizer) Draw(dst *image.NRGBA, scr screen.Screen, st screen.State, _ time.Duration) {
+func (r Rasterizer) Draw(dst *image.NRGBA, scr vt.Screen, st vt.State, _ time.Duration) {
 	b := scr.Bounds()
 	l := r.Layout(b.Dx(), b.Dy())
 	off := dst.Rect.Min

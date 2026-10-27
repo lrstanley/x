@@ -6,12 +6,18 @@ package sink
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"image"
 	"image/color"
 	"image/gif"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/gifopt"
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 func TestOptimizeDisposalsBackgroundIndex(t *testing.T) {
@@ -20,7 +26,7 @@ func TestOptimizeDisposalsBackgroundIndex(t *testing.T) {
 	bg := color.NRGBA{R: 0x0e, G: 0x11, B: 0x16, A: 0xff}
 	base := solidNRGBA(32, 32, bg)
 	scroll := cloneNRGBA(base)
-	paintRect(scroll, image.Rect(0, 8, 32, 24), color.NRGBA{R: 0xff, A: 0xff})
+	testutil.PaintRect(scroll, image.Rect(0, 8, 32, 24), color.NRGBA{R: 0xff, A: 0xff})
 
 	originals := []image.Image{base, scroll, base}
 	var buf bytes.Buffer
@@ -58,8 +64,8 @@ func TestOptimizeDisposalsDominantBackgroundIndex(t *testing.T) {
 	content := color.NRGBA{R: 0x0e, G: 0x11, B: 0x16, A: 0xff}
 	// Small margin border; content bg dominates pixel count.
 	frame := solidNRGBA(32, 32, content)
-	paintRect(frame, image.Rect(0, 0, 32, 2), margin)
-	paintRect(frame, image.Rect(0, 0, 2, 32), margin)
+	testutil.PaintRect(frame, image.Rect(0, 0, 32, 2), margin)
+	testutil.PaintRect(frame, image.Rect(0, 0, 2, 32), margin)
 
 	var buf bytes.Buffer
 	if err := writeGIFTo(&buf, []image.Image{frame, frame}, 50*time.Millisecond, WithOptimize(OptimizeDirtyRects)); err != nil {
@@ -134,14 +140,14 @@ func TestQuantizeDelays(t *testing.T) {
 func TestOptimizeDisposalsMergesDurationDelays(t *testing.T) {
 	t.Parallel()
 
-	pal := defaultGIFPalette()
+	pal := palette.Default()
 	base := palettize(solidFrame(0, 8, 8), pal)
 	rec := &gifRecording{
 		config: image.Config{Width: 8, Height: 8, ColorModel: pal},
 		images: []*image.Paletted{
-			clonePaletted(base),
-			clonePaletted(base),
-			clonePaletted(base),
+			gifopt.Clone(base),
+			gifopt.Clone(base),
+			gifopt.Clone(base),
 		},
 		delays: []time.Duration{
 			100 * time.Millisecond,
@@ -201,9 +207,9 @@ func TestOptimizeDisposalsScrollStripReplay(t *testing.T) {
 	w, h := 128, 96
 	base := solidNRGBA(w, h, bg)
 	strip1 := cloneNRGBA(base)
-	paintRect(strip1, image.Rect(0, 72, w, h), color.NRGBA{R: 0xff, A: 0xff})
+	testutil.PaintRect(strip1, image.Rect(0, 72, w, h), color.NRGBA{R: 0xff, A: 0xff})
 	strip2 := cloneNRGBA(base)
-	paintRect(strip2, image.Rect(0, 48, w, h), color.NRGBA{R: 0xff, A: 0xff})
+	testutil.PaintRect(strip2, image.Rect(0, 48, w, h), color.NRGBA{R: 0xff, A: 0xff})
 
 	originals := []image.Image{base, strip1, strip2}
 	var buf bytes.Buffer
@@ -248,14 +254,14 @@ func TestOptimizeDisposalsSelectionRowRevert(t *testing.T) {
 
 	table := solidNRGBA(w, h, bg)
 	for _, y := range rowY {
-		paintRect(table, image.Rect(20, y, 80, y+12), mark)
+		testutil.PaintRect(table, image.Rect(20, y, 80, y+12), mark)
 	}
 
 	row1 := cloneNRGBA(table)
-	paintRect(row1, image.Rect(0, 36, w, 56), sel)
+	testutil.PaintRect(row1, image.Rect(0, 36, w, 56), sel)
 
 	row2 := cloneNRGBA(table)
-	paintRect(row2, image.Rect(0, 60, w, 80), sel)
+	testutil.PaintRect(row2, image.Rect(0, 60, w, 80), sel)
 
 	originals := []image.Image{table, row1, row2}
 	var buf bytes.Buffer
@@ -307,10 +313,10 @@ func TestOptimizeDisposalsBackgroundHole(t *testing.T) {
 	mark := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	w, h := 128, 96
 	base := solidNRGBA(w, h, bg)
-	paintRect(base, image.Rect(10, 10, 30, 30), mark)
+	testutil.PaintRect(base, image.Rect(10, 10, 30, 30), mark)
 
 	patch := cloneNRGBA(base)
-	paintRect(patch, image.Rect(0, 72, w, 80), color.NRGBA{R: 0xff, A: 0xff})
+	testutil.PaintRect(patch, image.Rect(0, 72, w, 80), color.NRGBA{R: 0xff, A: 0xff})
 	restored := cloneNRGBA(base)
 
 	originals := []image.Image{base, patch, restored}
@@ -338,8 +344,8 @@ func TestGIFArenaFrameRetention(t *testing.T) {
 	t.Parallel()
 
 	rec := &gifRecording{loopCount: 0}
-	frameA := terminalBenchmarkFrame(0)
-	frameB := terminalBenchmarkFrame(1)
+	frameA := testutil.TerminalFrame(0)
+	frameB := testutil.TerminalFrame(1)
 
 	const n = 8
 	snapshots := make([][]byte, n)
@@ -348,14 +354,14 @@ func TestGIFArenaFrameRetention(t *testing.T) {
 		if i&1 == 1 {
 			frame = frameB
 		}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, false, frame, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeNone, nil, false, false, frame, time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 		snapshots[i] = bytes.Clone(rec.images[i].Pix)
 	}
 
 	for range 4 {
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeNone, nil, false, false, frameA, time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeNone, nil, false, false, frameA, time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -561,7 +567,7 @@ func TestOptimizeDisposalsOverlayRevert(t *testing.T) {
 	highlight := color.NRGBA{R: 0xff, A: 0xff}
 	base := solidNRGBA(64, 48, bg)
 	flash := cloneNRGBA(base)
-	paintRect(flash, image.Rect(20, 20, 28, 28), highlight)
+	testutil.PaintRect(flash, image.Rect(20, 20, 28, 28), highlight)
 
 	originals := []image.Image{base, flash, base}
 	var buf bytes.Buffer
@@ -713,41 +719,6 @@ func TestGIFLoopCount(t *testing.T) {
 	}
 }
 
-func TestPalettizeRGBAMatchesNRGBA(t *testing.T) {
-	t.Parallel()
-	src := image.NewNRGBA(image.Rect(0, 0, 64, 4))
-	for x := range 64 {
-		// Rows: opaque, translucent, barely visible, and fully transparent.
-		for y, a := range []uint8{0xff, 0x99, 0x01, 0x00} {
-			src.SetNRGBA(x, y, color.NRGBA{R: uint8(x * 4), G: 0x80, B: uint8(255 - x*4), A: a}) //nolint:gosec // bounded.
-		}
-	}
-	rgba := toRGBA(src)
-	// Premultiplying loses precision at low alpha, so compare against the
-	// NRGBA image the RGBA one converts back to.
-	back := toNRGBA(rgba)
-
-	pal := defaultGIFPalette()
-	want := palettize(back, pal)
-	got := image.NewPaletted(src.Bounds(), pal)
-	palettizeInto(got, rgba)
-	for y := range 4 {
-		for x := range 64 {
-			if w, g := want.ColorIndexAt(x, y), got.ColorIndexAt(x, y); w != g {
-				t.Errorf("pixel (%d,%d): RGBA source index %d, NRGBA source index %d", x, y, g, w)
-			}
-		}
-	}
-	if !bytes.Equal(palettize(src, pal).Pix[:64], got.Pix[:64]) {
-		t.Error("opaque pixels differ between RGBA and NRGBA sources")
-	}
-	for x := range 64 {
-		if got.ColorIndexAt(x, 3) != TransparentPaletteIndex {
-			t.Errorf("pixel (%d,3) is fully transparent, want TransparentPaletteIndex", x)
-		}
-	}
-}
-
 func TestGIFDoesNotKeepImage(t *testing.T) {
 	t.Parallel()
 
@@ -794,7 +765,7 @@ func TestGIFDeltaRecordingMatchesFullFrames(t *testing.T) {
 	t.Parallel()
 
 	const w, h, n = 40, 24, 12
-	pal := defaultGIFPalette()
+	pal := palette.Default()
 	cur := solidFrame(0, w, h)
 	var frames []*image.NRGBA
 	for i := range n {
@@ -851,7 +822,7 @@ func TestGIFDeltaFramesSizeChange(t *testing.T) {
 	sizes := []image.Point{{20, 10}, {20, 10}, {30, 16}, {30, 16}}
 	for i, s := range sizes {
 		c := color.NRGBA{R: uint8(i * 60), G: 50, B: 90, A: 255}
-		if err := appendRecordingFrame(rec, defaultGIFPalette(), true, OptimizeAll, nil, false, false, solid(s.X, s.Y, c), time.Millisecond); err != nil {
+		if err := appendRecordingFrame(rec, palette.Default(), true, OptimizeAll, nil, false, false, solid(s.X, s.Y, c), time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -864,5 +835,48 @@ func TestGIFDeltaFramesSizeChange(t *testing.T) {
 		if got, want := f.Bounds().Size(), sizes[i]; got != want {
 			t.Errorf("frame %d size = %v, want %v", i, got, want)
 		}
+	}
+}
+
+// encodeSyntheticGIF encodes deterministic gradient frames and returns the
+// encoded bytes.
+func encodeSyntheticGIF(tb testing.TB, frames int) []byte {
+	tb.Helper()
+	var buf bytes.Buffer
+	enc, err := NewGIF(&buf)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	for i := range frames {
+		img := testutil.TerminalFrame(i / 2)
+		// small localized change per frame so disposal planning emits sub-rects.
+		for x := 100; x < 140; x++ {
+			img.SetNRGBA(x, 100+i, color.NRGBA{R: 0xff, A: 0xff})
+		}
+		if err = enc.WriteFrame(Frame{Image: img, Delay: 50 * time.Millisecond}); err != nil {
+			tb.Fatal(err)
+		}
+	}
+	if err = enc.Close(); err != nil {
+		tb.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestEncodeAllDeterministic prints the SHA-256 of a synthetic multi-frame GIF
+// so before/after output identity can be compared (go test -v -run Deterministic).
+func TestEncodeAllDeterministic(t *testing.T) {
+	a, b := encodeSyntheticGIF(t, 6), encodeSyntheticGIF(t, 6)
+	if !bytes.Equal(a, b) {
+		t.Fatal("encode is not deterministic")
+	}
+	sum := sha256.Sum256(a)
+	t.Logf("gif sha256=%s len=%d", hex.EncodeToString(sum[:]), len(a))
+}
+
+func BenchmarkEncodeAll(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		encodeSyntheticGIF(b, 8)
 	}
 }

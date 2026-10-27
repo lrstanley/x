@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+package palette
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"image/color"
 	"math"
 	"testing"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 type blendPair struct{ fg, bg color.NRGBA }
@@ -22,8 +24,8 @@ func rampFrame(pairs []blendPair) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, 256, bandH*len(pairs)))
 	for i, p := range pairs {
 		y0 := i * bandH
-		paintRect(img, image.Rect(0, y0, 256, y0+bandH), p.bg)
-		paintRect(img, image.Rect(0, y0, 128, y0+8), p.fg)
+		testutil.PaintRect(img, image.Rect(0, y0, 256, y0+bandH), p.bg)
+		testutil.PaintRect(img, image.Rect(0, y0, 128, y0+8), p.fg)
 		for a := range 256 {
 			img.SetNRGBA(a, y0+12, blendNRGBA(p.fg, p.bg, uint8(a))) //nolint:gosec // a is bounded.
 		}
@@ -56,9 +58,9 @@ func offBlendLine(c, fg, bg color.NRGBA) float64 {
 	return math.Sqrt(sum)
 }
 
-func palettizeAdaptive(ap *adaptivePalette, src image.Image) *image.Paletted {
+func palettizeAdaptive(ap *Adaptive, src image.Image) *image.Paletted {
 	pm := image.NewPaletted(src.Bounds(), ap.pal)
-	ap.palettize(pm, src)
+	ap.Palettize(pm, src)
 	return pm
 }
 
@@ -80,7 +82,7 @@ func TestAdaptivePaletteMatchesWhenColorsFit(t *testing.T) {
 	t.Parallel()
 
 	src := rampFrame(testBlendPairs[:1])
-	pm := palettizeAdaptive(newAdaptivePalette(true), src)
+	pm := palettizeAdaptive(NewAdaptive(true, false), src)
 	for y := src.Rect.Min.Y; y < src.Rect.Max.Y; y++ {
 		for x := src.Rect.Min.X; x < src.Rect.Max.X; x++ {
 			got, want := nrgbaAt(pm, x, y), src.NRGBAAt(x, y)
@@ -96,7 +98,7 @@ func TestAdaptivePaletteKeepsBlendsOnHue(t *testing.T) {
 	t.Parallel()
 
 	src := rampFrame(testBlendPairs)
-	ap := newAdaptivePalette(true)
+	ap := NewAdaptive(true, false)
 	pm := palettizeAdaptive(ap, src)
 	if ap.n > adaptiveSlots {
 		t.Fatalf("used %d entries, want at most %d", ap.n, adaptiveSlots)
@@ -126,7 +128,7 @@ func TestAdaptivePaletteKeepsBlendsOnHue(t *testing.T) {
 func TestAdaptivePaletteStableIndices(t *testing.T) {
 	t.Parallel()
 
-	ap := newAdaptivePalette(true)
+	ap := NewAdaptive(true, false)
 	first := palettizeAdaptive(ap, rampFrame(testBlendPairs[:2]))
 	palettizeAdaptive(ap, rampFrame(testBlendPairs[2:]))
 	again := palettizeAdaptive(ap, rampFrame(testBlendPairs[:2]))
@@ -138,11 +140,11 @@ func TestAdaptivePaletteStableIndices(t *testing.T) {
 func TestAdaptivePaletteLateSolidColorExact(t *testing.T) {
 	t.Parallel()
 
-	ap := newAdaptivePalette(true)
+	ap := NewAdaptive(true, false)
 	palettizeAdaptive(ap, rampFrame(testBlendPairs))
 	late := color.NRGBA{R: 0x40, G: 0xa0, B: 0x20, A: 0xff}
-	src := solidFrame(0, 16, 16)
-	paintRect(src, src.Bounds(), late)
+	src := image.NewNRGBA(image.Rect(0, 0, 16, 16))
+	testutil.PaintRect(src, src.Bounds(), late)
 	pm := palettizeAdaptive(ap, src)
 	if got := nrgbaAt(pm, 8, 8); got != late {
 		t.Fatalf("late solid color = %v, want exact %v", got, late)
@@ -155,15 +157,15 @@ func TestAdaptivePaletteTransparency(t *testing.T) {
 	src := image.NewNRGBA(image.Rect(0, 0, 4, 1))
 	src.SetNRGBA(1, 0, color.NRGBA{R: 0xff, A: 0xff})
 	src.SetNRGBA(2, 0, color.NRGBA{G: 0xff, A: 0x80})
-	ap := newAdaptivePalette(false)
+	ap := NewAdaptive(false, false)
 	pm := palettizeAdaptive(ap, src)
 	for _, x := range []int{0, 3} {
-		if idx := pm.ColorIndexAt(x, 0); idx != TransparentPaletteIndex {
-			t.Errorf("transparent pixel %d index = %d, want %d", x, idx, TransparentPaletteIndex)
+		if idx := pm.ColorIndexAt(x, 0); idx != TransparentIndex {
+			t.Errorf("transparent pixel %d index = %d, want %d", x, idx, TransparentIndex)
 		}
 	}
 	for _, x := range []int{1, 2} {
-		if idx := pm.ColorIndexAt(x, 0); idx == TransparentPaletteIndex {
+		if idx := pm.ColorIndexAt(x, 0); idx == TransparentIndex {
 			t.Errorf("opaque pixel %d mapped to the transparent index", x)
 		}
 	}
@@ -176,8 +178,8 @@ func TestAdaptivePaletteRGBAMatchesNRGBA(t *testing.T) {
 	t.Parallel()
 
 	src := rampFrame(testBlendPairs)
-	a := palettizeAdaptive(newAdaptivePalette(true), src)
-	b := palettizeAdaptive(newAdaptivePalette(true), toRGBA(src))
+	a := palettizeAdaptive(NewAdaptive(true, false), src)
+	b := palettizeAdaptive(NewAdaptive(true, false), testutil.ToRGBA(src))
 	if !bytes.Equal(a.Pix, b.Pix) {
 		t.Fatal("RGBA and NRGBA sources palettized differently")
 	}
@@ -191,10 +193,10 @@ func TestAdaptivePaletteRGBAMatchesNRGBA(t *testing.T) {
 func TestAdaptivePaletteSmallFlatShapeExact(t *testing.T) {
 	t.Parallel()
 
-	fills := distinctColors(232)
+	fills := testutil.DistinctColors(232)
 	src := image.NewNRGBA(image.Rect(0, 0, 8*len(fills), 32))
 	for i, c := range fills {
-		paintRect(src, image.Rect(i*8, 0, (i+1)*8, 8), c)
+		testutil.PaintRect(src, image.Rect(i*8, 0, (i+1)*8, 8), c)
 	}
 	// Blends on a checkerboard, so none forms a flat block. Each covers more
 	// pixels than the square, but fewer than a fill.
@@ -204,9 +206,9 @@ func TestAdaptivePaletteSmallFlatShapeExact(t *testing.T) {
 		src.SetNRGBA(x, y, color.NRGBA{R: uint8(0xc0 + n), G: uint8(0x50 + n%4*8), B: 0x60, A: 0xff}) //nolint:gosec // bounded.
 	}
 	square := color.NRGBA{R: 0xff, G: 0x5f, B: 0x57, A: 0xff}
-	paintRect(src, image.Rect(1300, 20, 1305, 25), square)
+	testutil.PaintRect(src, image.Rect(1300, 20, 1305, 25), square)
 
-	pm := palettizeAdaptive(newAdaptivePalette(true), src)
+	pm := palettizeAdaptive(NewAdaptive(true, false), src)
 	if got := nrgbaAt(pm, 1302, 22); got != square {
 		t.Fatalf("small flat square = %v, want exact %v", got, square)
 	}

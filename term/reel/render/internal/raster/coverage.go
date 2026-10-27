@@ -13,7 +13,7 @@ import (
 	"slices"
 
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Coverage accumulates per-pixel glyph mask coverage before compositing.
@@ -204,7 +204,7 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 // FgDecoration holds deferred underline/strike inputs.
 type FgDecoration struct {
 	Area image.Rectangle
-	Cell *screen.Cell
+	Cell *vt.Cell
 	Fg   color.NRGBA
 }
 
@@ -259,7 +259,7 @@ func (p *Pass) AddGlyph(ctx GlyphContext, layout *Layout) {
 }
 
 // AppendDecoration queues decorations to draw after coverage compositing.
-func (p *Pass) AppendDecoration(area image.Rectangle, cell *screen.Cell, fg color.NRGBA) {
+func (p *Pass) AppendDecoration(area image.Rectangle, cell *vt.Cell, fg color.NRGBA) {
 	p.decorations = append(p.decorations, FgDecoration{Area: area, Cell: cell, Fg: fg})
 }
 

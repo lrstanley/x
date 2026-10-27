@@ -18,7 +18,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/internal/testutil"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // badgeTimeline is a 40x10 terminal that changes twice and holds still to
@@ -177,7 +177,7 @@ func TestPauseBadgeMerge(t *testing.T) {
 // every frame of a terminal of one size looks alike.
 type blankRasterizer struct{ testutil.Rasterizer }
 
-func (blankRasterizer) Draw(dst *image.NRGBA, _ screen.Screen, _ screen.State, _ time.Duration) {
+func (blankRasterizer) Draw(dst *image.NRGBA, _ vt.Screen, _ vt.State, _ time.Duration) {
 	for i := 0; i < len(dst.Pix); i += 4 {
 		copy(dst.Pix[i:], []uint8{0, 0, 0xff, 0xff})
 	}

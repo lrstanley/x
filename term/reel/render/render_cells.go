@@ -12,14 +12,14 @@ import (
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/raster"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // drawBackground paints the margin and the window. Equal rectangles or equal
 // stored colors are one fill; a margin frame whose color differs is painted
 // first, then the window. The returned color is what windowBounds holds.
 func (d *Renderer) drawBackground(dst draw.Image, f *renderFrame) color.NRGBA {
-	margin := icol.NRGBA(f.marginColor())
+	margin := icol.NRGBA(f.MarginColor())
 	window := f.windowBackgroundNRGBA()
 	if f.imageBounds.Eq(f.windowBounds) || margin == window {
 		idraw.Fill(dst, f.imageBounds, window)
@@ -34,7 +34,7 @@ func (d *Renderer) drawBackground(dst draw.Image, f *renderFrame) color.NRGBA {
 // glyph or decoration, the cell fill that would be stored, and whether that
 // fill still needs to be painted. Cells inside the window whose fill matches
 // the color drawBackground stored there are skipped.
-func cellBackgroundFill(f *renderFrame, cell *screen.Cell, area image.Rectangle, windowBg color.NRGBA) (fg color.NRGBA, fgReady bool, fill color.NRGBA, need bool) {
+func cellBackgroundFill(f *renderFrame, cell *vt.Cell, area image.Rectangle, windowBg color.NRGBA) (fg color.NRGBA, fgReady bool, fill color.NRGBA, need bool) {
 	if !icol.CellHasExplicitBackground(cell) {
 		return color.NRGBA{}, false, color.NRGBA{}, false
 	}
@@ -62,7 +62,7 @@ func cellDrawArea(gridMin image.Point, gridMaxX, cellW, cellH, col, row, width i
 // cellSpansNext reports whether the icon in the cell at x, y may grow into the
 // cell after it. A change to the next cell changes how the icon draws, but it
 // is in the same row, which the incremental draw repaints whole.
-func cellSpansNext(scr screen.Screen, view image.Rectangle, x, y int, cell *screen.Cell) bool {
+func cellSpansNext(scr vt.Screen, view image.Rectangle, x, y int, cell *vt.Cell) bool {
 	if cell.Width != 1 || x+1 >= view.Max.X || !raster.IsSpanIcon(cell.Content) {
 		return false
 	}
@@ -82,7 +82,7 @@ func cellSpansNext(scr screen.Screen, view image.Rectangle, x, y int, cell *scre
 // drawCellFg adds the glyph and decorations of cell, in area, to the
 // foreground pass. fg is their color when fgOK; otherwise it is resolved
 // here, once the cell turns out to draw anything.
-func (d *Renderer) drawCellFg(area image.Rectangle, cell *screen.Cell, f *renderFrame, fg color.NRGBA, fgOK, spansNext bool) {
+func (d *Renderer) drawCellFg(area image.Rectangle, cell *vt.Cell, f *renderFrame, fg color.NRGBA, fgOK, spansNext bool) {
 	if !idraw.TextVisible(f, cell) {
 		return
 	}
@@ -111,11 +111,11 @@ func (d *Renderer) drawCursor(dst draw.Image, area image.Rectangle, f *renderFra
 	metrics := f.metrics
 
 	switch f.st.Cursor.Shape {
-	case screen.CursorUnderline:
+	case vt.CursorUnderline:
 		area.Min.Y = max(area.Min.Y, area.Max.Y-metrics.CursorThickness.Int())
-	case screen.CursorBar:
+	case vt.CursorBar:
 		area.Max.X = min(area.Max.X, area.Min.X+metrics.CursorThickness.Int())
-	case screen.CursorBlock:
+	case vt.CursorBlock:
 		height := min(metrics.CursorHeight.Int(), area.Dy())
 		area.Min.Y += (area.Dy() - height) / 2
 		area.Max.Y = area.Min.Y + height
@@ -148,16 +148,16 @@ func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *render
 	idraw.Fill(dst, thumbArea, thumb)
 }
 
-func cellHasForegroundGlyph(cell *screen.Cell) bool {
+func cellHasForegroundGlyph(cell *vt.Cell) bool {
 	if cell == nil {
 		return false
 	}
 	return cell.Content != "" && cell.Content != " "
 }
 
-func cellHasForegroundDecorations(cell *screen.Cell) bool {
+func cellHasForegroundDecorations(cell *vt.Cell) bool {
 	if cell == nil {
 		return false
 	}
-	return cell.Style.Underline != screen.UnderlineNone || cell.Style.Attrs&screen.AttrStrikethrough != 0
+	return cell.Style.Underline != vt.UnderlineNone || cell.Style.Attrs&vt.AttrStrikethrough != 0
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/lrstanley/x/term/reel/render/fonts"
 	"github.com/lrstanley/x/term/reel/render/internal/config"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	xfont "golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -47,11 +47,11 @@ func recordingFallback(font *opentype.Font) (fallback func(rune) (*opentype.Font
 	}, asked
 }
 
-func faceFor(fs *Set, content string, attrs screen.Attr) xfont.Face {
-	return faceForCell(fs, &screen.Cell{Content: content, Style: screen.Style{Attrs: attrs}})
+func faceFor(fs *Set, content string, attrs vt.Attr) xfont.Face {
+	return faceForCell(fs, &vt.Cell{Content: content, Style: vt.Style{Attrs: attrs}})
 }
 
-func faceForCell(fs *Set, cell *screen.Cell) xfont.Face {
+func faceForCell(fs *Set, cell *vt.Cell) xfont.Face {
 	cluster, _ := idraw.NewCluster(cell.Content)
 	return fs.FaceForCell(cell, cluster)
 }
@@ -92,7 +92,7 @@ func TestResolveBundledFallback(t *testing.T) {
 		t.Fatalf("system fallback consulted for %q, want bundled fallback only", string(*asked))
 	}
 
-	regular, bold := faceFor(fs, "★", 0), faceFor(fs, "★", screen.AttrBold)
+	regular, bold := faceFor(fs, "★", 0), faceFor(fs, "★", vt.AttrBold)
 	if regular == bold {
 		t.Fatal("bold fallback face should be synthesized from the regular face")
 	}
@@ -114,7 +114,7 @@ func TestResolveSystemFallback(t *testing.T) {
 	if b, _, ok := got.GlyphBounds('\ue0b4'); !ok || b.Empty() {
 		t.Fatal("system fallback face has no ink for U+E0B4")
 	}
-	if faceFor(fs, "\ue0b4", screen.AttrBold) == got {
+	if faceFor(fs, "\ue0b4", vt.AttrBold) == got {
 		t.Fatal("bold system fallback face should be synthesized from the regular face")
 	}
 	// Resolution is cached per style and rune.
@@ -167,7 +167,7 @@ func TestFaceForCellConcurrent(t *testing.T) {
 	for i := range 8 {
 		wg.Go(func() {
 			for _, s := range []string{"A", "■", "★", "\ue0b0", "é", "⣿", "€"} {
-				faceFor(fs, s, screen.Attr(i%2)*screen.AttrBold)
+				faceFor(fs, s, vt.Attr(i%2)*vt.AttrBold)
 			}
 		})
 	}
@@ -180,11 +180,11 @@ func TestFaceForCellConcurrent(t *testing.T) {
 func BenchmarkFaceForCell(b *testing.B) {
 	fs := buildTestSet(b, config.Options{}, nil)
 
-	var cells []*screen.Cell
+	var cells []*vt.Cell
 	for _, s := range []string{"A", "z", "é", "■", "★", "\ue0b0", "\uf015", "▀", "─"} {
 		cells = append(cells,
-			&screen.Cell{Content: s},
-			&screen.Cell{Content: s, Style: screen.Style{Attrs: screen.AttrBold}},
+			&vt.Cell{Content: s},
+			&vt.Cell{Content: s, Style: vt.Style{Attrs: vt.AttrBold}},
 		)
 	}
 	for _, c := range cells {

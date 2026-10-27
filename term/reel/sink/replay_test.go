@@ -10,6 +10,8 @@ import (
 	"image/color"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 func TestReplayGIFRoundTrip(t *testing.T) {
@@ -45,8 +47,8 @@ func TestReplayGIFDisposals(t *testing.T) {
 	base := solidFrame(0, w, h)
 	dotOn := cloneNRGBA(base)
 	dotOff := cloneNRGBA(base)
-	paintRect(dotOn, image.Rect(10, 10, 12, 12), color.NRGBA{R: 0xff, A: 0xff})
-	paintRect(dotOff, image.Rect(10, 10, 12, 12), color.NRGBA{B: 0x80, A: 0xff})
+	testutil.PaintRect(dotOn, image.Rect(10, 10, 12, 12), color.NRGBA{R: 0xff, A: 0xff})
+	testutil.PaintRect(dotOff, image.Rect(10, 10, 12, 12), color.NRGBA{B: 0x80, A: 0xff})
 
 	originals := []image.Image{base, dotOn, dotOff, dotOn}
 

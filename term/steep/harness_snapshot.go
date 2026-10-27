@@ -11,7 +11,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"github.com/lrstanley/x/term/steep/snapshot"
 )
 
@@ -126,7 +126,7 @@ func (h *Harness) drawImage() image.Image {
 // imageViewport returns the viewport to draw with st: the retained clone when
 // its generation still matches st, or a new clone via Screen otherwise, so a
 // generation change is never drawn from the previous grid.
-func (h *Harness) imageViewport(st screen.State) *screen.Buffer {
+func (h *Harness) imageViewport(st vt.State) *vt.Buffer {
 	h.imageMu.Lock()
 	if scr := h.imageScreen; st.Generation != 0 && scr != nil && scr.Generation() == st.Generation {
 		h.imageMu.Unlock()

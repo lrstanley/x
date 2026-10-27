@@ -4,7 +4,7 @@
 
 //go:build unix
 
-package reel
+package pty
 
 import (
 	"errors"
@@ -17,9 +17,9 @@ import (
 	"github.com/charmbracelet/x/xpty"
 )
 
-// pty is the pseudo-terminal [Exec] runs a process on.
-type pty struct {
-	*xpty.UnixPty
+// PTY is a pseudo-terminal a process runs on.
+type PTY struct {
+	unix *xpty.UnixPty
 	// master is a copy of the master that Go's poller watches, which reads
 	// and writes go through. creack/pty leaves the master in blocking mode,
 	// where closing it ends neither a read blocked on it nor a write blocked
@@ -28,7 +28,8 @@ type pty struct {
 	master *os.File
 }
 
-func openPty(cols, rows int) (*pty, error) {
+// Open opens a pseudo-terminal of cols by rows cells.
+func Open(cols, rows int) (*PTY, error) {
 	p, err := xpty.NewUnixPty(cols, rows)
 	if err != nil {
 		return nil, err
@@ -37,7 +38,7 @@ func openPty(cols, rows int) (*pty, error) {
 	if err != nil {
 		return nil, errors.Join(err, p.Close())
 	}
-	return &pty{UnixPty: p, master: master}, nil
+	return &PTY{unix: p, master: master}, nil
 }
 
 // pollable returns a non-blocking copy of f that Go's poller watches, or an
@@ -66,45 +67,53 @@ func pollable(f *os.File) (*os.File, error) {
 	return c, nil
 }
 
-func (p *pty) Read(b []byte) (int, error)  { return p.master.Read(b) }
-func (p *pty) Write(b []byte) (int, error) { return p.master.Write(b) }
+// Read reads what the process writes to the terminal.
+func (p *PTY) Read(b []byte) (int, error) { return p.master.Read(b) }
 
-// start starts cmd in a session of its own, with the slave as its
-// controlling terminal and its standard streams. The pty is closed if it
+// Write writes b to the process's terminal, as typed input.
+func (p *PTY) Write(b []byte) (int, error) { return p.master.Write(b) }
+
+// Resize resizes the terminal to cols by rows cells, which sends SIGWINCH
+// to its foreground process group.
+func (p *PTY) Resize(cols, rows int) error { return p.unix.Resize(cols, rows) }
+
+// Start starts cmd in a session of its own, with the slave as its
+// controlling terminal and its standard streams. The PTY is closed if it
 // fails.
-func (p *pty) start(cmd *exec.Cmd) error {
+func (p *PTY) Start(cmd *exec.Cmd) error {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	// Ctty is the child's descriptor 0, its standard input.
 	cmd.SysProcAttr.Setsid, cmd.SysProcAttr.Setctty, cmd.SysProcAttr.Ctty = true, true, 0
-	if err := p.Start(cmd); err != nil {
-		return errors.Join(err, p.master.Close(), p.Close())
+	if err := p.unix.Start(cmd); err != nil {
+		return errors.Join(err, p.master.Close(), p.unix.Close())
 	}
 	// The parent's copy of the slave would keep the master's reads from
 	// ending when the process exits. Failing to close it only leaves that
 	// to the drain after the exit.
-	_ = p.Slave().Close()
+	_ = p.unix.Slave().Close()
 	return nil
 }
 
-// close closes the master, which hangs up the terminal, sending SIGHUP to
+// Close closes the master, which hangs up the terminal, sending SIGHUP to
 // its foreground process group, and ends the reads and writes blocked on
 // it.
-func (p *pty) close() error {
-	return errors.Join(p.master.Close(), p.Master().Close())
+func (p *PTY) Close() error {
+	return errors.Join(p.master.Close(), p.unix.Master().Close())
 }
 
-// killProcess kills the process group cmd leads, which is its session's.
-func killProcess(cmd *exec.Cmd) error {
+// Kill kills the process group cmd leads, which is its session's.
+func Kill(cmd *exec.Cmd) error {
 	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
-func waitProcess(cmd *exec.Cmd) error { return cmd.Wait() }
+// Wait waits for cmd, which [PTY.Start] started, to exit.
+func Wait(cmd *exec.Cmd) error { return cmd.Wait() }
 
-// exitStatus returns the status a shell reports for a process: its exit
+// ExitStatus returns the status a shell reports for a process: its exit
 // code, or 128 plus the signal that ended it.
-func exitStatus(ps *os.ProcessState) int {
+func ExitStatus(ps *os.ProcessState) int {
 	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		return 128 + int(ws.Signal())
 	}

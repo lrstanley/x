@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/fontset"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"golang.org/x/image/font"
 )
 
@@ -35,15 +35,15 @@ func assertPanic(t *testing.T, name string, fn func()) {
 }
 
 type testScreen struct {
-	*screen.Buffer
+	*vt.Buffer
 }
 
 func newTestScreen(width, height int) testScreen {
-	return testScreen{Buffer: screen.NewBuffer(width, height)}
+	return testScreen{Buffer: vt.NewBuffer(width, height)}
 }
 
 // putText writes s into row y of scr from column x, one grapheme per cell.
-func putText(scr screen.Screen, x, y int, s string, style screen.Style) {
+func putText(scr vt.Screen, x, y int, s string, style vt.Style) {
 	var state byte
 	for s != "" {
 		seq, width, n, st := ansi.DecodeSequence(s, state, nil)
@@ -51,29 +51,29 @@ func putText(scr screen.Screen, x, y int, s string, style screen.Style) {
 		if width == 0 {
 			continue
 		}
-		scr.SetCell(x, y, &screen.Cell{Content: seq, Width: width, Style: style})
+		scr.SetCell(x, y, &vt.Cell{Content: seq, Width: width, Style: style})
 		x += width
 	}
 }
 
 // focused is the state most tests draw with: a focused window, so it is not
 // dimmed, with nothing else set.
-var focused = screen.State{Focused: true}
+var focused = vt.State{Focused: true}
 
 // newImage returns an image that fits scr drawn by d.
-func newImage(d *Renderer, scr screen.Screen) *image.NRGBA {
+func newImage(d *Renderer, scr vt.Screen) *image.NRGBA {
 	return image.NewNRGBA(d.Layout(scr.Bounds().Dx(), scr.Bounds().Dy()).Image)
 }
 
 // drawNRGBA draws scr with the [focused] state, as of offset 0, into a new
 // image.
-func drawNRGBA(t *testing.T, d *Renderer, scr screen.Screen) *image.NRGBA {
+func drawNRGBA(t *testing.T, d *Renderer, scr vt.Screen) *image.NRGBA {
 	t.Helper()
 	return drawAt(t, d, scr, focused, 0)
 }
 
 // drawAt draws scr with st, as of offset at, into a new image.
-func drawAt(t *testing.T, d *Renderer, scr screen.Screen, st screen.State, at time.Duration) *image.NRGBA {
+func drawAt(t *testing.T, d *Renderer, scr vt.Screen, st vt.State, at time.Duration) *image.NRGBA {
 	t.Helper()
 	img := newImage(d, scr)
 	d.Draw(img, scr, st, at)
@@ -82,7 +82,7 @@ func drawAt(t *testing.T, d *Renderer, scr screen.Screen, st screen.State, at ti
 
 // drawFresh draws scr with st, as of offset at, into a new image without the
 // frame cache: what [Renderer.Draw] should copy out.
-func drawFresh(d *Renderer, scr screen.Screen, st screen.State, at time.Duration) *image.NRGBA {
+func drawFresh(d *Renderer, scr vt.Screen, st vt.State, at time.Duration) *image.NRGBA {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	f := d.borrowRenderFrame(image.Point{}, scr, st, at)
@@ -162,32 +162,32 @@ func cellInkSignature(img *image.NRGBA, area image.Rectangle, bg color.NRGBA) st
 
 type offsetScreen struct {
 	bounds image.Rectangle
-	cells  map[image.Point]*screen.Cell
+	cells  map[image.Point]*vt.Cell
 }
 
 func (s offsetScreen) Bounds() image.Rectangle {
 	return s.bounds
 }
 
-func (s offsetScreen) CellAt(x, y int) *screen.Cell {
+func (s offsetScreen) CellAt(x, y int) *vt.Cell {
 	if !image.Pt(x, y).In(s.bounds) {
 		return nil
 	}
 	if cell := s.cells[image.Pt(x, y)]; cell != nil {
 		return cell
 	}
-	return screen.EmptyCell.Clone()
+	return vt.EmptyCell.Clone()
 }
 
-func (s offsetScreen) SetCell(x, y int, cell *screen.Cell) {
+func (s offsetScreen) SetCell(x, y int, cell *vt.Cell) {
 	if s.cells == nil {
-		s.cells = map[image.Point]*screen.Cell{}
+		s.cells = map[image.Point]*vt.Cell{}
 	}
 	s.cells[image.Pt(x, y)] = cell
 }
 
 // faceForCell resolves the face for cell's own content.
-func faceForCell(fs *fontset.Set, cell *screen.Cell) font.Face {
+func faceForCell(fs *fontset.Set, cell *vt.Cell) font.Face {
 	cluster, _ := idraw.NewCluster(cell.Content)
 	return fs.FaceForCell(cell, cluster)
 }
@@ -196,11 +196,11 @@ func faceForCell(fs *fontset.Set, cell *screen.Cell) font.Face {
 // offset 0. Snapshotted metrics, palette, and layout rectangles are safe after
 // the lock is released. FontFace still reads the renderer font set, which is
 // immutable until the next rebuild.
-func (d *Renderer) layoutSnapshot(t interface{ Helper() }, origin image.Point, scr screen.Screen) *renderFrame {
+func (d *Renderer) layoutSnapshot(t interface{ Helper() }, origin image.Point, scr vt.Screen) *renderFrame {
 	t.Helper()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	f := &renderFrame{}
-	d.populateRenderFrame(f, origin, scr, screen.State{}, 0)
+	d.populateRenderFrame(f, origin, scr, vt.State{}, 0)
 	return f
 }

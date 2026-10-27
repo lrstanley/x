@@ -12,6 +12,10 @@
 // [github.com/lrstanley/x/term/reel/vt/internal/wasmvt]. This package turns
 // those calls into terminal operations.
 //
-// The cell grid lives in [github.com/lrstanley/x/term/reel/vt/screen] and does
-// not link the WASM runtime. Drawers import that package alone.
+// The emulator fills a cell grid and the terminal state around it, which a
+// renderer reads. A [Screen] is a rectangle of [Cell] values: grapheme,
+// width, colors, attribute bits, underline, and an optional link. Attribute
+// bit positions are stable. A [State] is the rest of what a renderer needs
+// to draw a screen: the title, focus, cursor, default colors, scrollback,
+// OSC 9;4 progress, and OSC 7501 program status.
 package vt

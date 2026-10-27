@@ -16,7 +16,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/sink"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 const ms = time.Millisecond
@@ -27,18 +27,18 @@ const ms = time.Millisecond
 // pixel.
 type fakeAnimator struct{ testutil.Rasterizer }
 
-func (*fakeAnimator) Animates(st screen.State) bool {
+func (*fakeAnimator) Animates(st vt.State) bool {
 	return st.Title == "spin" || st.Title == "breathe"
 }
 
-func (*fakeAnimator) Changes(st screen.State, from, to time.Duration) bool {
+func (*fakeAnimator) Changes(st vt.State, from, to time.Duration) bool {
 	if st.Title == "breathe" {
 		return from/(200*ms) != to/(200*ms)
 	}
 	return st.Title == "spin"
 }
 
-func (*fakeAnimator) Repaint(dst *image.NRGBA, _ screen.Screen, _ screen.State, at time.Duration) {
+func (*fakeAnimator) Repaint(dst *image.NRGBA, _ vt.Screen, _ vt.State, at time.Duration) {
 	p := dst.Rect.Max.Sub(image.Pt(1, 1))
 	c := dst.NRGBAAt(p.X, p.Y)
 	c.A = uint8(at / (10 * ms))

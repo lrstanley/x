@@ -258,7 +258,7 @@ func WithScrollbar(enabled bool) Option {
 }
 
 // WithWindowChrome sets whether to draw a title bar above the terminal grid,
-// with window buttons and [screen.State.Title]. The bar is part of the window,
+// with window buttons and [vt.State.Title]. The bar is part of the window,
 // so padding, margin, border radius, and focus dimming apply to it, and it
 // grows the image by [Renderer.Metrics] cell height plus half a cell.
 // Disabled by default, so cell-accurate screenshots do not change.
@@ -276,7 +276,7 @@ func WithWindowChrome(enabled bool) Option {
 }
 
 // WithProgressBar sets whether to draw the OSC 9;4 progress report that
-// [screen.State.ShownProgress] returns as a thin bar. With [WithWindowChrome]
+// [vt.State.ShownProgress] returns as a thin bar. With [WithWindowChrome]
 // it covers the bottom edge of the title bar, right above the grid; otherwise
 // it covers the top edge of the window. It never moves the grid. Enabled by
 // default; a state with no progress draws nothing.
@@ -288,9 +288,9 @@ func WithProgressBar(enabled bool) Option {
 }
 
 // WithProgramStatus sets whether to draw the OSC 7501 program status records
-// from [screen.State.ProgramStatuses]. They are drawn only with
+// from [vt.State.ProgramStatuses]. They are drawn only with
 // [WithWindowChrome]; without it nothing is drawn. The most urgent record
-// (see [screen.ProgramState]), with the earlier record winning ties (the root
+// (see [vt.ProgramState]), with the earlier record winning ties (the root
 // sorts first), replaces the window title with its state icon (or a spinner,
 // or the percent while working at a known progress), title, and message, and
 // draws a thin state-colored outline just outside the window edge. Each other

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func TestProgressBounds(t *testing.T) {
@@ -49,7 +49,7 @@ func TestProgressSetShowsPercent(t *testing.T) {
 		for _, pct := range []int{0, 25, 50, 100} {
 			scr := newTestScreen(20, 3)
 			d := newRenderer(t, WithWindowChrome(chrome), WithPalette(Palette{Progress: want}))
-			img := drawAt(t, d, scr, screen.State{Focused: true, Progress: screen.Progress{State: screen.ProgressSet, Percent: pct}}, 0)
+			img := drawAt(t, d, scr, vt.State{Focused: true, Progress: vt.Progress{State: vt.ProgressSet, Percent: pct}}, 0)
 
 			bar := d.layoutSnapshot(t, image.Point{}, scr).progressBounds
 			end := bar.Min.X + bar.Dx()*pct/100
@@ -79,23 +79,23 @@ func TestProgressStatesDiffer(t *testing.T) {
 	t.Parallel()
 
 	scr := newTestScreen(20, 3)
-	draw := func(p screen.Progress) []byte {
+	draw := func(p vt.Progress) []byte {
 		d := newRenderer(t, WithWindowChrome(true))
-		return drawAt(t, d, scr, screen.State{Title: "t", Progress: p}, sweepPhase(0.5)).Pix
+		return drawAt(t, d, scr, vt.State{Title: "t", Progress: p}, sweepPhase(0.5)).Pix
 	}
 
-	none := draw(screen.Progress{})
-	if !bytes.Equal(none, draw(screen.Progress{State: screen.ProgressRemove, Percent: 50})) {
+	none := draw(vt.Progress{})
+	if !bytes.Equal(none, draw(vt.Progress{State: vt.ProgressRemove, Percent: 50})) {
 		t.Error("ProgressRemove drew something")
 	}
 	seen := map[string]string{}
-	for name, p := range map[string]screen.Progress{
-		"set":               {State: screen.ProgressSet, Percent: 60},
-		"error":             {State: screen.ProgressError, Percent: 60},
-		"error, no percent": {State: screen.ProgressError, Percent: -1},
-		"pause":             {State: screen.ProgressPause, Percent: 60},
-		"pause, no percent": {State: screen.ProgressPause, Percent: -1},
-		"indeterminate":     {State: screen.ProgressIndeterminate, Percent: -1},
+	for name, p := range map[string]vt.Progress{
+		"set":               {State: vt.ProgressSet, Percent: 60},
+		"error":             {State: vt.ProgressError, Percent: 60},
+		"error, no percent": {State: vt.ProgressError, Percent: -1},
+		"pause":             {State: vt.ProgressPause, Percent: 60},
+		"pause, no percent": {State: vt.ProgressPause, Percent: -1},
+		"indeterminate":     {State: vt.ProgressIndeterminate, Percent: -1},
 	} {
 		img := draw(p)
 		if bytes.Equal(img, none) {
@@ -106,7 +106,7 @@ func TestProgressStatesDiffer(t *testing.T) {
 		}
 		seen[string(img)] = name
 	}
-	if !bytes.Equal(draw(screen.Progress{State: screen.ProgressIndeterminate, Percent: 60}), draw(screen.Progress{State: screen.ProgressIndeterminate, Percent: -1})) {
+	if !bytes.Equal(draw(vt.Progress{State: vt.ProgressIndeterminate, Percent: 60}), draw(vt.Progress{State: vt.ProgressIndeterminate, Percent: -1})) {
 		t.Error("indeterminate progress depends on its percent")
 	}
 }
@@ -119,13 +119,13 @@ func TestProgressRemoveClearsOnNextDraw(t *testing.T) {
 	for _, chrome := range []bool{false, true} {
 		scr := newTestScreen(20, 3)
 		d := newRenderer(t, WithWindowChrome(chrome))
-		before := drawAt(t, d, scr, screen.State{}, 0).Pix
+		before := drawAt(t, d, scr, vt.State{}, 0).Pix
 
-		set := screen.State{Progress: screen.Progress{Reported: true, State: screen.ProgressSet, Percent: 40}}
+		set := vt.State{Progress: vt.Progress{Reported: true, State: vt.ProgressSet, Percent: 40}}
 		if bytes.Equal(before, drawAt(t, d, scr, set, 0).Pix) {
 			t.Fatalf("chrome=%v: ProgressSet did not change the next image", chrome)
 		}
-		removed := screen.State{Progress: screen.Progress{Reported: true, State: screen.ProgressRemove}}
+		removed := vt.State{Progress: vt.Progress{Reported: true, State: vt.ProgressRemove}}
 		if !bytes.Equal(before, drawAt(t, d, scr, removed, 0).Pix) {
 			t.Fatalf("chrome=%v: ProgressRemove did not clear the bar", chrome)
 		}
@@ -143,7 +143,7 @@ func TestProgressIndeterminateAnimates(t *testing.T) {
 
 	scr := newTestScreen(20, 3)
 	d := newRenderer(t)
-	st := screen.State{Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}
+	st := vt.State{Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 	if !d.Animates(st) {
 		t.Fatal("Animates() = false for indeterminate progress")
 	}
@@ -168,16 +168,16 @@ func TestProgressIndeterminateAnimates(t *testing.T) {
 func TestProgressRepaintsOnlyStrip(t *testing.T) {
 	t.Parallel()
 
-	scr := screen.NewBuffer(20, 4)
+	scr := vt.NewBuffer(20, 4)
 	d := newRenderer(t, WithWindowChrome(true))
-	drawAt(t, d, scr, screen.State{Focused: true, Progress: screen.Progress{State: screen.ProgressSet, Percent: 30}}, 0)
+	drawAt(t, d, scr, vt.State{Focused: true, Progress: vt.Progress{State: vt.ProgressSet, Percent: 30}}, 0)
 
 	// Poison in the renderer's own frame shows whether Draw painted it again.
 	poison := color.NRGBA{R: 1, G: 2, B: 3, A: 255}
 	grid := d.layoutSnapshot(t, image.Point{}, scr).gridBounds
 	d.frame.SetNRGBA(grid.Min.X, grid.Min.Y, poison)
 
-	got := drawAt(t, d, scr, screen.State{Focused: true, Progress: screen.Progress{State: screen.ProgressSet, Percent: 60}}, 0)
+	got := drawAt(t, d, scr, vt.State{Focused: true, Progress: vt.Progress{State: vt.ProgressSet, Percent: 60}}, 0)
 	if got.NRGBAAt(grid.Min.X, grid.Min.Y) != poison {
 		t.Fatal("a progress change repainted the grid")
 	}
@@ -204,10 +204,10 @@ func TestRepaintProgressMatchesFullDraw(t *testing.T) {
 
 			scr := newTestScreen(24, 4)
 			for x, r := range "progress repaint test" {
-				scr.SetCell(x, 0, &screen.Cell{Content: string(r), Width: 1})
+				scr.SetCell(x, 0, &vt.Cell{Content: string(r), Width: 1})
 			}
 			d := newRenderer(t, opts...)
-			st := screen.State{Title: "t", Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}
+			st := vt.State{Title: "t", Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 
 			at := sweepPhase(0.2)
 			base := drawAt(t, d, scr, st, at)
@@ -234,7 +234,7 @@ func TestRepaintAtOrigin(t *testing.T) {
 
 	scr := newTestScreen(12, 3)
 	d := newRenderer(t, WithWindowChrome(true), WithMargin(4, nil))
-	st := screen.State{Title: "t", Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}
+	st := vt.State{Title: "t", Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 	size := d.Layout(12, 3).Image.Size()
 	dst := image.NewNRGBA(image.Rectangle{Min: image.Pt(7, 5), Max: image.Pt(7+size.X, 5+size.Y)})
 	d.Draw(dst, scr, st, sweepPhase(0.2))
@@ -287,11 +287,11 @@ func TestProgressBarDisabled(t *testing.T) {
 
 	scr := newTestScreen(10, 2)
 	a, b := newRenderer(t), newRenderer(t, WithProgressBar(false))
-	paused := screen.State{Progress: screen.Progress{State: screen.ProgressPause, Percent: -1}}
-	if !bytes.Equal(drawAt(t, a, scr, screen.State{}, 0).Pix, drawAt(t, b, scr, paused, 0).Pix) {
+	paused := vt.State{Progress: vt.Progress{State: vt.ProgressPause, Percent: -1}}
+	if !bytes.Equal(drawAt(t, a, scr, vt.State{}, 0).Pix, drawAt(t, b, scr, paused, 0).Pix) {
 		t.Fatal("WithProgressBar(false) still drew the bar")
 	}
-	indeterminate := screen.State{Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}
+	indeterminate := vt.State{Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 	if b.Animates(indeterminate) {
 		t.Error("Animates() = true with the bar disabled")
 	}

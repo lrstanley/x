@@ -16,7 +16,14 @@ import (
 	"math"
 	"slices"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/gifopt"
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
+
+// TransparentPaletteIndex is the palette index reserved for transparency during
+// GIF capture and optimization. See package documentation for the full invariant.
+const TransparentPaletteIndex = palette.TransparentIndex
 
 // GIFEncoder is an [Encoder] that writes an animated GIF. It keeps every frame
 // palettized in memory, deduplicating and diffing them as they arrive, and
@@ -73,12 +80,11 @@ func CreateGIF(path string, opts ...Option) (*GIFEncoder, error) {
 }
 
 func newGIFEncoder(w io.Writer, cfg options) *GIFEncoder {
-	var adaptive *adaptivePalette
+	var adaptive *palette.Adaptive
 	pal := cfg.palette
 	if !cfg.paletteSet {
-		adaptive = newAdaptivePalette(true)
-		adaptive.rollover = true
-		pal = adaptive.pal
+		adaptive = palette.NewAdaptive(true, true)
+		pal = adaptive.Palette()
 	}
 	return &GIFEncoder{
 		opts:    cfg,
@@ -156,10 +162,35 @@ func encodeGIF(w io.Writer, rec *gifRecording, opts options) error {
 	}
 	out := buildGIF(rec)
 	if opts.optimize.has(OptimizeColorQuantization) {
-		compactPalettes(out, opts.paletteSet)
+		palette.CompactGIF(out, opts.paletteSet)
 	}
-	ensureTransparentPaletteSlot(out)
+	palette.MarkTransparent(out)
 	return gif.EncodeAll(w, out)
+}
+
+// optimizeDisposals rewrites rec in place with [gifopt.Optimize]. A single
+// frame only gets its disposal method, and an empty canvas is left alone.
+func optimizeDisposals(rec *gifRecording, bg color.Color, bgSet bool) {
+	n := len(rec.images)
+	if n <= 1 {
+		if n == 1 && len(rec.disposal) == 0 {
+			rec.disposal = []byte{gif.DisposalNone}
+		}
+		return
+	}
+	w, h := rec.config.Width, rec.config.Height
+	if w <= 0 || h <= 0 {
+		return
+	}
+	deltaAt := -1
+	if rec.last != nil {
+		deltaAt = rec.deltaAt
+	}
+	rec.images, rec.delays, rec.disposal, rec.backgroundIndex = gifopt.Optimize(
+		image.Rect(0, 0, w, h), palette.From(rec.config.ColorModel, rec.images),
+		rec.images, rec.delays, deltaAt, bg, bgSet,
+	)
+	rec.last, rec.spare = nil, nil
 }
 
 // gifRecording accumulates palettized frames and duration delays during capture.
@@ -196,11 +227,11 @@ type gifRecording struct {
 	deltaAt int
 	// adaptive grows config.ColorModel from captured colors when no capture
 	// palette was given. Nil uses the palette passed to [appendRecordingFrame].
-	adaptive *adaptivePalette
+	adaptive *palette.Adaptive
 	// isolated is the palette of the current run of [Frame.Isolated] frames.
 	// It is nil while the newest frame uses the shared palette, and it never
 	// adds colors to adaptive.
-	isolated *adaptivePalette
+	isolated *palette.Adaptive
 }
 
 // fullFrames returns every recorded frame as a full image. Delta recordings
@@ -216,8 +247,8 @@ func (rec *gifRecording) fullFrames() []*image.Paletted {
 		img := rec.images[i]
 		if i > rec.deltaAt {
 			prev := img
-			img = clonePaletted(full[i-1])
-			blitOpaque(prev, img)
+			img = gifopt.Clone(full[i-1])
+			gifopt.BlitOpaque(prev, img)
 		}
 		full[i] = img
 	}
@@ -251,18 +282,18 @@ func (rec *gifRecording) activePalette() color.Palette {
 // capturePalette returns the palette and, when it is adaptive, the builder
 // for this frame. Isolated frames use a palette of their own, sized with no
 // reserve, and a run of them reuses one builder.
-func (rec *gifRecording) capturePalette(shared color.Palette, isolated bool) (color.Palette, *adaptivePalette) {
+func (rec *gifRecording) capturePalette(shared color.Palette, isolated bool) (color.Palette, *palette.Adaptive) {
 	if !isolated {
 		rec.isolated = nil
 		if rec.adaptive != nil {
-			return rec.adaptive.pal, rec.adaptive
+			return rec.adaptive.Palette(), rec.adaptive
 		}
 		return shared, nil
 	}
 	if rec.isolated == nil {
-		rec.isolated = newAdaptivePalette(false)
+		rec.isolated = palette.NewAdaptive(false, false)
 	}
-	return rec.isolated.pal, rec.isolated
+	return rec.isolated.Palette(), rec.isolated
 }
 
 // truncateRecording drops the oldest stored frames until the recording fits
@@ -304,7 +335,7 @@ func truncateRecording(rec *gifRecording) {
 		if folded > 0 {
 			base := rec.deltaAt
 			for _, delta := range rec.images[base+1 : base+1+folded] {
-				blitOpaque(delta, rec.images[base])
+				gifopt.BlitOpaque(delta, rec.images[base])
 			}
 			rec.images = slices.Delete(rec.images, base+1, base+1+folded)
 		}
@@ -335,7 +366,7 @@ func (rec *gifRecording) recount() {
 // the shared one. A run of isolated frames shares that palette.
 func appendRecordingFrame(
 	rec *gifRecording,
-	palette color.Palette,
+	pal color.Palette,
 	useLUT bool,
 	optimize OptimizeFlags,
 	background color.Color,
@@ -357,23 +388,23 @@ func appendRecordingFrame(
 		rec.config.Height = bounds.Dy()
 	}
 	if rec.config.ColorModel == nil {
-		rec.config.ColorModel = palette
+		rec.config.ColorModel = pal
 	}
 
-	palette, adaptive := rec.capturePalette(palette, isolated)
+	pal, adaptive := rec.capturePalette(pal, isolated)
 	pm := rec.spare
 	rec.spare = nil
 	if pm == nil || pm.Rect != bounds {
-		pm = image.NewPaletted(bounds, palette)
+		pm = image.NewPaletted(bounds, pal)
 	}
-	pm.Palette = palette
+	pm.Palette = pal
 	palettizeCaptureFrame(pm, frame, adaptive, useLUT, background, backgroundSet)
 
 	// A palette change closes the open segment and this frame starts a new one,
 	// so later diffs never compare indices across palettes. A canvas size change
 	// closes the segment and does not start another: deltas cannot span canvases.
 	startSegment := len(rec.images) == 0
-	if prev := rec.activePalette(); prev != nil && !samePalette(prev, pm.Palette) {
+	if prev := rec.activePalette(); prev != nil && !palette.Same(prev, pm.Palette) {
 		rec.endDeltaSegment()
 		startSegment = true
 	}
@@ -389,15 +420,15 @@ func appendRecordingFrame(
 		if rec.last == nil {
 			rec.deltaAt = len(rec.images)
 			rec.push(pm)
-			rec.last = clonePaletted(pm)
+			rec.last = gifopt.Clone(pm)
 		} else {
-			bbox, diff := diffBoundingBox(rec.last, pm, bounds)
+			bbox, diff := gifopt.Diff(rec.last, pm, bounds)
 			if diff == 0 {
 				rec.delays[len(rec.delays)-1] += delay
 				rec.spare = pm
 				return nil
 			}
-			rec.push(cropPaletted(pm, bbox))
+			rec.push(gifopt.Crop(pm, bbox))
 			rec.last, rec.spare = pm, rec.last
 		}
 		rec.delays = append(rec.delays, delay)
@@ -407,7 +438,7 @@ func appendRecordingFrame(
 
 	if optimize.has(OptimizeFrames) {
 		n := len(rec.images)
-		if n > 0 && samePalette(rec.images[n-1].Palette, pm.Palette) && bytes.Equal(rec.images[n-1].Pix, pm.Pix) {
+		if n > 0 && palette.Same(rec.images[n-1].Palette, pm.Palette) && bytes.Equal(rec.images[n-1].Pix, pm.Pix) {
 			rec.delays[n-1] += delay
 			return nil
 		}
@@ -422,17 +453,17 @@ func appendRecordingFrame(
 // palettizeCaptureFrame writes src into pm, compositing onto background when
 // configured. It uses adaptive when non-nil, otherwise the LUT or draw.Draw
 // path per useLUT. An adaptive palette that rolls over replaces pm.Palette.
-func palettizeCaptureFrame(pm *image.Paletted, frame image.Image, adaptive *adaptivePalette, useLUT bool, background color.Color, backgroundSet bool) {
+func palettizeCaptureFrame(pm *image.Paletted, frame image.Image, adaptive *palette.Adaptive, useLUT bool, background color.Color, backgroundSet bool) {
 	src := frame
 	if backgroundSet {
 		src = compositeBackgroundNRGBA(asNRGBA(frame), background)
 	}
 	switch {
 	case adaptive != nil:
-		adaptive.palettize(pm, src)
+		adaptive.Palettize(pm, src)
 		return
 	case useLUT:
-		palettizeInto(pm, src)
+		palette.Palettize(pm, src)
 		return
 	}
 	draw.Draw(pm, frame.Bounds(), src, src.Bounds().Min, draw.Src)
@@ -452,14 +483,14 @@ func asNRGBA(img image.Image) *image.NRGBA {
 
 // busiestPalette returns the palette the most frames use.
 func busiestPalette(frames []*image.Paletted) color.Palette {
-	groups := paletteGroups(frames)
+	groups := palette.Groups(frames)
 	best := groups[0]
 	for _, g := range groups[1:] {
-		if len(g.frames) > len(best.frames) {
+		if len(g.Frames) > len(best.Frames) {
 			best = g
 		}
 	}
-	return best.pal
+	return best.Palette
 }
 
 // buildGIF converts a finalized recording into a gif.GIF with its delays in
@@ -590,12 +621,4 @@ func compositeBackgroundNRGBA(src *image.NRGBA, bg color.Color) *image.NRGBA {
 		}
 	}
 	return dst
-}
-
-// blitOpaque copies every pixel of patch onto canvas.
-func blitOpaque(patch, canvas *image.Paletted) {
-	r := patch.Rect.Intersect(canvas.Rect)
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		copy(canvas.Pix[canvas.PixOffset(r.Min.X, y):], patch.Pix[patch.PixOffset(r.Min.X, y):][:r.Dx()])
-	}
 }

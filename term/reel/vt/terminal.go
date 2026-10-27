@@ -6,6 +6,7 @@ package vt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 const (
@@ -104,11 +104,11 @@ type Terminal struct {
 	held bool
 	// frozen is the grid captured when the current hold started. Reads
 	// return it instead of a partial update. frozenCur is its caret.
-	frozen    *screen.Buffer
-	frozenCur screen.Cursor
+	frozen    *Buffer
+	frozenCur Cursor
 
 	// progress is the latest OSC 9;4 report.
-	progress screen.Progress
+	progress Progress
 	// notifications are OSC 9 and OSC 777 messages, oldest first.
 	notifications []Notification
 	// clipRead is the host clipboard returned for an OSC 52 read.
@@ -119,12 +119,12 @@ type Terminal struct {
 	prompt Prompt
 	// statuses are OSC 7501 program-status records in update order, least
 	// recently updated first, which is the eviction order.
-	statuses []screen.ProgramStatus
+	statuses []ProgramStatus
 	// statusView is statuses as [Terminal.ProgramStatuses] returns them:
 	// sorted by id, with App inherited. It is replaced, never changed in
-	// place, so a [screen.State] can share it. statusGen counts changes to it,
+	// place, so a [State] can share it. statusGen counts changes to it,
 	// and is never reset, so equal generations mean the same records.
-	statusView []screen.ProgramStatus
+	statusView []ProgramStatus
 	statusGen  uint64
 	// statusReported is true once any OSC 7501 report has arrived since the
 	// last full reset.
@@ -152,9 +152,9 @@ type Terminal struct {
 	hasCursor bool
 
 	// grid is the last decoded screen. It does not alias Wasm memory.
-	grid *screen.Buffer
+	grid *Buffer
 	// gridCursor is the caret from the same refresh as grid.
-	gridCursor screen.Cursor
+	gridCursor Cursor
 	// gridFresh is true when grid matches the emulator since the last write.
 	gridFresh bool
 	// outputSeq counts non-empty Write calls.
@@ -197,7 +197,7 @@ func (t *Terminal) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.idle {
-		return 0, fmt.Errorf("vt: terminal is closed")
+		return 0, errors.New("vt: terminal is closed")
 	}
 	if err := t.writeLocked(p); err != nil {
 		return 0, err
@@ -295,7 +295,7 @@ func (t *Terminal) resetStateLocked() {
 	t.alt = false
 	t.held = false
 	t.frozen = nil
-	t.progress = screen.Progress{}
+	t.progress = Progress{}
 	t.notifications = nil
 	t.clipWrote = ""
 	t.prompt = Prompt{}
@@ -317,7 +317,7 @@ func (t *Terminal) Resize(cols, rows int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.idle {
-		return fmt.Errorf("vt: terminal is closed")
+		return errors.New("vt: terminal is closed")
 	}
 	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("vt: resize %dx%d", cols, rows)
@@ -365,7 +365,7 @@ func (t *Terminal) Text() string {
 // terminal is written again. Dirty marks rows that changed since the previous
 // read. While synchronized output is held, the copy is the frame captured
 // when the hold began.
-func (t *Terminal) Screen() *screen.Buffer {
+func (t *Terminal) Screen() *Buffer {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	grid := t.screenLocked()
@@ -376,13 +376,13 @@ func (t *Terminal) Screen() *screen.Buffer {
 }
 
 // Cursor returns the caret from the latest grid read.
-func (t *Terminal) Cursor() screen.Cursor {
+func (t *Terminal) Cursor() Cursor {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.cursorLocked()
 }
 
-func (t *Terminal) cursorLocked() screen.Cursor {
+func (t *Terminal) cursorLocked() Cursor {
 	if t.held && t.frozen != nil {
 		return t.frozenCur
 	}
@@ -417,14 +417,14 @@ func (t *Terminal) gridGenerationLocked() uint64 {
 // the grid itself is not copied. Focused is false: the terminal does not
 // track focus, so whoever drives it sets that field; a renderer draws a
 // state left unfocused as a dimmed window.
-func (t *Terminal) State() screen.State {
+func (t *Terminal) State() State {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	cur := t.cursorLocked()
 	gen := t.gridGenerationLocked()
 	t.alt = t.activeAlt()
 	cc, hasCursor := t.cursorColorLocked()
-	return screen.State{
+	return State{
 		Title:          t.title,
 		AltScreen:      t.alt,
 		Cursor:         cur,
@@ -492,7 +492,7 @@ func (t *Terminal) CloseReader() {
 }
 
 // Progress returns the latest OSC 9;4 report.
-func (t *Terminal) Progress() screen.Progress {
+func (t *Terminal) Progress() Progress {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.progress

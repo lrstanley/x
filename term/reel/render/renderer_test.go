@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/render/fonts"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func TestRendererCloseSemantics(t *testing.T) {
@@ -119,8 +119,8 @@ func TestLayout(t *testing.T) {
 func TestDrawOverwritesDestination(t *testing.T) {
 	t.Parallel()
 
-	buf := screen.NewBuffer(4, 2)
-	buf.SetCell(1, 0, &screen.Cell{Content: "x", Width: 1})
+	buf := vt.NewBuffer(4, 2)
+	buf.SetCell(1, 0, &vt.Cell{Content: "x", Width: 1})
 	d := MustNew()
 	dst := newImage(d, buf)
 	d.Draw(dst, buf, focused, 0)
@@ -136,7 +136,7 @@ func TestDrawOverwritesDestination(t *testing.T) {
 	}
 }
 
-// TestFrameSnapTracksState checks that every [screen.State] field either
+// TestFrameSnapTracksState checks that every [vt.State] field either
 // changes the frame cache key or is listed as one the key leaves out, so a
 // field added to State cannot be missed.
 func TestFrameSnapTracksState(t *testing.T) {
@@ -146,25 +146,25 @@ func TestFrameSnapTracksState(t *testing.T) {
 	// indicators they draw, not by these.
 	ignored := map[string]bool{"Generation": true, "ProgramStatusGeneration": true}
 	red := color.NRGBA{R: 0xff, A: 0xff}
-	changes := map[string]func(*screen.State){
-		"Title":                 func(s *screen.State) { s.Title = "x" },
-		"Focused":               func(s *screen.State) { s.Focused = true },
-		"AltScreen":             func(s *screen.State) { s.AltScreen = true },
-		"Cursor":                func(s *screen.State) { s.Cursor.X = 1 },
-		"CursorColor":           func(s *screen.State) { s.CursorColor, s.CursorColorSet = red, true },
-		"CursorColorSet":        func(s *screen.State) { s.CursorColorSet = true },
-		"Foreground":            func(s *screen.State) { s.Foreground = red },
-		"Background":            func(s *screen.State) { s.Background = red },
-		"ScrollbackLen":         func(s *screen.State) { s.ScrollbackLen = 9 },
-		"Progress":              func(s *screen.State) { s.Progress.Percent = 6 },
-		"ProgramStatuses":       func(s *screen.State) { s.ProgramStatuses = []screen.ProgramStatus{{Progress: -1}} },
-		"ProgramStatusReported": func(s *screen.State) { s.ProgramStatusReported = true },
+	changes := map[string]func(*vt.State){
+		"Title":                 func(s *vt.State) { s.Title = "x" },
+		"Focused":               func(s *vt.State) { s.Focused = true },
+		"AltScreen":             func(s *vt.State) { s.AltScreen = true },
+		"Cursor":                func(s *vt.State) { s.Cursor.X = 1 },
+		"CursorColor":           func(s *vt.State) { s.CursorColor, s.CursorColorSet = red, true },
+		"CursorColorSet":        func(s *vt.State) { s.CursorColorSet = true },
+		"Foreground":            func(s *vt.State) { s.Foreground = red },
+		"Background":            func(s *vt.State) { s.Background = red },
+		"ScrollbackLen":         func(s *vt.State) { s.ScrollbackLen = 9 },
+		"Progress":              func(s *vt.State) { s.Progress.Percent = 6 },
+		"ProgramStatuses":       func(s *vt.State) { s.ProgramStatuses = []vt.ProgramStatus{{Progress: -1}} },
+		"ProgramStatusReported": func(s *vt.State) { s.ProgramStatusReported = true },
 	}
 	d := MustNew(WithWindowChrome(true))
 	bounds := image.Rect(0, 0, 4, 2)
 	// A progress report, so a report that hides it shows.
-	base := screen.State{Progress: screen.Progress{State: screen.ProgressSet, Percent: 5}}
-	typ := reflect.TypeFor[screen.State]()
+	base := vt.State{Progress: vt.Progress{State: vt.ProgressSet, Percent: 5}}
+	typ := reflect.TypeFor[vt.State]()
 	for i := range typ.NumField() {
 		name := typ.Field(i).Name
 		change, ok := changes[name]
@@ -237,10 +237,10 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 25 {
-		st := screen.State{
-			Cursor:        screen.Cursor{Visible: i%2 == 0, X: i % 4, Y: i % 2},
+		st := vt.State{
+			Cursor:        vt.Cursor{Visible: i%2 == 0, X: i % 4, Y: i % 2},
 			ScrollbackLen: i,
-			Progress:      screen.Progress{State: screen.ProgressIndeterminate, Percent: -1},
+			Progress:      vt.Progress{State: vt.ProgressIndeterminate, Percent: -1},
 		}
 		at := time.Duration(i) * 10 * time.Millisecond
 		wg.Go(func() {

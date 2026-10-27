@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/effects"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"github.com/lrstanley/x/term/steep/internal/xansi"
 	"github.com/rivo/uniseg"
 )
@@ -62,9 +62,9 @@ func (e outro) Start(ctx *reel.Context) (reel.Stage, error) {
 }
 
 var (
-	passStyle = screen.Style{Fg: screen.Indexed(2), Attrs: screen.AttrBold}
-	failStyle = screen.Style{Fg: screen.Indexed(1), Attrs: screen.AttrBold}
-	faint     = screen.Style{Attrs: screen.AttrFaint}
+	passStyle = vt.Style{Fg: vt.Indexed(2), Attrs: vt.AttrBold}
+	failStyle = vt.Style{Fg: vt.Indexed(1), Attrs: vt.AttrBold}
+	faint     = vt.Style{Attrs: vt.AttrFaint}
 )
 
 // resultLines are the default outro card for a card grid of cols by rows:

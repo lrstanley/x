@@ -20,7 +20,7 @@ import (
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // redactorFunc is an [reel.Effect] whose stage is fn, and that claims to
@@ -259,7 +259,7 @@ func TestRedactRenderer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fresh.Close()
-	screens := map[*screen.Buffer]int{}
+	screens := map[*vt.Buffer]int{}
 	for i, f := range frames {
 		if strings.Contains(f.Cells.Screen.Text(), "hunter2") || strings.Contains(f.Cells.State.Title, "hunter2") {
 			t.Fatalf("frame %d shows the secret", i)

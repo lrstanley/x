@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 func (t *Terminal) modeLocked(mode Mode) (bool, error) {
@@ -120,7 +119,7 @@ func (t *Terminal) scrollbackLenLocked() int {
 
 // Scrollback returns history rows, oldest first. The alternate screen has
 // no scrollback. The returned cells are copies.
-func (t *Terminal) Scrollback() [][]screen.Cell {
+func (t *Terminal) Scrollback() [][]Cell {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := t.scrollbackLenLocked()
@@ -128,14 +127,14 @@ func (t *Terminal) Scrollback() [][]screen.Cell {
 		return nil
 	}
 	offset, length := t.scrollbar()
-	lines := make([][]screen.Cell, 0, n)
+	lines := make([][]Cell, 0, n)
 	for row := 0; row < n; row += t.rows {
 		t.scrollRow(row)
 		t.gridFresh = false
 		grid := t.refreshLocked()
 		take := min(t.rows, n-row)
 		for y := range take {
-			line := make([]screen.Cell, t.cols)
+			line := make([]Cell, t.cols)
 			for x := range t.cols {
 				if cell := grid.CellAt(x, y); cell != nil {
 					line[x] = *cell
@@ -184,7 +183,7 @@ func (t *Terminal) scrollRow(row int) {
 
 // ProgramStatuses returns OSC 7501 records sorted by id. App is copied from
 // the nearest ancestor that set one. The slice is a copy.
-func (t *Terminal) ProgramStatuses() []screen.ProgramStatus {
+func (t *Terminal) ProgramStatuses() []ProgramStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return slices.Clone(t.statusView)

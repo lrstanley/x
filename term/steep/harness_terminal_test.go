@@ -16,7 +16,6 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/vt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // terminalProbe is a minimal model with a stable empty view.
@@ -193,7 +192,7 @@ func TestHarness_terminalScrollbackCopyAndCount(t *testing.T) {
 		t.Fatal("expected first snapshot line to have cells")
 	}
 
-	snap[0][0] = screen.Cell{}
+	snap[0][0] = vt.Cell{}
 	if h.ScrollbackCount() != 0 {
 		t.Fatalf("after clearing scrollback, mutating snapshot line should leave count at 0, got %d", h.ScrollbackCount())
 	}
@@ -258,7 +257,7 @@ func TestHarness_terminalTrackedHarnessFocus(t *testing.T) {
 func TestHarness_terminalTrackedCursorDefaults(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 2)
-	if !h.CursorVisible() || h.CursorBlink() || h.CursorStyle() != screen.CursorBlock {
+	if !h.CursorVisible() || h.CursorBlink() || h.CursorStyle() != vt.CursorBlock {
 		t.Fatalf("defaults: visible=%v blink=%v style=%v", h.CursorVisible(), h.CursorBlink(), h.CursorStyle())
 	}
 	pt := h.CursorPosition()

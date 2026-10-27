@@ -12,28 +12,28 @@ import (
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	"github.com/lrstanley/x/term/reel/render/internal/config"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Decorations renders underline, strikethrough, and related lines for a cell.
-func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, cell *screen.Cell, fg color.NRGBA) {
+func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, cell *vt.Cell, fg color.NRGBA) {
 	if cell == nil {
 		return
 	}
 	style := cell.Style
 	decoration := fg
-	if style.UnderlineColor != nil && style.Attrs&screen.AttrConceal == 0 {
+	if style.UnderlineColor != nil && style.Attrs&vt.AttrConceal == 0 {
 		decoration = icol.NRGBA(ctx.ResolvePaletteColor(style.UnderlineColor))
-		if style.Attrs&screen.AttrFaint != 0 {
+		if style.Attrs&vt.AttrFaint != 0 {
 			_, bg := ctx.CellColorsNRGBA(cell)
 			decoration = icol.BlendNRGBA(decoration, bg, ctx.FaintFactor())
 		}
 	}
 
-	if style.Underline != screen.UnderlineNone {
+	if style.Underline != vt.UnderlineNone {
 		Underline(ctx, img, area, style.Underline, decoration)
 	}
-	if style.Attrs&screen.AttrStrikethrough != 0 {
+	if style.Attrs&vt.AttrStrikethrough != 0 {
 		metrics := ctx.Metrics()
 		y := units.Clamp(area.Min.Y+metrics.StrikethroughPosition.Int(), area.Min.Y, area.Max.Y-1)
 		Fill(img, image.Rect(area.Min.X, y, area.Max.X, min(area.Max.Y, y+metrics.StrikethroughThickness.Int())), decoration)
@@ -51,22 +51,22 @@ func periodicStart(start, period int) int {
 }
 
 // Underline paints the requested underline style at metrics-derived Y and thickness.
-func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, style screen.Underline, c color.NRGBA) {
+func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle, style vt.Underline, c color.NRGBA) {
 	metrics := ctx.Metrics()
 	y := units.Clamp(area.Min.Y+metrics.UnderlinePosition.Int(), area.Min.Y, area.Max.Y-1)
 	thickness := metrics.UnderlineThickness.Int()
 	clipX := ctx.GridBounds().Max.X
 	switch style {
-	case screen.UnderlineDouble:
+	case vt.UnderlineDouble:
 		Fill(img, image.Rect(area.Min.X, y, area.Max.X, min(area.Max.Y, y+thickness)), c)
 		y2 := min(area.Max.Y-1, y+thickness*2)
 		Fill(img, image.Rect(area.Min.X, y2, area.Max.X, min(area.Max.Y, y2+thickness)), c)
-	case screen.UnderlineDotted:
+	case vt.UnderlineDotted:
 		step := max(2, thickness*2)
 		for x := periodicStart(area.Min.X, step); x < area.Max.X; x += step {
 			Fill(img, image.Rect(x, y, min(clipX, x+thickness), min(area.Max.Y, y+thickness)), c)
 		}
-	case screen.UnderlineDashed:
+	case vt.UnderlineDashed:
 		dash := max(2, area.Dx()/3)
 		gap := max(1, thickness*2)
 		period := dash + gap
@@ -80,7 +80,7 @@ func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle,
 			}
 			x += period - phase
 		}
-	case screen.UnderlineCurly:
+	case vt.UnderlineCurly:
 		pat := [8]int{0, 0, 1, 1, 0, 0, -1, -1}
 		for x := area.Min.X; x < area.Max.X; x++ {
 			yy := units.Clamp(y+pat[x%8], area.Min.Y, area.Max.Y-1)

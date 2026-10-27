@@ -8,21 +8,21 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/render/internal/config"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // TextVisible reports whether a cell's foreground should be drawn for the current
 // blink phase.
-func TextVisible(src config.FrameSource, cell *screen.Cell) bool {
+func TextVisible(src config.FrameSource, cell *vt.Cell) bool {
 	if cell == nil {
 		return true
 	}
 	at := src.At()
 	attrs := cell.Style.Attrs
 	switch {
-	case attrs&screen.AttrRapidBlink != 0:
+	case attrs&vt.AttrRapidBlink != 0:
 		return BlinkVisible(at, 250*time.Millisecond)
-	case attrs&screen.AttrBlink != 0:
+	case attrs&vt.AttrBlink != 0:
 		return BlinkVisible(at, 500*time.Millisecond)
 	default:
 		return true
@@ -31,7 +31,7 @@ func TextVisible(src config.FrameSource, cell *screen.Cell) bool {
 
 // CursorVisible reports whether the cursor should be drawn for the current blink
 // phase.
-func CursorVisible(src config.FrameSource, cur screen.Cursor) bool {
+func CursorVisible(src config.FrameSource, cur vt.Cursor) bool {
 	if !cur.Blink {
 		return true
 	}

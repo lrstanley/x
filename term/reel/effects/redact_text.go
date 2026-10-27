@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/reel"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Matching is an option [Redact] and [RedactInputs] take: how they match
@@ -270,15 +270,15 @@ func (s secrets) scrub(text string) string {
 
 // scrubStatuses returns statuses with the text of each record scrubbed (see
 // [secrets.scrub]), and whether any changed. statuses is left alone.
-func (s secrets) scrubStatuses(statuses []screen.ProgramStatus) ([]screen.ProgramStatus, bool) {
-	var out []screen.ProgramStatus
+func (s secrets) scrubStatuses(statuses []vt.ProgramStatus) ([]vt.ProgramStatus, bool) {
+	var out []vt.ProgramStatus
 	for i, st := range statuses {
 		app, title, msg := s.scrub(st.App), s.scrub(st.Title), s.scrub(st.Message)
 		if app == st.App && title == st.Title && msg == st.Message {
 			continue
 		}
 		if out == nil {
-			out = append([]screen.ProgramStatus(nil), statuses...)
+			out = append([]vt.ProgramStatus(nil), statuses...)
 		}
 		out[i].App, out[i].Title, out[i].Message = app, title, msg
 	}

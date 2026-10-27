@@ -8,6 +8,8 @@ import (
 	"image"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
 func storedBytes(rec *gifRecording) int64 {
@@ -118,7 +120,7 @@ func TestGIFMaxBytesAccounting(t *testing.T) {
 					if i%5 == 0 { // A partial change, so deltas are smaller than a frame.
 						frame.SetNRGBA(1, 1, solidFrame(i+1, 1, 1).NRGBAAt(0, 0))
 					}
-					err := appendRecordingFrame(rec, defaultGIFPalette(), true, optimize, nil, false, false, frame, time.Millisecond)
+					err := appendRecordingFrame(rec, palette.Default(), true, optimize, nil, false, false, frame, time.Millisecond)
 					if err != nil {
 						t.Fatal(err)
 					}

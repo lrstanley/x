@@ -14,7 +14,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/render/fonts"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func TestPowerlineIconRendering(t *testing.T) {
@@ -29,7 +29,7 @@ func TestPowerlineIconRendering(t *testing.T) {
 		t.Parallel()
 
 		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 0, &vt.Cell{Content: icon, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 		d := MustNew(WithScale(scaleFor(20)), palette)
 		img := drawNRGBA(t, d, scr)
 		cell := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
@@ -46,8 +46,8 @@ func TestPowerlineIconRendering(t *testing.T) {
 		t.Parallel()
 
 		scr := newTestScreen(1, 2)
-		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-		scr.SetCell(0, 1, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 0, &vt.Cell{Content: icon, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 1, &vt.Cell{Content: " ", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 		d := MustNew(
 			WithCellHeight(-0.25),
@@ -85,7 +85,7 @@ func TestIconHeightRendering(t *testing.T) {
 		t.Parallel()
 
 		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &screen.Cell{Content: nerdIcon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 0, &vt.Cell{Content: nerdIcon, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 		base := MustNew(fontOpts...)
 		scaled := MustNew(append(fontOpts, WithIconHeight(0.5))...)
@@ -125,7 +125,7 @@ func TestIconHeightRendering(t *testing.T) {
 		t.Parallel()
 
 		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &screen.Cell{Content: nerdIcon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 0, &vt.Cell{Content: nerdIcon, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 		d := MustNew(fontOpts...)
 		ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -156,7 +156,7 @@ func TestIconHeightRendering(t *testing.T) {
 		const aspect = 1.0
 		for _, icon := range []rune{'\uf059', '\uf084'} {
 			scr := newTestScreen(1, 1)
-			scr.SetCell(0, 0, &screen.Cell{Content: string(icon), Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(0, 0, &vt.Cell{Content: string(icon), Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 			d := MustNew(fontOpts...)
 			ctx := d.layoutSnapshot(t, image.Point{}, scr)
 			cell := ctx.cellBounds(0, 0)
@@ -178,7 +178,7 @@ func TestIconHeightRendering(t *testing.T) {
 		t.Parallel()
 
 		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &screen.Cell{Content: terminalGraphic, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 0, &vt.Cell{Content: terminalGraphic, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 		base := MustNew(fontOpts...)
 		scaled := MustNew(append(fontOpts, WithIconHeight(0.5))...)
@@ -207,17 +207,17 @@ func TestSyntheticNerdIconStylesRenderDifferentlyAndFit(t *testing.T) {
 	const icon = "\uf0ac"
 	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
-	styles := map[string]screen.Style{
+	styles := map[string]vt.Style{
 		"regular":     {},
-		"bold":        {Attrs: screen.AttrBold},
-		"italic":      {Attrs: screen.AttrItalic},
-		"bold italic": {Attrs: screen.AttrBold | screen.AttrItalic},
+		"bold":        {Attrs: vt.AttrBold},
+		"italic":      {Attrs: vt.AttrItalic},
+		"bold italic": {Attrs: vt.AttrBold | vt.AttrItalic},
 	}
 
 	signatures := map[string]string{}
 	for name, style := range styles {
 		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: style})
+		scr.SetCell(0, 0, &vt.Cell{Content: icon, Width: 1, Style: style})
 		d := MustNew(
 			WithScale(scaleFor(20)),
 			WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}),
@@ -246,7 +246,7 @@ func TestRendererBoundsNormalizePaddingAndScrollbarGutter(t *testing.T) {
 
 	scr := offsetScreen{
 		bounds: image.Rect(5, 7, 7, 8),
-		cells: map[image.Point]*screen.Cell{
+		cells: map[image.Point]*vt.Cell{
 			image.Pt(5, 7): {Content: "a", Width: 1},
 			image.Pt(6, 7): {Content: "b", Width: 1},
 		},
@@ -282,8 +282,8 @@ func TestRendererWideCellsCoverContinuations(t *testing.T) {
 	blue := color.NRGBA{B: 0xff, A: 0xff}
 	green := color.NRGBA{G: 0xff, A: 0xff}
 	scr := newTestScreen(3, 1)
-	scr.SetCell(0, 0, &screen.Cell{Content: "w", Width: 2, Style: screen.Style{Bg: blue}})
-	scr.SetCell(2, 0, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Bg: green}})
+	scr.SetCell(0, 0, &vt.Cell{Content: "w", Width: 2, Style: vt.Style{Bg: blue}})
+	scr.SetCell(2, 0, &vt.Cell{Content: " ", Width: 1, Style: vt.Style{Bg: green}})
 	d := MustNew()
 	img := drawNRGBA(t, d, scr)
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -302,10 +302,10 @@ func TestRendererBoxDrawingGlyphsHaveDistinctShapes(t *testing.T) {
 	glyphs := []string{"┌", "─", "┐", "│", "└", "┘"}
 	scr := newTestScreen(len(glyphs), 1)
 	for x, glyph := range glyphs {
-		scr.SetCell(x, 0, &screen.Cell{
+		scr.SetCell(x, 0, &vt.Cell{
 			Content: glyph,
 			Width:   1,
-			Style: screen.Style{
+			Style: vt.Style{
 				Fg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
 				Bg: color.NRGBA{A: 0xff},
 			},
@@ -337,7 +337,7 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
 		rows := 4
 		scr := newTestScreen(1, rows)
 		for y := range rows {
-			scr.SetCell(0, y, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(0, y, &vt.Cell{Content: "│", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
 		ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -360,7 +360,7 @@ func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
 		cols := 4
 		scr := newTestScreen(cols, 1)
 		for x := range cols {
-			scr.SetCell(x, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(x, 0, &vt.Cell{Content: "─", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
 		ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -386,9 +386,9 @@ func TestRendererRoundedCornerBoxDrawingAvoidsOutsideArtifacts(t *testing.T) {
 	d := MustNew(WithScale(scaleFor(40)), WithCellWidth(-0.1))
 
 	scr := newTestScreen(2, 2)
-	scr.SetCell(0, 0, &screen.Cell{Content: "╭", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-	scr.SetCell(1, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-	scr.SetCell(0, 1, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 0, &vt.Cell{Content: "╭", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &vt.Cell{Content: "─", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 1, &vt.Cell{Content: "│", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 	img := drawNRGBA(t, d, scr)
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -456,8 +456,8 @@ func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
 			d := MustNew(WithScale(scaleFor(40)), WithCellWidth(-0.1))
 
 			scr := newTestScreen(2, 2)
-			scr.SetCell(tc.cornerPos.X, tc.cornerPos.Y, &screen.Cell{Content: tc.glyph, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-			scr.SetCell(tc.barPos.X, tc.barPos.Y, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(tc.cornerPos.X, tc.cornerPos.Y, &vt.Cell{Content: tc.glyph, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(tc.barPos.X, tc.barPos.Y, &vt.Cell{Content: "│", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 			img := drawNRGBA(t, d, scr)
 			ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -517,9 +517,9 @@ func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
 	)
 
 	scr := newTestScreen(2, 2)
-	scr.SetCell(0, 0, &screen.Cell{Content: "╭", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-	scr.SetCell(1, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-	scr.SetCell(0, 1, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 0, &vt.Cell{Content: "╭", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &vt.Cell{Content: "─", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 1, &vt.Cell{Content: "│", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 
 	img := drawNRGBA(t, d, scr)
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -560,20 +560,20 @@ func TestRendererColorAttributes(t *testing.T) {
 	gray := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
 
 	tests := map[string]struct {
-		cell       *screen.Cell
+		cell       *vt.Cell
 		wantBG     color.NRGBA
 		wantLine   color.NRGBA
 		lineSample func(*renderFrame, image.Rectangle) image.Point
 	}{
 		"reverse": {
-			cell: &screen.Cell{
+			cell: &vt.Cell{
 				Content: " ",
 				Width:   1,
-				Style: screen.Style{
+				Style: vt.Style{
 					Fg:        red,
 					Bg:        blue,
-					Underline: screen.UnderlineSingle,
-					Attrs:     screen.AttrReverse,
+					Underline: vt.UnderlineSingle,
+					Attrs:     vt.AttrReverse,
 				},
 			},
 			wantBG:   red,
@@ -583,14 +583,14 @@ func TestRendererColorAttributes(t *testing.T) {
 			},
 		},
 		"faint": {
-			cell: &screen.Cell{
+			cell: &vt.Cell{
 				Content: " ",
 				Width:   1,
-				Style: screen.Style{
+				Style: vt.Style{
 					Fg:        color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
 					Bg:        color.NRGBA{A: 0xff},
-					Underline: screen.UnderlineSingle,
-					Attrs:     screen.AttrFaint,
+					Underline: vt.UnderlineSingle,
+					Attrs:     vt.AttrFaint,
 				},
 			},
 			wantBG:   color.NRGBA{A: 0xff},
@@ -600,14 +600,14 @@ func TestRendererColorAttributes(t *testing.T) {
 			},
 		},
 		"conceal": {
-			cell: &screen.Cell{
+			cell: &vt.Cell{
 				Content: " ",
 				Width:   1,
-				Style: screen.Style{
+				Style: vt.Style{
 					Fg:        red,
 					Bg:        blue,
-					Underline: screen.UnderlineSingle,
-					Attrs:     screen.AttrConceal,
+					Underline: vt.UnderlineSingle,
+					Attrs:     vt.AttrConceal,
 				},
 			},
 			wantBG:   blue,
@@ -645,11 +645,11 @@ func TestDottedUnderlineGlobalSpacing(t *testing.T) {
 	const cols = 8
 	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
-	style := screen.Style{Fg: fg, Bg: bg, Underline: screen.UnderlineDotted}
+	style := vt.Style{Fg: fg, Bg: bg, Underline: vt.UnderlineDotted}
 
 	scr := newTestScreen(cols, 1)
 	for x := range cols {
-		scr.SetCell(x, 0, &screen.Cell{Content: " ", Width: 1, Style: style})
+		scr.SetCell(x, 0, &vt.Cell{Content: " ", Width: 1, Style: style})
 	}
 
 	d := MustNew(WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}))
@@ -694,7 +694,7 @@ func TestRendererPaletteIndexedColors(t *testing.T) {
 
 	mapped := color.NRGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
 	scr := newTestScreen(1, 1)
-	scr.SetCell(0, 0, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Bg: ansi.IndexedColor(42)}})
+	scr.SetCell(0, 0, &vt.Cell{Content: " ", Width: 1, Style: vt.Style{Bg: ansi.IndexedColor(42)}})
 	d := MustNew(WithPalette(Palette{Indexed: map[int]color.Color{42: mapped}}))
 	img := drawNRGBA(t, d, scr)
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
@@ -709,7 +709,7 @@ func TestRendererBackgroundOpacity(t *testing.T) {
 
 	red := color.NRGBA{R: 0xff, A: 0xff}
 	scr := newTestScreen(1, 1)
-	scr.SetCell(0, 0, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Bg: red}})
+	scr.SetCell(0, 0, &vt.Cell{Content: " ", Width: 1, Style: vt.Style{Bg: red}})
 
 	opaqueCells := MustNew(WithBackgroundOpacity(0.5))
 	img := drawNRGBA(t, opaqueCells, scr)
@@ -727,10 +727,10 @@ func TestRendererBackgroundOpacity(t *testing.T) {
 }
 
 // blinkingBar is a focused state with a visible, blinking bar cursor in c.
-func blinkingBar(c color.NRGBA) screen.State {
-	return screen.State{
+func blinkingBar(c color.NRGBA) vt.State {
+	return vt.State{
 		Focused:        true,
-		Cursor:         screen.Cursor{Visible: true, Blink: true, Shape: screen.CursorBar},
+		Cursor:         vt.Cursor{Visible: true, Blink: true, Shape: vt.CursorBar},
 		CursorColor:    c,
 		CursorColorSet: true,
 	}
@@ -744,10 +744,10 @@ func TestRendererBlinkFollowsOffset(t *testing.T) {
 
 		red := color.NRGBA{R: 0xff, A: 0xff}
 		scr := newTestScreen(1, 1)
-		scr.SetCell(0, 0, &screen.Cell{
+		scr.SetCell(0, 0, &vt.Cell{
 			Content: " ",
 			Width:   1,
-			Style:   screen.Style{Fg: red, Underline: screen.UnderlineSingle, Attrs: screen.AttrBlink},
+			Style:   vt.Style{Fg: red, Underline: vt.UnderlineSingle, Attrs: vt.AttrBlink},
 		})
 
 		d := MustNew()
@@ -794,7 +794,7 @@ func TestRendererScrollbarThumbPinnedToBottom(t *testing.T) {
 
 	scr := newTestScreen(1, 4)
 	d := MustNew(WithScrollbar(true))
-	img := drawAt(t, d, scr, screen.State{Focused: true, ScrollbackLen: 30}, 0)
+	img := drawAt(t, d, scr, vt.State{Focused: true, ScrollbackLen: 30}, 0)
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 	sb := ctx.ScrollbarBounds()
 	top := img.NRGBAAt(sb.Min.X, sb.Min.Y)
@@ -819,7 +819,7 @@ func TestRendererFocusDimmingExcludesMargin(t *testing.T) {
 		WithFocusDimming(0.5),
 		WithPalette(Palette{DefaultBackground: bg}),
 	)
-	img := drawAt(t, d, scr, screen.State{}, 0)
+	img := drawAt(t, d, scr, vt.State{}, 0)
 	ctx := d.layoutSnapshot(t, image.Point{}, scr)
 
 	if got := img.NRGBAAt(0, 0); got != margin {
@@ -858,10 +858,10 @@ func TestBoxThicknessOverrideThickensHorizontalLine(t *testing.T) {
 	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	bg := color.NRGBA{A: 0xff}
 	scr := newTestScreen(1, 1)
-	scr.SetCell(0, 0, &screen.Cell{
+	scr.SetCell(0, 0, &vt.Cell{
 		Content: "─",
 		Width:   1,
-		Style:   screen.Style{Fg: fg, Bg: bg},
+		Style:   vt.Style{Fg: fg, Bg: bg},
 	})
 
 	base := MustNew(WithScale(scaleFor(14)))
@@ -890,8 +890,8 @@ func TestDrawSkipsCleanBufferUntilPictureChanges(t *testing.T) {
 	t.Parallel()
 
 	red := color.NRGBA{R: 0xff, A: 0xff}
-	buf := screen.NewBuffer(2, 1)
-	buf.SetCell(0, 0, &screen.Cell{Content: "A", Width: 1, Style: screen.Style{Fg: red}})
+	buf := vt.NewBuffer(2, 1)
+	buf.SetCell(0, 0, &vt.Cell{Content: "A", Width: 1, Style: vt.Style{Fg: red}})
 	buf.ClearDirty()
 
 	// A sentinel in the renderer's own frame shows whether Draw painted it
@@ -905,13 +905,13 @@ func TestDrawSkipsCleanBufferUntilPictureChanges(t *testing.T) {
 		t.Fatalf("clean buffer repainted pixel = %#v, want cached %#v", got, sentinel)
 	}
 
-	buf.SetCell(0, 0, &screen.Cell{Content: "B", Width: 1, Style: screen.Style{Fg: red}})
+	buf.SetCell(0, 0, &vt.Cell{Content: "B", Width: 1, Style: vt.Style{Fg: red}})
 	buf.ClearDirty()
 	if got := drawNRGBA(t, d, buf).NRGBAAt(0, 0); got == sentinel {
 		t.Fatal("cell change after ClearDirty kept the cached frame")
 	}
 
-	cur := screen.State{Focused: true, Cursor: screen.Cursor{Visible: true}, CursorColor: red, CursorColorSet: true}
+	cur := vt.State{Focused: true, Cursor: vt.Cursor{Visible: true}, CursorColor: red, CursorColorSet: true}
 	buf.ClearDirty()
 	moved := drawAt(t, d, buf, cur, 0).Pix
 	cur.Cursor.X = 1
@@ -928,11 +928,11 @@ func TestDrawCleanBufferDoesNotCacheBlink(t *testing.T) {
 		t.Parallel()
 
 		red := color.NRGBA{R: 0xff, A: 0xff}
-		buf := screen.NewBuffer(1, 1)
-		buf.SetCell(0, 0, &screen.Cell{
+		buf := vt.NewBuffer(1, 1)
+		buf.SetCell(0, 0, &vt.Cell{
 			Content: " ",
 			Width:   1,
-			Style:   screen.Style{Fg: red, Underline: screen.UnderlineSingle, Attrs: screen.AttrBlink},
+			Style:   vt.Style{Fg: red, Underline: vt.UnderlineSingle, Attrs: vt.AttrBlink},
 		})
 		d := MustNew()
 		img := drawNRGBA(t, d, buf)
@@ -951,7 +951,7 @@ func TestDrawCleanBufferDoesNotCacheBlink(t *testing.T) {
 		t.Parallel()
 
 		cursor := color.NRGBA{R: 0xff, A: 0xff}
-		buf := screen.NewBuffer(1, 1)
+		buf := vt.NewBuffer(1, 1)
 		buf.ClearDirty()
 		d := MustNew(WithCursorBlinkSpeed(time.Second))
 		st := blinkingBar(cursor)

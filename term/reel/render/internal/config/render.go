@@ -11,13 +11,13 @@ import (
 
 	"github.com/lrstanley/x/term/reel/render/types"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // ColorSource supplies palette and opacity inputs for color resolution.
 type ColorSource interface {
 	Palette() types.Palette
-	State() screen.State
+	State() vt.State
 	FaintFactor() float64
 	BackgroundOpacity() float64
 	BackgroundOpacityCells() bool
@@ -37,7 +37,7 @@ type FrameSource interface {
 type CellFrameSource interface {
 	FrameSource
 	GridBounds() image.Rectangle
-	CellColorsNRGBA(cell *screen.Cell) (fg, bg color.NRGBA)
+	CellColorsNRGBA(cell *vt.Cell) (fg, bg color.NRGBA)
 	ResolvePaletteColor(c color.Color) color.Color
 }
 

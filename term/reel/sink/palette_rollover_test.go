@@ -10,10 +10,13 @@ import (
 	"image/color"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 // farColors are at least 255 away in red from every color of
-// [distinctColors] up to 256 entries, which all have red 0.
+// [testutil.DistinctColors] up to 256 entries, which all have red 0.
 func farColors(n int) []color.NRGBA {
 	out := make([]color.NRGBA, n)
 	for i := range out {
@@ -28,10 +31,10 @@ func farColors(n int) []color.NRGBA {
 func fullThenFar(t *testing.T, farBlocks int) (frames []image.Image, raw []byte, palettes int) {
 	t.Helper()
 	const colors = 250
-	first := solidColorsFrame(distinctColors(colors), 8)
+	first := solidColorsFrame(testutil.DistinctColors(colors), 8)
 	second := cloneNRGBA(first)
 	for i, c := range farColors(farBlocks) {
-		paintRect(second, image.Rect(i*8, 0, (i+1)*8, 8), c)
+		testutil.PaintRect(second, image.Rect(i*8, 0, (i+1)*8, 8), c)
 	}
 	delay := 40 * time.Millisecond
 	g, raw := encodeFrames(t, []Frame{{Image: first, Delay: delay}, {Image: second, Delay: delay}})
@@ -39,7 +42,7 @@ func fullThenFar(t *testing.T, farBlocks int) (frames []image.Image, raw []byte,
 		t.Fatalf("got %d frames, want 2", len(g.Image))
 	}
 	palettes = 1
-	if !samePalette(g.Image[0].Palette, g.Image[1].Palette) {
+	if !palette.Same(g.Image[0].Palette, g.Image[1].Palette) {
 		palettes = 2
 	}
 	return []image.Image{first, second}, raw, palettes

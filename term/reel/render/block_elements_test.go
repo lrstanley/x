@@ -9,7 +9,7 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func blockTestPalette() (fg, bg color.NRGBA, opt Option) {
@@ -21,7 +21,7 @@ func blockTestPalette() (fg, bg color.NRGBA, opt Option) {
 func blockRow(glyph string, n int, fg, bg color.NRGBA) testScreen {
 	scr := newTestScreen(n, 1)
 	for x := range n {
-		scr.SetCell(x, 0, &screen.Cell{Content: glyph, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(x, 0, &vt.Cell{Content: glyph, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 	}
 	return scr
 }
@@ -98,8 +98,8 @@ func TestBlockElementsComplementaryHalvesTile(t *testing.T) {
 	d := MustNew(WithScale(scaleFor(13)), palette)
 
 	scr := newTestScreen(2, 1)
-	scr.SetCell(0, 0, &screen.Cell{Content: "▌", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
-	scr.SetCell(1, 0, &screen.Cell{Content: "▐", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 0, &vt.Cell{Content: "▌", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &vt.Cell{Content: "▐", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 	img := drawNRGBA(t, d, scr)
 	snap := d.layoutSnapshot(t, image.Point{}, scr)
 	left, right := snap.cellBounds(0, 0), snap.cellBounds(1, 0)

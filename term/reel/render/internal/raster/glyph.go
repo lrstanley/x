@@ -12,7 +12,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel/render/internal/alpha"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -149,7 +149,7 @@ func drawGlyphLayoutMask(img draw.Image, layout *Layout, mask cachedGlyphMask) {
 }
 
 // DrawGlyph rasterizes the cell's grapheme into area.
-func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *screen.Cell, fg color.NRGBA) {
+func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *vt.Cell, fg color.NRGBA) {
 	var layout Layout
 	if !LayoutGlyph(ctx, area, cell, false, fg, &layout) {
 		return

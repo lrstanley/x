@@ -47,9 +47,8 @@
 // The module is split into packages that can be used on their own:
 //
 //   - vt is a terminal emulator backed by a checked-in libghostty-vt Wasm
-//     build.
-//   - vt/screen is the cell buffer and terminal state an emulator fills and a
-//     renderer reads. It does not link the Wasm runtime.
+//     build, with the cell buffer and terminal state it fills and a renderer
+//     reads.
 //   - render rasterizes a screen into an image: fonts, colors, window chrome,
 //     cursor, and progress and status indicators. Its fonts, types, and units
 //     subpackages hold the bundled fonts and shared option types.
@@ -61,7 +60,4 @@
 //     a highlight of cells, and a zoom on them, drawn sharp, found by
 //     position or by the text they show, between two marks, and redaction
 //     of secrets, from the screen and from the keys shown.
-//
-// Apart from internal test helpers, no package in the module imports testing,
-// Bubble Tea, or steep, so any program can link them.
 package reel

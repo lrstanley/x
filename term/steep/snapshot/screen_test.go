@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func TestColorMarshalUnmarshalText(t *testing.T) {
@@ -114,17 +114,17 @@ func TestCellFromCell(t *testing.T) {
 
 	t.Run("populated", func(t *testing.T) {
 		t.Parallel()
-		in := &screen.Cell{
+		in := &vt.Cell{
 			Content: "Ω",
 			Width:   1,
-			Style: screen.Style{
+			Style: vt.Style{
 				Fg:             ansi.BasicColor(3),
 				Bg:             ansi.IndexedColor(42),
 				UnderlineColor: color.NRGBA{R: 1, G: 2, B: 3, A: 255},
-				Underline:      screen.UnderlineSingle,
+				Underline:      vt.UnderlineSingle,
 				Attrs:          0x55,
 			},
-			Link: screen.Link{URL: "https://example.test", Params: "id=1"},
+			Link: vt.Link{URL: "https://example.test", Params: "id=1"},
 		}
 		got := (&Cell{}).FromCell(in)
 		if got.Content != "Ω" || got.Width != 1 {
@@ -133,7 +133,7 @@ func TestCellFromCell(t *testing.T) {
 		if got.Link.URL != "https://example.test" || got.Link.Params != "id=1" {
 			t.Fatalf("Link = %+v", got.Link)
 		}
-		if got.Style.Underline != screen.UnderlineSingle || got.Style.Attrs != 0x55 {
+		if got.Style.Underline != vt.UnderlineSingle || got.Style.Attrs != 0x55 {
 			t.Fatalf("Style underline/attrs = %v / %x", got.Style.Underline, got.Style.Attrs)
 		}
 		if fg, ok := got.Style.Fg.Color.(ansi.BasicColor); !ok || fg != 3 {

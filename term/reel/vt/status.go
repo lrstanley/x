@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package screen
+package vt
 
 // Progress is the latest OSC 9;4 report. The zero value means the program
 // has not reported one.

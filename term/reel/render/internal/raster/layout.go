@@ -16,7 +16,7 @@ import (
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/types"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -24,7 +24,7 @@ import (
 // GlyphContext exposes glyph layout and rasterization inputs.
 type GlyphContext interface {
 	config.CellFrameSource
-	FontFace(cell *screen.Cell, cluster idraw.Cluster) font.Face
+	FontFace(cell *vt.Cell, cluster idraw.Cluster) font.Face
 	UsesGridLayout(face font.Face) bool
 	BoxThicknessOverride() bool
 
@@ -89,7 +89,7 @@ func GridGlyphDotX(area image.Rectangle, metrics types.Metrics) fixed.Int26_6 {
 //
 // spansNext lets a one-cell icon grow into the cell after it, as decided by
 // [IsSpanIcon] and [IconRoom]. Only fallback glyphs use the room.
-func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, spansNext bool, fg color.NRGBA, out *Layout) bool {
+func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *vt.Cell, spansNext bool, fg color.NRGBA, out *Layout) bool {
 	cluster, ok := idraw.NewCluster(cell.Content)
 	if !ok {
 		return false
@@ -129,7 +129,7 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *screen.Cell, span
 
 // SetArea moves l, laid out by [LayoutGlyph] for cell, into area, without
 // looking up its face or classifying it again.
-func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Cell) {
+func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *vt.Cell) {
 	l.Area = area
 	if l.Kind == KindSprite || l.Kind == KindColor {
 		return
@@ -155,11 +155,11 @@ func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *screen.Ce
 // colorOpacity is how opaque cell's color glyph is: faint text fades toward the
 // background by the faint factor and concealed text is gone, as for a tinted
 // glyph, which internal/color resolves from the same faint factor.
-func colorOpacity(ctx GlyphContext, cell *screen.Cell) uint8 {
+func colorOpacity(ctx GlyphContext, cell *vt.Cell) uint8 {
 	switch attrs := cell.Style.Attrs; {
-	case attrs&screen.AttrConceal != 0:
+	case attrs&vt.AttrConceal != 0:
 		return 0
-	case attrs&screen.AttrFaint == 0:
+	case attrs&vt.AttrFaint == 0:
 		return 255
 	}
 	return uint8(math.Round(255 * (1 - units.Clamp(ctx.FaintFactor(), 0, 1))))

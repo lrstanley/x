@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package reel
+package pty
 
 import (
 	"fmt"
@@ -12,10 +12,13 @@ import (
 	"strings"
 )
 
-// execEnv returns env with TERM and COLORTERM set for the session's
-// terminal: replaced when env is inherited from the host, and added when
-// env leaves them out.
-func execEnv(env []string, inherited bool) []string {
+// Env returns env with TERM and COLORTERM set for a terminal of type term:
+// replaced when env is inherited from the host, and added when env leaves
+// them out. TERM is term when its terminfo entry is found, looking as
+// ncurses looks in the directories env names and then the system's, and
+// "xterm-256color" otherwise. COLORTERM is "truecolor". term must not be
+// empty.
+func Env(env []string, inherited bool, term string) []string {
 	out := make([]string, 0, len(env)+2)
 	var hasTerm, hasColorTerm bool
 	for _, kv := range env {
@@ -28,9 +31,8 @@ func execEnv(env []string, inherited bool) []string {
 		out = append(out, kv)
 	}
 	if !hasTerm {
-		term := "xterm-256color"
-		if hasTerminfo(append(terminfoPath(env), systemTerminfo...), castTermType) {
-			term = castTermType
+		if !hasTerminfo(append(terminfoPath(env), systemTerminfo...), term) {
+			term = "xterm-256color"
 		}
 		out = append(out, "TERM="+term)
 	}

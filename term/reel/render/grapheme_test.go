@@ -8,7 +8,7 @@ import (
 	"image"
 	"testing"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // clusterRow draws one cell per cluster and returns the ink signature and ink
@@ -20,7 +20,7 @@ func clusterRow(t *testing.T, clusters ...string) (sigs []string, ink []image.Re
 	d := MustNew(WithScale(scaleFor(24)), WithSystemFontFallback(false), palette)
 	scr := newTestScreen(len(clusters), 1)
 	for x, c := range clusters {
-		scr.SetCell(x, 0, &screen.Cell{Content: c, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(x, 0, &vt.Cell{Content: c, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 	}
 	img := drawNRGBA(t, d, scr)
 	layout := d.layoutSnapshot(t, image.Point{}, scr)

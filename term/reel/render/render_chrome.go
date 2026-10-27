@@ -20,7 +20,7 @@ import (
 	imetrics "github.com/lrstanley/x/term/reel/render/internal/metrics"
 	"github.com/lrstanley/x/term/reel/render/internal/raster"
 	"github.com/lrstanley/x/term/reel/render/types"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	xfont "golang.org/x/image/font"
 )
 
@@ -86,7 +86,7 @@ type chromeText struct {
 
 func (c *chromeText) Metrics() types.Metrics { return c.metrics }
 
-func (c *chromeText) FontFace(cell *screen.Cell, cluster idraw.Cluster) xfont.Face {
+func (c *chromeText) FontFace(cell *vt.Cell, cluster idraw.Cluster) xfont.Face {
 	return c.fonts.FaceForCell(cell, cluster)
 }
 
@@ -199,9 +199,9 @@ func (l *chromeLine) text(x int, s string, fg color.NRGBA, bold bool) int {
 	baseline := int(math.Round(l.mid + ctx.capH/2))
 	bottom := baseline + ctx.metrics.FontBaseline.Int()
 	// The color goes to the layout directly: setting Style.Fg would box it.
-	var cell screen.Cell
+	var cell vt.Cell
 	if bold {
-		cell.Style.Attrs |= screen.AttrBold
+		cell.Style.Attrs |= vt.AttrBold
 	}
 	var (
 		state  byte

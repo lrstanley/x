@@ -14,7 +14,7 @@ import (
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/types"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
@@ -30,13 +30,13 @@ func (m mockFrameContext) CursorBlinkSpeed() time.Duration {
 	return 600 * time.Millisecond
 }
 func (m mockFrameContext) Palette() types.Palette       { return types.Palette{} }
-func (m mockFrameContext) State() screen.State          { return screen.State{} }
+func (m mockFrameContext) State() vt.State              { return vt.State{} }
 func (m mockFrameContext) FaintFactor() float64         { return 0.5 }
 func (m mockFrameContext) BackgroundOpacity() float64   { return 1 }
 func (m mockFrameContext) BackgroundOpacityCells() bool { return false }
 func (m mockFrameContext) Metrics() types.Metrics       { return m.m }
 func (m mockFrameContext) GridBounds() image.Rectangle  { return m.grid }
-func (m mockFrameContext) CellColorsNRGBA(_ *screen.Cell) (fg, bg color.NRGBA) {
+func (m mockFrameContext) CellColorsNRGBA(_ *vt.Cell) (fg, bg color.NRGBA) {
 	return color.NRGBA{R: 0xff, A: 0xff}, color.NRGBA{A: 0xff}
 }
 func (m mockFrameContext) ResolvePaletteColor(c color.Color) color.Color { return c }
@@ -52,7 +52,7 @@ func TestFallbackGlyphTarget(t *testing.T) {
 	}
 	area := image.Rect(0, 0, 8, 20)
 
-	single := idraw.FallbackGlyphTarget(ctx, area, &screen.Cell{Width: 1})
+	single := idraw.FallbackGlyphTarget(ctx, area, &vt.Cell{Width: 1})
 	if single.Dy() != 10 {
 		t.Fatalf("single width target height = %d, want 10", single.Dy())
 	}
@@ -60,7 +60,7 @@ func TestFallbackGlyphTarget(t *testing.T) {
 		t.Fatalf("single width target Y = %d, want 5", single.Min.Y)
 	}
 
-	wide := idraw.FallbackGlyphTarget(ctx, area, &screen.Cell{Width: 2})
+	wide := idraw.FallbackGlyphTarget(ctx, area, &vt.Cell{Width: 2})
 	if wide.Dy() != 16 {
 		t.Fatalf("wide cell target height = %d, want 16", wide.Dy())
 	}

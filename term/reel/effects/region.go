@@ -14,7 +14,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Region selects cells of a terminal frame, for the effects that work on
@@ -51,7 +51,7 @@ func Rows(y0, y1 int) Region {
 // Text returns a region of the cells that show s, wherever it appears on a
 // frame, every time it appears. Text is searched line by line, where a line
 // is a row and the rows it soft-wrapped over, as a terminal wraps text
-// written past the last column ([screen.Buffer.Wrapped]), so s matches
+// written past the last column ([vt.Buffer.Wrapped]), so s matches
 // across the end of a row it wrapped past, but never across a line break,
 // and an s that holds a newline matches nothing. Text a program lays out
 // over rows itself, moving the cursor or breaking lines, as full-screen
@@ -196,7 +196,7 @@ type lineCell struct{ x0, x1, y int }
 
 // screenLines returns an iterator over the lines of f's screen, top to
 // bottom. A row continues the line of the row above when that row is
-// soft-wrapped ([screen.Buffer.Wrapped]). A cell is its grapheme cluster, or
+// soft-wrapped ([vt.Buffer.Wrapped]). A cell is its grapheme cluster, or
 // a space when blank, and spacer columns add nothing: those a wide cell
 // covers, and the one left at the end of a row when a wide character
 // wrapped to the next.
@@ -320,7 +320,7 @@ func coveredCells(f *reel.CellFrame, rects []image.Rectangle) []bool {
 func widen(f *reel.CellFrame, covered []bool) {
 	b := f.Screen.Bounds()
 	w := b.Dx()
-	cell := func(x, y int) *screen.Cell { return f.Screen.CellAt(b.Min.X+x, b.Min.Y+y) }
+	cell := func(x, y int) *vt.Cell { return f.Screen.CellAt(b.Min.X+x, b.Min.Y+y) }
 	for i, on := range covered {
 		if !on {
 			continue
@@ -395,7 +395,7 @@ type regionPixels struct {
 	layout render.Layout
 	size   image.Point
 	// screen is the screen rects were found on.
-	screen *screen.Buffer
+	screen *vt.Buffer
 	rects  []image.Rectangle
 }
 

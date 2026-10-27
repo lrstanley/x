@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/internal/asciicast"
+	"github.com/lrstanley/x/term/reel/internal/scriptlog"
 )
 
 // attachChunk is the most [Attach] reads before writing it to the session.
@@ -104,9 +106,6 @@ func Attach(ctx context.Context, s *Session, r io.Reader, opts ...AttachOption) 
 	}
 }
 
-// scriptHeader starts the line script(1) writes at the top of a typescript.
-const scriptHeader = "Script started on "
-
 // attachTimed is [Attach] with a timing file.
 func attachTimed(ctx context.Context, s *Session, r, timing io.Reader) error {
 	tl := s.Timeline()
@@ -117,8 +116,8 @@ func attachTimed(ctx context.Context, s *Session, r, timing io.Reader) error {
 	defer tl.unpace()
 
 	br := bufio.NewReaderSize(r, attachChunk)
-	if err := skipScriptHeader(br); err != nil {
-		return fmt.Errorf("reel: Attach: typescript: %w", err)
+	if err := scriptlog.SkipHeader(br); err != nil {
+		return fmt.Errorf("reel: Attach: typescript: %w", unexpectedEOF(err))
 	}
 	a := &attacher{s: s, r: br, buf: make([]byte, attachChunk)}
 
@@ -133,14 +132,14 @@ func attachTimed(ctx context.Context, s *Session, r, timing io.Reader) error {
 		if line == "" {
 			continue
 		}
-		e, err := parseTiming(line)
-		if err == nil && e.delay > maxCastTime-at {
+		e, err := scriptlog.Parse(line)
+		if err == nil && e.Delay > asciicast.MaxTime-at {
 			err = errors.New("time is out of range")
 		}
 		if err != nil {
 			return fmt.Errorf("reel: Attach: timing line %d: %w", n, err)
 		}
-		at += e.delay
+		at += e.Delay
 		tl.setPace(base + at)
 		if err = a.apply(e); err != nil {
 			return fmt.Errorf("reel: Attach: timing line %d: %w", n, err)
@@ -150,62 +149,6 @@ func attachTimed(ctx context.Context, s *Session, r, timing io.Reader) error {
 		return fmt.Errorf("reel: Attach: reading timing: %w", err)
 	}
 	return nil
-}
-
-// skipScriptHeader skips the line script(1) writes at the top of a
-// typescript, when br starts with it. It reads no more than it needs to
-// tell, so a typescript without the line that starts with a few bytes and
-// then blocks is written as they arrive.
-func skipScriptHeader(br *bufio.Reader) error {
-	for n := 1; n <= len(scriptHeader); n++ {
-		if head, _ := br.Peek(n); string(head) != scriptHeader[:n] {
-			return nil
-		}
-	}
-	_, err := br.ReadString('\n')
-	return unexpectedEOF(err)
-}
-
-// timingEntry is a line of a script(1) timing file.
-type timingEntry struct {
-	// kind is 'O', 'I', 'S', or 'H'. A classic line is 'O'.
-	kind  byte
-	delay time.Duration
-	// count is the number of bytes of an 'O' or 'I' entry.
-	count int64
-	// name and value are the signal and its information of an 'S' entry,
-	// and the name and value of an 'H' entry.
-	name, value string
-}
-
-// parseTiming parses a timing line in either format.
-func parseTiming(line string) (timingEntry, error) {
-	e := timingEntry{kind: 'O'}
-	fields := strings.SplitN(line, " ", 4)
-	switch fields[0] {
-	case "O", "I", "S", "H":
-		e.kind, fields = fields[0][0], fields[1:]
-	}
-	if len(fields) < 2 || (e.kind == 'O' || e.kind == 'I') && len(fields) != 2 {
-		return e, fmt.Errorf("malformed entry %q", line)
-	}
-	secs, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil || math.IsNaN(secs) || secs < 0 || secs > maxCastTime.Seconds() {
-		return e, fmt.Errorf("delay %q is not a number of seconds", fields[0])
-	}
-	e.delay = time.Duration(math.Round(secs * float64(time.Second)))
-	switch e.kind {
-	case 'O', 'I':
-		if e.count, err = strconv.ParseInt(fields[1], 10, 64); err != nil || e.count < 0 {
-			return e, fmt.Errorf("count %q is not a number of bytes", fields[1])
-		}
-	default:
-		e.name = fields[1]
-		if len(fields) == 3 {
-			e.value = fields[2]
-		}
-	}
-	return e, nil
 }
 
 // attacher applies the entries of a timing file to a session.
@@ -219,10 +162,10 @@ type attacher struct {
 }
 
 // apply applies e at the session's paced time.
-func (a *attacher) apply(e timingEntry) error {
-	switch e.kind {
+func (a *attacher) apply(e scriptlog.Entry) error {
+	switch e.Kind {
 	case 'O':
-		return a.copy(e.count, func(p []byte) error {
+		return a.copy(e.Count, func(p []byte) error {
 			_, err := a.s.Write(p)
 			return err
 		})
@@ -230,29 +173,29 @@ func (a *attacher) apply(e timingEntry) error {
 		if a.inputLog == "" || a.inputLog != a.outputLog {
 			return nil
 		}
-		return a.copy(e.count, func(p []byte) error {
+		return a.copy(e.Count, func(p []byte) error {
 			data := bytes.Clone(p)
 			return a.s.change(func() (Event, error) { return Input{Data: data}, nil })
 		})
 	case 'S':
-		if e.name != "SIGWINCH" {
+		if e.Name != "SIGWINCH" {
 			return nil
 		}
-		cols, rows, err := parseWinch(e.value)
+		cols, rows, err := scriptlog.ParseWinch(e.Value)
 		if err != nil {
 			return err
 		}
 		return a.s.Resize(cols, rows)
 	case 'H':
-		switch e.name {
+		switch e.Name {
 		case "OUTPUT_LOG":
-			a.outputLog = e.value
+			a.outputLog = e.Value
 		case "INPUT_LOG":
-			a.inputLog = e.value
+			a.inputLog = e.Value
 		case "EXIT_CODE":
-			status, err := strconv.Atoi(e.value)
+			status, err := strconv.Atoi(e.Value)
 			if err != nil {
-				return fmt.Errorf("exit code %q is not a number", e.value)
+				return fmt.Errorf("exit code %q is not a number", e.Value)
 			}
 			return a.s.change(func() (Event, error) { return Exit{Status: status}, nil })
 		}
@@ -276,24 +219,6 @@ func (a *attacher) copy(n int64, write func([]byte) error) error {
 		n -= int64(m)
 	}
 	return nil
-}
-
-// parseWinch parses the "ROWS=R COLS=C" of a SIGWINCH entry.
-func parseWinch(info string) (cols, rows int, err error) {
-	var cok, rok bool
-	for field := range strings.FieldsSeq(info) {
-		key, value, _ := strings.Cut(field, "=")
-		switch key {
-		case "ROWS":
-			rows, rok = parseCastSize(value)
-		case "COLS":
-			cols, cok = parseCastSize(value)
-		}
-	}
-	if !cok || !rok {
-		return 0, 0, fmt.Errorf("SIGWINCH %q is not ROWS=R COLS=C, each from 1 to %d", info, maxCastSize)
-	}
-	return cols, rows, nil
 }
 
 // unexpectedEOF returns err, with [io.EOF] made [io.ErrUnexpectedEOF], for

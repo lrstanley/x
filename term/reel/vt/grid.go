@@ -10,7 +10,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // asciiRunes holds interned one-byte strings for codepoints 1 through 127.
@@ -35,7 +34,7 @@ func init() {
 
 // screenLocked returns the frozen frame during a synchronized-output
 // hold. Otherwise it refreshes from the render state.
-func (t *Terminal) screenLocked() *screen.Buffer {
+func (t *Terminal) screenLocked() *Buffer {
 	if t.held && t.frozen != nil {
 		return t.frozen
 	}
@@ -44,10 +43,10 @@ func (t *Terminal) screenLocked() *screen.Buffer {
 
 // captureFrame clones the current grid for the hold callback. The
 // clone does not alias Wasm memory.
-func (t *Terminal) captureFrame() (*screen.Buffer, screen.Cursor) {
+func (t *Terminal) captureFrame() (*Buffer, Cursor) {
 	grid := t.refreshLocked()
 	if grid == nil {
-		return nil, screen.Cursor{}
+		return nil, Cursor{}
 	}
 	return grid.Clone(), t.gridCursor
 }
@@ -57,9 +56,9 @@ func (t *Terminal) captureFrame() (*screen.Buffer, screen.Cursor) {
 // whose GhosttyCell words match the cached copy is left clean as well.
 // The row iterator handle is passed by pointer in scratch. Failure leaves
 // the previous grid in place.
-func (t *Terminal) refreshLocked() *screen.Buffer {
+func (t *Terminal) refreshLocked() *Buffer {
 	if rc := t.mod.Xghostty_render_state_update(t.render, t.term); rc != 0 && t.grid == nil {
-		t.grid = screen.NewBuffer(t.cols, t.rows)
+		t.grid = NewBuffer(t.cols, t.rows)
 		t.invalidateRowWords()
 		t.gridFresh = true
 		return t.grid
@@ -73,7 +72,7 @@ func (t *Terminal) refreshLocked() *screen.Buffer {
 		return t.grid
 	}
 	if !same {
-		t.grid = screen.NewBuffer(t.cols, t.rows)
+		t.grid = NewBuffer(t.cols, t.rows)
 		t.invalidateRowWords()
 	} else {
 		t.grid.ClearDirty()
@@ -240,7 +239,7 @@ func (t *Terminal) storeRowWords(y int, raw []byte) {
 }
 
 // Flag bits for one GhosttyCell word. They live in a side buffer so
-// decode does not store a screen.Cell twice.
+// decode does not store a Cell twice.
 const (
 	// flagGrapheme means the codepoint is only the first scalar of the
 	// cluster and the row-cells cursor has to load the rest.
@@ -256,7 +255,7 @@ const (
 // 16-bit style id, 2-bit wide flag, and a link bit. Tag 1 means the
 // codepoint is incomplete and cellUTF8 must load the grapheme cluster.
 // The returned flags are flagGrapheme, flagStyled, and flagLink.
-func rawCell(b []byte, dst *screen.Cell) byte {
+func rawCell(b []byte, dst *Cell) byte {
 	v := uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 	tag := v & 0x3
@@ -296,7 +295,7 @@ func rawCell(b []byte, dst *screen.Cell) byte {
 		}
 	case 2:
 		text = " "
-		bg = screen.Indexed(content & 0xff)
+		bg = Indexed(content & 0xff)
 	case 3:
 		text = " "
 		bg = color.NRGBA{R: uint8(content), G: uint8(content >> 8), B: uint8(content >> 16), A: 0xff}
@@ -304,7 +303,7 @@ func rawCell(b []byte, dst *screen.Cell) byte {
 	if styleID != 0 {
 		flags |= flagStyled
 	}
-	*dst = screen.Cell{Content: text, Width: width, Style: screen.Style{Bg: bg}}
+	*dst = Cell{Content: text, Width: width, Style: Style{Bg: bg}}
 	return flags
 }
 
@@ -357,29 +356,29 @@ func (t *Terminal) applyStyle(x, y int) {
 	cell.Style.UnderlineColor = t.styleColor(stylePtr, wasmvt.StyleUnderlineColorOff)
 	base := stylePtr
 	if t.mod.U8(base, wasmvt.StyleBoldOff) != 0 {
-		cell.Style.Attrs |= screen.AttrBold
+		cell.Style.Attrs |= AttrBold
 	}
 	if t.mod.U8(base, wasmvt.StyleFaintOff) != 0 {
-		cell.Style.Attrs |= screen.AttrFaint
+		cell.Style.Attrs |= AttrFaint
 	}
 	if t.mod.U8(base, wasmvt.StyleItalicOff) != 0 {
-		cell.Style.Attrs |= screen.AttrItalic
+		cell.Style.Attrs |= AttrItalic
 	}
 	if t.mod.U8(base, wasmvt.StyleBlinkOff) != 0 {
-		cell.Style.Attrs |= screen.AttrBlink
+		cell.Style.Attrs |= AttrBlink
 	}
 	if t.mod.U8(base, wasmvt.StyleInverseOff) != 0 {
-		cell.Style.Attrs |= screen.AttrReverse
+		cell.Style.Attrs |= AttrReverse
 	}
 	if t.mod.U8(base, wasmvt.StyleInvisibleOff) != 0 {
-		cell.Style.Attrs |= screen.AttrConceal
+		cell.Style.Attrs |= AttrConceal
 	}
 	if t.mod.U8(base, wasmvt.StyleStrikethroughOff) != 0 {
-		cell.Style.Attrs |= screen.AttrStrikethrough
+		cell.Style.Attrs |= AttrStrikethrough
 	}
 	ul := t.mod.I32(base, wasmvt.StyleUnderlineOff)
 	if ul > 0 && ul < 6 {
-		cell.Style.Underline = screen.Underline(ul)
+		cell.Style.Underline = Underline(ul)
 	}
 }
 
@@ -391,7 +390,7 @@ func (t *Terminal) styleColor(style int32, field int) color.Color {
 	value := field + wasmvt.StyleColorValueOff
 	switch tag {
 	case wasmvt.StyleColorTagPalette:
-		return screen.Indexed(t.mod.U8(style, value))
+		return Indexed(t.mod.U8(style, value))
 	case wasmvt.StyleColorTagRgb:
 		return color.NRGBA{R: t.mod.U8(style, value), G: t.mod.U8(style, value+1), B: t.mod.U8(style, value+2), A: 0xff}
 	default:
@@ -442,7 +441,7 @@ func (t *Terminal) readCursorLocked() {
 	ptr := t.scratch + 512
 	t.mod.Zero(ptr, n)
 	t.mod.SetU32(ptr, 0, uint32(n))
-	cur := screen.Cursor{Shape: screen.CursorBlock}
+	cur := Cursor{Shape: CursorBlock}
 	if t.mod.Xghostty_render_state_get(t.render, wasmvt.RenderStateDataCursor, ptr) != 0 {
 		t.gridCursor = cur
 		return
@@ -455,13 +454,13 @@ func (t *Terminal) readCursorLocked() {
 	cur.Blink = t.mod.U8(ptr, wasmvt.RenderStateCursorBlinkingOff) != 0
 	switch t.mod.I32(ptr, wasmvt.RenderStateCursorVisualStyleOff) {
 	case 0:
-		cur.Shape = screen.CursorBar
+		cur.Shape = CursorBar
 	case 2:
-		cur.Shape = screen.CursorUnderline
+		cur.Shape = CursorUnderline
 	case 3:
-		cur.Shape = screen.CursorBlockHollow
+		cur.Shape = CursorBlockHollow
 	default:
-		cur.Shape = screen.CursorBlock
+		cur.Shape = CursorBlock
 	}
 	t.gridCursor = cur
 }

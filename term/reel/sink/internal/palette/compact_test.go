@@ -2,28 +2,27 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+package palette
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"image"
 	"image/color"
 	"math/rand/v2"
 	"sort"
 	"testing"
-	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 // compactPaletteReference is the original map-based implementation, kept to
-// verify the array-based compactPalette is output-identical.
+// verify the array-based Compact is output-identical.
 func compactPaletteReference(frames []*image.Paletted, oldPal color.Palette) color.Palette {
 	freq := make(map[uint8]int)
 	usesTransparent := false
 	for _, frame := range frames {
 		for _, idx := range frame.Pix {
-			if idx == TransparentPaletteIndex {
+			if idx == TransparentIndex {
 				usesTransparent = true
 				continue
 			}
@@ -54,12 +53,12 @@ func compactPaletteReference(frames []*image.Paletted, oldPal color.Palette) col
 	if usesTransparent {
 		newTransparentIdx = uint8(len(newPal))
 		newPal = append(newPal, transparentMarkerColor())
-		remap[TransparentPaletteIndex] = newTransparentIdx
+		remap[TransparentIndex] = newTransparentIdx
 	}
 	for _, frame := range frames {
 		frame.Palette = newPal
 		for i, idx := range frame.Pix {
-			if idx == TransparentPaletteIndex {
+			if idx == TransparentIndex {
 				frame.Pix[i] = newTransparentIdx
 				continue
 			}
@@ -73,7 +72,7 @@ func compactPaletteReference(frames []*image.Paletted, oldPal color.Palette) col
 // palette indices, with transparent pixels when transparent is true.
 func syntheticPalettedFrames(w, h, n int, transparent bool) []*image.Paletted {
 	rng := rand.New(rand.NewPCG(1, 2))
-	pal := defaultGIFPalette()
+	pal := Default()
 	frames := make([]*image.Paletted, n)
 	for i := range frames {
 		pm := image.NewPaletted(image.Rect(0, 0, w, h), pal)
@@ -82,9 +81,9 @@ func syntheticPalettedFrames(w, h, n int, transparent bool) []*image.Paletted {
 			case r < 70:
 				pm.Pix[j] = 16
 			case transparent && r < 80:
-				pm.Pix[j] = TransparentPaletteIndex
+				pm.Pix[j] = TransparentIndex
 			default:
-				pm.Pix[j] = uint8(rng.IntN(int(TransparentPaletteIndex))) //nolint:gosec // bounded.
+				pm.Pix[j] = uint8(rng.IntN(int(TransparentIndex))) //nolint:gosec // bounded.
 			}
 		}
 		frames[i] = pm
@@ -95,7 +94,7 @@ func syntheticPalettedFrames(w, h, n int, transparent bool) []*image.Paletted {
 func cloneFrames(frames []*image.Paletted) []*image.Paletted {
 	out := make([]*image.Paletted, len(frames))
 	for i, f := range frames {
-		out[i] = clonePaletted(f)
+		out[i] = &image.Paletted{Pix: bytes.Clone(f.Pix), Stride: f.Stride, Rect: f.Rect, Palette: f.Palette}
 	}
 	return out
 }
@@ -105,8 +104,8 @@ func TestCompactPaletteMatchesReference(t *testing.T) {
 	for _, transparent := range []bool{false, true} {
 		src := syntheticPalettedFrames(97, 31, 4, transparent)
 		want, got := cloneFrames(src), cloneFrames(src)
-		wantPal := compactPaletteReference(want, defaultGIFPalette())
-		gotPal := compactPalette(got, defaultGIFPalette())
+		wantPal := compactPaletteReference(want, Default())
+		gotPal := Compact(got, Default())
 		if len(wantPal) != len(gotPal) {
 			t.Fatalf("transparent=%v: palette len = %d, want %d", transparent, len(gotPal), len(wantPal))
 		}
@@ -123,67 +122,24 @@ func TestCompactPaletteMatchesReference(t *testing.T) {
 	}
 }
 
-// encodeSyntheticGIF encodes deterministic gradient frames and returns the
-// encoded bytes.
-func encodeSyntheticGIF(tb testing.TB, frames int) []byte {
-	tb.Helper()
-	var buf bytes.Buffer
-	enc, err := NewGIF(&buf)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	for i := range frames {
-		img := terminalBenchmarkFrame(i / 2)
-		// small localized change per frame so disposal planning emits sub-rects.
-		for x := 100; x < 140; x++ {
-			img.SetNRGBA(x, 100+i, color.NRGBA{R: 0xff, A: 0xff})
-		}
-		if err = enc.WriteFrame(Frame{Image: img, Delay: 50 * time.Millisecond}); err != nil {
-			tb.Fatal(err)
-		}
-	}
-	if err = enc.Close(); err != nil {
-		tb.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-// TestEncodeAllDeterministic prints the SHA-256 of a synthetic multi-frame GIF
-// so before/after output identity can be compared (go test -v -run Deterministic).
-func TestEncodeAllDeterministic(t *testing.T) {
-	a, b := encodeSyntheticGIF(t, 6), encodeSyntheticGIF(t, 6)
-	if !bytes.Equal(a, b) {
-		t.Fatal("encode is not deterministic")
-	}
-	sum := sha256.Sum256(a)
-	t.Logf("gif sha256=%s len=%d", hex.EncodeToString(sum[:]), len(a))
-}
-
 func BenchmarkCompactPalette(b *testing.B) {
 	for _, tc := range []struct {
 		name string
 		w, h int
 	}{
-		{"80x24", terminalBenchmarkWidth, terminalBenchmarkHeight},
-		{"240x72", terminalBenchmarkWidth * 3, terminalBenchmarkHeight * 3},
+		{"80x24", testutil.TerminalWidth, testutil.TerminalHeight},
+		{"240x72", testutil.TerminalWidth * 3, testutil.TerminalHeight * 3},
 	} {
 		src := syntheticPalettedFrames(tc.w, tc.h, 1, true)
-		pal := defaultGIFPalette()
+		pal := Default()
 		b.Run(tc.name, func(b *testing.B) {
-			work := clonePaletted(src[0])
+			work := cloneFrames(src[:1])[0]
 			b.ReportAllocs()
 			b.SetBytes(int64(len(work.Pix)))
 			for b.Loop() {
 				copy(work.Pix, src[0].Pix)
-				compactPalette([]*image.Paletted{work}, pal)
+				Compact([]*image.Paletted{work}, pal)
 			}
 		})
-	}
-}
-
-func BenchmarkEncodeAll(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		encodeSyntheticGIF(b, 8)
 	}
 }

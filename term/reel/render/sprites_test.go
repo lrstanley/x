@@ -8,7 +8,7 @@ import (
 	"image"
 	"testing"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // fgRuns returns the [start, end) spans of fg pixels along a line of n pixels.
@@ -52,7 +52,7 @@ func TestBrailleAlignsAcrossCells(t *testing.T) {
 		scr := newTestScreen(cols, rows)
 		for y := range rows {
 			for x := range cols {
-				scr.SetCell(x, y, &screen.Cell{Content: "⣿", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+				scr.SetCell(x, y, &vt.Cell{Content: "⣿", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 			}
 		}
 		img := drawNRGBA(t, d, scr)
@@ -113,7 +113,7 @@ func TestLegacyBlocksTileWithBlockElements(t *testing.T) {
 		glyphs := []string{"▌", "\U0001FB28", "▐", "\U0001CDE5", "▘", "\U0001FB00"} // ▌ 🬨 ▐ octant-2345678 ▘ 🬀
 		scr := newTestScreen(len(glyphs), 1)
 		for x, g := range glyphs {
-			scr.SetCell(x, 0, &screen.Cell{Content: g, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(x, 0, &vt.Cell{Content: g, Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 		}
 		img := drawNRGBA(t, d, scr)
 		snap := d.layoutSnapshot(t, image.Point{}, scr)

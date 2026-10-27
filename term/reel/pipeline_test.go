@@ -14,12 +14,12 @@ import (
 
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // cellsOf returns a cell frame of a cols by rows screen with title, at at.
 func cellsOf(cols, rows int, title string, at time.Duration) CellFrame {
-	return CellFrame{Screen: screen.NewBuffer(cols, rows), State: screen.State{Title: title}, At: at}
+	return CellFrame{Screen: vt.NewBuffer(cols, rows), State: vt.State{Title: title}, At: at}
 }
 
 func TestPipelineStages(t *testing.T) {
@@ -257,7 +257,7 @@ func TestPipelineReusesImages(t *testing.T) {
 	p := newPipeline(rast, settings{step: 10 * ms, speed: 1}, nil, out)
 	for i := range 10 {
 		cf := cellsOf(3, 1, "", time.Duration(i)*100*ms)
-		cf.Screen.SetCell(0, 0, &screen.Cell{Content: string(rune('a' + i)), Width: 1})
+		cf.Screen.SetCell(0, 0, &vt.Cell{Content: string(rune('a' + i)), Width: 1})
 		if err := p.record(cf); err != nil {
 			t.Fatal(err)
 		}

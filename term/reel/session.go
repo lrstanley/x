@@ -14,8 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/lrstanley/x/term/reel/internal/pty"
 	"github.com/lrstanley/x/term/reel/vt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // ErrClosed is returned by [Session] methods called after [Session.Close].
@@ -54,7 +54,7 @@ type Session struct {
 	// which Resize resizes too, until it hangs up. running is set from when
 	// Exec starts the process until its exit is recorded. Both are guarded
 	// by mu.
-	pty     *pty
+	pty     *pty.PTY
 	running bool
 }
 
@@ -137,7 +137,7 @@ func (s *Session) Focused() bool { return s.focused.Load() }
 
 // State returns the terminal's state, as [vt.Terminal.State] does, with
 // Focused set from the session.
-func (s *Session) State() screen.State {
+func (s *Session) State() vt.State {
 	st := s.term.State()
 	st.Focused = s.Focused()
 	return st

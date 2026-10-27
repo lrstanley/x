@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/sink"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 const (
@@ -37,14 +37,14 @@ func benchmarkTerminalScreen() testScreen {
 			if (x*31+y*17)%25 >= 13 { // 13/25 = 52% fill
 				continue
 			}
-			style := screen.Style{Fg: fg, Bg: bg}
+			style := vt.Style{Fg: fg, Bg: bg}
 			if x&1 == 0 {
 				style.Fg = color.NRGBA{R: 0x80, G: 0xc0, B: 0xff, A: 0xff}
 			}
 			if y&1 == 0 {
 				style.Bg = color.NRGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}
 			}
-			scr.SetCell(x, y, &screen.Cell{
+			scr.SetCell(x, y, &vt.Cell{
 				Content: string(rune('a' + (x+y)%26)),
 				Width:   1,
 				Style:   style,
@@ -67,7 +67,7 @@ func assertBenchmarkBudget(b *testing.B, budget time.Duration) {
 	}
 }
 
-// BenchmarkDraw draws a whole frame: the screen is not a [screen.Buffer], so
+// BenchmarkDraw draws a whole frame: the screen is not a [vt.Buffer], so
 // the renderer cannot tell what changed and paints it all.
 func BenchmarkDraw(b *testing.B) {
 	scr := benchmarkTerminalScreen()
@@ -92,12 +92,12 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 		b.Fatal(err)
 	}
 	cursorVisible := false
-	cursor := screen.Cell{
+	cursor := vt.Cell{
 		Content: "_",
 		Width:   1,
-		Style:   screen.Style{Fg: color.NRGBA{R: 0xff, A: 0xff}, Bg: color.NRGBA{A: 0xff}},
+		Style:   vt.Style{Fg: color.NRGBA{R: 0xff, A: 0xff}, Bg: color.NRGBA{A: 0xff}},
 	}
-	blank := screen.EmptyCell.Clone()
+	blank := vt.EmptyCell.Clone()
 	frame := newImage(d, scr)
 	for range benchmarkWarmupIters {
 		if cursorVisible {
@@ -145,10 +145,10 @@ func BenchmarkDrawSymbolGlyphs(b *testing.B) {
 	bg := color.NRGBA{A: 0xff}
 	for y := range rows {
 		for x := range cols {
-			scr.SetCell(x, y, &screen.Cell{
+			scr.SetCell(x, y, &vt.Cell{
 				Content: string(glyphs[(y*cols+x)%len(glyphs)]),
 				Width:   1,
-				Style:   screen.Style{Fg: fg, Bg: bg},
+				Style:   vt.Style{Fg: fg, Bg: bg},
 			})
 		}
 	}
@@ -172,15 +172,15 @@ func BenchmarkDrawIconSpans(b *testing.B) {
 	const cols, rows = 40, 16
 	icons := []rune("\uf059\uf084\uf0ac\uea61\uf015")
 	scr := newTestScreen(cols, rows)
-	style := screen.Style{Fg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, Bg: color.NRGBA{A: 0xff}}
+	style := vt.Style{Fg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, Bg: color.NRGBA{A: 0xff}}
 	for y := range rows {
 		for x := 0; x+1 < cols; x += 2 {
 			next := " "
 			if (x/2+y)%2 == 0 {
 				next = "x"
 			}
-			scr.SetCell(x, y, &screen.Cell{Content: string(icons[(x/2+y)%len(icons)]), Width: 1, Style: style})
-			scr.SetCell(x+1, y, &screen.Cell{Content: next, Width: 1, Style: style})
+			scr.SetCell(x, y, &vt.Cell{Content: string(icons[(x/2+y)%len(icons)]), Width: 1, Style: style})
+			scr.SetCell(x+1, y, &vt.Cell{Content: next, Width: 1, Style: style})
 		}
 	}
 
@@ -208,10 +208,10 @@ func BenchmarkDrawManyGlyphs(b *testing.B) {
 	for y := range rows {
 		for x := range cols {
 			i := y*cols + x
-			scr.SetCell(x, y, &screen.Cell{
+			scr.SetCell(x, y, &vt.Cell{
 				Content: fmt.Sprintf("%c%d", rune(0x21+i%90), i),
 				Width:   1,
-				Style:   screen.Style{Fg: fg, Bg: bg},
+				Style:   vt.Style{Fg: fg, Bg: bg},
 			})
 		}
 	}
@@ -235,7 +235,7 @@ func BenchmarkDrawChrome(b *testing.B) {
 	for _, chrome := range []bool{false, true} {
 		b.Run(fmt.Sprintf("chrome=%t", chrome), func(b *testing.B) {
 			d := MustNew(WithScale(scaleFor(benchmarkFontSizePt)), WithWindowChrome(chrome))
-			st := screen.State{Title: "go test ./... — benchmark", Focused: true}
+			st := vt.State{Title: "go test ./... — benchmark", Focused: true}
 			frame := newImage(d, scr)
 			for range benchmarkWarmupIters {
 				d.Draw(frame, scr, st, 0)
@@ -258,7 +258,7 @@ func BenchmarkDrawTitleChange(b *testing.B) {
 		b.Run(fmt.Sprintf("chrome=%t", chrome), func(b *testing.B) {
 			scr := benchmarkTerminalScreen().Buffer
 			d := MustNew(WithScale(scaleFor(14)), WithWindowChrome(chrome))
-			st := screen.State{Focused: true}
+			st := vt.State{Focused: true}
 			frame := newImage(d, scr)
 			draw := func(i int) {
 				st.Title = fmt.Sprintf("build %d%%", i%100)
@@ -292,22 +292,22 @@ func benchmarkStatusOpts(size float64) []Option {
 // draw: each program status look, and an OSC 9;4 bar with no status.
 var benchmarkIndicatorStates = []struct {
 	name  string
-	state screen.State
+	state vt.State
 }{
-	{"spinner", screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{
-		{State: screen.ProgramWorking, Title: "Refactoring renderer", Message: "Reading render.go", Progress: -1},
-		{ID: "build", State: screen.ProgramDone, Progress: -1},
+	{"spinner", vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{
+		{State: vt.ProgramWorking, Title: "Refactoring renderer", Message: "Reading render.go", Progress: -1},
+		{ID: "build", State: vt.ProgramDone, Progress: -1},
 	}}},
-	{"blocked", screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{
-		{State: screen.ProgramBlocked, Kind: screen.ProgramKindPermission, Title: "Edit render.go?", Message: "Apply 3 changes", Progress: -1},
+	{"blocked", vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{
+		{State: vt.ProgramBlocked, Kind: vt.ProgramKindPermission, Title: "Edit render.go?", Message: "Apply 3 changes", Progress: -1},
 	}}},
-	{"progress", screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{
-		{State: screen.ProgramWorking, Title: "Running tests", Message: "42 of 100 packages", Progress: 42},
+	{"progress", vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{
+		{State: vt.ProgramWorking, Title: "Running tests", Message: "42 of 100 packages", Progress: 42},
 	}}},
-	{"done", screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{
-		{State: screen.ProgramDone, Title: "Refactor complete", Message: "12 files changed", Progress: -1},
+	{"done", vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{
+		{State: vt.ProgramDone, Title: "Refactor complete", Message: "12 files changed", Progress: -1},
 	}}},
-	{"bar-only", screen.State{Focused: true, Title: "build", Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}},
+	{"bar-only", vt.State{Focused: true, Title: "build", Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}},
 }
 
 // BenchmarkRepaint compares drawing a whole frame with repainting only the
@@ -359,11 +359,11 @@ func BenchmarkDrawIncrementalStatus(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			var at time.Duration
 			d := MustNew(benchmarkStatusOpts(14)...)
-			scr := screen.NewBuffer(80, 24)
+			scr := vt.NewBuffer(80, 24)
 			frame := newImage(d, scr)
 			step := func(i int) {
 				at += 50 * time.Millisecond
-				scr.SetCell(i%60, 12, &screen.Cell{Content: string(rune('a' + i%26)), Width: 1})
+				scr.SetCell(i%60, 12, &vt.Cell{Content: string(rune('a' + i%26)), Width: 1})
 				d.Draw(frame, scr, tc.state, at)
 			}
 			for i := range benchmarkWarmupIters {
@@ -428,18 +428,18 @@ func BenchmarkDrawRounded(b *testing.B) {
 // BenchmarkDrawIncremental redraws a screen through [Renderer.Draw] after one
 // cell changes and the cursor moves to it, like a typed character.
 func BenchmarkDrawIncremental(b *testing.B) {
-	sparse := func(cols, rows int) *screen.Buffer {
-		scr := screen.NewBuffer(cols, rows)
+	sparse := func(cols, rows int) *vt.Buffer {
+		scr := vt.NewBuffer(cols, rows)
 		for y := 0; y < rows; y += 3 {
 			for x, r := range "user@host:~/src/project$ make test && go vet ./..." {
-				scr.SetCell(x, y, &screen.Cell{Content: string(r), Width: 1})
+				scr.SetCell(x, y, &vt.Cell{Content: string(r), Width: 1})
 			}
 		}
 		return scr
 	}
 	cases := []struct {
 		name string
-		scr  *screen.Buffer
+		scr  *vt.Buffer
 		opts []Option
 	}{
 		{"dense-120x30-40pt", benchmarkTerminalScreen().Buffer, []Option{WithScale(scaleFor(benchmarkFontSizePt))}},
@@ -450,10 +450,10 @@ func BenchmarkDrawIncremental(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			d := MustNew(tc.opts...)
 			rows := tc.scr.Height()
-			st := screen.State{Focused: true, Cursor: screen.Cursor{Visible: true, Y: rows / 2}}
+			st := vt.State{Focused: true, Cursor: vt.Cursor{Visible: true, Y: rows / 2}}
 			frame := newImage(d, tc.scr)
 			draw := func(i int) {
-				tc.scr.SetCell(i%60, rows/2, &screen.Cell{Content: string(rune('a' + i%26)), Width: 1})
+				tc.scr.SetCell(i%60, rows/2, &vt.Cell{Content: string(rune('a' + i%26)), Width: 1})
 				st.Cursor.X = i % 60
 				d.Draw(frame, tc.scr, st, 0)
 			}

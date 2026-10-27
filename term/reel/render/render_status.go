@@ -9,7 +9,7 @@ import (
 	"time"
 
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // OSC 7501 program status is drawn only with window chrome: the most urgent
@@ -35,9 +35,9 @@ const (
 // so the frame cache can tell when it changes.
 type statusView struct {
 	shown bool
-	drv   screen.ProgramStatus
+	drv   vt.ProgramStatus
 	ndots int
-	dots  [statusMaxDots]screen.ProgramState
+	dots  [statusMaxDots]vt.ProgramState
 	// breath is the blocked outline's brightness step, 0 through
 	// statusBreathLevels, at the frame's offset. It is 0 unless drv is
 	// blocked.
@@ -49,11 +49,11 @@ func (d *Renderer) statusEnabled() bool {
 	return d.opts.WindowChrome && d.opts.ProgramStatus
 }
 
-// urgency is s, since [screen.ProgramState] is ordered by urgency, or idle
+// urgency is s, since [vt.ProgramState] is ordered by urgency, or idle
 // for a state this renderer does not know.
-func urgency(s screen.ProgramState) screen.ProgramState {
-	if s > screen.ProgramError {
-		return screen.ProgramIdle
+func urgency(s vt.ProgramState) vt.ProgramState {
+	if s > vt.ProgramError {
+		return vt.ProgramIdle
 	}
 	return s
 }
@@ -61,7 +61,7 @@ func urgency(s screen.ProgramState) screen.ProgramState {
 // shownStatus is the program status drawn for st at at. The driver is the
 // most urgent record, the earliest on ties, and the dots are the others, most
 // urgent first, in record order on ties.
-func (d *Renderer) shownStatus(st screen.State, at time.Duration) statusView {
+func (d *Renderer) shownStatus(st vt.State, at time.Duration) statusView {
 	if !d.statusEnabled() || len(st.ProgramStatuses) == 0 {
 		return statusView{}
 	}
@@ -76,14 +76,14 @@ func (d *Renderer) shownStatus(st screen.State, at time.Duration) statusView {
 	if v.breathes() {
 		v.breath = breathStep(at)
 	}
-	for s := screen.ProgramError; v.ndots < len(v.dots); s-- {
+	for s := vt.ProgramError; v.ndots < len(v.dots); s-- {
 		for i := range recs {
 			if i != best && urgency(recs[i].State) == s && v.ndots < len(v.dots) {
 				v.dots[v.ndots] = recs[i].State
 				v.ndots++
 			}
 		}
-		if s == screen.ProgramIdle {
+		if s == vt.ProgramIdle {
 			break
 		}
 	}
@@ -93,13 +93,13 @@ func (d *Renderer) shownStatus(st screen.State, at time.Duration) statusView {
 // animates reports whether v looks different at every frame: a working
 // record with no progress spins and moves comets around the outline.
 func (v statusView) animates() bool {
-	return v.shown && v.drv.State == screen.ProgramWorking && v.drv.Progress < 0
+	return v.shown && v.drv.State == vt.ProgramWorking && v.drv.Progress < 0
 }
 
 // breathes reports whether v's outline breathes: a blocked record, which
 // steps through statusBreathLevels brightness levels as the offset moves.
 func (v statusView) breathes() bool {
-	return v.shown && v.drv.State == screen.ProgramBlocked
+	return v.shown && v.drv.State == vt.ProgramBlocked
 }
 
 // breathStep is the blocked outline's brightness step at offset at.

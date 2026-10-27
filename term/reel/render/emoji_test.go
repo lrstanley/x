@@ -11,7 +11,7 @@ import (
 
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/testutil"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 var emojiRed = color.NRGBA{R: 255, A: 255}
@@ -34,7 +34,7 @@ func TestColorEmojiDrawnAcrossTwoCells(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	d := withFakeEmoji(MustNew(WithScale(scaleFor(16)), palette))
 	scr := newTestScreen(6, 1)
-	putText(scr, 0, 0, "a😀b", screen.Style{Fg: fg, Bg: bg})
+	putText(scr, 0, 0, "a😀b", vt.Style{Fg: fg, Bg: bg})
 	img := drawNRGBA(t, d, scr)
 	snap := d.layoutSnapshot(t, image.Point{}, scr)
 
@@ -88,14 +88,14 @@ func TestColorEmojiOnlyInWideCells(t *testing.T) {
 	// The same text in a one cell wide cell is a text presentation symbol, so it
 	// is drawn as text, not from the color font, even if the font has it.
 	scr := newTestScreen(4, 1)
-	scr.SetCell(0, 0, &screen.Cell{Content: "😀", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 0, &vt.Cell{Content: "😀", Width: 1, Style: vt.Style{Fg: fg, Bg: bg}})
 	if hasRed(drawNRGBA(t, d, scr)) {
 		t.Fatal("a one cell wide emoji was drawn in color")
 	}
 
 	// Wide text that no color font has is not drawn from one.
 	scr = newTestScreen(4, 1)
-	putText(scr, 0, 0, "😁", screen.Style{Fg: fg, Bg: bg})
+	putText(scr, 0, 0, "😁", vt.Style{Fg: fg, Bg: bg})
 	if hasRed(drawNRGBA(t, d, scr)) {
 		t.Fatal("an emoji the color font lacks was drawn with the glyph of another")
 	}
@@ -110,7 +110,7 @@ func TestColorEmojiBundledWithoutSystemFonts(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	d := MustNew(WithScale(scaleFor(16)), WithSystemFontFallback(false), palette)
 	scr := newTestScreen(6, 1)
-	style := screen.Style{Fg: fg, Bg: bg}
+	style := vt.Style{Fg: fg, Bg: bg}
 	putText(scr, 0, 0, "😀", style)
 	putText(scr, 2, 0, "👋🏽", style) // Drawn in the default tone: the bundled font has no skin tones.
 	img := drawNRGBA(t, d, scr)
@@ -155,7 +155,7 @@ func TestColorEmojiFaint(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	d := withFakeEmoji(MustNew(WithScale(scaleFor(16)), palette, WithFaintFactor(0.5)))
 	scr := newTestScreen(4, 1)
-	style := screen.Style{Fg: fg, Bg: bg, Attrs: screen.AttrFaint}
+	style := vt.Style{Fg: fg, Bg: bg, Attrs: vt.AttrFaint}
 	putText(scr, 0, 0, "😀", style)
 	img := drawNRGBA(t, d, scr)
 	snap := d.layoutSnapshot(t, image.Point{}, scr)
@@ -172,7 +172,7 @@ func TestColorEmojiConcealed(t *testing.T) {
 	fg, bg, palette := blockTestPalette()
 	d := withFakeEmoji(MustNew(WithScale(scaleFor(16)), palette))
 	scr := newTestScreen(4, 1)
-	putText(scr, 0, 0, "😀", screen.Style{Fg: fg, Bg: bg, Attrs: screen.AttrConceal})
+	putText(scr, 0, 0, "😀", vt.Style{Fg: fg, Bg: bg, Attrs: vt.AttrConceal})
 	img := drawNRGBA(t, d, scr)
 	snap := d.layoutSnapshot(t, image.Point{}, scr)
 	both := snap.cellBounds(0, 0).Union(snap.cellBounds(1, 0))
@@ -188,7 +188,7 @@ func TestColorEmojiRedrawsWhenReplaced(t *testing.T) {
 
 	fg, bg, palette := blockTestPalette()
 	d := withFakeEmoji(MustNew(WithScale(scaleFor(16)), palette))
-	style := screen.Style{Fg: fg, Bg: bg}
+	style := vt.Style{Fg: fg, Bg: bg}
 	scr := newTestScreen(6, 2)
 	putText(scr, 0, 0, "😀 x", style)
 	putText(scr, 0, 1, "abcdef", style)

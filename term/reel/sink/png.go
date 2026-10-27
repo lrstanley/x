@@ -12,6 +12,8 @@ import (
 	"image/png"
 	"io"
 	"os"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
 // PNG writes img to path using opts. By default [OptimizeAll] applies (indexed
@@ -49,10 +51,10 @@ func MustPNG(img image.Image, path string, opts ...Option) {
 
 func encodePNG(img image.Image, w io.Writer, cfg options) error {
 	if cfg.optimize.has(OptimizeColorQuantization) {
-		adaptive := newAdaptivePalette(false)
-		pm := image.NewPaletted(img.Bounds(), adaptive.pal)
-		adaptive.palettize(pm, img)
-		compactPalette([]*image.Paletted{pm}, adaptive.pal)
+		adaptive := palette.NewAdaptive(false, false)
+		pm := image.NewPaletted(img.Bounds(), adaptive.Palette())
+		adaptive.Palettize(pm, img)
+		palette.Compact([]*image.Paletted{pm}, adaptive.Palette())
 		return png.Encode(w, pm)
 	}
 	return png.Encode(w, img)

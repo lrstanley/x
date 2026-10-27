@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 var statusMargin = color.NRGBA{R: 0x15, G: 0x16, B: 0x1c, A: 0xff}
@@ -29,12 +29,12 @@ func statusRenderer(t *testing.T, opts ...Option) *Renderer {
 }
 
 // statusState is a focused state with a title and recs.
-func statusState(recs ...screen.ProgramStatus) screen.State {
-	return screen.State{Focused: true, Title: "title", ProgramStatuses: recs}
+func statusState(recs ...vt.ProgramStatus) vt.State {
+	return vt.State{Focused: true, Title: "title", ProgramStatuses: recs}
 }
 
 // drawStatusImage draws scr with recs as a fresh full draw at at.
-func drawStatusImage(d *Renderer, scr screen.Screen, at time.Duration, recs ...screen.ProgramStatus) *image.NRGBA {
+func drawStatusImage(d *Renderer, scr vt.Screen, at time.Duration, recs ...vt.ProgramStatus) *image.NRGBA {
 	return drawFresh(d, scr, statusState(recs...), at)
 }
 
@@ -59,7 +59,7 @@ func TestProgramStatusNeedsChrome(t *testing.T) {
 	t.Parallel()
 
 	scr := newTestScreen(20, 3)
-	recs := []screen.ProgramStatus{{State: screen.ProgramBlocked, Title: "Allow?", Progress: -1}}
+	recs := []vt.ProgramStatus{{State: vt.ProgramBlocked, Title: "Allow?", Progress: -1}}
 	for name, opts := range map[string][]Option{
 		"no chrome": {WithWindowChrome(false)},
 		"disabled":  {WithProgramStatus(false)},
@@ -90,16 +90,16 @@ func TestProgramStatusStatesDiffer(t *testing.T) {
 	d := statusRenderer(t)
 	none := drawStatusImage(d, scr, statusAt)
 	seen := map[string]string{}
-	for name, rec := range map[string]screen.ProgramStatus{
-		"idle":               {State: screen.ProgramIdle, Progress: -1},
-		"working":            {State: screen.ProgramWorking, Progress: -1},
-		"working 40%":        {State: screen.ProgramWorking, Progress: 40},
-		"blocked":            {State: screen.ProgramBlocked, Progress: -1},
-		"blocked permission": {State: screen.ProgramBlocked, Kind: screen.ProgramKindPermission, Progress: -1},
-		"blocked question":   {State: screen.ProgramBlocked, Kind: screen.ProgramKindQuestion, Progress: -1},
-		"blocked auth":       {State: screen.ProgramBlocked, Kind: screen.ProgramKindAuth, Progress: -1},
-		"done":               {State: screen.ProgramDone, Progress: -1},
-		"error":              {State: screen.ProgramError, Progress: -1},
+	for name, rec := range map[string]vt.ProgramStatus{
+		"idle":               {State: vt.ProgramIdle, Progress: -1},
+		"working":            {State: vt.ProgramWorking, Progress: -1},
+		"working 40%":        {State: vt.ProgramWorking, Progress: 40},
+		"blocked":            {State: vt.ProgramBlocked, Progress: -1},
+		"blocked permission": {State: vt.ProgramBlocked, Kind: vt.ProgramKindPermission, Progress: -1},
+		"blocked question":   {State: vt.ProgramBlocked, Kind: vt.ProgramKindQuestion, Progress: -1},
+		"blocked auth":       {State: vt.ProgramBlocked, Kind: vt.ProgramKindAuth, Progress: -1},
+		"done":               {State: vt.ProgramDone, Progress: -1},
+		"error":              {State: vt.ProgramError, Progress: -1},
 	} {
 		rec.Title = "job"
 		img := drawStatusImage(d, scr, statusAt, rec)
@@ -120,7 +120,7 @@ func TestProgramStatusWorkingPercent(t *testing.T) {
 	t.Parallel()
 
 	for pct, want := range map[int]string{0: "  0%", 7: "  7%", 42: " 42%", 100: "100%", 250: "100%"} {
-		if got, icon := statusLead(screen.ProgramStatus{State: screen.ProgramWorking, Progress: pct}, 0); got != want || icon {
+		if got, icon := statusLead(vt.ProgramStatus{State: vt.ProgramWorking, Progress: pct}, 0); got != want || icon {
 			t.Errorf("statusLead(%d%%) = %q icon=%v, want %q", pct, got, icon, want)
 		}
 	}
@@ -129,7 +129,7 @@ func TestProgramStatusWorkingPercent(t *testing.T) {
 	d := statusRenderer(t)
 	f := d.layoutSnapshot(t, image.Point{}, scr)
 	working := func(pct int) *image.NRGBA {
-		return drawStatusImage(d, scr, statusAt, screen.ProgramStatus{State: screen.ProgramWorking, Title: "build", Progress: pct})
+		return drawStatusImage(d, scr, statusAt, vt.ProgramStatus{State: vt.ProgramWorking, Title: "build", Progress: pct})
 	}
 	a, b := working(42), working(43)
 	bar := f.chromeBounds
@@ -154,32 +154,32 @@ func TestShownStatusMostUrgent(t *testing.T) {
 	t.Parallel()
 
 	d := newRenderer(t, WithWindowChrome(true))
-	rec := func(id string, s screen.ProgramState) screen.ProgramStatus {
-		return screen.ProgramStatus{ID: id, State: s, Progress: -1}
+	rec := func(id string, s vt.ProgramState) vt.ProgramStatus {
+		return vt.ProgramStatus{ID: id, State: s, Progress: -1}
 	}
 	for name, tc := range map[string]struct {
-		in   []screen.ProgramStatus
+		in   []vt.ProgramStatus
 		drv  string
-		dots []screen.ProgramState
+		dots []vt.ProgramState
 	}{
-		"root only":       {[]screen.ProgramStatus{rec("", screen.ProgramIdle)}, "", nil},
-		"child wins":      {[]screen.ProgramStatus{rec("", screen.ProgramIdle), rec("a", screen.ProgramBlocked)}, "a", []screen.ProgramState{screen.ProgramIdle}},
-		"root wins ties":  {[]screen.ProgramStatus{rec("", screen.ProgramError), rec("a", screen.ProgramError)}, "", []screen.ProgramState{screen.ProgramError}},
-		"then id order":   {[]screen.ProgramStatus{rec("a", screen.ProgramDone), rec("b", screen.ProgramWorking), rec("c", screen.ProgramWorking)}, "b", []screen.ProgramState{screen.ProgramWorking, screen.ProgramDone}},
-		"urgency order":   {[]screen.ProgramStatus{rec("", screen.ProgramIdle), rec("a", screen.ProgramDone), rec("b", screen.ProgramWorking), rec("c", screen.ProgramBlocked), rec("d", screen.ProgramError)}, "d", []screen.ProgramState{screen.ProgramBlocked, screen.ProgramWorking, screen.ProgramDone, screen.ProgramIdle}},
-		"unknown is idle": {[]screen.ProgramStatus{rec("", screen.ProgramState(99)), rec("a", screen.ProgramIdle)}, "", []screen.ProgramState{screen.ProgramIdle}},
+		"root only":       {[]vt.ProgramStatus{rec("", vt.ProgramIdle)}, "", nil},
+		"child wins":      {[]vt.ProgramStatus{rec("", vt.ProgramIdle), rec("a", vt.ProgramBlocked)}, "a", []vt.ProgramState{vt.ProgramIdle}},
+		"root wins ties":  {[]vt.ProgramStatus{rec("", vt.ProgramError), rec("a", vt.ProgramError)}, "", []vt.ProgramState{vt.ProgramError}},
+		"then id order":   {[]vt.ProgramStatus{rec("a", vt.ProgramDone), rec("b", vt.ProgramWorking), rec("c", vt.ProgramWorking)}, "b", []vt.ProgramState{vt.ProgramWorking, vt.ProgramDone}},
+		"urgency order":   {[]vt.ProgramStatus{rec("", vt.ProgramIdle), rec("a", vt.ProgramDone), rec("b", vt.ProgramWorking), rec("c", vt.ProgramBlocked), rec("d", vt.ProgramError)}, "d", []vt.ProgramState{vt.ProgramBlocked, vt.ProgramWorking, vt.ProgramDone, vt.ProgramIdle}},
+		"unknown is idle": {[]vt.ProgramStatus{rec("", vt.ProgramState(99)), rec("a", vt.ProgramIdle)}, "", []vt.ProgramState{vt.ProgramIdle}},
 		"dots capped": {
-			[]screen.ProgramStatus{rec("", screen.ProgramWorking), rec("1", screen.ProgramIdle), rec("2", screen.ProgramIdle), rec("3", screen.ProgramIdle), rec("4", screen.ProgramIdle), rec("5", screen.ProgramIdle), rec("6", screen.ProgramError), rec("7", screen.ProgramIdle)},
+			[]vt.ProgramStatus{rec("", vt.ProgramWorking), rec("1", vt.ProgramIdle), rec("2", vt.ProgramIdle), rec("3", vt.ProgramIdle), rec("4", vt.ProgramIdle), rec("5", vt.ProgramIdle), rec("6", vt.ProgramError), rec("7", vt.ProgramIdle)},
 			"6",
-			[]screen.ProgramState{screen.ProgramWorking, screen.ProgramIdle, screen.ProgramIdle, screen.ProgramIdle, screen.ProgramIdle, screen.ProgramIdle},
+			[]vt.ProgramState{vt.ProgramWorking, vt.ProgramIdle, vt.ProgramIdle, vt.ProgramIdle, vt.ProgramIdle, vt.ProgramIdle},
 		},
 	} {
-		v := d.shownStatus(screen.State{ProgramStatuses: tc.in}, 0)
-		if !v.shown || v.drv.ID != tc.drv || !reflect.DeepEqual(v.dots[:v.ndots], append([]screen.ProgramState{}, tc.dots...)) {
+		v := d.shownStatus(vt.State{ProgramStatuses: tc.in}, 0)
+		if !v.shown || v.drv.ID != tc.drv || !reflect.DeepEqual(v.dots[:v.ndots], append([]vt.ProgramState{}, tc.dots...)) {
 			t.Errorf("%s: driver %q dots %v, want %q %v", name, v.drv.ID, v.dots[:v.ndots], tc.drv, tc.dots)
 		}
 	}
-	if v := d.shownStatus(screen.State{}, 0); v != (statusView{}) {
+	if v := d.shownStatus(vt.State{}, 0); v != (statusView{}) {
 		t.Errorf("no records: %+v, want the zero view", v)
 	}
 }
@@ -191,9 +191,9 @@ func TestProgramStatusDots(t *testing.T) {
 
 	scr := newTestScreen(40, 3)
 	d := statusRenderer(t)
-	recs := []screen.ProgramStatus{{State: screen.ProgramError, Title: "lint", Progress: -1}}
+	recs := []vt.ProgramStatus{{State: vt.ProgramError, Title: "lint", Progress: -1}}
 	for i := range statusMaxDots + 3 {
-		recs = append(recs, screen.ProgramStatus{ID: string(rune('a' + i)), State: screen.ProgramDone, Progress: -1})
+		recs = append(recs, vt.ProgramStatus{ID: string(rune('a' + i)), State: vt.ProgramDone, Progress: -1})
 	}
 	bar := d.layoutSnapshot(t, image.Point{}, scr).chromeBounds
 	titleBar := func(n int) []byte {
@@ -217,18 +217,18 @@ func TestProgramStatusHostileTextDrawsSafely(t *testing.T) {
 
 	scr := newTestScreen(60, 3)
 	d := statusRenderer(t)
-	for _, tc := range []struct{ hostile, clean screen.ProgramStatus }{
+	for _, tc := range []struct{ hostile, clean vt.ProgramStatus }{
 		{
-			screen.ProgramStatus{State: screen.ProgramBlocked, Title: "Run \u202egnp.exe\u202c now?\u200b", Message: "Open \u2066invoice\u2069\u200d.pdf\u00ad\ufeff ok", Progress: -1},
-			screen.ProgramStatus{State: screen.ProgramBlocked, Title: "Run gnp.exe now?", Message: "Open invoice.pdf ok", Progress: -1},
+			vt.ProgramStatus{State: vt.ProgramBlocked, Title: "Run \u202egnp.exe\u202c now?\u200b", Message: "Open \u2066invoice\u2069\u200d.pdf\u00ad\ufeff ok", Progress: -1},
+			vt.ProgramStatus{State: vt.ProgramBlocked, Title: "Run gnp.exe now?", Message: "Open invoice.pdf ok", Progress: -1},
 		},
 		{
-			screen.ProgramStatus{State: screen.ProgramDone, Title: "a\x1b[31mred\x1b[0m\nnext", Progress: -1},
-			screen.ProgramStatus{State: screen.ProgramDone, Title: "a [31mred [0m next", Progress: -1},
+			vt.ProgramStatus{State: vt.ProgramDone, Title: "a\x1b[31mred\x1b[0m\nnext", Progress: -1},
+			vt.ProgramStatus{State: vt.ProgramDone, Title: "a [31mred [0m next", Progress: -1},
 		},
 		{
-			screen.ProgramStatus{State: screen.ProgramIdle, App: "\u200b\u202eppa", Progress: -1},
-			screen.ProgramStatus{State: screen.ProgramIdle, App: "ppa", Progress: -1},
+			vt.ProgramStatus{State: vt.ProgramIdle, App: "\u200b\u202eppa", Progress: -1},
+			vt.ProgramStatus{State: vt.ProgramIdle, App: "ppa", Progress: -1},
 		},
 	} {
 		if !bytes.Equal(drawStatusImage(d, scr, statusAt, tc.hostile).Pix, drawStatusImage(d, scr, statusAt, tc.clean).Pix) {
@@ -243,14 +243,14 @@ func TestProgramStatusHostileTextDrawsSafely(t *testing.T) {
 func TestProgramStatusClearsOnNextDraw(t *testing.T) {
 	t.Parallel()
 
-	scr := screen.NewBuffer(24, 3)
+	scr := vt.NewBuffer(24, 3)
 	d := statusRenderer(t)
 	ref := statusRenderer(t)
-	draw := func(recs ...screen.ProgramStatus) []byte {
+	draw := func(recs ...vt.ProgramStatus) []byte {
 		return drawAt(t, d, scr, statusState(recs...), statusAt).Pix
 	}
-	root := screen.ProgramStatus{State: screen.ProgramWorking, Title: "build", Progress: 30}
-	child := screen.ProgramStatus{ID: "test", State: screen.ProgramError, Title: "test", Progress: -1}
+	root := vt.ProgramStatus{State: vt.ProgramWorking, Title: "build", Progress: 30}
+	child := vt.ProgramStatus{ID: "test", State: vt.ProgramError, Title: "test", Progress: -1}
 
 	plain := draw()
 	if both := draw(root, child); bytes.Equal(plain, both) {
@@ -270,23 +270,23 @@ func TestProgramStatusClearsOnNextDraw(t *testing.T) {
 func TestProgramStatusAnimates(t *testing.T) {
 	t.Parallel()
 
-	scr := screen.NewBuffer(24, 3)
+	scr := vt.NewBuffer(24, 3)
 	for _, tc := range []struct {
 		name   string
-		rec    screen.ProgramStatus
+		rec    vt.ProgramStatus
 		period time.Duration
 	}{
-		{"working", screen.ProgramStatus{State: screen.ProgramWorking, Title: "w", Progress: -1}, statusOrbit},
-		{"blocked", screen.ProgramStatus{State: screen.ProgramBlocked, Title: "b", Progress: -1}, statusBreath},
-		{"blocked with progress", screen.ProgramStatus{State: screen.ProgramBlocked, Title: "b", Progress: 50}, statusBreath},
-		{"working 50%", screen.ProgramStatus{State: screen.ProgramWorking, Title: "p", Progress: 50}, 0},
-		{"done", screen.ProgramStatus{State: screen.ProgramDone, Title: "d", Progress: -1}, 0},
-		{"error", screen.ProgramStatus{State: screen.ProgramError, Title: "e", Progress: -1}, 0},
-		{"idle", screen.ProgramStatus{State: screen.ProgramIdle, Title: "i", Progress: -1}, 0},
+		{"working", vt.ProgramStatus{State: vt.ProgramWorking, Title: "w", Progress: -1}, statusOrbit},
+		{"blocked", vt.ProgramStatus{State: vt.ProgramBlocked, Title: "b", Progress: -1}, statusBreath},
+		{"blocked with progress", vt.ProgramStatus{State: vt.ProgramBlocked, Title: "b", Progress: 50}, statusBreath},
+		{"working 50%", vt.ProgramStatus{State: vt.ProgramWorking, Title: "p", Progress: 50}, 0},
+		{"done", vt.ProgramStatus{State: vt.ProgramDone, Title: "d", Progress: -1}, 0},
+		{"error", vt.ProgramStatus{State: vt.ProgramError, Title: "e", Progress: -1}, 0},
+		{"idle", vt.ProgramStatus{State: vt.ProgramIdle, Title: "i", Progress: -1}, 0},
 	} {
 		at := statusAt + 300*time.Millisecond
 		d, other := statusRenderer(t), statusRenderer(t)
-		st := screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{tc.rec}}
+		st := vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{tc.rec}}
 		if got := d.Animates(st); got != (tc.period > 0) {
 			t.Errorf("%s: Animates() = %v", tc.name, got)
 		}
@@ -314,9 +314,9 @@ func TestProgramStatusAnimates(t *testing.T) {
 func TestProgramStatusBreathSteps(t *testing.T) {
 	t.Parallel()
 
-	scr := screen.NewBuffer(12, 2)
+	scr := vt.NewBuffer(12, 2)
 	d := statusRenderer(t)
-	st := screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramBlocked, Progress: -1}}}
+	st := vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramBlocked, Progress: -1}}}
 	seen := map[string]bool{}
 	for i := range int(statusBreath / (50 * time.Millisecond)) {
 		seen[string(drawAt(t, d, scr, st, statusAt+time.Duration(i)*50*time.Millisecond).Pix)] = true
@@ -333,7 +333,7 @@ func TestProgramStatusOutline(t *testing.T) {
 	t.Parallel()
 
 	scr := newTestScreen(20, 3)
-	done := screen.ProgramStatus{State: screen.ProgramDone, Progress: -1}
+	done := vt.ProgramStatus{State: vt.ProgramDone, Progress: -1}
 	changed := func(d *Renderer, p image.Point) bool {
 		return drawStatusImage(d, scr, statusAt).NRGBAAt(p.X, p.Y) != drawStatusImage(d, scr, statusAt, done).NRGBAAt(p.X, p.Y)
 	}
@@ -378,8 +378,8 @@ func TestProgramStatusOutline(t *testing.T) {
 	}
 
 	p := image.Pt(win.Min.X+win.Dx()/2, win.Min.Y-1)
-	on := drawAt(t, d, scr, screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{done}}, statusAt).NRGBAAt(p.X, p.Y)
-	off := drawAt(t, d, scr, screen.State{ProgramStatuses: []screen.ProgramStatus{done}}, statusAt).NRGBAAt(p.X, p.Y)
+	on := drawAt(t, d, scr, vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{done}}, statusAt).NRGBAAt(p.X, p.Y)
+	off := drawAt(t, d, scr, vt.State{ProgramStatuses: []vt.ProgramStatus{done}}, statusAt).NRGBAAt(p.X, p.Y)
 	if int(off.G) >= int(on.G) {
 		t.Errorf("unfocused outline %v is not dimmer than focused %v", off, on)
 	}
@@ -401,13 +401,13 @@ func TestProgramStatusColors(t *testing.T) {
 	win := d.layoutSnapshot(t, image.Point{}, scr).windowBounds
 	p := image.Pt(win.Max.X, win.Min.Y+win.Dy()/2)
 	for _, tc := range []struct {
-		rec  screen.ProgramStatus
+		rec  vt.ProgramStatus
 		want color.NRGBA
 	}{
-		{screen.ProgramStatus{State: screen.ProgramWorking, Progress: 100}, progress},
-		{screen.ProgramStatus{State: screen.ProgramBlocked, Progress: -1}, pause},
-		{screen.ProgramStatus{State: screen.ProgramError, Progress: -1}, failed},
-		{screen.ProgramStatus{State: screen.ProgramDone, Progress: -1}, done},
+		{vt.ProgramStatus{State: vt.ProgramWorking, Progress: 100}, progress},
+		{vt.ProgramStatus{State: vt.ProgramBlocked, Progress: -1}, pause},
+		{vt.ProgramStatus{State: vt.ProgramError, Progress: -1}, failed},
+		{vt.ProgramStatus{State: vt.ProgramDone, Progress: -1}, done},
 	} {
 		got := drawStatusImage(d, scr, at, tc.rec).NRGBAAt(p.X, p.Y)
 		if dist := colorDist(got, tc.want); dist > 160 {
@@ -436,16 +436,16 @@ func TestRepaintMatchesFullDraw(t *testing.T) {
 			scr := newTestScreen(24, 4)
 			for y := range 4 {
 				for x, r := range "status repaint test 漢字 ab" {
-					scr.SetCell(x, y, &screen.Cell{Content: string(r), Width: 1})
+					scr.SetCell(x, y, &vt.Cell{Content: string(r), Width: 1})
 				}
 			}
-			for _, recs := range [][]screen.ProgramStatus{
-				{{State: screen.ProgramWorking, Title: "work", Message: "msg", Progress: -1}},
-				{{State: screen.ProgramBlocked, Kind: screen.ProgramKindQuestion, Title: "ask", Progress: -1}, {ID: "x", State: screen.ProgramDone, Progress: -1}},
+			for _, recs := range [][]vt.ProgramStatus{
+				{{State: vt.ProgramWorking, Title: "work", Message: "msg", Progress: -1}},
+				{{State: vt.ProgramBlocked, Kind: vt.ProgramKindQuestion, Title: "ask", Progress: -1}, {ID: "x", State: vt.ProgramDone, Progress: -1}},
 			} {
 				at := statusAt + 130*time.Millisecond
 				d := statusRenderer(t, opts...)
-				st := screen.State{Title: "t", ScrollbackLen: 40, ProgramStatuses: recs, Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}
+				st := vt.State{Title: "t", ScrollbackLen: 40, ProgramStatuses: recs, Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 				base := drawAt(t, d, scr, st, at)
 				later := at + statusBreath/3
 				want := drawFresh(d, scr, st, later)
@@ -470,9 +470,9 @@ func TestRepaintMatchesFullDraw(t *testing.T) {
 func TestProgramStatusRepaintsOnlyBands(t *testing.T) {
 	t.Parallel()
 
-	scr := screen.NewBuffer(20, 6)
+	scr := vt.NewBuffer(20, 6)
 	d := statusRenderer(t)
-	drawAt(t, d, scr, screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramDone, Progress: -1}}}, statusAt)
+	drawAt(t, d, scr, vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramDone, Progress: -1}}}, statusAt)
 
 	// Poison in the renderer's own frame shows whether Draw painted it again.
 	poison := color.NRGBA{R: 1, G: 2, B: 3, A: 255}
@@ -480,7 +480,7 @@ func TestProgramStatusRepaintsOnlyBands(t *testing.T) {
 	mid := f.cellBounds(10, 3).Min
 	d.frame.SetNRGBA(mid.X, mid.Y, poison)
 
-	got := drawAt(t, d, scr, screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramError, Progress: -1}}}, statusAt)
+	got := drawAt(t, d, scr, vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramError, Progress: -1}}}, statusAt)
 	if got.NRGBAAt(mid.X, mid.Y) != poison {
 		t.Fatal("a status change repainted the middle of the grid")
 	}
@@ -498,7 +498,7 @@ func TestRepaintProgressOnly(t *testing.T) {
 
 	scr := newTestScreen(24, 4)
 	d := statusRenderer(t)
-	st := screen.State{Focused: true, Title: "t", Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}
+	st := vt.State{Focused: true, Title: "t", Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 	base := drawFresh(d, scr, st, statusAt)
 	later := statusAt + 300*time.Millisecond
 	want := drawFresh(d, scr, st, later)
@@ -532,9 +532,9 @@ func TestProgramStatusBlockedReusesFrame(t *testing.T) {
 	t.Parallel()
 
 	start, same, next := breathOffsets()
-	scr := screen.NewBuffer(20, 3)
+	scr := vt.NewBuffer(20, 3)
 	d := statusRenderer(t)
-	st := screen.State{Focused: true, ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramBlocked, Title: "ask", Progress: -1}}}
+	st := vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramBlocked, Title: "ask", Progress: -1}}}
 	if !d.Animates(st) {
 		t.Fatal("Animates() = false for a blocked status")
 	}
@@ -576,18 +576,18 @@ func TestChanges(t *testing.T) {
 	t.Parallel()
 
 	start, same, next := breathOffsets()
-	scr := screen.NewBuffer(20, 3)
+	scr := vt.NewBuffer(20, 3)
 	for _, tc := range []struct {
 		name       string
-		state      screen.State
+		state      vt.State
 		same, next bool
 	}{
-		{"blocked", screen.State{ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramBlocked, Title: "ask", Progress: -1}}}, false, true},
-		{"working", screen.State{ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramWorking, Title: "w", Progress: -1}}}, true, true},
-		{"working 50%", screen.State{ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramWorking, Title: "p", Progress: 50}}}, false, false},
-		{"done", screen.State{ProgramStatuses: []screen.ProgramStatus{{State: screen.ProgramDone, Title: "d", Progress: -1}}}, false, false},
-		{"indeterminate progress", screen.State{Progress: screen.Progress{State: screen.ProgressIndeterminate, Percent: -1}}, true, true},
-		{"nothing", screen.State{}, false, false},
+		{"blocked", vt.State{ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramBlocked, Title: "ask", Progress: -1}}}, false, true},
+		{"working", vt.State{ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramWorking, Title: "w", Progress: -1}}}, true, true},
+		{"working 50%", vt.State{ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramWorking, Title: "p", Progress: 50}}}, false, false},
+		{"done", vt.State{ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramDone, Title: "d", Progress: -1}}}, false, false},
+		{"indeterminate progress", vt.State{Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}, true, true},
+		{"nothing", vt.State{}, false, false},
 	} {
 		d := statusRenderer(t)
 		tc.state.Focused = true

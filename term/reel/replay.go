@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/vt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // Replays open their terminals from pools of their own, so a replay never
@@ -40,13 +39,13 @@ type replay struct {
 	// drawn on yet, until the first frame, as [Header.SkipPristine] asks.
 	// pristine is the state of the fresh terminal they are compared with.
 	skipPristine bool
-	pristine     screen.State
+	pristine     vt.State
 
 	// sent is the state of the last frame, which an event must change the
-	// look of (see [screen.State.SameLook]) to make a frame of its own: a
+	// look of (see [vt.State.SameLook]) to make a frame of its own: a
 	// change of focus or colors is one too, so blur dimming and new colors
 	// show when they happen.
-	sent     screen.State
+	sent     vt.State
 	haveSent bool
 
 	// start is the index of the window's first event, and from its offset.
@@ -153,7 +152,7 @@ func (r *replay) apply(ev Event) error {
 }
 
 // state returns the terminal's state, with the timeline's focus.
-func (r *replay) state() screen.State {
+func (r *replay) state() vt.State {
 	st := r.term.State()
 	st.Focused = r.focused
 	return st
@@ -188,7 +187,7 @@ func (r *replay) commit(at time.Duration, inWindow bool) error {
 
 // isPristine reports whether st and the screen text are indistinguishable
 // from the terminal before anything was written to it.
-func (r *replay) isPristine(st screen.State, text string) bool {
+func (r *replay) isPristine(st vt.State, text string) bool {
 	p := r.pristine
 	return strings.TrimSpace(text) == "" &&
 		st.Title == p.Title &&

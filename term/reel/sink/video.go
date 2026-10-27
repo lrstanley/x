@@ -11,9 +11,50 @@ import (
 	"image/color"
 	"io"
 	"math"
+	"os/exec"
 	"strconv"
-	"time"
+	"strings"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/ffmpeg"
 )
+
+// ErrFFmpegNotFound is wrapped by the error [CreateVideo] and [CheckVideo]
+// return when the ffmpeg binary is not on PATH (or not at [WithFFmpeg]).
+var ErrFFmpegNotFound = errors.New("sink: ffmpeg not found")
+
+// MissingEncoderError reports an ffmpeg build without any encoder a format
+// can use.
+type MissingEncoderError struct {
+	// Format is the requested video format.
+	Format Format
+	// Encoders are the ffmpeg encoders the format can use, preferred first.
+	Encoders []string
+	// FFmpeg is the path of the ffmpeg binary that was probed.
+	FFmpeg string
+}
+
+func (e *MissingEncoderError) Error() string {
+	return fmt.Sprintf(
+		"sink: %s needs ffmpeg's %s encoder, but %s was built without it; install an ffmpeg build that includes it",
+		e.Format, strings.Join(e.Encoders, " or "), e.FFmpeg,
+	)
+}
+
+// findFFmpeg resolves the ffmpeg binary (name on PATH, or a path) and probes
+// it once.
+func findFFmpeg(name string, format Format) (*ffmpeg.Info, error) {
+	if name == "" {
+		name = "ffmpeg"
+	}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%w: %s export needs ffmpeg; install it (https://ffmpeg.org/download.html or your package manager) and put it on PATH, or point WithFFmpeg at it (%w)",
+			ErrFFmpegNotFound, format, err,
+		)
+	}
+	return ffmpeg.Probe(path)
+}
 
 // videoProfile is how one [Format] is encoded.
 type videoProfile struct {
@@ -110,17 +151,17 @@ func lookupVideoProfile(format Format) (videoProfile, error) {
 }
 
 // findVideoEncoder probes ffmpeg and picks the first encoder p can use.
-func findVideoEncoder(format Format, p videoProfile, o options) (*ffmpegInfo, string, error) {
+func findVideoEncoder(format Format, p videoProfile, o options) (*ffmpeg.Info, string, error) {
 	info, err := findFFmpeg(o.ffmpeg, format)
 	if err != nil {
 		return nil, "", err
 	}
 	for _, enc := range p.encoders {
-		if info.encoders[enc] {
+		if info.HasEncoder(enc) {
 			return info, enc, nil
 		}
 	}
-	return nil, "", &MissingEncoderError{Format: format, Encoders: p.encoders, FFmpeg: info.path}
+	return nil, "", &MissingEncoderError{Format: format, Encoders: p.encoders, FFmpeg: info.Path}
 }
 
 // CheckVideo reports whether [CreateVideo] can encode format with opts: that
@@ -152,12 +193,12 @@ type VideoEncoder struct {
 	opts    options
 	format  Format
 	profile videoProfile
-	info    *ffmpegInfo
+	info    *ffmpeg.Info
 	encoder string
 	file    *pendingFile
 
-	job    *ffmpegJob
-	mkv    mkvWriter
+	job    *ffmpeg.Job
+	mkv    *ffmpeg.MKV
 	bounds image.Rectangle
 	// canvas holds frames that cannot be streamed as is.
 	canvas *image.NRGBA
@@ -253,7 +294,7 @@ func (s *VideoEncoder) WriteFrame(f Frame) error {
 	}
 	src := s.streamable(img)
 	w, h := s.bounds.Dx(), s.bounds.Dy()
-	err := s.mkv.writeFrame(w*h*4, f.Delay, func(out io.Writer) error {
+	err := s.mkv.WriteFrame(w*h*4, f.Delay, func(out io.Writer) error {
 		row := w * 4
 		off := src.PixOffset(src.Rect.Min.X, src.Rect.Min.Y)
 		if src.Stride == row {
@@ -268,7 +309,7 @@ func (s *VideoEncoder) WriteFrame(f Frame) error {
 		return nil
 	})
 	if err != nil {
-		s.err = s.job.end(err)
+		s.err = s.job.End(err)
 		return s.err
 	}
 	s.frames++
@@ -278,14 +319,14 @@ func (s *VideoEncoder) WriteFrame(f Frame) error {
 // start launches ffmpeg for a canvas of size and writes the stream header.
 func (s *VideoEncoder) start(size image.Point) error {
 	s.bounds = image.Rectangle{Max: size}
-	job, err := startFFmpeg(s.info.path, s.args())
+	job, err := ffmpeg.Start(s.info.Path, s.args())
 	if err != nil {
 		return err
 	}
 	s.job = job
-	s.mkv = mkvWriter{w: job.stdin}
-	if err := s.mkv.writeHeader(size.X, size.Y); err != nil {
-		return job.end(err)
+	s.mkv = ffmpeg.NewMKV(job.Stdin())
+	if err = s.mkv.WriteHeader(size.X, size.Y); err != nil {
+		return job.End(err)
 	}
 	return nil
 }
@@ -297,7 +338,7 @@ func (s *VideoEncoder) args() []string {
 		"-f", "matroska", "-i", "pipe:0",
 		"-map", "0:v:0", "-an", "-sn", "-dn",
 	}
-	args = append(args, s.info.passthroughArgs()...)
+	args = append(args, s.info.PassthroughArgs()...)
 	// Encode in the stream's millisecond time base rather than one derived
 	// from a guessed frame rate.
 	args = append(args, "-enc_time_base", "-1")
@@ -408,7 +449,7 @@ func (s *VideoEncoder) Close() error {
 	}
 	s.done = true
 	if s.job != nil {
-		if err := s.job.end(nil); err != nil && s.err == nil {
+		if err := s.job.End(nil); err != nil && s.err == nil {
 			s.err = err
 		}
 	}
@@ -417,8 +458,7 @@ func (s *VideoEncoder) Close() error {
 		return s.err
 	}
 	if s.format == FormatWebP {
-		total := time.Duration(s.mkv.pts) * mkvTick //nolint:gosec // milliseconds of recording.
-		if err := fixWebP(s.file.f.Name(), s.opts.loopCount, total); err != nil {
+		if err := fixWebP(s.file.f.Name(), s.opts.loopCount, s.mkv.Duration()); err != nil {
 			_ = s.file.abort()
 			s.err = fmt.Errorf("sink: finishing %s: %w", s.format, err)
 			return s.err
@@ -438,7 +478,7 @@ func (s *VideoEncoder) Discard() error {
 	}
 	s.done = true
 	if s.job != nil {
-		s.job.kill()
+		s.job.Kill()
 	}
 	return s.file.abort()
 }

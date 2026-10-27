@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/internal/pty"
 )
 
 // exitQuiet is how long the output of a process that has exited may go
@@ -70,7 +72,7 @@ func Exec(ctx context.Context, s *Session, cmd *exec.Cmd) (*Process, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	cmd.Env = execEnv(cmd.Environ(), cmd.Env == nil)
+	cmd.Env = pty.Env(cmd.Environ(), cmd.Env == nil, castTermType)
 	pt, err := s.startProcess(cmd)
 	if err != nil {
 		return nil, err
@@ -98,7 +100,7 @@ func (p *Process) Wait() (int, error) {
 
 // startProcess starts cmd on a new pty the size of the terminal, which
 // [Session.Resize] resizes from then on.
-func (s *Session) startProcess(cmd *exec.Cmd) (*pty, error) {
+func (s *Session) startProcess(cmd *exec.Cmd) (*pty.PTY, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
@@ -107,11 +109,11 @@ func (s *Session) startProcess(cmd *exec.Cmd) (*pty, error) {
 	case s.running:
 		return nil, errors.New("reel: Exec: a process is already running on the session")
 	}
-	pt, err := openPty(s.term.Size())
+	pt, err := pty.Open(s.term.Size())
 	if err != nil {
 		return nil, fmt.Errorf("reel: Exec: opening a pseudo-terminal: %w", err)
 	}
-	if err = pt.start(cmd); err != nil {
+	if err = pt.Start(cmd); err != nil {
 		return nil, fmt.Errorf("reel: Exec: %w", err)
 	}
 	s.pty, s.running = pt, true
@@ -120,7 +122,7 @@ func (s *Session) startProcess(cmd *exec.Cmd) (*pty, error) {
 
 // run copies the process's output and input until it exits, then records
 // its exit.
-func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty) {
+func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty.PTY) {
 	defer close(p.done)
 
 	// hangup stops the copies: Session.Resize stops resizing the pty, and
@@ -131,7 +133,7 @@ func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty) {
 		s.mu.Unlock()
 		// The process has exited or is being hung up on, so nothing is left
 		// to report about the pty.
-		_ = pt.close()
+		_ = pt.Close()
 	})
 
 	// reads counts the reads of output, so the drain below can tell when
@@ -177,8 +179,8 @@ func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty) {
 		}
 	}()
 
-	kill := context.AfterFunc(ctx, func() { _ = killProcess(cmd) })
-	werr := waitProcess(cmd)
+	kill := context.AfterFunc(ctx, func() { _ = pty.Kill(cmd) })
+	werr := pty.Wait(cmd)
 	canceled := !kill()
 	if !canceled {
 		drain(ctx, outDone, &reads)
@@ -190,7 +192,7 @@ func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty) {
 
 	p.status = -1
 	if cmd.ProcessState != nil {
-		p.status = exitStatus(cmd.ProcessState)
+		p.status = pty.ExitStatus(cmd.ProcessState)
 	}
 	var exitErr *exec.ExitError
 	switch {

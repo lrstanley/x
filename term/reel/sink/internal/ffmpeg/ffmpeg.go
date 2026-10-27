@@ -2,7 +2,12 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+// Package ffmpeg runs ffmpeg for sink's video encoders: it probes a binary
+// for its version and encoders ([Probe]), and runs an encode ([Start]) that
+// reads frames on stdin as a stream of uncompressed Matroska ([MKV]). Its
+// errors reach sink's callers as they are, so they start with "sink: " as
+// sink's own do.
+package ffmpeg
 
 import (
 	"bufio"
@@ -19,111 +24,84 @@ import (
 	"time"
 )
 
-// ErrFFmpegNotFound is wrapped by the error [CreateVideo] and [CheckVideo]
-// return when the ffmpeg binary is not on PATH (or not at [WithFFmpeg]).
-var ErrFFmpegNotFound = errors.New("sink: ffmpeg not found")
-
-// ffmpegProbeTimeout bounds each probe run, so a wedged binary fails setup
+// probeTimeout bounds each probe run, so a wedged binary fails setup
 // instead of hanging it.
-const ffmpegProbeTimeout = 30 * time.Second
+const probeTimeout = 30 * time.Second
 
-// ffmpegStderrLimit is how much of ffmpeg's stderr an encode error keeps: the
+// stderrLimit is how much of ffmpeg's stderr an encode error keeps: the
 // end, where ffmpeg reports why it stopped.
-const ffmpegStderrLimit = 16 << 10
+const stderrLimit = 16 << 10
 
-// MissingEncoderError reports an ffmpeg build without any encoder a format
-// can use.
-type MissingEncoderError struct {
-	// Format is the requested video format.
-	Format Format
-	// Encoders are the ffmpeg encoders the format can use, preferred first.
-	Encoders []string
-	// FFmpeg is the path of the ffmpeg binary that was probed.
-	FFmpeg string
-}
-
-func (e *MissingEncoderError) Error() string {
-	return fmt.Sprintf(
-		"sink: %s needs ffmpeg's %s encoder, but %s was built without it; install an ffmpeg build that includes it",
-		e.Format, strings.Join(e.Encoders, " or "), e.FFmpeg,
-	)
-}
-
-// ffmpegInfo is what probing one ffmpeg binary found.
-type ffmpegInfo struct {
-	path     string
+// Info is what probing one ffmpeg binary found.
+type Info struct {
+	// Path is the binary's path.
+	Path     string
 	encoders map[string]bool
 	// fpsMode reports -fps_mode support (ffmpeg 5.1 and later). Older builds
 	// only take -vsync, which newer ones deprecate.
 	fpsMode bool
 }
 
-type ffmpegProbe struct {
+// cachedProbe is the result of probing one binary, once.
+type cachedProbe struct {
 	once sync.Once
-	info *ffmpegInfo
+	info *Info
 	err  error
 }
 
-// ffmpegProbes caches probes by resolved binary path, so every recording in a
+// probes caches probes by resolved binary path, so every recording in a
 // process probes a binary once.
 var (
-	ffmpegProbesMu sync.Mutex
-	ffmpegProbes   = map[string]*ffmpegProbe{}
+	probesMu sync.Mutex
+	probes   = map[string]*cachedProbe{}
 )
 
-// findFFmpeg resolves the ffmpeg binary (name on PATH, or a path) and probes
-// it once.
-func findFFmpeg(name string, format Format) (*ffmpegInfo, error) {
-	if name == "" {
-		name = "ffmpeg"
-	}
-	path, err := exec.LookPath(name)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%w: %s export needs ffmpeg; install it (https://ffmpeg.org/download.html or your package manager) and put it on PATH, or point WithFFmpeg at it (%w)",
-			ErrFFmpegNotFound, format, err,
-		)
-	}
-	ffmpegProbesMu.Lock()
-	probe := ffmpegProbes[path]
-	if probe == nil {
-		probe = &ffmpegProbe{}
-		ffmpegProbes[path] = probe
-	}
-	ffmpegProbesMu.Unlock()
-	probe.once.Do(func() {
-		probe.info, probe.err = probeFFmpeg(path)
-	})
-	return probe.info, probe.err
-}
+// HasEncoder reports whether the binary has the video encoder name.
+func (i *Info) HasEncoder(name string) bool { return i.encoders[name] }
 
-// passthroughArgs keeps every frame at its own timestamp. Without them,
+// PassthroughArgs keeps every frame at its own timestamp. Without them,
 // ffmpeg resamples MP4 to a constant rate by repeating and dropping frames.
-func (i *ffmpegInfo) passthroughArgs() []string {
+func (i *Info) PassthroughArgs() []string {
 	if i.fpsMode {
 		return []string{"-fps_mode", "passthrough"}
 	}
 	return []string{"-vsync", "passthrough"}
 }
 
-func probeFFmpeg(path string) (*ffmpegInfo, error) {
-	version, err := runFFmpeg(path, "-hide_banner", "-version")
+// Probe runs the ffmpeg binary at path for its version and encoders, once
+// per path for the life of the process.
+func Probe(path string) (*Info, error) {
+	probesMu.Lock()
+	p := probes[path]
+	if p == nil {
+		p = &cachedProbe{}
+		probes[path] = p
+	}
+	probesMu.Unlock()
+	p.once.Do(func() {
+		p.info, p.err = probeBinary(path)
+	})
+	return p.info, p.err
+}
+
+func probeBinary(path string) (*Info, error) {
+	version, err := run(path, "-hide_banner", "-version")
 	if err != nil {
 		return nil, err
 	}
-	encoders, err := runFFmpeg(path, "-hide_banner", "-encoders")
+	encoders, err := run(path, "-hide_banner", "-encoders")
 	if err != nil {
 		return nil, err
 	}
-	return &ffmpegInfo{
-		path:     path,
-		encoders: parseFFmpegEncoders(encoders),
-		fpsMode:  ffmpegHasFPSMode(version),
+	return &Info{
+		Path:     path,
+		encoders: parseEncoders(encoders),
+		fpsMode:  hasFPSMode(version),
 	}, nil
 }
 
-func runFFmpeg(path string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ffmpegProbeTimeout)
+func run(path string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, path, args...)
@@ -135,10 +113,10 @@ func runFFmpeg(path string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// parseFFmpegEncoders reads the video encoder names from "ffmpeg -encoders".
+// parseEncoders reads the video encoder names from "ffmpeg -encoders".
 // Each entry follows a "------" separator as "<flags> <name> <description>",
 // where flags start with V for video.
-func parseFFmpegEncoders(out []byte) map[string]bool {
+func parseEncoders(out []byte) map[string]bool {
 	encoders := make(map[string]bool)
 	listed := false
 	sc := bufio.NewScanner(bytes.NewReader(out))
@@ -155,10 +133,10 @@ func parseFFmpegEncoders(out []byte) map[string]bool {
 	return encoders
 }
 
-// ffmpegHasFPSMode reports whether "ffmpeg -version" output is from 5.1 or
+// hasFPSMode reports whether "ffmpeg -version" output is from 5.1 or
 // later. Builds whose version is not a release number (git snapshots such as
 // "N-113000-g..." or "2024-01-01-git-...") are assumed to be recent.
-func ffmpegHasFPSMode(version []byte) bool {
+func hasFPSMode(version []byte) bool {
 	line, _, _ := bytes.Cut(version, []byte("\n"))
 	fields := strings.Fields(string(line))
 	if len(fields) < 3 || fields[0] != "ffmpeg" || fields[1] != "version" {
@@ -177,45 +155,49 @@ func ffmpegHasFPSMode(version []byte) bool {
 	return major > 5 || (major == 5 && minor >= 1)
 }
 
-// ffmpegJob is one running encode: ffmpeg reads a stream on stdin and writes
+// Job is one running encode: ffmpeg reads a stream on stdin and writes
 // the output file itself.
-type ffmpegJob struct {
+type Job struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stderr *tailBuffer
-	// waitErr holds the result of cmd.Wait once it has run.
+	// waitOnce runs cmd.Wait once, and waitErr holds its result.
 	waitOnce sync.Once
 	waitErr  error
 }
 
-func startFFmpeg(path string, args []string) (*ffmpegJob, error) {
-	// No context: the encode runs until its input closes, and kill stops it.
+// Start runs the ffmpeg binary at path with args, which name the output.
+func Start(path string, args []string) (*Job, error) {
+	// No context: the encode runs until its input closes, and Kill stops it.
 	cmd := exec.Command(path, args...) //nolint:gosec,noctx // path is from LookPath, args from fixed profiles.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
 	}
-	stderr := &tailBuffer{limit: ffmpegStderrLimit}
+	stderr := &tailBuffer{limit: stderrLimit}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("sink: starting %s: %w", path, err)
 	}
-	return &ffmpegJob{cmd: cmd, stdin: stdin, stderr: stderr}, nil
+	return &Job{cmd: cmd, stdin: stdin, stderr: stderr}, nil
 }
 
-func (j *ffmpegJob) wait() error {
+// Stdin is ffmpeg's input, which [Job.End] and [Job.Kill] close.
+func (j *Job) Stdin() io.Writer { return j.stdin }
+
+func (j *Job) wait() error {
 	j.waitOnce.Do(func() {
 		j.waitErr = j.cmd.Wait()
 	})
 	return j.waitErr
 }
 
-// end closes ffmpeg's input, so it flushes the encode, and waits for it.
+// End closes ffmpeg's input, so it flushes the encode, and waits for it.
 // cause is why the caller is ending early, such as a failed write; ffmpeg's
 // own exit error wins over it, since a write usually fails because ffmpeg
 // exited.
-func (j *ffmpegJob) end(cause error) error {
+func (j *Job) End(cause error) error {
 	if err := j.stdin.Close(); cause == nil && !errors.Is(err, os.ErrClosed) {
 		cause = err
 	}
@@ -228,14 +210,14 @@ func (j *ffmpegJob) end(cause error) error {
 	return nil
 }
 
-// kill stops ffmpeg without letting it finish the file.
-func (j *ffmpegJob) kill() {
+// Kill stops ffmpeg without letting it finish the file.
+func (j *Job) Kill() {
 	_ = j.cmd.Process.Kill()
 	_ = j.stdin.Close()
 	_ = j.wait()
 }
 
-func (j *ffmpegJob) wrap(err error) error {
+func (j *Job) wrap(err error) error {
 	return fmt.Errorf("sink: ffmpeg encode failed: %w%s", err, stderrSuffix(j.stderr.Bytes()))
 }
 

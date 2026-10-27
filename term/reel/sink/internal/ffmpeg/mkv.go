@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+package ffmpeg
 
 import (
 	"io"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Matroska element IDs used by [mkvWriter]. IDs carry their own length
+// Matroska element IDs used by [MKV]. IDs carry their own length
 // marker, so they are written as is.
 const (
 	mkvEBML               = 0x1A45DFA3
@@ -45,7 +45,7 @@ const (
 	mkvBlockDuration      = 0x9B
 )
 
-// mkvTick is the Matroska timestamp unit [mkvWriter] declares. GIF delays are
+// mkvTick is the Matroska timestamp unit [MKV] declares. GIF delays are
 // whole centiseconds, so a millisecond tick represents them exactly.
 const mkvTick = time.Millisecond
 
@@ -53,14 +53,22 @@ const mkvTick = time.Millisecond
 // segment, which grows for as long as frames arrive.
 var mkvUnknownSize = []byte{0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 
-// mkvWriter streams uncompressed RGBA frames as a Matroska file with one video
+// MKV streams uncompressed RGBA frames as a Matroska file with one video
 // track. Each frame carries its own timestamp and duration, which a pipe of
 // raw frames cannot: ffmpeg reads it from stdin and keeps every frame's
 // timing without frames being repeated to fill a fixed rate.
-type mkvWriter struct {
+type MKV struct {
 	w io.Writer
 	// pts is the timestamp of the next frame, in [mkvTick] units.
 	pts uint64
+}
+
+// NewMKV returns an MKV writing to w.
+func NewMKV(w io.Writer) *MKV { return &MKV{w: w} }
+
+// Duration is how long the frames written so far play.
+func (m *MKV) Duration() time.Duration {
+	return time.Duration(m.pts) * mkvTick //nolint:gosec // milliseconds of recording.
 }
 
 // appendBE appends the low n bytes of v, most significant first.
@@ -105,9 +113,9 @@ func mkvElem(id uint32, parts ...[]byte) []byte {
 func mkvUint(id uint32, v uint64) []byte   { return mkvElem(id, appendMkvUint(nil, v)) }
 func mkvString(id uint32, v string) []byte { return mkvElem(id, []byte(v)) }
 
-// writeHeader writes the EBML header, the open-ended segment, and a track for
+// WriteHeader writes the EBML header, the open-ended segment, and a track for
 // width×height RGBA frames.
-func (m *mkvWriter) writeHeader(width, height int) error {
+func (m *MKV) WriteHeader(width, height int) error {
 	_, err := m.w.Write(slices.Concat(
 		mkvElem(mkvEBML,
 			mkvUint(mkvEBMLVersion, 1),
@@ -140,11 +148,11 @@ func (m *mkvWriter) writeHeader(width, height int) error {
 	return err
 }
 
-// writeFrame writes one frame of size bytes, written to w by pixels, that
+// WriteFrame writes one frame of size bytes, written to w by pixels, that
 // plays for delay. Each frame is its own cluster, so its timestamp is absolute
 // and never overflows a block's 16-bit relative timestamp. The pixels are
 // streamed between the element headers rather than joined into them.
-func (m *mkvWriter) writeFrame(size int, delay time.Duration, pixels func(w io.Writer) error) error {
+func (m *MKV) WriteFrame(size int, delay time.Duration, pixels func(w io.Writer) error) error {
 	ticks := uint64(max(delay/mkvTick, 1)) //nolint:gosec // positive.
 	timestamp := mkvUint(mkvTimestamp, m.pts)
 	duration := mkvUint(mkvBlockDuration, ticks)

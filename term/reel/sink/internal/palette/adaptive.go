@@ -2,20 +2,21 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package sink
+package palette
 
 import (
 	"cmp"
 	"encoding/binary"
 	"image"
 	"image/color"
+	"image/draw"
 	"slices"
 )
 
 const (
 	// adaptiveSlots is the number of opaque palette entries; the last slot is
-	// TransparentPaletteIndex.
-	adaptiveSlots = int(TransparentPaletteIndex)
+	// TransparentIndex.
+	adaptiveSlots = int(TransparentIndex)
 
 	// adaptiveMatchDist is the squared RGB distance under which a new color
 	// reuses an existing entry instead of claiming a slot (about 2 per channel).
@@ -43,7 +44,7 @@ const (
 	adaptivePoorDist = 300
 )
 
-// adaptivePalette builds a palette from the colors a recording actually
+// Adaptive builds a palette from the colors a recording actually
 // uses. A fixed palette such as xterm-256 has no entries between its cube
 // steps, so antialiased glyph edges snap to colors with a different hue.
 //
@@ -51,7 +52,7 @@ const (
 // first assigned. Frames palettized earlier stay valid, and identical source
 // frames always produce identical indices, which dedup and disposal
 // optimization rely on.
-type adaptivePalette struct {
+type Adaptive struct {
 	pal color.Palette
 	rgb [adaptiveSlots][3]int32
 	n   int
@@ -61,7 +62,7 @@ type adaptivePalette struct {
 	reserve bool
 	// rollover starts a fresh palette when a frame arrives with no room
 	// left for blends and maps poorly onto the entries there are (a theme
-	// change, a gradient sweeping through new hues). See [palettize].
+	// change, a gradient sweeping through new hues). See [Adaptive.Palettize].
 	rollover bool
 
 	// cache maps packed RGB to the palette index assigned to it. Spans only
@@ -90,11 +91,17 @@ func (u colorUse) solid() bool {
 	return u.count >= adaptiveSolidCount || u.flat
 }
 
-func newAdaptivePalette(reserve bool) *adaptivePalette {
-	p := &adaptivePalette{
-		reserve: reserve,
-		cache:   make(map[uint32]uint8),
-		hist:    make(map[uint32]colorUse),
+// NewAdaptive returns an empty adaptive palette. With reserve, it keeps a
+// share of its slots for solid colors that first appear in later frames,
+// which a palette for a single image should not. With rollover, it starts
+// over when a frame arrives that it has no room for (see
+// [Adaptive.Palettize]).
+func NewAdaptive(reserve, rollover bool) *Adaptive {
+	p := &Adaptive{
+		reserve:  reserve,
+		rollover: rollover,
+		cache:    make(map[uint32]uint8),
+		hist:     make(map[uint32]colorUse),
 	}
 	p.reset()
 	return p
@@ -102,18 +109,18 @@ func newAdaptivePalette(reserve bool) *adaptivePalette {
 
 // reset empties the palette into a new slice, leaving the old one to the
 // frames already mapped through it.
-func (p *adaptivePalette) reset() {
+func (p *Adaptive) reset() {
 	p.pal = make(color.Palette, adaptiveSlots+1)
 	for i := range adaptiveSlots {
 		p.pal[i] = color.RGBA{A: 0xff}
 	}
-	p.pal[TransparentPaletteIndex] = transparentMarkerColor()
+	p.pal[TransparentIndex] = transparentMarkerColor()
 	p.n = 0
 	clear(p.cache)
 }
 
 // blendRoom is how many more blends the palette may add.
-func (p *adaptivePalette) blendRoom() int {
+func (p *Adaptive) blendRoom() int {
 	if p.reserve {
 		return adaptiveSlots - adaptiveSolidReserve - p.n
 	}
@@ -127,16 +134,24 @@ func rolloverPixels(area image.Rectangle) int {
 	return max(adaptiveSolidCount, area.Dx()*area.Dy()/2000)
 }
 
-// palettize maps src into dst, first growing the palette with colors src
-// introduces. dst.Palette must be p.pal. Alpha 0 writes
-// TransparentPaletteIndex; other pixels map by their color alone, matching
-// [palettizeInto].
+// Palette returns the palette, which [Adaptive.Palettize] grows, and
+// replaces when it rolls over.
+func (p *Adaptive) Palette() color.Palette { return p.pal }
+
+// Len returns how many colors the palette has, out of the 255 it can hold
+// besides [TransparentIndex].
+func (p *Adaptive) Len() int { return p.n }
+
+// Palettize maps src into dst, first growing the palette with colors src
+// introduces. dst.Palette must be [Adaptive.Palette]. Alpha 0 writes
+// TransparentIndex; other pixels map by their color alone, matching
+// [Palettize].
 //
 // With rollover, a palette that has no room left for blends when src arrives
 // starts over if src maps poorly onto it, and dst.Palette is replaced with the
 // new palette. A palette with room left never rolls over, though median cut
 // can leave some of a busy frame's blends far from every entry.
-func (p *adaptivePalette) palettize(dst *image.Paletted, src image.Image) {
+func (p *Adaptive) Palettize(dst *image.Paletted, src image.Image) {
 	var px rgbaPixels
 	switch s := src.(type) {
 	case *image.NRGBA:
@@ -144,7 +159,8 @@ func (p *adaptivePalette) palettize(dst *image.Paletted, src image.Image) {
 	case *image.RGBA:
 		px = rgbaPixels{pix: s.Pix, stride: s.Stride, rect: s.Rect, premultiplied: true}
 	default:
-		n := asNRGBA(src)
+		n := image.NewNRGBA(src.Bounds())
+		draw.Draw(n, n.Rect, src, n.Rect.Min, draw.Src)
 		px = rgbaPixels{pix: n.Pix, stride: n.Stride, rect: n.Rect}
 	}
 	area := px.rect.Intersect(dst.Bounds())
@@ -176,13 +192,13 @@ func (p *adaptivePalette) palettize(dst *image.Paletted, src image.Image) {
 		// The fresh palette has room, so this does not roll over again.
 		p.reset()
 		dst.Palette = p.pal
-		p.palettize(dst, src)
+		p.Palettize(dst, src)
 		return
 	}
 	runPalettizeSpans(dst, px, area, p)
 }
 
-func (p *adaptivePalette) resetSpans(n int) {
+func (p *Adaptive) resetSpans(n int) {
 	for i := range p.spanMisses {
 		clear(p.spanMisses[i])
 	}
@@ -197,8 +213,8 @@ func (p *adaptivePalette) resetSpans(n int) {
 //
 // Terminal frames are mostly flat runs, so each run of identical pixel words
 // is looked up and counted once, weighted by its length. Alpha 0 pixels all
-// map to TransparentPaletteIndex whatever their color, so they form one run.
-func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels, area image.Rectangle, minY, maxY int) {
+// map to TransparentIndex whatever their color, so they form one run.
+func (p *Adaptive) writeSpan(span int, dst *image.Paletted, px rgbaPixels, area image.Rectangle, minY, maxY int) {
 	width := area.Dx()
 	misses := p.spanMisses[span]
 	le := binary.LittleEndian
@@ -216,7 +232,7 @@ func (p *adaptivePalette) writeSpan(span int, dst *image.Paletted, px rgbaPixels
 			w &= mask
 			end := runEnd(row, x, w, mask)
 
-			idx := TransparentPaletteIndex
+			idx := TransparentIndex
 			if w>>24 != 0 {
 				r, g, b := uint8(w), uint8(w>>8), uint8(w>>16)
 				if a := uint8(w >> 24); px.premultiplied && a != 0xff {
@@ -299,7 +315,7 @@ func runEnd(row []byte, x int, w, mask uint32) int {
 // grow adds palette entries for colors in hist that no entry already covers.
 // Solid colors get exact entries first. Blends are added exactly when they
 // fit, otherwise median cut picks representatives.
-func (p *adaptivePalette) grow() {
+func (p *Adaptive) grow() {
 	if p.n == adaptiveSlots {
 		return
 	}
@@ -350,7 +366,7 @@ func (p *adaptivePalette) grow() {
 	}
 }
 
-func (p *adaptivePalette) add(key uint32) {
+func (p *Adaptive) add(key uint32) {
 	r, g, b := uint8(key>>16), uint8(key>>8), uint8(key) //nolint:gosec // packed 8-bit channels.
 	p.pal[p.n] = color.RGBA{R: r, G: g, B: b, A: 0xff}
 	p.rgb[p.n] = [3]int32{int32(r), int32(g), int32(b)}
@@ -359,7 +375,7 @@ func (p *adaptivePalette) add(key uint32) {
 
 // nearestDist returns the closest used entry to key and its squared RGB
 // distance. With no entries it returns index 0.
-func (p *adaptivePalette) nearestDist(key uint32) (idx uint8, dist int32) {
+func (p *Adaptive) nearestDist(key uint32) (idx uint8, dist int32) {
 	r, g, b := int32(key>>16&0xff), int32(key>>8&0xff), int32(key&0xff)
 	best := 0
 	dist = 1 << 30

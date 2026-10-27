@@ -15,7 +15,7 @@ import (
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Progress bar colors when the palette does not set them.
@@ -43,19 +43,19 @@ const (
 )
 
 // shownProgress is the progress the bar draws for st: none when the bar is
-// disabled, or st shows none (see [screen.State.ShownProgress]) or one of a
+// disabled, or st shows none (see [vt.State.ShownProgress]) or one of a
 // state this renderer does not know.
-func (d *Renderer) shownProgress(st screen.State) screen.Progress {
-	if p := st.ShownProgress(); d.opts.ProgressBar && p.State <= screen.ProgressPause {
+func (d *Renderer) shownProgress(st vt.State) vt.Progress {
+	if p := st.ShownProgress(); d.opts.ProgressBar && p.State <= vt.ProgressPause {
 		return p
 	}
-	return screen.Progress{}
+	return vt.Progress{}
 }
 
 // progressAnimates reports whether p is drawn as a moving segment, which
 // changes with the clock: indeterminate, or an error with no percent.
-func progressAnimates(p screen.Progress) bool {
-	return p.State == screen.ProgressIndeterminate || (p.State == screen.ProgressError && p.Percent < 0)
+func progressAnimates(p vt.Progress) bool {
+	return p.State == vt.ProgressIndeterminate || (p.State == vt.ProgressError && p.Percent < 0)
 }
 
 // layoutProgress sets the progress f draws and the strip it is drawn in: the
@@ -88,14 +88,14 @@ func (f *renderFrame) progressBand() image.Rectangle {
 	return band
 }
 
-func (f *renderFrame) progressColor(state screen.ProgressState) color.NRGBA {
+func (f *renderFrame) progressColor(state vt.ProgressState) color.NRGBA {
 	c, def := f.palette.Progress, defaultProgress
 	switch state {
-	case screen.ProgressError:
+	case vt.ProgressError:
 		c, def = f.palette.ProgressError, defaultProgressError
-	case screen.ProgressPause:
+	case vt.ProgressPause:
 		c, def = f.palette.ProgressPause, defaultProgressPause
-	case screen.ProgressRemove, screen.ProgressSet, screen.ProgressIndeterminate:
+	case vt.ProgressRemove, vt.ProgressSet, vt.ProgressIndeterminate:
 	}
 	return paletteNRGBA(c, def)
 }
@@ -116,7 +116,7 @@ func paletteNRGBA(c color.Color, def color.NRGBA) color.NRGBA {
 // middle, with a tail that fades out behind it.
 func (d *Renderer) drawProgress(dst draw.Image, f *renderFrame) {
 	bar, p := f.progressBounds, f.progress
-	if p.State == screen.ProgressRemove || !bar.Overlaps(dst.Bounds()) {
+	if p.State == vt.ProgressRemove || !bar.Overlaps(dst.Bounds()) {
 		return
 	}
 
@@ -127,7 +127,7 @@ func (d *Renderer) drawProgress(dst draw.Image, f *renderFrame) {
 		progressSweepRow(row, f.at, float64(bar.Dy()))
 	} else {
 		pct := p.Percent
-		if pct < 0 && p.State == screen.ProgressPause {
+		if pct < 0 && p.State == vt.ProgressPause {
 			pct = 100
 		}
 		fill := float64(w) * float64(units.Clamp(pct, 0, 100)) / 100

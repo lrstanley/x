@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // Effects are the Ghostty terminal callbacks from
@@ -146,13 +145,6 @@ func (t *Terminal) onClipboardWrite(_, _, req int32) {
 	t.replyClipboardWrite(req)
 }
 
-// onClipboardRead handles a clipboard read request. The reply is
-// built from [Terminal.SetClipboard] and passed back through the
-// table index stored on the GhosttyClipboardRead.
-func (t *Terminal) onClipboardRead(_, _, req int32) {
-	t.replyClipboardRead(req)
-}
-
 // onNotification copies the title and body GhosttyStrings off req.
 // req is a GhosttyTerminalDesktopNotification.
 func (t *Terminal) onNotification(_, _, req int32) {
@@ -169,7 +161,7 @@ func (t *Terminal) onNotification(_, _, req int32) {
 func (t *Terminal) onProgress(_, _, req int32) {
 	state := t.mod.I32(req, wasmvt.TerminalProgressReportStateOff)
 	pct := int(int8(t.mod.U8(req, wasmvt.TerminalProgressReportProgressOff)))
-	t.progress = screen.Progress{Reported: true, State: progressState(state), Percent: pct}
+	t.progress = Progress{Reported: true, State: progressState(state), Percent: pct}
 }
 
 // onProgramStatus reads a GhosttyTerminalProgramStatus (OSC 7501).
@@ -184,7 +176,7 @@ func (t *Terminal) onProgramStatus(_, _, req int32) {
 		t.setProgramStatusesLocked(deleteProgramStatus(t.statuses, id), true)
 		return
 	}
-	rec := screen.ProgramStatus{
+	rec := ProgramStatus{
 		ID:       id,
 		State:    programState(state),
 		Kind:     programKind(kind),
@@ -193,7 +185,7 @@ func (t *Terminal) onProgramStatus(_, _, req int32) {
 		Message:  t.mod.String(req, wasmvt.TerminalProgramStatusMessageOff),
 		Progress: -1,
 	}
-	if (rec.State == screen.ProgramWorking || rec.State == screen.ProgramBlocked) && progress >= 0 && progress <= 100 {
+	if (rec.State == ProgramWorking || rec.State == ProgramBlocked) && progress >= 0 && progress <= 100 {
 		rec.Progress = progress
 	}
 	t.setProgramStatusesLocked(putProgramStatus(t.statuses, rec), true)
@@ -204,7 +196,7 @@ func (t *Terminal) onProgramStatus(_, _, req int32) {
 // arrived since the last full reset. When next is not the current records,
 // it rebuilds the sorted view, and when that differs, replaces it and bumps
 // the generation. The old view is left alone, since states may share it.
-func (t *Terminal) setProgramStatusesLocked(next []screen.ProgramStatus, reported bool) {
+func (t *Terminal) setProgramStatusesLocked(next []ProgramStatus, reported bool) {
 	t.statusReported = reported
 	if len(next) == len(t.statuses) && (len(next) == 0 || &next[0] == &t.statuses[0]) {
 		return
@@ -321,11 +313,13 @@ func (t *Terminal) replyClipboardWrite(req int32) {
 	t.mod.Call2(replyIdx, req, ptr)
 }
 
-// replyClipboardRead builds one GhosttyClipboardContent when the
-// host clipboard is non-empty, then calls the Wasm reply. The mime
-// and data bytes must stay allocated until Call2 returns. Ghostty
-// reads them during that call.
-func (t *Terminal) replyClipboardRead(req int32) {
+// onClipboardRead handles a clipboard read request, a
+// GhosttyClipboardRead. It builds one GhosttyClipboardContent when the
+// host clipboard ([Terminal.SetClipboard]) is non-empty, then calls the
+// Wasm reply through the table index stored on req. The mime and data
+// bytes must stay allocated until Call2 returns. Ghostty reads them during
+// that call.
+func (t *Terminal) onClipboardRead(_, _, req int32) {
 	replyIdx := int32(t.mod.U32(req, wasmvt.ClipboardReadReplyOff))
 	text := t.clipRead
 	var content int32
@@ -382,13 +376,13 @@ func (t *Terminal) readDataString(data int32) string {
 }
 
 // progressState maps a GhosttyTerminalProgressState, whose values
-// [screen.ProgressState] shares. A state this build does not know clears
+// [ProgressState] shares. A state this build does not know clears
 // the progress.
-func progressState(v int32) screen.ProgressState {
-	if v < 0 || v > int32(screen.ProgressPause) {
-		return screen.ProgressRemove
+func progressState(v int32) ProgressState {
+	if v < 0 || v > int32(ProgressPause) {
+		return ProgressRemove
 	}
-	return screen.ProgressState(v)
+	return ProgressState(v)
 }
 
 // programClear is the GhosttyProgramStatusState of a clear report, which
@@ -396,30 +390,30 @@ func progressState(v int32) screen.ProgressState {
 const programClear = 5
 
 // programState maps a GhosttyProgramStatusState other than [programClear].
-// [screen.ProgramState] is ordered by urgency instead of by value. A state
+// [ProgramState] is ordered by urgency instead of by value. A state
 // this build does not know is idle.
-func programState(v int32) screen.ProgramState {
+func programState(v int32) ProgramState {
 	switch v {
 	case 1:
-		return screen.ProgramWorking
+		return ProgramWorking
 	case 2:
-		return screen.ProgramDone
+		return ProgramDone
 	case 3:
-		return screen.ProgramBlocked
+		return ProgramBlocked
 	case 4:
-		return screen.ProgramError
+		return ProgramError
 	default:
-		return screen.ProgramIdle
+		return ProgramIdle
 	}
 }
 
 // programKind maps a GhosttyProgramStatusKind, whose values
-// [screen.ProgramKind] shares. A kind this build does not know is none.
-func programKind(v int32) screen.ProgramKind {
-	if v < 0 || v > int32(screen.ProgramKindAuth) {
-		return screen.ProgramKindNone
+// [ProgramKind] shares. A kind this build does not know is none.
+func programKind(v int32) ProgramKind {
+	if v < 0 || v > int32(ProgramKindAuth) {
+		return ProgramKindNone
 	}
-	return screen.ProgramKind(v)
+	return ProgramKind(v)
 }
 
 func promptName(v int32) PromptKind {
@@ -443,11 +437,11 @@ const programStatusMax = 256
 // the most recently updated, evicting the least recently updated record when
 // that would make more than programStatusMax. It returns in itself when rec
 // is already its most recent record.
-func putProgramStatus(in []screen.ProgramStatus, rec screen.ProgramStatus) []screen.ProgramStatus {
+func putProgramStatus(in []ProgramStatus, rec ProgramStatus) []ProgramStatus {
 	if len(in) > 0 && in[len(in)-1] == rec {
 		return in
 	}
-	out := make([]screen.ProgramStatus, 0, len(in)+1)
+	out := make([]ProgramStatus, 0, len(in)+1)
 	for _, old := range in {
 		if old.ID != rec.ID {
 			out = append(out, old)
@@ -462,28 +456,28 @@ func putProgramStatus(in []screen.ProgramStatus, rec screen.ProgramStatus) []scr
 // deleteProgramStatus returns in without the record id and every record
 // beneath it, or without any record for the root id. It returns in itself
 // when that removes nothing.
-func deleteProgramStatus(in []screen.ProgramStatus, id string) []screen.ProgramStatus {
-	return deleteProgramStatusFunc(in, func(rec screen.ProgramStatus) bool {
+func deleteProgramStatus(in []ProgramStatus, id string) []ProgramStatus {
+	return deleteProgramStatusFunc(in, func(rec ProgramStatus) bool {
 		return id == "" || rec.ID == id || strings.HasPrefix(rec.ID, id+"/")
 	})
 }
 
 // deleteWorking returns in without its working and blocked records, which a
 // new shell prompt ends. It returns in itself when there are none.
-func deleteWorking(in []screen.ProgramStatus) []screen.ProgramStatus {
-	return deleteProgramStatusFunc(in, func(rec screen.ProgramStatus) bool {
-		return rec.State == screen.ProgramWorking || rec.State == screen.ProgramBlocked
+func deleteWorking(in []ProgramStatus) []ProgramStatus {
+	return deleteProgramStatusFunc(in, func(rec ProgramStatus) bool {
+		return rec.State == ProgramWorking || rec.State == ProgramBlocked
 	})
 }
 
 // deleteProgramStatusFunc returns in without the records del reports, as a
 // new slice, or in itself when del reports none.
-func deleteProgramStatusFunc(in []screen.ProgramStatus, del func(screen.ProgramStatus) bool) []screen.ProgramStatus {
+func deleteProgramStatusFunc(in []ProgramStatus, del func(ProgramStatus) bool) []ProgramStatus {
 	first := slices.IndexFunc(in, del)
 	if first < 0 {
 		return in
 	}
-	out := make([]screen.ProgramStatus, first, len(in))
+	out := make([]ProgramStatus, first, len(in))
 	copy(out, in[:first])
 	for _, rec := range in[first+1:] {
 		if !del(rec) {
@@ -497,12 +491,12 @@ func deleteProgramStatusFunc(in []screen.ProgramStatus, del func(screen.ProgramS
 // its nearest ancestor that set one. It is nil when in is empty. Ids are
 // unique, and an ancestor sorts before its descendants, so each record takes
 // App from its nearest ancestor in the view, which already has its own.
-func programStatusView(in []screen.ProgramStatus) []screen.ProgramStatus {
+func programStatusView(in []ProgramStatus) []ProgramStatus {
 	if len(in) == 0 {
 		return nil
 	}
 	out := slices.Clone(in)
-	slices.SortFunc(out, func(a, b screen.ProgramStatus) int {
+	slices.SortFunc(out, func(a, b ProgramStatus) int {
 		return strings.Compare(a.ID, b.ID)
 	})
 	for i := range out {
@@ -513,7 +507,7 @@ func programStatusView(in []screen.ProgramStatus) []screen.ProgramStatus {
 				prefix = ""
 			}
 			id = prefix
-			if j, ok := slices.BinarySearchFunc(out[:i], id, func(rec screen.ProgramStatus, id string) int {
+			if j, ok := slices.BinarySearchFunc(out[:i], id, func(rec ProgramStatus, id string) int {
 				return strings.Compare(rec.ID, id)
 			}); ok {
 				out[i].App = out[j].App

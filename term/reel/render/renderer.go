@@ -15,10 +15,10 @@ import (
 	imetrics "github.com/lrstanley/x/term/reel/render/internal/metrics"
 	"github.com/lrstanley/x/term/reel/render/internal/raster"
 	"github.com/lrstanley/x/term/reel/render/types"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// Renderer rasterizes and renders a [screen.Screen] using bundled fonts, derived cell
+// Renderer rasterizes and renders a [vt.Screen] using bundled fonts, derived cell
 // metrics, palette/state-driven appearance, and terminal chrome.
 type Renderer struct {
 	mu sync.Mutex
@@ -54,7 +54,7 @@ type Renderer struct {
 
 	fgPass raster.Pass
 	// prev holds the cells d.frame shows, row-major, for drawIncremental.
-	prev []screen.Cell
+	prev []vt.Cell
 }
 
 // rendererStatus is what program status drawing keeps between frames: the
@@ -116,7 +116,7 @@ func (d *Renderer) Metrics() Metrics {
 // since, from the screen's dirty rows, the state, and at, before copying it
 // into dst. dst itself is always overwritten, never read, so the caller may
 // draw over it between calls.
-func (d *Renderer) Draw(dst *image.NRGBA, scr screen.Screen, st screen.State, at time.Duration) {
+func (d *Renderer) Draw(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -137,7 +137,7 @@ func (d *Renderer) Draw(dst *image.NRGBA, scr screen.Screen, st screen.State, at
 // paint brings d.frame up to date with scr and st as of at: as it is when it
 // already shows them, by repainting the rows and indicators that changed when
 // it can, and by painting it whole otherwise.
-func (d *Renderer) paint(scr screen.Screen, st screen.State, at time.Duration) {
+func (d *Renderer) paint(scr vt.Screen, st vt.State, at time.Duration) {
 	if d.reuseFrame(scr, st, at) || d.drawIncremental(scr, st, at) {
 		return
 	}

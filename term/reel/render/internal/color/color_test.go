@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	"github.com/lrstanley/x/term/reel/render/types"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 type testColorSource struct {
@@ -19,11 +19,11 @@ type testColorSource struct {
 	backgroundOpacity      float64
 	backgroundOpacityCells bool
 	palette                types.Palette
-	state                  screen.State
+	state                  vt.State
 }
 
 func (t testColorSource) Palette() types.Palette       { return t.palette }
-func (t testColorSource) State() screen.State          { return t.state }
+func (t testColorSource) State() vt.State              { return t.state }
 func (t testColorSource) FaintFactor() float64         { return t.faintFactor }
 func (t testColorSource) BackgroundOpacity() float64   { return t.backgroundOpacity }
 func (t testColorSource) BackgroundOpacityCells() bool { return t.backgroundOpacityCells }
@@ -140,23 +140,23 @@ func TestResolveCellColorsNRGBAAttrs(t *testing.T) {
 		t.Fatalf("defaults fg=%+v bg=%+v", fg, bg)
 	}
 
-	cell := &screen.Cell{Style: screen.Style{
+	cell := &vt.Cell{Style: vt.Style{
 		Fg:    color.NRGBA{R: 10, A: 255},
 		Bg:    color.NRGBA{G: 20, A: 255},
-		Attrs: screen.AttrReverse,
+		Attrs: vt.AttrReverse,
 	}}
 	fg, bg = icol.ResolveCellColorsNRGBA(src, cell)
 	if fg.G != 20 || bg.R != 10 {
 		t.Fatalf("reverse swap fg=%+v bg=%+v", fg, bg)
 	}
 
-	cell.Style.Attrs = screen.AttrFaint
+	cell.Style.Attrs = vt.AttrFaint
 	fg, bg = icol.ResolveCellColorsNRGBA(src, cell)
 	if fg == icol.NRGBA(cell.Style.Fg) {
 		t.Fatal("faint should blend fg toward bg")
 	}
 
-	cell.Style.Attrs = screen.AttrConceal
+	cell.Style.Attrs = vt.AttrConceal
 	fg, _ = icol.ResolveCellColorsNRGBA(src, cell)
 	if fg != bg {
 		t.Fatalf("conceal fg = %+v, want bg %+v", fg, bg)
@@ -169,11 +169,11 @@ func TestCellHasExplicitBackground(t *testing.T) {
 	if icol.CellHasExplicitBackground(nil) {
 		t.Fatal("nil cell should not have explicit background")
 	}
-	if !icol.CellHasExplicitBackground(&screen.Cell{Style: screen.Style{Bg: ansi.Red}}) {
+	if !icol.CellHasExplicitBackground(&vt.Cell{Style: vt.Style{Bg: ansi.Red}}) {
 		t.Fatal("explicit bg should be detected")
 	}
-	if !icol.CellHasExplicitBackground(&screen.Cell{Style: screen.Style{
-		Fg: ansi.Red, Attrs: screen.AttrReverse,
+	if !icol.CellHasExplicitBackground(&vt.Cell{Style: vt.Style{
+		Fg: ansi.Red, Attrs: vt.AttrReverse,
 	}}) {
 		t.Fatal("reverse with fg should count as explicit background")
 	}

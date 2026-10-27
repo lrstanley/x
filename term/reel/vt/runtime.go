@@ -6,6 +6,7 @@ package vt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -112,7 +113,7 @@ func newTerminal(rt *Runtime, cols, rows, scrollback int) (*Terminal, error) {
 	return term, nil
 }
 
-var errClosed = fmt.Errorf("vt: terminal is closed")
+var errClosed = errors.New("vt: terminal is closed")
 
 // ErrNoValue means a libghostty read had nothing to return, such as a
 // selection on an empty cell or a search with no matches.

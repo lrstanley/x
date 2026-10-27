@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in the
 // LICENSE file.
 
-// Package render rasterizes [screen.Screen] buffers into images for
+// Package render rasterizes [vt.Screen] buffers into images for
 // tests, docs, and GIF generation. Rendering follows Ghostty-aligned font
 // metrics, palette resolution, and terminal chrome (cursor, scrollbar, focus).
 //
@@ -15,9 +15,9 @@
 //	)
 //	cols, rows := scr.Bounds().Dx(), scr.Bounds().Dy()
 //	img := image.NewNRGBA(d.Layout(cols, rows).Image)
-//	d.Draw(img, scr, screen.State{Focused: true}, 0)
+//	d.Draw(img, scr, vt.State{Focused: true}, 0)
 //
-// Each draw takes the [screen.State] around the grid, which the emulator
+// Each draw takes the [vt.State] around the grid, which the emulator
 // fills, and an offset into the timeline that blinking and animated parts of
 // the image take their phase from. The zero state draws an unfocused window
 // in the renderer's default colors. [Renderer.Draw] copies into an image the
@@ -25,15 +25,15 @@
 // copy of the last image, and repaints only what changed since.
 //
 // [Renderer] owns the full draw pipeline: window background, optional title bar
-// ([WithWindowChrome], showing [screen.State.Title]), cell backgrounds, cell
+// ([WithWindowChrome], showing [vt.State.Title]), cell backgrounds, cell
 // foregrounds (glyphs and decorations), cursor, OSC 9;4 progress bar
-// ([WithProgressBar], from [screen.State.ShownProgress]), scrollbar gutter,
+// ([WithProgressBar], from [vt.State.ShownProgress]), scrollbar gutter,
 // unfocused dimming overlay, an antialiased rounding mask on the terminal
 // window, then the OSC 7501 program status outline around it.
 //
 // OSC 7501 program status ([WithProgramStatus], from
-// [screen.State.ProgramStatuses]) is drawn only with window chrome. The most
-// urgent record (see [screen.ProgramState]) replaces the title with its icon,
+// [vt.State.ProgramStatuses]) is drawn only with window chrome. The most
+// urgent record (see [vt.ProgramState]) replaces the title with its icon,
 // spinner, or percent, title, and message, and colors a thin outline just
 // outside the window edge. The other records show as dots after the title.
 // Title bar text, the window title included, is drawn as plain text with

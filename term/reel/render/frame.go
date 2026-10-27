@@ -15,7 +15,7 @@ import (
 	"github.com/lrstanley/x/term/reel/render/internal/pool"
 	"github.com/lrstanley/x/term/reel/render/types"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	"golang.org/x/image/font"
 )
 
@@ -31,7 +31,7 @@ type renderFrame struct {
 	opts                 config.Options
 
 	at              time.Duration
-	st              screen.State
+	st              vt.State
 	screenBounds    image.Rectangle
 	imageBounds     image.Rectangle
 	windowBounds    image.Rectangle
@@ -39,9 +39,9 @@ type renderFrame struct {
 	gridBounds      image.Rectangle
 	scrollbarBounds image.Rectangle
 	progressBounds  image.Rectangle
-	progress        screen.Progress
+	progress        vt.Progress
 	status          frameStatus
-	cursorCell      *screen.Cell
+	cursorCell      *vt.Cell
 	cellW           int
 	cellH           int
 }
@@ -70,7 +70,7 @@ var renderFramePool = pool.Pool[*renderFrame]{
 }
 
 // borrowRenderFrame lays out a frame for scr with st at origin, as of at.
-func (d *Renderer) borrowRenderFrame(origin image.Point, scr screen.Screen, st screen.State, at time.Duration) *renderFrame {
+func (d *Renderer) borrowRenderFrame(origin image.Point, scr vt.Screen, st vt.State, at time.Duration) *renderFrame {
 	f := renderFramePool.Get()
 	d.populateRenderFrame(f, origin, scr, st, at)
 	return f
@@ -89,7 +89,7 @@ func (d *Renderer) chromeHeight() int {
 	return cellH + cellH/2
 }
 
-func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr screen.Screen, st screen.State, at time.Duration) {
+func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr vt.Screen, st vt.State, at time.Duration) {
 	if scr == nil {
 		panic("render: nil screen")
 	}
@@ -154,7 +154,7 @@ func (f *renderFrame) CursorBlinkSpeed() time.Duration { return f.opts.CursorBli
 
 func (f *renderFrame) Palette() types.Palette { return f.palette }
 
-func (f *renderFrame) State() screen.State { return f.st }
+func (f *renderFrame) State() vt.State { return f.st }
 
 func (f *renderFrame) FaintFactor() float64 { return f.opts.FaintFactor }
 
@@ -180,7 +180,7 @@ func (f *renderFrame) ScrollbarBounds() image.Rectangle { return f.scrollbarBoun
 
 func (f *renderFrame) BoxThicknessOverride() bool { return f.boxThicknessOverride }
 
-func (f *renderFrame) FontFace(cell *screen.Cell, cluster idraw.Cluster) font.Face {
+func (f *renderFrame) FontFace(cell *vt.Cell, cluster idraw.Cluster) font.Face {
 	if f.r.fonts == nil {
 		return nil
 	}
@@ -198,9 +198,9 @@ func (f *renderFrame) UsesGridLayout(face font.Face) bool {
 	return f.r.fonts.UsesGridLayout(face)
 }
 
-func (f *renderFrame) CursorCell() *screen.Cell { return f.cursorCell }
+func (f *renderFrame) CursorCell() *vt.Cell { return f.cursorCell }
 
-func (f *renderFrame) CellColorsNRGBA(cell *screen.Cell) (fg, bg color.NRGBA) {
+func (f *renderFrame) CellColorsNRGBA(cell *vt.Cell) (fg, bg color.NRGBA) {
 	return icol.ResolveCellColorsNRGBA(f, cell)
 }
 
@@ -208,22 +208,22 @@ func (f *renderFrame) ResolvePaletteColor(c color.Color) color.Color {
 	return icol.ResolvePaletteColor(f, c)
 }
 
-func (f *renderFrame) cellBackgroundNRGBA(cell *screen.Cell) color.NRGBA {
+func (f *renderFrame) cellBackgroundNRGBA(cell *vt.Cell) color.NRGBA {
 	return icol.ResolveCellBackgroundNRGBA(f, cell)
 }
 
-func (f *renderFrame) cellBackgroundFromResolved(cell *screen.Cell, bg color.NRGBA) color.NRGBA {
+func (f *renderFrame) cellBackgroundFromResolved(cell *vt.Cell, bg color.NRGBA) color.NRGBA {
 	if icol.CellHasExplicitBackground(cell) && !f.BackgroundOpacityCells() {
 		return bg
 	}
 	return icol.ApplyAlphaNRGBA(bg, f.BackgroundOpacity())
 }
 
-func (f *renderFrame) foregroundNRGBA(style *screen.Style) color.NRGBA {
+func (f *renderFrame) foregroundNRGBA(style *vt.Style) color.NRGBA {
 	return icol.ResolveForegroundNRGBA(f, style)
 }
 
-func (f *renderFrame) backgroundNRGBA(style *screen.Style) color.NRGBA {
+func (f *renderFrame) backgroundNRGBA(style *vt.Style) color.NRGBA {
 	return icol.ResolveBackgroundNRGBA(f, style)
 }
 
@@ -242,7 +242,9 @@ func (f *renderFrame) cursorTextColorNRGBA() color.NRGBA {
 	return f.backgroundNRGBA(nil)
 }
 
-func (f *renderFrame) marginColor() color.Color {
+// MarginColor is the fill outside the window: the fill of [WithMargin], else the
+// palette's margin color, else transparent.
+func (f *renderFrame) MarginColor() color.Color {
 	if f.opts.MarginFill != nil {
 		return f.opts.MarginFill
 	}
@@ -251,5 +253,3 @@ func (f *renderFrame) marginColor() color.Color {
 	}
 	return color.NRGBA{}
 }
-
-func (f *renderFrame) MarginColor() color.Color { return f.marginColor() }

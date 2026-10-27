@@ -11,7 +11,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/vt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // View returns the current VT screen text. Harness wait, assert, and
@@ -185,13 +184,13 @@ func (h *Harness) CursorVisible() bool { return h.session.Terminal().Cursor().Vi
 func (h *Harness) CursorBlink() bool { return h.session.Terminal().Cursor().Blink }
 
 // CursorStyle returns the current VT cursor shape.
-func (h *Harness) CursorStyle() screen.CursorShape {
+func (h *Harness) CursorStyle() vt.CursorShape {
 	return h.session.Terminal().Cursor().Shape
 }
 
 // Scrollback returns a copy of the terminal's scrollback rows (oldest first).
 // It is nil in alternate screen mode.
-func (h *Harness) Scrollback() [][]screen.Cell { return h.session.Terminal().Scrollback() }
+func (h *Harness) Scrollback() [][]vt.Cell { return h.session.Terminal().Scrollback() }
 
 // ScrollbackCount returns the count of scrollback lines.
 func (h *Harness) ScrollbackCount() int { return h.session.Terminal().ScrollbackLen() }
@@ -362,7 +361,7 @@ func (h *Harness) LeftDrag(x1, y1, x2, y2 int) *Harness {
 }
 
 // Progress returns the latest OSC 9;4 progress report.
-func (h *Harness) Progress() screen.Progress { return h.session.Terminal().Progress() }
+func (h *Harness) Progress() vt.Progress { return h.session.Terminal().Progress() }
 
 // Notifications returns desktop notifications from OSC 9 and OSC 777.
 func (h *Harness) Notifications() []vt.Notification { return h.session.Terminal().Notifications() }

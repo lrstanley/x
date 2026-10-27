@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // RedactOption configures [Redact]: how it hides cells, with [Block],
@@ -178,8 +178,8 @@ type redactStage struct {
 	// terminal share, such as those a held frame is played as, and
 	// hidden is it as hidden, or nil when the region covers nothing of
 	// it. covered is the cells hidden, or nil.
-	src      *screen.Buffer
-	srcState screen.State
+	src      *vt.Buffer
+	srcState vt.State
 	hidden   *reel.CellFrame
 	covered  []bool
 }
@@ -258,12 +258,12 @@ func (s *redactStage) hideCells(cf *reel.CellFrame) (hidden *reel.CellFrame, cov
 // edit hides the cells of scr that covered holds, a grid of its size. A
 // cell of a wide character is hidden as a cell of its own, in the style
 // of the character.
-func (s *redactStage) edit(scr *screen.Buffer, covered []bool) {
+func (s *redactStage) edit(scr *vt.Buffer, covered []bool) {
 	b := scr.Bounds()
 	w := b.Dx()
 	mask := string(s.mask)
 	for y := range b.Dy() {
-		var style screen.Style
+		var style vt.Style
 		for x := range w {
 			c := scr.CellAt(b.Min.X+x, b.Min.Y+y)
 			if c.Width > 0 {
@@ -272,12 +272,12 @@ func (s *redactStage) edit(scr *screen.Buffer, covered []bool) {
 			if !covered[y*w+x] {
 				continue
 			}
-			hidden := screen.Cell{Style: style, Width: 1}
+			hidden := vt.Cell{Style: style, Width: 1}
 			switch s.mode {
 			case redactBlock:
-				hidden.Content, hidden.Style = " ", screen.Style{Bg: style.Bg}
-				if style.Attrs&screen.AttrReverse != 0 {
-					hidden.Style.Fg, hidden.Style.Attrs = style.Fg, screen.AttrReverse
+				hidden.Content, hidden.Style = " ", vt.Style{Bg: style.Bg}
+				if style.Attrs&vt.AttrReverse != 0 {
+					hidden.Style.Fg, hidden.Style.Attrs = style.Fg, vt.AttrReverse
 				}
 			case redactBlur:
 				hidden.Content = redactBlurred
@@ -291,7 +291,7 @@ func (s *redactStage) edit(scr *screen.Buffer, covered []bool) {
 
 // blur blurs the pixels of the cells covered holds in img, an image of scr,
 // each run of cells on its own, so no color bleeds in or out of them.
-func (s *redactStage) blur(img *image.NRGBA, scr *screen.Buffer, covered []bool) {
+func (s *redactStage) blur(img *image.NRGBA, scr *vt.Buffer, covered []bool) {
 	size := scr.Bounds().Size()
 	if size != s.size {
 		s.layout, s.size = s.rast.Layout(size.X, size.Y), size

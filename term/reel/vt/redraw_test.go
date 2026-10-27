@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // assertSameTerminal fails unless a and b show the same screen, scrollback,
@@ -110,7 +108,7 @@ func TestRedrawHostColors(t *testing.T) {
 	t.Parallel()
 	// Colors the host set are not the program's, so they are not written.
 	term := openTest(t, 4, 1)
-	if err := term.SetDefaultForeground(screen.Indexed(1)); err != nil {
+	if err := term.SetDefaultForeground(Indexed(1)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := term.Redraw()

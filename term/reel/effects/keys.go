@@ -17,7 +17,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 const (
@@ -36,7 +36,7 @@ var keysOpacity = [keysFadeLevels + 1]uint8{255, 192, 128, 64}
 
 // keysChip is the style of a key in the overlay: bold white on dark grey,
 // xterm 255 and 238.
-var keysChip = screen.Style{Fg: screen.Indexed(255), Bg: screen.Indexed(238), Attrs: screen.AttrBold}
+var keysChip = vt.Style{Fg: vt.Indexed(255), Bg: vt.Indexed(238), Attrs: vt.AttrBold}
 
 // keyGlyphs are the labels for the named keys of [reel.Stroke.Key]. Other
 // keys are shown by name.

@@ -11,7 +11,7 @@ import (
 
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/effects"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 const scrollbarWidthPx = 1
@@ -83,7 +83,7 @@ func (d *Renderer) layout(cols, rows int) Layout {
 // ([WithProgramStatus]). [Renderer.Draw] then repaints them as they move, and
 // a recorder that holds a frame can keep them moving with [Renderer.Repaint].
 // A blinking cursor or blinking text is not an indicator.
-func (d *Renderer) Animates(st screen.State) bool {
+func (d *Renderer) Animates(st vt.State) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.shownIndicators(st, 0).clocked()
@@ -95,7 +95,7 @@ func (d *Renderer) Animates(st screen.State) bool {
 // that holds a frame can keep the image it repainted at from instead of
 // calling [Renderer.Repaint] again. It is false for indicators that do not
 // move with the timeline.
-func (d *Renderer) Changes(st screen.State, from, to time.Duration) bool {
+func (d *Renderer) Changes(st vt.State, from, to time.Duration) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	was := d.shownIndicators(st, from)
@@ -114,7 +114,7 @@ func (d *Renderer) Changes(st screen.State, from, to time.Duration) bool {
 // The parts are drawn as of the same offset as the indicators, so a blinking
 // cursor or blinking text that reaches into them, which can only be the
 // outermost cells of the grid, may differ from the rest of the cell.
-func (d *Renderer) Repaint(dst *image.NRGBA, scr screen.Screen, st screen.State, at time.Duration) {
+func (d *Renderer) Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -133,12 +133,12 @@ func (d *Renderer) Repaint(dst *image.NRGBA, scr screen.Screen, st screen.State,
 // status draw. The value is comparable, so the frame cache can tell when they
 // change.
 type indicators struct {
-	progress screen.Progress
+	progress vt.Progress
 	status   statusView
 }
 
 // shownIndicators are the indicators drawn for st at at.
-func (d *Renderer) shownIndicators(st screen.State, at time.Duration) indicators {
+func (d *Renderer) shownIndicators(st vt.State, at time.Duration) indicators {
 	return indicators{progress: d.shownProgress(st), status: d.shownStatus(st, at)}
 }
 
@@ -186,7 +186,7 @@ func (f *renderFrame) repaintBands(old, now indicators) (b [5]image.Rectangle) {
 // so effects that run after the cells (dimming, rounded mask, cursor,
 // scrollbar, outline) apply to fresh pixels. Overlapping bands are each
 // repainted whole, so the overlap comes out the same.
-func (d *Renderer) renderBands(dst *image.NRGBA, scr screen.Screen, f *renderFrame, bands ...image.Rectangle) {
+func (d *Renderer) renderBands(dst *image.NRGBA, scr vt.Screen, f *renderFrame, bands ...image.Rectangle) {
 	for _, band := range bands {
 		if band = band.Intersect(dst.Rect); band.Empty() {
 			continue
@@ -199,7 +199,7 @@ func (d *Renderer) renderBands(dst *image.NRGBA, scr screen.Screen, f *renderFra
 // render paints f's part of dst from the background up. Glyphs go through
 // the foreground pass, which composites them once the cell backgrounds are
 // down.
-func (d *Renderer) render(dst *image.NRGBA, scr screen.Screen, f *renderFrame) {
+func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 	windowBg := d.drawBackground(dst, f)
 
 	view := f.screenBounds
@@ -219,7 +219,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr screen.Screen, f *renderFrame) {
 	c0 := max(0, (db.Min.X-gridMin.X)/cw-glyphSpill-(maxCellWidth-1))
 	c1 := min(view.Dx(), (db.Max.X-gridMin.X+cw-1)/cw+glyphSpill)
 
-	var cell *screen.Cell
+	var cell *vt.Cell
 	for y := view.Min.Y + r0; y < view.Min.Y+r1; y++ {
 		row := y - view.Min.Y
 		rowY0 := gridMin.Y + row*cellH
@@ -239,7 +239,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr screen.Screen, f *renderFrame) {
 		for x := view.Min.X + c0; x < view.Min.X+c1; x++ {
 			cell = scr.CellAt(x, y)
 			if cell == nil {
-				cell = &screen.EmptyCell
+				cell = &vt.EmptyCell
 			}
 			if cell.Width == 0 {
 				continue

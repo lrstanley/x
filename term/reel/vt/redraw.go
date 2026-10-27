@@ -12,7 +12,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
-	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // Redraw returns VT bytes that, written to a fresh terminal of the same size,
@@ -186,14 +185,14 @@ func (t *Terminal) formatVTLocked(extras bool) ([]byte, error) {
 }
 
 // cursorShape returns the DECSCUSR sequence for c's shape and blinking.
-func cursorShape(c screen.Cursor) string {
+func cursorShape(c Cursor) string {
 	var style int
 	switch c.Shape {
-	case screen.CursorUnderline:
+	case CursorUnderline:
 		style = 3
-	case screen.CursorBar:
+	case CursorBar:
 		style = 5
-	case screen.CursorBlock, screen.CursorBlockHollow:
+	case CursorBlock, CursorBlockHollow:
 		style = 1
 	}
 	if !c.Blink {
@@ -204,8 +203,8 @@ func cursorShape(c screen.Cursor) string {
 
 // progressVT returns the OSC 9;4 report that sets p, or nothing when there
 // is none.
-func progressVT(p screen.Progress) string {
-	if !p.Reported || p.State == screen.ProgressRemove {
+func progressVT(p Progress) string {
+	if !p.Reported || p.State == ProgressRemove {
 		return ""
 	}
 	seq := fmt.Sprintf("\x1b]9;4;%d", p.State)
@@ -216,7 +215,7 @@ func progressVT(p screen.Progress) string {
 }
 
 // programStatusVT returns the OSC 7501 report of s.
-func programStatusVT(s screen.ProgramStatus) string {
+func programStatusVT(s ProgramStatus) string {
 	return ansi.SetProgramStatus(ansi.ProgramStatus{
 		State:       ansi.ProgramState(s.State.String()),
 		ID:          s.ID,

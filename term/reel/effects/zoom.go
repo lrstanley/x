@@ -14,7 +14,7 @@ import (
 
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // zoomMargin is the cells [Zoom] keeps around its region on every side when
@@ -167,7 +167,7 @@ type zoomStage struct {
 	// target is the zoom being shown, or nil.
 	target *zoomTarget
 	// buf holds the cells the cell renderer drew last, into img.
-	buf *screen.Buffer
+	buf *vt.Buffer
 	img *image.NRGBA
 	// scratch is the image transitions are scaled into.
 	scratch *image.RGBA
@@ -367,7 +367,7 @@ func cellSpan(off, cell float64, size, n int) (c0, c1 int) {
 func (s *zoomStage) drawCells(t *zoomTarget, cf *reel.CellFrame) *image.NRGBA {
 	c := t.crop
 	if s.buf == nil || s.buf.Bounds().Size() != c.Size() {
-		s.buf = screen.NewBuffer(c.Dx(), c.Dy())
+		s.buf = vt.NewBuffer(c.Dx(), c.Dy())
 	} else {
 		s.buf.ClearDirty()
 	}

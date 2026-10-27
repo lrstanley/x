@@ -19,7 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Position represents a position in the terminal.
@@ -82,20 +82,20 @@ func (c *Color) UnmarshalText(text []byte) error {
 
 // Cursor represents the cursor state.
 type Cursor struct {
-	Position Position           `json:"position"       yaml:"position"`
-	Visible  bool               `json:"visible"        yaml:"visible"`
-	Color    Color              `json:"color,omitzero" yaml:"color,omitzero"`
-	Style    screen.CursorShape `json:"style"          yaml:"style"`
-	Blink    bool               `json:"blink"          yaml:"blink"`
+	Position Position       `json:"position"       yaml:"position"`
+	Visible  bool           `json:"visible"        yaml:"visible"`
+	Color    Color          `json:"color,omitzero" yaml:"color,omitzero"`
+	Style    vt.CursorShape `json:"style"          yaml:"style"`
+	Blink    bool           `json:"blink"          yaml:"blink"`
 }
 
 // Style represents the Style of a cell.
 type Style struct {
-	Fg             Color            `json:"fg,omitzero"              yaml:"fg,omitzero"`
-	Bg             Color            `json:"bg,omitzero"              yaml:"bg,omitzero"`
-	UnderlineColor Color            `json:"underline_color,omitzero" yaml:"underline_color,omitzero"`
-	Underline      screen.Underline `json:"underline,omitempty"      yaml:"underline,omitempty"`
-	Attrs          screen.Attr      `json:"attrs,omitempty"          yaml:"attrs,omitempty"`
+	Fg             Color        `json:"fg,omitzero"              yaml:"fg,omitzero"`
+	Bg             Color        `json:"bg,omitzero"              yaml:"bg,omitzero"`
+	UnderlineColor Color        `json:"underline_color,omitzero" yaml:"underline_color,omitzero"`
+	Underline      vt.Underline `json:"underline,omitempty"      yaml:"underline,omitempty"`
+	Attrs          vt.Attr      `json:"attrs,omitempty"          yaml:"attrs,omitempty"`
 }
 
 // Link represents a hyperlink in the terminal screen.
@@ -123,7 +123,7 @@ type Cell struct {
 }
 
 // FromCell copies a grid cell into c.
-func (c *Cell) FromCell(cell *screen.Cell) *Cell {
+func (c *Cell) FromCell(cell *vt.Cell) *Cell {
 	if cell == nil {
 		return nil
 	}
@@ -199,7 +199,7 @@ func (ss *ScreenSnapshot) Compare(tb testing.TB, other *ScreenSnapshot, _ ...Opt
 
 // WithScreenBuffer updates the ScreenSnapshot with the contents of the given
 // screen buffer (Rows, Cols, Cells).
-func (ss *ScreenSnapshot) WithScreenBuffer(tb testing.TB, grid *screen.Buffer, _ ...Option) *ScreenSnapshot {
+func (ss *ScreenSnapshot) WithScreenBuffer(tb testing.TB, grid *vt.Buffer, _ ...Option) *ScreenSnapshot {
 	tb.Helper()
 	if grid == nil {
 		ss.Rows, ss.Cols, ss.Cells = 0, 0, nil
@@ -224,12 +224,12 @@ func (ss *ScreenSnapshot) WithScreenBuffer(tb testing.TB, grid *screen.Buffer, _
 
 // AsScreenBuffer converts plain text into a cell grid. Each rune is one cell.
 // The trailing newline does not add an empty row.
-func AsScreenBuffer(tb testing.TB, v string, opts ...Option) *screen.Buffer {
+func AsScreenBuffer(tb testing.TB, v string, opts ...Option) *vt.Buffer {
 	tb.Helper()
 	cfg := collectOptions(tb, opts...)
 	text := normalize(v, cfg)
 	if text == "" {
-		return screen.NewBuffer(0, 0)
+		return vt.NewBuffer(0, 0)
 	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	width := 0
@@ -238,11 +238,11 @@ func AsScreenBuffer(tb testing.TB, v string, opts ...Option) *screen.Buffer {
 			width = n
 		}
 	}
-	buf := screen.NewBuffer(width, len(lines))
+	buf := vt.NewBuffer(width, len(lines))
 	for y, line := range lines {
 		x := 0
 		for _, r := range line {
-			buf.SetCell(x, y, &screen.Cell{Content: string(r), Width: 1})
+			buf.SetCell(x, y, &vt.Cell{Content: string(r), Width: 1})
 			x++
 		}
 	}

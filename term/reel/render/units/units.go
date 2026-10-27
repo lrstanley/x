@@ -10,16 +10,6 @@ import (
 	"math"
 )
 
-func clamp[T cmp.Ordered](v, vmin, vmax T) T {
-	if v < vmin {
-		return vmin
-	}
-	if v > vmax {
-		return vmax
-	}
-	return v
-}
-
 // Px is a whole device-pixel count along one axis, as used for final raster
 // sizes and integer layout.
 type Px int
@@ -53,7 +43,7 @@ type Adjustment float64
 
 // NewAdjustment returns a clamped adjustment in [-1, 1].
 func NewAdjustment(v float64) Adjustment {
-	return Adjustment(clamp(v, -1.0, 1.0))
+	return Adjustment(Clamp(v, -1.0, 1.0))
 }
 
 // Apply scales a positive pixel baseline by (1+a), rounds to int, and returns
@@ -64,5 +54,5 @@ func (a Adjustment) Apply(v int) int {
 
 // Clamp clamps v to [vmin, vmax].
 func Clamp[T cmp.Ordered](v, vmin, vmax T) T {
-	return clamp(v, vmin, vmax)
+	return min(max(v, vmin), vmax)
 }

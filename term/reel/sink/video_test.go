@@ -22,6 +22,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/sink/internal/ffmpeg"
+	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
 
 // fakeFFmpegEnv makes the test binary act as an ffmpeg 4.4 build that has
@@ -63,7 +66,7 @@ func useFakeFFmpeg(t *testing.T) Option {
 }
 
 // requireVideo skips the test unless ffmpeg can encode format.
-func requireVideo(t *testing.T, format Format) *ffmpegInfo {
+func requireVideo(t *testing.T, format Format) *ffmpeg.Info {
 	t.Helper()
 	if err := CheckVideo(format); err != nil {
 		t.Skipf("skipping %s: %v", format, err)
@@ -77,9 +80,9 @@ func requireVideo(t *testing.T, format Format) *ffmpegInfo {
 
 // verifyVideo fails the test unless ffmpeg decodes path without errors.
 // ffmpeg cannot decode animated WebP, so WebP is checked by [webpDelays].
-func verifyVideo(t *testing.T, info *ffmpegInfo, path string) {
+func verifyVideo(t *testing.T, info *ffmpeg.Info, path string) {
 	t.Helper()
-	out, err := exec.Command(info.path, "-v", "error", "-i", path, "-f", "null", "-").CombinedOutput() //nolint:gosec // test.
+	out, err := exec.Command(info.Path, "-v", "error", "-i", path, "-f", "null", "-").CombinedOutput() //nolint:gosec // test.
 	if err != nil || len(bytes.TrimSpace(out)) > 0 {
 		t.Fatalf("ffmpeg could not decode %s: %v\n%s", path, err, out)
 	}
@@ -92,9 +95,9 @@ var (
 
 // videoTimeline decodes path and returns each frame's start time and the
 // container duration.
-func videoTimeline(t *testing.T, info *ffmpegInfo, path string) (starts []time.Duration, total time.Duration) {
+func videoTimeline(t *testing.T, info *ffmpeg.Info, path string) (starts []time.Duration, total time.Duration) {
 	t.Helper()
-	out, err := exec.Command(info.path, "-hide_banner", "-nostdin", "-i", path, "-vf", "showinfo", "-f", "null", "-").CombinedOutput() //nolint:gosec // test.
+	out, err := exec.Command(info.Path, "-hide_banner", "-nostdin", "-i", path, "-vf", "showinfo", "-f", "null", "-").CombinedOutput() //nolint:gosec // test.
 	if err != nil {
 		t.Fatalf("decoding %s: %v\n%s", path, err, out)
 	}
@@ -121,11 +124,11 @@ func parseSeconds(t *testing.T, s string) time.Duration {
 }
 
 // decodeRGB decodes every frame of path as packed RGB.
-func decodeRGB(t *testing.T, info *ffmpegInfo, path string, w, h int) [][]byte {
+func decodeRGB(t *testing.T, info *ffmpeg.Info, path string, w, h int) [][]byte {
 	t.Helper()
-	args := append([]string{"-v", "error", "-i", path}, info.passthroughArgs()...)
+	args := append([]string{"-v", "error", "-i", path}, info.PassthroughArgs()...)
 	args = append(args, "-f", "rawvideo", "-pix_fmt", "rgb24", "-")
-	out, err := exec.Command(info.path, args...).Output() //nolint:gosec // test.
+	out, err := exec.Command(info.Path, args...).Output() //nolint:gosec // test.
 	if err != nil {
 		t.Fatalf("decoding %s: %v", path, err)
 	}
@@ -394,11 +397,11 @@ func TestVideoReusedImage(t *testing.T) {
 	}
 	buf := image.NewNRGBA(image.Rect(0, 0, 40, 20))
 	for i, c := range videoTestColors {
-		paintRect(buf, buf.Rect, c)
+		testutil.PaintRect(buf, buf.Rect, c)
 		if err = enc.WriteFrame(Frame{Image: buf, Delay: videoTestDelays[i]}); err != nil {
 			t.Fatal(err)
 		}
-		paintRect(buf, buf.Rect, color.NRGBA{A: 0xff})
+		testutil.PaintRect(buf, buf.Rect, color.NRGBA{A: 0xff})
 	}
 	if err = enc.Close(); err != nil {
 		t.Fatal(err)
@@ -585,25 +588,6 @@ func TestVideoQualityArgs(t *testing.T) {
 	}
 }
 
-func TestFFmpegVersionParsing(t *testing.T) {
-	t.Parallel()
-
-	for version, want := range map[string]bool{
-		"ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright": false,
-		"ffmpeg version 5.0.1 Copyright":                  false,
-		"ffmpeg version 5.1.2 Copyright":                  true,
-		"ffmpeg version n6.1 Copyright":                   true,
-		"ffmpeg version 7.1-full_build-www.gyan.dev":      true,
-		"ffmpeg version N-113000-g0123456789 Copyright":   true,
-		"ffmpeg version 2024-01-01-git-abc Copyright":     true,
-		"something else entirely":                         true,
-	} {
-		if got := ffmpegHasFPSMode([]byte(version + "\nbuilt with gcc")); got != want {
-			t.Errorf("%q: fps_mode = %v, want %v", version, got, want)
-		}
-	}
-}
-
 func TestCompositeRow(t *testing.T) {
 	t.Parallel()
 
@@ -614,33 +598,5 @@ func TestCompositeRow(t *testing.T) {
 	want := []byte{10, 20, 30, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x7f, 0xff, 0xff}
 	if !bytes.Equal(dst, want) {
 		t.Fatalf("compositeRow = %v, want %v", dst, want)
-	}
-}
-
-func TestMkvSizes(t *testing.T) {
-	t.Parallel()
-
-	for n, want := range map[uint64][]byte{
-		0:     {0x80},
-		126:   {0xFE},
-		127:   {0x40, 0x7F}, // 0xFF alone means unknown size
-		16382: {0x7F, 0xFE},
-		16383: {0x20, 0x3F, 0xFF},
-	} {
-		if got := appendMkvSize([]byte{0xAA}, n); !bytes.Equal(got, append([]byte{0xAA}, want...)) {
-			t.Errorf("size %d = % x, want aa % x", n, got, want)
-		}
-	}
-	if got := appendMkvID(nil, mkvBlock); !bytes.Equal(got, []byte{0xA1}) {
-		t.Errorf("ID %x = % x", mkvBlock, got)
-	}
-	if got := appendMkvID([]byte{1}, mkvEBML); !bytes.Equal(got, []byte{1, 0x1A, 0x45, 0xDF, 0xA3}) {
-		t.Errorf("ID %x = % x", mkvEBML, got)
-	}
-	if got := appendMkvUint(nil, 0); !bytes.Equal(got, []byte{0}) {
-		t.Errorf("uint 0 = % x", got)
-	}
-	if got := appendMkvUint(nil, 1_000_000); !bytes.Equal(got, []byte{0x0F, 0x42, 0x40}) {
-		t.Errorf("uint 1e6 = % x", got)
 	}
 }

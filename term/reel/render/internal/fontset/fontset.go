@@ -17,7 +17,7 @@ import (
 	"github.com/lrstanley/x/term/reel/render/internal/config"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/metrics"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 	xfont "golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -247,18 +247,11 @@ func (fs *Set) Close() error {
 
 // FaceForCell returns the face that draws cluster, the cluster of cell, in the
 // style of cell.
-func (fs *Set) FaceForCell(cell *screen.Cell, cluster idraw.Cluster) xfont.Face {
+func (fs *Set) FaceForCell(cell *vt.Cell, cluster idraw.Cluster) xfont.Face {
 	if fs == nil {
 		return nil
 	}
-	return fs.faceForGlyph(cellStyle(cell), cluster.Base, cluster.Marks)
-}
-
-// faceForGlyph returns the face that draws r with the combining marks over it.
-func (fs *Set) faceForGlyph(style fontStyle, r rune, marks string) xfont.Face {
-	if fs == nil {
-		return nil
-	}
+	style, r, marks := cellStyle(cell), cluster.Base, cluster.Marks
 	if marks == "" && r >= 0 && r < 0x7f {
 		if face := fs.ascii[style][r]; face != nil {
 			return face
@@ -297,12 +290,12 @@ func (fs *Set) faceForStyle(style fontStyle) xfont.Face {
 	}
 }
 
-func cellStyle(cell *screen.Cell) fontStyle {
+func cellStyle(cell *vt.Cell) fontStyle {
 	if cell == nil {
 		return fontStyleRegular
 	}
-	bold := cell.Style.Attrs&screen.AttrBold != 0
-	italic := cell.Style.Attrs&screen.AttrItalic != 0
+	bold := cell.Style.Attrs&vt.AttrBold != 0
+	italic := cell.Style.Attrs&vt.AttrItalic != 0
 	switch {
 	case bold && italic:
 		return fontStyleBoldItalic

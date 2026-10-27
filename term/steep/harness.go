@@ -19,7 +19,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 type runResult struct {
@@ -46,7 +46,7 @@ type Harness struct {
 	imageRenderer *render.Renderer
 	// imageScreen is the last viewport clone drawn by Image. Close drops
 	// it so a later draw cannot reuse a grid from before reset.
-	imageScreen *screen.Buffer
+	imageScreen *vt.Buffer
 	// image is the buffer [Harness.Image] draws into and returns.
 	image *image.NRGBA
 	// start is when the harness was created. Frames are drawn as of their

@@ -11,16 +11,16 @@ import (
 
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/sink"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // CellFrame is the terminal as a recording shows it at one point: its screen
 // and state, at an offset into the [Timeline].
 type CellFrame struct {
 	// Screen is a copy of the terminal's screen, which nothing changes.
-	Screen *screen.Buffer
+	Screen *vt.Buffer
 	// State is the terminal's state, with Focused set from the timeline.
-	State screen.State
+	State vt.State
 	// At is the offset into the timeline the terminal looked like this.
 	At time.Duration
 }
@@ -64,7 +64,7 @@ type Rasterizer interface {
 	Layout(cols, rows int) render.Layout
 	// Draw draws scr with st, as of offset at into the timeline, into dst at
 	// dst.Rect.Min, overwriting the [render.Layout.Image] of scr's size.
-	Draw(dst *image.NRGBA, scr screen.Screen, st screen.State, at time.Duration)
+	Draw(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration)
 	// Close releases the rasterizer's resources.
 	Close() error
 }
@@ -75,13 +75,13 @@ type Rasterizer interface {
 // each repainted as of the time it stands for. [render.Renderer] is one.
 type Animator interface {
 	// Animates reports whether images drawn with st move with the timeline.
-	Animates(st screen.State) bool
+	Animates(st vt.State) bool
 	// Changes reports whether an image drawn with st may look different at
 	// offset to than at from.
-	Changes(st screen.State, from, to time.Duration) bool
+	Changes(st vt.State, from, to time.Duration) bool
 	// Repaint redraws the parts of dst, an image of scr with st, that move
 	// with the timeline, as of offset at.
-	Repaint(dst *image.NRGBA, scr screen.Screen, st screen.State, at time.Duration)
+	Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration)
 }
 
 // Effect changes the frames of a recording between the [Rasterizer] and the

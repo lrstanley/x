@@ -16,7 +16,7 @@ import (
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/units"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 const (
@@ -83,29 +83,29 @@ type statusSpan struct {
 
 // statusLead is what the status title starts with: the state icon, the
 // spinner, or the percent, and whether it is an icon.
-func statusLead(drv screen.ProgramStatus, at time.Duration) (lead string, icon bool) {
+func statusLead(drv vt.ProgramStatus, at time.Duration) (lead string, icon bool) {
 	switch drv.State {
-	case screen.ProgramWorking:
+	case vt.ProgramWorking:
 		if drv.Progress >= 0 {
 			return statusPercent[units.Clamp(drv.Progress, 0, 100)], false
 		}
 		return statusSpinner[idraw.Cycle(at, statusSpin*time.Duration(len(statusSpinner)))/statusSpin], false
-	case screen.ProgramDone:
+	case vt.ProgramDone:
 		return statusIconDone, true
-	case screen.ProgramError:
+	case vt.ProgramError:
 		return statusIconError, true
-	case screen.ProgramBlocked:
+	case vt.ProgramBlocked:
 		switch drv.Kind {
-		case screen.ProgramKindPermission:
+		case vt.ProgramKindPermission:
 			return statusIconPermission, true
-		case screen.ProgramKindQuestion:
+		case vt.ProgramKindQuestion:
 			return statusIconQuestion, true
-		case screen.ProgramKindAuth:
+		case vt.ProgramKindAuth:
 			return statusIconAuth, true
-		case screen.ProgramKindNone:
+		case vt.ProgramKindNone:
 		}
 		return statusIconBlocked, true
-	case screen.ProgramIdle:
+	case vt.ProgramIdle:
 	}
 	return statusIconIdle, true
 }
@@ -116,10 +116,10 @@ func statusLead(drv screen.ProgramStatus, at time.Duration) (lead string, icon b
 // truncated, then dropped, and then the title is truncated. The lead takes
 // the state color, the title the normal title tint, and the message is
 // dimmer, so the bar stays calm.
-func (f *renderFrame) statusLabel(spans []statusSpan, drv screen.ProgramStatus, lead string, maxCells int) (out []statusSpan, cells int) {
+func (f *renderFrame) statusLabel(spans []statusSpan, drv vt.ProgramStatus, lead string, maxCells int) (out []statusSpan, cells int) {
 	fg, bg := f.foregroundNRGBA(nil), f.backgroundNRGBA(nil)
 	accent := f.statusColor(drv.State)
-	if drv.State == screen.ProgramIdle {
+	if drv.State == vt.ProgramIdle {
 		accent = icol.BlendNRGBA(bg, fg, statusIdleIconTint)
 	}
 	spans = append(spans, statusSpan{text: lead, col: accent, bold: true})

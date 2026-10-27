@@ -12,7 +12,7 @@ import (
 	"unicode"
 	"unsafe"
 
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func newRenderer(t *testing.T, opts ...Option) *Renderer {
@@ -53,7 +53,7 @@ func TestWindowChromeOffMatchesDefault(t *testing.T) {
 
 	scr := newTestScreen(10, 3)
 	a, b := newRenderer(t), newRenderer(t, WithWindowChrome(false))
-	st := screen.State{Title: "ignored"}
+	st := vt.State{Title: "ignored"}
 
 	if !bytes.Equal(drawAt(t, a, scr, st, 0).Pix, drawAt(t, b, scr, st, 0).Pix) {
 		t.Fatal("WithWindowChrome(false) changed the output")
@@ -69,15 +69,15 @@ func TestWindowChromeTitleIsLive(t *testing.T) {
 	scr := newTestScreen(30, 3)
 	d := newRenderer(t, WithWindowChrome(true))
 
-	first := drawAt(t, d, scr, screen.State{Title: "first"}, 0).Pix
+	first := drawAt(t, d, scr, vt.State{Title: "first"}, 0).Pix
 
 	// Same buffer generation: only the title differs, and it must still repaint.
-	second := drawAt(t, d, scr, screen.State{Title: "second"}, 0).Pix
+	second := drawAt(t, d, scr, vt.State{Title: "second"}, 0).Pix
 	if bytes.Equal(first, second) {
 		t.Fatal("changing the title did not change the next image")
 	}
 
-	if !bytes.Equal(first, drawAt(t, d, scr, screen.State{Title: "first"}, 0).Pix) {
+	if !bytes.Equal(first, drawAt(t, d, scr, vt.State{Title: "first"}, 0).Pix) {
 		t.Fatal("restoring the title did not restore the image")
 	}
 }
@@ -89,9 +89,9 @@ func TestWindowChromeTitleOnlyPaintsBar(t *testing.T) {
 
 	scr := newTestScreen(40, 3)
 	d := newRenderer(t, WithWindowChrome(true))
-	empty := drawAt(t, d, scr, screen.State{}, 0).Pix
+	empty := drawAt(t, d, scr, vt.State{}, 0).Pix
 
-	img := drawAt(t, d, scr, screen.State{Title: "a rather long window title  漢字 that cannot possibly fit"}, 0)
+	img := drawAt(t, d, scr, vt.State{Title: "a rather long window title  漢字 that cannot possibly fit"}, 0)
 	bar := d.layoutSnapshot(t, image.Point{}, scr).chromeBounds
 
 	below := bar.Max.Y * img.Stride
@@ -110,12 +110,12 @@ func TestWindowChromeNoTitle(t *testing.T) {
 
 	for name, tc := range map[string]struct {
 		cols  int
-		state screen.State
+		state vt.State
 	}{
-		"empty title":     {8, screen.State{}},
-		"escapes only":    {8, screen.State{Title: "\x1b[31m\x07"}},
-		"no room":         {2, screen.State{Title: "title"}},
-		"narrow, rounded": {1, screen.State{Title: "漢字"}},
+		"empty title":     {8, vt.State{}},
+		"escapes only":    {8, vt.State{Title: "\x1b[31m\x07"}},
+		"no room":         {2, vt.State{Title: "title"}},
+		"narrow, rounded": {1, vt.State{Title: "漢字"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -165,10 +165,10 @@ func TestWindowChromeTitleCentered(t *testing.T) {
 	t.Parallel()
 
 	scr := newTestScreen(30, 2)
-	scr.SetCell(0, 0, &screen.Cell{Content: "H", Width: 1})
+	scr.SetCell(0, 0, &vt.Cell{Content: "H", Width: 1})
 	d := newRenderer(t, WithWindowChrome(true), WithScale(scaleFor(16)))
-	empty := drawAt(t, d, scr, screen.State{}, 0).Pix
-	img := drawAt(t, d, scr, screen.State{Title: "HHHH"}, 0)
+	empty := drawAt(t, d, scr, vt.State{}, 0).Pix
+	img := drawAt(t, d, scr, vt.State{Title: "HHHH"}, 0)
 	f := d.layoutSnapshot(t, image.Point{}, scr)
 
 	bar := f.chromeBounds
@@ -255,7 +255,7 @@ func TestWindowChromeTitlePlain(t *testing.T) {
 	scr := newTestScreen(30, 2)
 	d := newRenderer(t, WithWindowChrome(true))
 	draw := func(title string) []byte {
-		return drawFresh(d, scr, screen.State{Title: title}, 0).Pix
+		return drawFresh(d, scr, vt.State{Title: title}, 0).Pix
 	}
 	if !bytes.Equal(draw("Run \u202egnp.exe\u202c\x1b[0m now"), draw("Run gnp.exe [0m now")) {
 		t.Fatal("a hostile window title draws differently from its visible text")

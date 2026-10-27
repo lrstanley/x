@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // Intro returns an effect that shows a card of lines for d before the first
@@ -33,7 +33,7 @@ type intro struct {
 func (e intro) Start(ctx *reel.Context) (reel.Stage, error) {
 	lines := e.lines
 	if len(lines) == 0 && ctx.Title != "" {
-		lines = []Line{{Text: ctx.Title, Style: screen.Style{Attrs: screen.AttrBold}}}
+		lines = []Line{{Text: ctx.Title, Style: vt.Style{Attrs: vt.AttrBold}}}
 	}
 	if e.d <= 0 || len(lines) == 0 {
 		return nil, nil //nolint:nilnil // A nil stage leaves the recording alone.

@@ -11,7 +11,7 @@ import (
 	"github.com/lrstanley/x/term/reel/render/internal/config"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/fontset"
-	"github.com/lrstanley/x/term/reel/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func TestBuildDefault(t *testing.T) {
@@ -44,7 +44,7 @@ func TestNilSetSafe(t *testing.T) {
 	if fs.Regular() != nil || fs.Bold() != nil || fs.Italic() != nil || fs.BoldItalic() != nil {
 		t.Fatal("nil set accessors should return nil faces")
 	}
-	if fs.FaceForCell(&screen.Cell{Content: "A"}, idraw.Cluster{Text: "A", Base: 'A'}) != nil {
+	if fs.FaceForCell(&vt.Cell{Content: "A"}, idraw.Cluster{Text: "A", Base: 'A'}) != nil {
 		t.Fatal("nil set FaceForCell should return nil")
 	}
 	if fs.UsesGridLayout(nil) {
