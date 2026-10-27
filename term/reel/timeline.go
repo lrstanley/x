@@ -205,9 +205,13 @@ func (t *Timeline) appendLocked(ev Event, at time.Duration) {
 // without polling. Taking the channel before reading the events makes sure
 // no event is missed:
 //
+//	read := 0
 //	for {
 //		updated := tl.Updated()
-//		// Read the events appended so far.
+//		for ev := range tl.EventsFrom(read) {
+//			read++
+//			// Use ev.
+//		}
 //		<-updated
 //	}
 //
@@ -279,6 +283,22 @@ func lastAt(events []Event) time.Duration {
 // Events returns an iterator over the events, oldest first.
 func (t *Timeline) Events() iter.Seq[Event] {
 	return eventsOf[Event](t)
+}
+
+// EventsFrom returns an iterator over the events from the one at index i
+// on, oldest first, as of the call. A reader of a growing timeline can pass
+// the number of events it has read, as [Timeline.Len] counts them, to read
+// only those appended since. An i past the end is no events.
+func (t *Timeline) EventsFrom(i int) iter.Seq[Event] {
+	events := t.snapshot()
+	events = events[min(max(i, 0), len(events)):]
+	return func(yield func(Event) bool) {
+		for _, ev := range events {
+			if !yield(ev) {
+				return
+			}
+		}
+	}
 }
 
 // Inputs returns an iterator over the [Input] events, oldest first.

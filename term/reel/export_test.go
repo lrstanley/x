@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/sink"
 )
@@ -31,19 +32,8 @@ func recordFrames(frames *[]Frame) Effect {
 	})
 }
 
-// frameText returns the first byte of each cell of a fakeRasterizer frame,
-// with spaces for empty cells.
-func frameText(f Frame) string {
-	var b strings.Builder
-	for i := 0; i < len(f.Image.Pix); i += 4 {
-		if c := f.Image.Pix[i]; c != 0 {
-			b.WriteByte(c)
-		} else {
-			b.WriteByte(' ')
-		}
-	}
-	return strings.TrimRight(b.String(), " ")
-}
+// frameText returns the text of a [testutil.Rasterizer] frame.
+func frameText(f Frame) string { return testutil.Text(f.Image) }
 
 // exportFrames exports tl with the fake rasterizer to a GIF, and returns the
 // frames the GIF was given.
@@ -51,7 +41,7 @@ func exportFrames(t *testing.T, tl *Timeline, p Profile) []Frame {
 	t.Helper()
 	var frames []Frame
 	p.Outputs = Files(filepath.Join(t.TempDir(), "out.gif"))
-	p.Rasterizer = &fakeRasterizer{}
+	p.Rasterizer = testutil.Rasterizer{}
 	p.Effects = append(slices.Clip(p.Effects), recordFrames(&frames))
 	if err := Export(t.Context(), tl, p); err != nil {
 		t.Fatal(err)
@@ -360,7 +350,7 @@ func TestExportStills(t *testing.T) {
 	dir := t.TempDir()
 	p := Profile{
 		Outputs:    []File{{Path: filepath.Join(dir, "{mark}.png"), Marks: []string{"one", "two"}, Options: []sink.Option{sink.WithOptimize(sink.OptimizeNone)}}},
-		Rasterizer: &fakeRasterizer{},
+		Rasterizer: testutil.Rasterizer{},
 	}
 	if err := Export(t.Context(), tl, p); err != nil {
 		t.Fatal(err)
@@ -410,12 +400,56 @@ func readPNG(t *testing.T, path string) *image.NRGBA {
 	return n
 }
 
+// closeEffect is an [Effect] that registers two closers, which log their
+// order, the second returning err.
+type closeEffect struct {
+	log *[]string
+	err error
+}
+
+func (e closeEffect) Start(ctx *Context) (Stage, error) {
+	ctx.OnClose(func() error { *e.log = append(*e.log, "first"); return nil })
+	ctx.OnClose(func() error { *e.log = append(*e.log, "second"); return e.err })
+	return func(f Frame, emit func(Frame)) { emit(f) }, nil
+}
+
+// TestExportClosesEffects checks that what effects register with OnClose
+// runs once, newest first, whether the export succeeds or not, and that its
+// errors are returned with a written export's.
+func TestExportClosesEffects(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"))
+	errClose := errors.New("close failed")
+	for _, tc := range []struct {
+		name    string
+		effects func(log *[]string) []Effect
+		want    error
+	}{
+		{"written", func(log *[]string) []Effect { return []Effect{closeEffect{log: log}} }, nil},
+		{"close fails", func(log *[]string) []Effect { return []Effect{closeEffect{log: log, err: errClose}} }, errClose},
+		{"later effect fails", func(log *[]string) []Effect { return []Effect{closeEffect{log: log}, failEffect{}} }, errEffect},
+	} {
+		var log []string
+		err := Export(t.Context(), tl, Profile{
+			Outputs:    Files(filepath.Join(t.TempDir(), "x.gif")),
+			Rasterizer: testutil.Rasterizer{},
+			Effects:    tc.effects(&log),
+		})
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s: Export = %v, want %v", tc.name, err, tc.want)
+		}
+		if !slices.Equal(log, []string{"second", "first"}) {
+			t.Errorf("%s: closers ran %q, want second then first, once", tc.name, log)
+		}
+	}
+}
+
 func TestExportErrors(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"))
 	dir := t.TempDir()
 	p := func(outputs ...File) Profile {
-		return Profile{Outputs: outputs, Rasterizer: &fakeRasterizer{}}
+		return Profile{Outputs: outputs, Rasterizer: testutil.Rasterizer{}}
 	}
 	path := filepath.Join(dir, "x.gif")
 	for _, tc := range []struct {
@@ -437,8 +471,8 @@ func TestExportErrors(t *testing.T) {
 		{"built-in var", Profile{Outputs: Files(path), Vars: map[string]string{"duration": "1"}}, "built-in path variable {duration}"},
 		{"bad fps", Profile{Outputs: Files(path), FPS: 101}, "FPS 101"},
 		{"bad speed", Profile{Outputs: Files(path), Speed: -1}, "speed -1"},
-		{"effects drop every frame", Profile{Outputs: Files(path), Rasterizer: &fakeRasterizer{}, Effects: []Effect{effectFunc(func(Frame, func(Frame)) {})}}, "dropped every frame"},
-		{"effect fails", Profile{Outputs: Files(path), Rasterizer: &fakeRasterizer{}, Effects: []Effect{failEffect{}}}, errEffect.Error()},
+		{"effects drop every frame", Profile{Outputs: Files(path), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{effectFunc(func(Frame, func(Frame)) {})}}, "dropped every frame"},
+		{"effect fails", Profile{Outputs: Files(path), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{failEffect{}}}, errEffect.Error()},
 	} {
 		err := Export(t.Context(), tl, tc.p)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -510,7 +544,7 @@ func TestExportPalette(t *testing.T) {
 		p := Profile{
 			Outputs:    Files(filepath.Join(dir, "x.cast"), filepath.Join(dir, "x.gif")),
 			Render:     tc.render,
-			Rasterizer: &fakeRasterizer{},
+			Rasterizer: testutil.Rasterizer{},
 			Effects:    []Effect{ctxEffect},
 		}
 		// The fake rasterizer does not say which palette it drew with, so

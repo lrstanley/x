@@ -3,8 +3,10 @@
 // the LICENSE file.
 
 // Command export records a terminal session without a program, by writing
-// to it directly, and exports it as a GIF, an MP4 when ffmpeg can encode
-// one, an asciicast file, and a still of the terminal at a mark.
+// to it directly and typing into it, and exports it as a GIF, an MP4 when
+// ffmpeg can encode one, an asciicast file, and a still of the terminal at a
+// mark. The recordings open on a title card, show the keys typed, and end
+// on a pause badge.
 package main
 
 import (
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/lrstanley/x/term/reel"
+	"github.com/lrstanley/x/term/reel/effects"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/sink"
 )
@@ -33,17 +36,20 @@ func main() {
 	}
 }
 
-// script is what the session shows: each step is written after a pause.
+// script is what the session shows: after a pause, each step types its
+// text, as the host would, and writes its output, as the program would.
+// Nothing reads what is typed, so the output echoes it.
 var script = []struct {
 	pause time.Duration
+	typed string
 	out   string
 	mark  string
 }{
-	{0, "\x1b]2;reel export\x07\x1b[1;36m$\x1b[0m ", ""},
-	{400 * time.Millisecond, "make build\r\n", ""},
-	{200 * time.Millisecond, "\x1b]9;4;3\x07compiling \x1b[33m...\x1b[0m", ""},
-	{1200 * time.Millisecond, "\r\x1b[K\x1b]9;4;0\x07\x1b[32m✔\x1b[0m built \x1b[1mreel\x1b[0m in 1.2s\r\n", "built"},
-	{300 * time.Millisecond, "\x1b[1;36m$\x1b[0m ", ""},
+	{0, "", "\x1b]2;reel export\x07\x1b[1;36m$\x1b[0m ", ""},
+	{400 * time.Millisecond, "make build\r", "make build\r\n", ""},
+	{200 * time.Millisecond, "", "\x1b]9;4;3\x07compiling \x1b[33m...\x1b[0m", ""},
+	{1200 * time.Millisecond, "", "\r\x1b[K\x1b]9;4;0\x07\x1b[32m✔\x1b[0m built \x1b[1mreel\x1b[0m in 1.2s\r\n", "built"},
+	{300 * time.Millisecond, "", "\x1b[1;36m$\x1b[0m ", ""},
 }
 
 // run records the script and exports it into dir, returning the paths
@@ -56,6 +62,11 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	defer s.Close()
 	for _, step := range script {
 		time.Sleep(step.pause)
+		if step.typed != "" {
+			if err = s.Type(step.typed); err != nil {
+				return nil, err
+			}
+		}
 		if _, err = s.Write([]byte(step.out)); err != nil {
 			return nil, err
 		}
@@ -82,6 +93,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	err = reel.Export(ctx, s.Timeline(), reel.Profile{
 		Outputs: outputs,
 		Render:  []render.Option{render.WithWindowChrome(true)},
+		Effects: []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.PauseBadge()},
 	})
 	if err != nil {
 		return nil, err

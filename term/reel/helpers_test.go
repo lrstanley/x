@@ -14,52 +14,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/sink"
 	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 const ms = time.Millisecond
 
-// fakeRasterizer draws each cell as one pixel, so no fonts load: red is the
-// first byte of the cell's text, green marks the cursor, and blue is set
-// while the window is focused.
-type fakeRasterizer struct {
-	draws  int
-	closed bool
-}
-
-func (*fakeRasterizer) Layout(cols, rows int) render.Layout {
-	r := image.Rect(0, 0, cols, rows)
-	return render.Layout{Image: r, Grid: r, Cell: image.Pt(1, 1), Scale: 1}
-}
-
-func (f *fakeRasterizer) Draw(dst *image.NRGBA, scr screen.Screen, st screen.State, _ time.Duration) {
-	f.draws++
-	b := scr.Bounds()
-	for y := range b.Dy() {
-		for x := range b.Dx() {
-			c := color.NRGBA{A: 0xff}
-			if cell := scr.CellAt(x, y); cell != nil && cell.Content != "" {
-				c.R = cell.Content[0]
-			}
-			if st.Cursor.Visible && st.Cursor.X == x && st.Cursor.Y == y {
-				c.G = 0x80
-			}
-			if st.Focused {
-				c.B = 0xff
-			}
-			dst.SetNRGBA(dst.Rect.Min.X+x, dst.Rect.Min.Y+y, c)
-		}
-	}
-}
-
-func (f *fakeRasterizer) Close() error { f.closed = true; return nil }
-
-// fakeAnimator is a [fakeRasterizer] whose frames animate while the title is
-// "spin", or "breathe", which only changes every 200ms. Repaint stores the
-// offset, in units of 10ms, in the alpha of the bottom right pixel.
-type fakeAnimator struct{ fakeRasterizer }
+// fakeAnimator is a [testutil.Rasterizer] whose frames animate while the
+// title is "spin", or "breathe", which only changes every 200ms. Repaint
+// stores the offset, in units of 10ms, in the alpha of the bottom right
+// pixel.
+type fakeAnimator struct{ testutil.Rasterizer }
 
 func (*fakeAnimator) Animates(st screen.State) bool {
 	return st.Title == "spin" || st.Title == "breathe"

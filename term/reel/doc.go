@@ -43,6 +43,10 @@
 //     subpackages hold the bundled fonts and shared option types.
 //   - sink encodes frames to PNG and GIF, and through ffmpeg to MP4, WebM,
 //     and animated WebP.
+//   - effects has [Effect] values: an overlay of the keys pressed, a title
+//     card before the first frame, drawn with a card renderer that effects
+//     of a caller's own can use too, and a pause badge on the held last
+//     frame.
 //
 // Apart from internal test helpers, no package in the module imports testing,
 // Bubble Tea, or steep, so any program can link them.

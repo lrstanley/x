@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/sink"
 )
 
 func TestProfileMerge(t *testing.T) {
 	t.Parallel()
-	rast := &fakeRasterizer{}
+	rast := testutil.Rasterizer{}
 	base := Profile{
 		Outputs: Files("a.gif"),
 		Render:  []render.Option{render.WithScale(2)},

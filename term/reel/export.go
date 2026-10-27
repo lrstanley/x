@@ -92,6 +92,9 @@ type recorder struct {
 	closeRast bool
 	replay    *replay
 	pipe      *pipeline
+	// effects is the context the effects were started with, closed with
+	// the recorder.
+	effects *Context
 }
 
 // newRecorder checks p and opens its outputs for tl, with a replay terminal
@@ -155,16 +158,18 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 	if !r.outs.hasRecording() {
 		return nil
 	}
-	stages, err := startEffects(p.Effects, &Context{
+	r.effects = &Context{
 		Timeline:   tl,
 		Rasterizer: r.rast,
 		Layout:     r.rast.Layout(tl.header.Cols, tl.header.Rows),
 		Render:     opts,
 		Step:       r.s.step,
 		Speed:      r.s.speed,
+		Hold:       r.s.hold,
 		Title:      title,
 		Meta:       p.Meta,
-	})
+	}
+	stages, err := startEffects(p.Effects, r.effects)
 	if err != nil {
 		return err
 	}
@@ -305,9 +310,14 @@ func (r *recorder) abort() {
 	_ = r.release()
 }
 
-// release returns the terminal and closes the rasterizer the recorder built.
+// release returns the terminal, closes what the effects opened, and closes
+// the rasterizer the recorder built.
 func (r *recorder) release() error {
 	var errs []error
+	if r.effects != nil {
+		errs = append(errs, r.effects.close())
+		r.effects = nil
+	}
 	if r.replay != nil {
 		errs = append(errs, r.replay.close())
 		r.replay = nil

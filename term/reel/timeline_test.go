@@ -172,6 +172,29 @@ func TestTimelineIteratorIsSnapshot(t *testing.T) {
 	}
 }
 
+func TestTimelineEventsFrom(t *testing.T) {
+	t.Parallel()
+	tl := testTimeline(t, Output{event: at(0), Data: []byte("a")}, Output{event: at(1), Data: []byte("b")})
+	for _, tc := range []struct {
+		from int
+		want int
+	}{{-1, 2}, {0, 2}, {1, 1}, {2, 0}, {5, 0}} {
+		if n := len(slices.Collect(tl.EventsFrom(tc.from))); n != tc.want {
+			t.Errorf("EventsFrom(%d) has %d events, want %d", tc.from, n, tc.want)
+		}
+	}
+	// A reader that has read Len events reads the ones appended since.
+	read := tl.Len()
+	tl.appendAt(Output{Data: []byte("c")}, 2*time.Millisecond)
+	got := slices.Collect(tl.EventsFrom(read))
+	if len(got) != 1 {
+		t.Fatalf("EventsFrom(%d) after an append has %d events, want 1", read, len(got))
+	}
+	if out, ok := got[0].(Output); !ok || string(out.Data) != "c" {
+		t.Fatalf("EventsFrom(%d) after an append = %v, want the event appended", read, got)
+	}
+}
+
 func TestTimelineBetween(t *testing.T) {
 	t.Parallel()
 	tl := testTimeline(t,

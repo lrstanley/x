@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lrstanley/x/term/reel/internal/testutil"
 )
 
 func openSession(t *testing.T, cols, rows int) *Session {
@@ -40,7 +42,7 @@ func TestRecordMatchesExport(t *testing.T) {
 				{Path: filepath.Join(dir, name+".cast")},
 				{Path: filepath.Join(dir, name+"-{mark}.png"), Marks: []string{"half"}},
 			},
-			Rasterizer: &fakeRasterizer{},
+			Rasterizer: testutil.Rasterizer{},
 			FPS:        100,
 		}
 	}
@@ -88,7 +90,7 @@ func TestRecordConcurrentWrites(t *testing.T) {
 	var frames []Frame
 	rec, err := Record(t.Context(), s, Profile{
 		Outputs:    Files(filepath.Join(t.TempDir(), "x.gif")),
-		Rasterizer: &fakeRasterizer{},
+		Rasterizer: testutil.Rasterizer{},
 		Effects:    []Effect{recordFrames(&frames)},
 	})
 	if err != nil {
@@ -117,7 +119,7 @@ func TestRecordCancel(t *testing.T) {
 	s := openSession(t, 4, 1)
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
-	rec, err := Record(ctx, s, Profile{Outputs: Files(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: &fakeRasterizer{}})
+	rec, err := Record(ctx, s, Profile{Outputs: Files(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: testutil.Rasterizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +150,7 @@ func TestRecordErrors(t *testing.T) {
 			{Path: filepath.Join(dir, "x.gif")},
 			{Path: filepath.Join(dir, "{mark}.png"), Marks: []string{"never"}},
 		},
-		Rasterizer: &fakeRasterizer{},
+		Rasterizer: testutil.Rasterizer{},
 	})
 	if err != nil {
 		t.Fatal(err)

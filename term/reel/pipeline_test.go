@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/vt/screen"
 )
@@ -110,7 +111,7 @@ func TestPipelineStages(t *testing.T) {
 			t.Parallel()
 			var log []string
 			out := &collectSink{}
-			p := newPipeline(&fakeRasterizer{}, settings{step: 50 * ms, speed: 1}, tc.stages(&log), out)
+			p := newPipeline(testutil.Rasterizer{}, settings{step: 50 * ms, speed: 1}, tc.stages(&log), out)
 			for i := range tc.frames {
 				cf := cellsOf(1, 1, "", 0)
 				p.push(0, Frame{Image: labelImage(uint8(i + 1)), Cells: &cf, Delay: time.Second})
@@ -189,7 +190,7 @@ func TestPipelineDelays(t *testing.T) {
 			t.Fatal(err)
 		}
 		out := &collectSink{}
-		p := newPipeline(&fakeRasterizer{}, settings{step: s.step, speed: s.speed, hold: tc.hold}, nil, out)
+		p := newPipeline(testutil.Rasterizer{}, settings{step: s.step, speed: s.speed, hold: tc.hold}, nil, out)
 		for _, at := range tc.at {
 			if err = p.record(cellsOf(1, 1, "", at)); err != nil {
 				t.Fatal(err)
@@ -251,7 +252,7 @@ func TestPipelineSweep(t *testing.T) {
 // reused, and that reuse never changes a frame already written.
 func TestPipelineReusesImages(t *testing.T) {
 	t.Parallel()
-	rast := &fakeRasterizer{}
+	rast := testutil.Rasterizer{}
 	out := &collectSink{}
 	p := newPipeline(rast, settings{step: 10 * ms, speed: 1}, nil, out)
 	for i := range 10 {

@@ -5,6 +5,7 @@
 package reel
 
 import (
+	"errors"
 	"image"
 	"time"
 
@@ -85,7 +86,9 @@ type Animator interface {
 // Effect changes the frames of a recording between the [Rasterizer] and the
 // sinks, such as an overlay of the keys pressed or a title card. Each export
 // calls Start once, so an effect shared by recordings that run in parallel
-// must keep its per-recording state in the [Stage] it returns.
+// must keep its per-recording state in the [Stage] it returns, and close
+// what it opens for one with [Context.OnClose]. The effects package has
+// some.
 type Effect interface {
 	// Start returns the stage that runs the effect for one recording, or nil
 	// to leave the recording alone.
@@ -119,10 +122,36 @@ type Context struct {
 	Step time.Duration
 	// Speed is the playback speed, [Profile.Speed].
 	Speed float64
+	// Hold is how long the last frame plays past its own time,
+	// [Profile.Hold] with its default applied: zero for none.
+	Hold time.Duration
 	// Title is [Profile.Title], or the timeline's title without one.
 	Title string
 	// Meta is [Profile.Meta], which reel passes along without reading.
 	Meta any
+
+	// closers are the functions [Context.OnClose] registered.
+	closers []func() error
+}
+
+// OnClose registers fn to run once the recording ends, whether its files are
+// written or discarded, such as to close a renderer an effect's stage built.
+// It is for an effect's Start and its stage to call. The functions run after
+// the last frame, newest first, and when the files are written, their errors
+// are returned with the recording's.
+func (c *Context) OnClose(fn func() error) {
+	c.closers = append(c.closers, fn)
+}
+
+// close runs the functions registered with [Context.OnClose], newest first,
+// once.
+func (c *Context) close() error {
+	var errs []error
+	for i := len(c.closers) - 1; i >= 0; i-- {
+		errs = append(errs, c.closers[i]())
+	}
+	c.closers = nil
+	return errors.Join(errs...)
 }
 
 // Sink writes the frames of a recording into one output, see the sink
