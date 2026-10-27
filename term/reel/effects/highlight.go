@@ -62,7 +62,7 @@ func Outline(c color.Color, px int) HighlightOption {
 // from its cells, so a [Text] region follows its text as it moves. A frame
 // the region covers no cells of is left alone, as are frames without a
 // terminal, such as cards. [Between] limits the highlight to a window of
-// the timeline, and [Ease] fades it in and out.
+// the timeline, and [Ease], [EaseIn], and [EaseOut] fade it in and out.
 //
 // The cells are mapped to pixels with the layout of the recording's
 // rasterizer, so it works with any [reel.Rasterizer]. The highlight is drawn

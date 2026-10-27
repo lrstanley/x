@@ -14,16 +14,16 @@ import (
 )
 
 // Timing is an option every effect that works on a [Region] takes, such as
-// [Highlight]: [Between] limits it to a window of the timeline, and [Ease]
-// eases it in and out.
+// [Highlight]: [Between] limits it to a window of the timeline, and [Ease],
+// [EaseIn], and [EaseOut] ease it in and out.
 type Timing func(*timing)
 
 // timing is when a region effect is on.
 type timing struct {
 	// from and to are the labels of the marks the window runs between, empty
 	// for the start and end of the recording.
-	from, to string
-	ease     time.Duration
+	from, to        string
+	easeIn, easeOut time.Duration
 }
 
 // Between limits the effect to the part of the timeline from the first mark
@@ -40,8 +40,8 @@ type timing struct {
 // missing when the recording stops is an error from
 // [reel.Recording.Stop], wrapping [reel.ErrNoMark], which still writes the
 // outputs. A from mark appended after the effect started was not known in
-// advance, so [Ease] eases the effect in after it rather than before, so it
-// is at full strength one easing after the mark.
+// advance, so [EaseIn] eases the effect in after it rather than before, so
+// it is at full strength one easing after the mark.
 func Between(from, to string) Timing {
 	return func(t *timing) { t.from, t.to = from, to }
 }
@@ -54,10 +54,26 @@ func Between(from, to string) Timing {
 // effect on and off at once. A d below zero is an error from Start. A window
 // that starts with the recording, or ends with it, has nothing to ease there,
 // and one whose start was not known in advance eases in after it (see
-// [Between]).
+// [Between]). Ease(d) is [EaseIn](d) and [EaseOut](d), and a later option
+// replaces either.
 func Ease(d time.Duration) Timing {
-	return func(t *timing) { t.ease = d }
+	return func(t *timing) { t.easeIn, t.easeOut = d, d }
 }
+
+// EaseIn is [Ease] for the start of the window only: it eases the effect in
+// over d, and leaves how it eases out alone.
+func EaseIn(d time.Duration) Timing {
+	return func(t *timing) { t.easeIn = d }
+}
+
+// EaseOut is [Ease] for the end of the window only: it eases the effect out
+// over d, and leaves how it eases in alone.
+func EaseOut(d time.Duration) Timing {
+	return func(t *timing) { t.easeOut = d }
+}
+
+// eases reports whether t eases the effect in or out.
+func (t timing) eases() bool { return t.easeIn != 0 || t.easeOut != 0 }
 
 func (o Timing) applyHighlight(h *highlight) {
 	if o != nil {
@@ -89,21 +105,22 @@ const (
 )
 
 // window is a [timing] resolved for one recording: the offsets into the
-// timeline its effect is on between, with the easing in timeline time, and
+// timeline its effect is on between, with the easings in timeline time, and
 // the recording's delay grid, speed, and hold. In a live recording, the
 // marks not yet appended are looked for by [window.update].
 type window struct {
 	from, to time.Duration
-	ease     time.Duration
-	step     time.Duration
-	speed    float64
-	hold     time.Duration
+	// easeIn is how long the effect eases in before from, or after it when
+	// late, and easeOut how long it eases out after to.
+	easeIn, easeOut time.Duration
+	step            time.Duration
+	speed           float64
+	hold            time.Duration
 	// cover is set to cover every step that shows any of the window.
 	cover bool
 	// late is set when the from mark was appended after the effect
-	// started, and easeIn is then how long the effect eases in after it.
-	late   bool
-	easeIn time.Duration
+	// started.
+	late bool
 
 	// from and to label a live window's marks, and wantFrom and wantTo are
 	// set while they are still looked for in tl, of whose events read have
@@ -120,17 +137,21 @@ type window struct {
 // reports those that never came. cov is how much of the window the effect
 // must cover.
 func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
-	if t.ease < 0 {
-		return nil, fmt.Errorf("effects: ease %v is below zero", t.ease)
+	switch {
+	case t.easeIn < 0:
+		return nil, fmt.Errorf("effects: ease in %v is below zero", t.easeIn)
+	case t.easeOut < 0:
+		return nil, fmt.Errorf("effects: ease out %v is below zero", t.easeOut)
 	}
 	w := &window{
-		from:  openFrom,
-		to:    openTo,
-		ease:  time.Duration(float64(t.ease) * ctx.Speed),
-		step:  ctx.Step,
-		speed: ctx.Speed,
-		hold:  ctx.Hold,
-		cover: cov == coverWindow,
+		from:    openFrom,
+		to:      openTo,
+		easeIn:  time.Duration(float64(t.easeIn) * ctx.Speed),
+		easeOut: time.Duration(float64(t.easeOut) * ctx.Speed),
+		step:    ctx.Step,
+		speed:   ctx.Speed,
+		hold:    ctx.Hold,
+		cover:   cov == coverWindow,
 	}
 	if t.from == "" && t.to == "" {
 		return w, nil
@@ -145,8 +166,8 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		w.update()
 		if w.wantFrom {
 			w.late = true
-			if !w.cover {
-				w.easeIn = w.ease
+			if w.cover {
+				w.easeIn = 0
 			}
 		}
 		ctx.OnClose(w.missing)
@@ -217,14 +238,14 @@ func (w *window) level(at time.Duration) float64 {
 		if w.late {
 			return 0
 		}
-		return eased(w.from-at, w.ease)
+		return eased(w.from-at, w.easeIn)
 	}
 	lv := 1.0
 	if w.late {
 		lv = 1 - eased(at-w.from, w.easeIn)
 	}
 	if at > w.to {
-		lv *= eased(at-w.to, w.ease)
+		lv *= eased(at-w.to, w.easeOut)
 	}
 	return lv
 }

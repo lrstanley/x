@@ -15,10 +15,10 @@
 // ([Text], [Regexp], [Env]), which follow it as it moves, or [Any] of
 // them. Every effect that works on a region takes the [Timing] options,
 // [Between], which limits it to a window between two marks, and [Ease],
-// which eases it in and out, besides options of its own, such as
-// [DimOthers] and [Outline] for Highlight, [Scale] and [Anchor] for Zoom,
-// and [Block], [Blur], and [Replace] for Redact, which takes only Between,
-// since easing would show part of what it hides. Redact and [RedactInputs]
+// [EaseIn], and [EaseOut], which ease it in and out, besides options of its
+// own, such as [DimOthers] and [Outline] for Highlight, [Scale] and [Anchor]
+// for Zoom, and [Block], [Blur], and [Replace] for Redact, which takes only
+// Between, since easing would show part of what it hides. Redact and [RedactInputs]
 // share [MinPartial], how much of the start or end of a secret they hide
 // where only that part of it shows.
 //

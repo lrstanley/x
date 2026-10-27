@@ -61,9 +61,9 @@ func (o Timing) applyZoom(z *zoom) {
 // terminal's grid shows the region larger (see [Scale]), placed by
 // [Anchor]. The window chrome, padding, and everything else around the grid
 // is kept as the frame has it, so the image keeps its size. [Between] limits
-// the zoom to a window of the timeline, and [Ease] eases it in and out over
-// frames on the delay grid, with the part of the screen shown moving
-// smoothly between the whole grid and the zoom.
+// the zoom to a window of the timeline, and [Ease], [EaseIn], and [EaseOut]
+// ease it in and out over frames on the delay grid, with the part of the
+// screen shown moving smoothly between the whole grid and the zoom.
 //
 // The zoom is drawn in cell space when the recording's rasterizer is a
 // [render.Renderer]: the cells it shows are drawn again by a renderer of

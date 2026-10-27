@@ -59,7 +59,7 @@ func TestWindowPieces(t *testing.T) {
 			// Easing in over 30ms before 100ms is a step each at 75ms,
 			// 85ms, and 95ms, 25ms, 15ms, and 5ms out, and out over 30ms
 			// after 150ms is 155ms, 165ms, and 175ms.
-			name: "ease", w: window{from: 100 * ms, to: 150 * ms, ease: 30 * ms},
+			name: "ease", w: window{from: 100 * ms, to: 150 * ms, easeIn: 30 * ms, easeOut: 30 * ms},
 			at: 50 * ms, delay: 200 * ms,
 			want: []piece{
 				{0, 20 * ms, 0},
@@ -74,9 +74,26 @@ func TestWindowPieces(t *testing.T) {
 			},
 		},
 		{
+			// Easing in over 20ms before 100ms is a step each at 85ms and
+			// 95ms, and out over 40ms after 150ms is 155ms to 185ms.
+			name: "ease in and out apart", w: window{from: 100 * ms, to: 150 * ms, easeIn: 20 * ms, easeOut: 40 * ms},
+			at: 50 * ms, delay: 200 * ms,
+			want: []piece{
+				{0, 30 * ms, 0},
+				{30 * ms, 10 * ms, smooth(1 - 15.0/20)},
+				{40 * ms, 10 * ms, smooth(1 - 5.0/20)},
+				{50 * ms, 50 * ms, 1},
+				{100 * ms, 10 * ms, smooth(1 - 5.0/40)},
+				{110 * ms, 10 * ms, smooth(1 - 15.0/40)},
+				{120 * ms, 10 * ms, smooth(1 - 25.0/40)},
+				{130 * ms, 10 * ms, smooth(1 - 35.0/40)},
+				{140 * ms, 60 * ms, 0},
+			},
+		},
+		{
 			// At twice the speed, a step is 20ms of the timeline, and a
 			// 20ms ease is 40ms of it: middles at 110ms and 130ms.
-			name: "speed", w: window{from: openFrom, to: 100 * ms, ease: 40 * ms, speed: 2},
+			name: "speed", w: window{from: openFrom, to: 100 * ms, easeOut: 40 * ms, speed: 2},
 			at: 0, delay: 100 * ms,
 			want: []piece{
 				{0, 50 * ms, 1},
@@ -95,7 +112,7 @@ func TestWindowPieces(t *testing.T) {
 			// The hold of the last frame, 300ms, is at the end of the
 			// timeline, 110ms, so a window to there covers it, and its
 			// easing does not play in it.
-			name: "last frame's hold", w: window{from: openFrom, to: 110 * ms, ease: 20 * ms, hold: 300 * ms},
+			name: "last frame's hold", w: window{from: openFrom, to: 110 * ms, easeOut: 20 * ms, hold: 300 * ms},
 			at: 50 * ms, delay: 360 * ms, last: true,
 			want: []piece{{0, 360 * ms, 1}},
 		},
@@ -165,7 +182,7 @@ func TestWindowCover(t *testing.T) {
 // strength changes, not at every step.
 func TestWindowLongHold(t *testing.T) {
 	t.Parallel()
-	w := window{from: time.Hour, to: 2 * time.Hour, ease: 50 * ms, step: 10 * ms, speed: 1}
+	w := window{from: time.Hour, to: 2 * time.Hour, easeIn: 50 * ms, easeOut: 50 * ms, step: 10 * ms, speed: 1}
 	got := w.pieces(reel.Frame{At: 0, Delay: 3 * time.Hour})
 	if len(got) != 1+5+1+5+1 {
 		t.Fatalf("%d pieces, want 13: off, 5 easing in, on, 5 easing out, off", len(got))
@@ -177,22 +194,28 @@ func TestTimingResolve(t *testing.T) {
 	tl := buildTimeline(t, 4, 1, "", output(0, "a"), mark(100, "on"), mark(200, "off"), mark(300, "on"), output(400, "b"))
 	ctx := &reel.Context{Timeline: tl, Step: 10 * ms, Speed: 2}
 	for _, tc := range []struct {
-		opts     []Timing
-		from, to time.Duration
-		ease     time.Duration
+		opts            []Timing
+		from, to        time.Duration
+		easeIn, easeOut time.Duration
 		// fails is set for an error, which wraps err when it is set.
 		fails bool
 		err   error
 	}{
-		{nil, openFrom, openTo, 0, false, nil},
-		{[]Timing{Between("on", "off"), Ease(50 * ms)}, 100 * ms, 200 * ms, 100 * ms, false, nil},
-		{[]Timing{Between("on", "")}, 100 * ms, openTo, 0, false, nil},
-		{[]Timing{Between("", "off")}, openFrom, 200 * ms, 0, false, nil},
+		{nil, openFrom, openTo, 0, 0, false, nil},
+		{[]Timing{Between("on", "off"), Ease(50 * ms)}, 100 * ms, 200 * ms, 100 * ms, 100 * ms, false, nil},
+		{[]Timing{EaseIn(10 * ms), EaseOut(30 * ms)}, openFrom, openTo, 20 * ms, 60 * ms, false, nil},
+		// A later option replaces either easing.
+		{[]Timing{Ease(50 * ms), EaseOut(0)}, openFrom, openTo, 100 * ms, 0, false, nil},
+		{[]Timing{EaseIn(10 * ms), Ease(50 * ms)}, openFrom, openTo, 100 * ms, 100 * ms, false, nil},
+		{[]Timing{Between("on", "")}, 100 * ms, openTo, 0, 0, false, nil},
+		{[]Timing{Between("", "off")}, openFrom, 200 * ms, 0, 0, false, nil},
 		// The first mark labeled to after the first labeled from.
-		{[]Timing{Between("off", "on")}, 200 * ms, 300 * ms, 0, false, nil},
-		{[]Timing{Between("on", "nope")}, 0, 0, 0, true, reel.ErrNoMark},
-		{[]Timing{Between("nope", "")}, 0, 0, 0, true, reel.ErrNoMark},
-		{[]Timing{Ease(-ms)}, 0, 0, 0, true, nil},
+		{[]Timing{Between("off", "on")}, 200 * ms, 300 * ms, 0, 0, false, nil},
+		{[]Timing{Between("on", "nope")}, 0, 0, 0, 0, true, reel.ErrNoMark},
+		{[]Timing{Between("nope", "")}, 0, 0, 0, 0, true, reel.ErrNoMark},
+		{[]Timing{Ease(-ms)}, 0, 0, 0, 0, true, nil},
+		{[]Timing{EaseIn(-ms)}, 0, 0, 0, 0, true, nil},
+		{[]Timing{EaseOut(-ms)}, 0, 0, 0, 0, true, nil},
 	} {
 		var tm timing
 		for _, o := range tc.opts {
@@ -209,8 +232,9 @@ func TestTimingResolve(t *testing.T) {
 			t.Errorf("%+v: %v", tm, err)
 			continue
 		}
-		if w.from != tc.from || w.to != tc.to || w.ease != tc.ease {
-			t.Errorf("%+v: window %v to %v easing %v, want %v to %v easing %v", tm, w.from, w.to, w.ease, tc.from, tc.to, tc.ease)
+		if w.from != tc.from || w.to != tc.to || w.easeIn != tc.easeIn || w.easeOut != tc.easeOut {
+			t.Errorf("%+v: window %v to %v easing in %v and out %v, want %v to %v easing in %v and out %v",
+				tm, w.from, w.to, w.easeIn, w.easeOut, tc.from, tc.to, tc.easeIn, tc.easeOut)
 		}
 	}
 }
@@ -260,6 +284,7 @@ func TestTimingLive(t *testing.T) {
 		mustMark("early")
 		known := start(easeAfterMark, Between("early", "off"), Ease(20*ms))
 		late := start(easeAfterMark, Between("on", "off"), Ease(20*ms))
+		apart := start(easeAfterMark, Between("on", "off"), EaseIn(20*ms), EaseOut(40*ms))
 		full := start(coverWindow, Between("on", "off"), Ease(20*ms))
 		never := start(easeAfterMark, Between("on", "never"))
 		same := start(easeAfterMark, Between("m", "m"))
@@ -290,6 +315,11 @@ func TestTimingLive(t *testing.T) {
 		if got, want := levels(late, 299*ms, 300*ms, 310*ms, 320*ms, 400*ms, 410*ms, 420*ms), []float64{0, 0, smooth(0.5), 1, 1, smooth(0.5), 0}; !slices.Equal(got, want) {
 			t.Fatalf("late window: levels %v, want %v", got, want)
 		}
+		// Easing in and out apart, it eases in after on over 20ms, and out
+		// after off over 40ms.
+		if got, want := levels(apart, 300*ms, 310*ms, 320*ms, 400*ms, 410*ms, 420*ms, 440*ms), []float64{0, smooth(0.5), 1, 1, smooth(0.75), smooth(0.5), 0}; !slices.Equal(got, want) {
+			t.Fatalf("late window easing apart: levels %v, want %v", got, want)
+		}
 		// One that must cover its window is at full strength on the mark,
 		// and still eases out.
 		if got, want := levels(full, 299*ms, 300*ms, 410*ms), []float64{0, 1, smooth(0.5)}; !slices.Equal(got, want) {
@@ -304,7 +334,7 @@ func TestTimingLive(t *testing.T) {
 		if same.from != 300*ms || same.to != 400*ms {
 			t.Fatalf("same label: %v to %v, want 300ms to 400ms", same.from, same.to)
 		}
-		for _, w := range []*window{known, late, full, same, ends} {
+		for _, w := range []*window{known, late, apart, full, same, ends} {
 			if err := w.missing(); err != nil {
 				t.Errorf("missing() = %v", err)
 			}

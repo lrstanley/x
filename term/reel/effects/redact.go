@@ -19,7 +19,8 @@ import (
 
 // RedactOption configures [Redact]: how it hides cells, with [Block],
 // [Blur], or [Replace], [Between], a [Timing] option, and [MinPartial], a
-// [Matching] option. [Ease] is an error from Start.
+// [Matching] option. [Ease], [EaseIn], and [EaseOut] are an error from
+// Start.
 type RedactOption interface {
 	applyRedact(r *redact)
 }
@@ -119,9 +120,9 @@ func Replace(c rune) RedactOption {
 //
 // [Between] limits Redact to a window of the timeline. A step of the delay
 // grid that shows any of the window is redacted whole, as is the rest of a
-// live recording ([reel.Record]) once its from mark is appended. [Ease] is
-// an error from Start, since easing would show part of what is hidden. A
-// nil region is an error from Start.
+// live recording ([reel.Record]) once its from mark is appended. [Ease],
+// [EaseIn], and [EaseOut] are an error from Start, since easing would show
+// part of what is hidden. A nil region is an error from Start.
 func Redact(region Region, opts ...RedactOption) reel.Effect {
 	r := redact{region: region, matching: defaultMatching}
 	for _, opt := range opts {
@@ -147,7 +148,7 @@ func (e redact) Start(ctx *reel.Context) (reel.Stage, error) {
 	switch {
 	case e.region == nil:
 		return nil, errors.New("effects: redact without a region")
-	case e.timing.ease != 0:
+	case e.timing.eases():
 		return nil, errors.New("effects: redact cannot ease: easing would show part of what it hides")
 	case e.mode == redactReplace && (!unicode.IsPrint(e.mask) || ansi.StringWidth(string(e.mask)) != 1):
 		return nil, fmt.Errorf("effects: redact replacement %q is not a printable character one cell wide", e.mask)
