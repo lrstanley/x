@@ -2,7 +2,7 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-package reel
+package vt
 
 import (
 	"bytes"
@@ -10,7 +10,6 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // StrokeKind is what a [Stroke] is.
@@ -29,8 +28,8 @@ const (
 	StrokeMouse
 )
 
-// Stroke is one thing an [Input] holds, as a viewer of the recording would
-// name it.
+// Stroke is one thing input to a terminal holds, as a viewer would name it
+// (see [DecodeInput]).
 type Stroke struct {
 	// Kind is what the stroke is.
 	Kind StrokeKind
@@ -43,24 +42,25 @@ type Stroke struct {
 	// Text is the text typed for [StrokeText], or pasted for [StrokePaste].
 	Text string
 	// Mouse is the event for [StrokeMouse].
-	Mouse Mouse
+	Mouse MouseEvent
 }
 
-// Mouse is a mouse event decoded from input.
-type Mouse struct {
+// MouseEvent is a mouse event decoded from input.
+type MouseEvent struct {
 	// Action is a press, release, or motion. A wheel turn is a press of a
 	// wheel button.
-	Action vt.MouseAction
-	// Button is the button. It is [vt.MouseUnknown] when the encoding does
+	Action MouseAction
+	// Button is the button. It is [MouseUnknown] when the encoding does
 	// not say, such as for a release in the X10 encoding or motion with no
 	// button held. Buttons 4 through 7 are the wheel: up, down, left, and
 	// right.
-	Button vt.MouseButton
+	Button MouseButton
 	// X and Y are the cell, from 0.
 	X, Y int
 }
 
-// Strokes decodes the input into the keys, text, pastes, and mouse events it
+// DecodeInput decodes data, input sent to a terminal, such as the bytes the
+// Encode methods return, into the keys, text, pastes, and mouse events it
 // holds, in order. Consecutive key presses that type text, including space,
 // are one [StrokeText]. Input that is none of these, such as a focus report,
 // is skipped. Mouse events are decoded from the X10 and SGR encodings, which
@@ -70,11 +70,10 @@ type Mouse struct {
 // The bytes alone decide the result, so typing "a" and pressing the key "a"
 // decode the same, and a paste the program did not ask to bracket decodes as
 // typed text and keys.
-func (e Input) Strokes() []Stroke {
+func DecodeInput(data []byte) []Stroke {
 	var (
-		dec  uv.EventDecoder
-		out  []Stroke
-		data = e.Data
+		dec uv.EventDecoder
+		out []Stroke
 	)
 	for len(data) > 0 {
 		n, ev := dec.Decode(data)
@@ -95,13 +94,13 @@ func (e Input) Strokes() []Stroke {
 		case uv.KeyPressEvent:
 			out = appendKey(out, uv.Key(ev))
 		case uv.MouseClickEvent:
-			out = appendMouse(out, vt.MousePress, uv.Mouse(ev))
+			out = appendMouse(out, MousePress, uv.Mouse(ev))
 		case uv.MouseWheelEvent:
-			out = appendMouse(out, vt.MousePress, uv.Mouse(ev))
+			out = appendMouse(out, MousePress, uv.Mouse(ev))
 		case uv.MouseReleaseEvent:
-			out = appendMouse(out, vt.MouseRelease, uv.Mouse(ev))
+			out = appendMouse(out, MouseRelease, uv.Mouse(ev))
 		case uv.MouseMotionEvent:
-			out = appendMouse(out, vt.MouseMotion, uv.Mouse(ev))
+			out = appendMouse(out, MouseMotion, uv.Mouse(ev))
 		}
 		data = data[n:]
 	}
@@ -129,8 +128,8 @@ func appendKey(out []Stroke, k uv.Key) []Stroke {
 	return append(out, Stroke{Kind: StrokeText, Text: k.Text})
 }
 
-func appendMouse(out []Stroke, action vt.MouseAction, m uv.Mouse) []Stroke {
-	return append(out, Stroke{Kind: StrokeMouse, Mouse: Mouse{
+func appendMouse(out []Stroke, action MouseAction, m uv.Mouse) []Stroke {
+	return append(out, Stroke{Kind: StrokeMouse, Mouse: MouseEvent{
 		Action: action,
 		Button: mouseButton(m.Button),
 		X:      m.X,
@@ -140,12 +139,12 @@ func appendMouse(out []Stroke, action vt.MouseAction, m uv.Mouse) []Stroke {
 
 // mouseButton maps a decoded button onto the terminal's numbering, which
 // swaps right and middle and otherwise matches.
-func mouseButton(b ansi.MouseButton) vt.MouseButton {
+func mouseButton(b ansi.MouseButton) MouseButton {
 	if b == ansi.MouseMiddle {
-		return vt.MouseMiddle
+		return MouseMiddle
 	}
 	if b == ansi.MouseRight {
-		return vt.MouseRight
+		return MouseRight
 	}
-	return vt.MouseButton(b)
+	return MouseButton(b)
 }

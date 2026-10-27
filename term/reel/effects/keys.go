@@ -38,7 +38,7 @@ var keysOpacity = [keysFadeLevels + 1]uint8{255, 192, 128, 64}
 // xterm 255 and 238.
 var keysChip = vt.Style{Fg: vt.Indexed(255), Bg: vt.Indexed(238), Attrs: vt.AttrBold}
 
-// keyGlyphs are the labels for the named keys of [reel.Stroke.Key]. Other
+// keyGlyphs are the labels for the named keys of [vt.Stroke.Key]. Other
 // keys are shown by name.
 var keyGlyphs = map[string]string{
 	"up":        "↑",
@@ -180,14 +180,14 @@ func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
 		}
 		presses[run].typed = append(presses[run].typed, r)
 	}
-	for _, s := range in.Strokes() {
+	for _, s := range vt.DecodeInput(in.Data) {
 		switch s.Kind {
-		case reel.StrokeText:
+		case vt.StrokeText:
 			for _, r := range s.Text {
 				typed(r)
 				mask.add(r, run, len(presses[run].typed)-1)
 			}
-		case reel.StrokeKey:
+		case vt.StrokeKey:
 			switch {
 			case s.Key == "enter" || s.Key == "tab" || (s.Key == "ctrl+j" && run >= 0):
 				mask.end(presses)
@@ -209,7 +209,7 @@ func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
 				run = -1
 				presses = append(presses, keyPress{at: in.At(), label: keyLabel(s.Key)})
 			}
-		case reel.StrokePaste, reel.StrokeMouse:
+		case vt.StrokePaste, vt.StrokeMouse:
 			mask.end(presses)
 			run = -1
 		}
@@ -231,13 +231,13 @@ var modifierKeys = map[string]bool{
 	"isolevel3shift": true, "isolevel5shift": true,
 }
 
-// modifierKey reports whether name, as in [reel.Stroke.Key], is the press
+// modifierKey reports whether name, as in [vt.Stroke.Key], is the press
 // of a modifier on its own.
 func modifierKey(name string) bool {
 	return modifierKeys[name[strings.LastIndexByte(name, '+')+1:]]
 }
 
-// keyLabel is the label of a key named as in [reel.Stroke.Key]: its
+// keyLabel is the label of a key named as in [vt.Stroke.Key]: its
 // modifiers, then its glyph or name.
 func keyLabel(name string) string {
 	mods, key := "", name

@@ -127,8 +127,8 @@ func TestCastRoundTrip(t *testing.T) {
 		t.Fatalf("Window = %v, %v", from, to)
 	}
 	for in := range got.Inputs() {
-		if n := len(in.Strokes()); n != 3 {
-			t.Fatalf("Strokes = %d, want 3: %+v", n, in.Strokes())
+		if n := len(vt.DecodeInput(in.Data)); n != 3 {
+			t.Fatalf("Strokes = %d, want 3: %+v", n, vt.DecodeInput(in.Data))
 		}
 	}
 }

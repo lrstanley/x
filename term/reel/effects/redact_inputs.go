@@ -45,7 +45,7 @@ type typedRedaction struct {
 // them until the third is typed. Regions that find no text, such as
 // [Cells], and a nil region, are errors from Start.
 //
-// The text is matched as [reel.Input.Strokes] decodes it, so a keyboard
+// The text is matched as [vt.DecodeInput] decodes it, so a keyboard
 // mode that reports keys without the text they type, such as the kitty
 // keyboard protocol asked to report every key as an escape code without
 // its text, can decode a shifted symbol as its key, which no longer

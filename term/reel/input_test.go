@@ -24,7 +24,7 @@ var keyboardModes = []struct {
 }
 
 // lastStrokes runs send and returns the strokes of the one input it recorded.
-func lastStrokes(t *testing.T, s *Session, send func() error) []Stroke {
+func lastStrokes(t *testing.T, s *Session, send func() error) []vt.Stroke {
 	t.Helper()
 	before := s.Timeline().Len()
 	if err := send(); err != nil {
@@ -34,7 +34,7 @@ func lastStrokes(t *testing.T, s *Session, send func() error) []Stroke {
 	if s.Timeline().Len() != before+1 || len(inputs) == 0 {
 		t.Fatalf("send recorded %d events, want 1 input", s.Timeline().Len()-before)
 	}
-	return inputs[len(inputs)-1].Strokes()
+	return vt.DecodeInput(inputs[len(inputs)-1].Data)
 }
 
 func TestStrokesKeys(t *testing.T) {
@@ -85,7 +85,7 @@ func TestStrokesKeys(t *testing.T) {
 					want = name
 				}
 				got := lastStrokes(t, s, func() error { return s.Key(name) })
-				if wantStrokes := []Stroke{{Kind: StrokeKey, Key: want}}; !slices.Equal(got, wantStrokes) {
+				if wantStrokes := []vt.Stroke{{Kind: vt.StrokeKey, Key: want}}; !slices.Equal(got, wantStrokes) {
 					t.Errorf("Key(%q) decodes to %+v, want %+v", name, got, wantStrokes)
 				}
 			}
@@ -100,10 +100,10 @@ func TestStrokesText(t *testing.T) {
 			t.Parallel()
 			s := openTest(t, 20, 4)
 			write(t, s, mode.seq)
-			text := func(s string) []Stroke { return []Stroke{{Kind: StrokeText, Text: s}} }
+			text := func(s string) []vt.Stroke { return []vt.Stroke{{Kind: vt.StrokeText, Text: s}} }
 			tests := []struct {
 				send func() error
-				want []Stroke
+				want []vt.Stroke
 			}{
 				{func() error { return s.Type("Hello, world 42!") }, text("Hello, world 42!")},
 				{func() error { return s.Type("é") }, text("é")},
@@ -125,10 +125,10 @@ func TestStrokesMixed(t *testing.T) {
 	t.Parallel()
 	s := openTest(t, 20, 4)
 	got := lastStrokes(t, s, func() error { return s.Type("ab\tc") })
-	want := []Stroke{
-		{Kind: StrokeText, Text: "ab"},
-		{Kind: StrokeKey, Key: "tab"},
-		{Kind: StrokeText, Text: "c"},
+	want := []vt.Stroke{
+		{Kind: vt.StrokeText, Text: "ab"},
+		{Kind: vt.StrokeKey, Key: "tab"},
+		{Kind: vt.StrokeText, Text: "c"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("strokes = %+v, want %+v", got, want)
@@ -141,10 +141,10 @@ func TestStrokesPaste(t *testing.T) {
 	// Without bracketed paste, a paste is typed text, with each newline
 	// sent as enter.
 	got := lastStrokes(t, s, func() error { return s.Paste("one\ntwo") })
-	want := []Stroke{
-		{Kind: StrokeText, Text: "one"},
-		{Kind: StrokeKey, Key: "enter"},
-		{Kind: StrokeText, Text: "two"},
+	want := []vt.Stroke{
+		{Kind: vt.StrokeText, Text: "one"},
+		{Kind: vt.StrokeKey, Key: "enter"},
+		{Kind: vt.StrokeText, Text: "two"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("unbracketed paste = %+v, want %+v", got, want)
@@ -153,14 +153,14 @@ func TestStrokesPaste(t *testing.T) {
 	write(t, s, "\x1b[?2004h")
 	got = lastStrokes(t, s, func() error { return s.Paste("one\ntwo\x1b[201~") })
 	// The terminal strips the escape that would end the paste early.
-	want = []Stroke{{Kind: StrokePaste, Text: "one\ntwo [201~"}}
+	want = []vt.Stroke{{Kind: vt.StrokePaste, Text: "one\ntwo [201~"}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("bracketed paste = %+v, want %+v", got, want)
 	}
 
 	// A paste cut off before its end marker keeps what arrived.
 	in := Input{Data: []byte("\x1b[200~partial")}
-	if got = in.Strokes(); !slices.Equal(got, []Stroke{{Kind: StrokePaste, Text: "partial"}}) {
+	if got = vt.DecodeInput(in.Data); !slices.Equal(got, []vt.Stroke{{Kind: vt.StrokePaste, Text: "partial"}}) {
 		t.Fatalf("unterminated paste = %+v", got)
 	}
 }
@@ -182,27 +182,27 @@ func TestStrokesMouse(t *testing.T) {
 			tests := []struct {
 				action vt.MouseAction
 				button vt.MouseButton
-				want   Mouse
+				want   vt.MouseEvent
 			}{
-				{vt.MousePress, vt.MouseLeft, Mouse{Action: vt.MousePress, Button: vt.MouseLeft, X: 3, Y: 2}},
-				{vt.MousePress, vt.MouseRight, Mouse{Action: vt.MousePress, Button: vt.MouseRight, X: 3, Y: 2}},
-				{vt.MousePress, vt.MouseMiddle, Mouse{Action: vt.MousePress, Button: vt.MouseMiddle, X: 3, Y: 2}},
-				{vt.MouseMotion, vt.MouseLeft, Mouse{Action: vt.MouseMotion, Button: vt.MouseLeft, X: 3, Y: 2}},
-				{vt.MousePress, vt.MouseButton(4), Mouse{Action: vt.MousePress, Button: vt.MouseButton(4), X: 3, Y: 2}},
+				{vt.MousePress, vt.MouseLeft, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseLeft, X: 3, Y: 2}},
+				{vt.MousePress, vt.MouseRight, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseRight, X: 3, Y: 2}},
+				{vt.MousePress, vt.MouseMiddle, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseMiddle, X: 3, Y: 2}},
+				{vt.MouseMotion, vt.MouseLeft, vt.MouseEvent{Action: vt.MouseMotion, Button: vt.MouseLeft, X: 3, Y: 2}},
+				{vt.MousePress, vt.MouseButton(4), vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseButton(4), X: 3, Y: 2}},
 			}
-			release := Mouse{Action: vt.MouseRelease, Button: vt.MouseLeft, X: 3, Y: 2}
+			release := vt.MouseEvent{Action: vt.MouseRelease, Button: vt.MouseLeft, X: 3, Y: 2}
 			if mode.name == "x10" {
 				// X10 does not say which button was released.
 				release.Button = vt.MouseUnknown
 			}
 			for _, tt := range tests {
 				got := lastStrokes(t, s, func() error { return s.Mouse(tt.action, tt.button, 3, 2) })
-				if want := []Stroke{{Kind: StrokeMouse, Mouse: tt.want}}; !slices.Equal(got, want) {
+				if want := []vt.Stroke{{Kind: vt.StrokeMouse, Mouse: tt.want}}; !slices.Equal(got, want) {
 					t.Errorf("Mouse(%v, %v) decodes to %+v, want %+v", tt.action, tt.button, got, want)
 				}
 			}
 			got := lastStrokes(t, s, func() error { return s.Mouse(vt.MouseRelease, vt.MouseLeft, 3, 2) })
-			if want := []Stroke{{Kind: StrokeMouse, Mouse: release}}; !slices.Equal(got, want) {
+			if want := []vt.Stroke{{Kind: vt.StrokeMouse, Mouse: release}}; !slices.Equal(got, want) {
 				t.Errorf("release decodes to %+v, want %+v", got, want)
 			}
 		})
@@ -212,10 +212,10 @@ func TestStrokesMouse(t *testing.T) {
 func TestStrokesSkipsOtherInput(t *testing.T) {
 	t.Parallel()
 	in := Input{Data: []byte("\x1b[I" + "a" + "\x1b[O")}
-	if got := in.Strokes(); !slices.Equal(got, []Stroke{{Kind: StrokeText, Text: "a"}}) {
+	if got := vt.DecodeInput(in.Data); !slices.Equal(got, []vt.Stroke{{Kind: vt.StrokeText, Text: "a"}}) {
 		t.Fatalf("strokes = %+v, want just the text", got)
 	}
-	if got := (Input{}).Strokes(); got != nil {
+	if got := vt.DecodeInput(nil); got != nil {
 		t.Fatalf("empty input strokes = %+v", got)
 	}
 }

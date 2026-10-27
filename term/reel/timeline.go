@@ -141,7 +141,7 @@ type Output struct {
 
 // Input is bytes the program was sent as input: a key, typed text, a paste,
 // or a mouse event, encoded as the terminal sends it in the modes the program
-// had set. [Input.Strokes] decodes it.
+// had set. [vt.DecodeInput] decodes it.
 type Input struct {
 	event
 	// Data is the bytes, as sent. It must not be modified.

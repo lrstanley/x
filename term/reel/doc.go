@@ -41,7 +41,7 @@
 //
 // Input is recorded as the exact bytes the terminal sent the program, encoded
 // in whatever keyboard and mouse modes the program had set.
-// [Input.Strokes] decodes them back into key names, typed text, pastes, and
+// [vt.DecodeInput] decodes them back into key names, typed text, pastes, and
 // mouse events.
 //
 // The module is split into packages that can be used on their own:
