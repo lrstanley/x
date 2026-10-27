@@ -30,14 +30,13 @@ const (
 	palettizeParallelRowsPerWorker  = 64
 )
 
-// palettizeJob is one disjoint row span for the process-lifetime workers.
+// palettizeJob is one disjoint row span of a frame.
 type palettizeJob struct {
 	dst  *image.Paletted
 	src  rgbaPixels
 	area image.Rectangle
 	minY int
 	maxY int
-	wg   *sync.WaitGroup
 	// adaptive, when non-nil, maps through its cache instead of the LUT and
 	// records uncached colors for span.
 	adaptive *Adaptive
@@ -52,32 +51,6 @@ type rgbaPixels struct {
 	stride        int
 	rect          image.Rectangle
 	premultiplied bool
-}
-
-// palettizeJobs is filled by palettizePixels and drained by a fixed worker set.
-// The workers live for the process so a frame does not allocate goroutines.
-var (
-	palettizeJobs chan palettizeJob
-	palettizeN    int
-	// palettizeWaiters reuses the per-frame WaitGroup. A fresh one escapes and
-	// allocates; the pool does not.
-	palettizeWaiters      = sync.Pool{New: func() any { return new(sync.WaitGroup) }}
-	startPalettizeWorkers = sync.OnceFunc(func() {
-		palettizeN = max(runtime.GOMAXPROCS(0), 1)
-		// One buffered slot per worker lets a frame enqueue every span without
-		// waiting for the first span to finish.
-		palettizeJobs = make(chan palettizeJob, palettizeN)
-		for range palettizeN {
-			go palettizeWorker()
-		}
-	})
-)
-
-func palettizeWorker() {
-	for job := range palettizeJobs {
-		palettizeSpan(job)
-		job.wg.Done()
-	}
 }
 
 // Default returns the standard xterm-256color palette for GIF
@@ -177,7 +150,7 @@ func Palettize(dst *image.Paletted, src image.Image) {
 }
 
 // palettizePixels maps src through defaultGIFLUT, splitting large frames
-// across the palettize workers.
+// across goroutines.
 func palettizePixels(dst *image.Paletted, src rgbaPixels) {
 	initDefaultGIFLUT()
 	runPalettizeSpans(dst, src, src.rect.Intersect(dst.Bounds()), nil)
@@ -186,10 +159,6 @@ func palettizePixels(dst *image.Paletted, src rgbaPixels) {
 // palettizeSpanCount returns how many row spans area is split into.
 func palettizeSpanCount(area image.Rectangle) int {
 	workers := palettizeWorkerCount(area)
-	if workers > 1 {
-		startPalettizeWorkers()
-		workers = min(workers, palettizeN)
-	}
 	if workers <= 1 {
 		return 1
 	}
@@ -199,8 +168,9 @@ func palettizeSpanCount(area image.Rectangle) int {
 }
 
 // runPalettizeSpans maps area of src into dst, through adaptive when non-nil
-// and defaultGIFLUT otherwise, splitting large frames across the palettize
-// workers.
+// and defaultGIFLUT otherwise, splitting large frames across goroutines
+// started for the call, which end before it returns, the last span on the
+// caller's own.
 func runPalettizeSpans(dst *image.Paletted, src rgbaPixels, area image.Rectangle, adaptive *Adaptive) {
 	spans := palettizeSpanCount(area)
 	if adaptive != nil {
@@ -212,25 +182,19 @@ func runPalettizeSpans(dst *image.Paletted, src rgbaPixels, area image.Rectangle
 	}
 
 	rowsPerSpan := (area.Dy() + spans - 1) / spans
-	wg := palettizeWaiters.Get().(*sync.WaitGroup)
-	wg.Add(spans)
+	var wg sync.WaitGroup
 	y0 := area.Min.Y
 	for i := range spans {
 		y1 := min(y0+rowsPerSpan, area.Max.Y)
-		palettizeJobs <- palettizeJob{
-			dst:      dst,
-			src:      src,
-			area:     area,
-			minY:     y0,
-			maxY:     y1,
-			wg:       wg,
-			adaptive: adaptive,
-			span:     i,
+		job := palettizeJob{dst: dst, src: src, area: area, minY: y0, maxY: y1, adaptive: adaptive, span: i}
+		if i == spans-1 {
+			palettizeSpan(job)
+		} else {
+			wg.Go(func() { palettizeSpan(job) })
 		}
 		y0 = y1
 	}
 	wg.Wait()
-	palettizeWaiters.Put(wg)
 }
 
 func palettizeSpan(job palettizeJob) {

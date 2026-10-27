@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/draw"
 	"testing"
+	"testing/synctest"
 
 	"github.com/lrstanley/x/term/reel/sink/internal/testutil"
 )
@@ -40,6 +41,22 @@ func BenchmarkAdaptivePaletteCold(b *testing.B) {
 		dst := image.NewPaletted(src.Bounds(), ap.pal)
 		ap.Palettize(dst, src)
 	}
+}
+
+// TestPalettizeLeavesNoGoroutines checks that palettizing a frame large
+// enough to split across goroutines leaves none running, which a
+// [synctest] bubble fails on.
+func TestPalettizeLeavesNoGoroutines(t *testing.T) {
+	t.Parallel()
+	src := testutil.TerminalFrame(0)
+	if palettizeSpanCount(src.Bounds()) < 2 {
+		t.Skip("one CPU: frames are not split")
+	}
+	synctest.Test(t, func(*testing.T) {
+		palettize(src, Default())
+		ap := NewAdaptive(true, false)
+		ap.Palettize(image.NewPaletted(src.Bounds(), ap.pal), src)
+	})
 }
 
 func BenchmarkPalettizeDraw(b *testing.B) {
