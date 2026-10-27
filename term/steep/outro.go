@@ -26,9 +26,6 @@ import (
 // whose Meta is not a *Result, such as one exported without a harness, gets
 // no card without lines. A d of zero or less is no card either. The speed
 // does not scale d.
-//
-// List it after [effects.PauseBadge], so the badge marks the held last
-// terminal frame rather than the card.
 func Outro(d time.Duration, lines ...effects.Line) reel.Effect {
 	return outro{d: d, lines: lines}
 }

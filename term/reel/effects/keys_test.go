@@ -273,8 +273,8 @@ func TestKeysLeavesAlone(t *testing.T) {
 		out := exportFrames(t, cut, reel.Profile{
 			Effects: []reel.Effect{Intro(500 * ms), recordFrames{&in}, Keys(tc.shown)},
 		})
-		if len(out) != 2 || out[0].Cells != nil {
-			t.Fatalf("%s: %d frames, want the intro card and the terminal", tc.name, len(out))
+		if len(out) != 3 || out[0].Cells != nil {
+			t.Fatalf("%s: %d frames, want the intro card, the terminal, and its hold", tc.name, len(out))
 		}
 		if shown := overlaid(in, out); slices.Contains(shown, true) {
 			t.Errorf("%s: frames overlaid %v, want none", tc.name, shown)

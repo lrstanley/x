@@ -133,11 +133,13 @@ func TestExportHoldAndSpeed(t *testing.T) {
 	tl := buildTimeline(Header{Cols: 4, Rows: 1}, outAt(0, "a"), outAt(1000, "b"), Exit{event: at(2000)})
 	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100}),
 		wantFrame{"a", 0, time.Second, true},
-		wantFrame{"ab", time.Second, 2 * time.Second, true},
+		wantFrame{"ab", time.Second, time.Second, true},
+		wantFrame{"ab", 2 * time.Second, time.Second, true},
 	)
 	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100, Speed: 2, Hold: 300 * ms}),
 		wantFrame{"a", 0, 500 * ms, true},
-		wantFrame{"ab", time.Second, 800 * ms, true},
+		wantFrame{"ab", time.Second, 500 * ms, true},
+		wantFrame{"ab", 2 * time.Second, 300 * ms, true},
 	)
 }
 

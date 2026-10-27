@@ -248,6 +248,61 @@ func TestPipelineSweep(t *testing.T) {
 	}
 }
 
+// TestPipelineHold checks that with stages the hold after the last frame
+// plays as frames of its own, flagged, that sum to the hold, whether the
+// last frame holds still or is swept, and that without stages it is not
+// split off.
+func TestPipelineHold(t *testing.T) {
+	t.Parallel()
+	const hold = time.Second
+	for _, tc := range []struct {
+		title  string
+		stages bool
+		frames int
+	}{
+		{"still", true, 2},
+		{"spin", true, 0},
+		{"still", false, 1},
+	} {
+		var got []Frame
+		var stages []Stage
+		if tc.stages {
+			stages = []Stage{func(f Frame, emit func(Frame)) { got = append(got, f); emit(f) }}
+		}
+		out := &collectSink{}
+		p := newPipeline(&fakeAnimator{}, settings{step: 10 * ms, speed: 1, hold: hold}, stages, out)
+		if err := p.record(cellsOf(2, 1, tc.title, 0)); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.finish(500 * ms); err != nil {
+			t.Fatal(err)
+		}
+		if !tc.stages {
+			if len(out.frames) != tc.frames {
+				t.Errorf("%s without stages: %d frames, want %d", tc.title, len(out.frames), tc.frames)
+			}
+			continue
+		}
+		if tc.frames > 0 && len(got) != tc.frames {
+			t.Errorf("%s: %d frames, want %d", tc.title, len(got), tc.frames)
+		}
+		var body, held time.Duration
+		for i, f := range got {
+			switch {
+			case f.Hold:
+				held += f.Delay
+			case held > 0:
+				t.Errorf("%s: frame %d after the hold is not flagged", tc.title, i)
+			default:
+				body += f.Delay
+			}
+		}
+		if body != 500*ms || held != hold {
+			t.Errorf("%s: %v before the hold and %v flagged, want 500ms and %v", tc.title, body, held, hold)
+		}
+	}
+}
+
 // TestPipelineReusesImages checks that without stages the images written are
 // reused, and that reuse never changes a frame already written.
 func TestPipelineReusesImages(t *testing.T) {

@@ -106,8 +106,8 @@ var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookSettle
 // At export, [reel.Context.Meta] is the test's *[Result], replacing the
 // profile's, and a failed test's recording holds its last frame for 3s unless
 // the profile sets [reel.Profile.Hold], so a viewer has time to read the
-// screen the test failed on. List [effects.PauseBadge] before [Outro], so the
-// pause badge marks that held frame, and the FAIL card follows it.
+// screen the test failed on, which [effects.PauseBadge] marks before the
+// FAIL card of [Outro].
 //
 // The recording is the [reel.Timeline] of the session up to the start of
 // [Harness.Close], so a program's repaint as it exits is left out.

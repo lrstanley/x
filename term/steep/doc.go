@@ -52,8 +52,7 @@
 // card with the failures the harness reported, from the [Result] each export
 // passes them. A failed test's last frame holds for 3s, unless the profile
 // sets a hold, so the screen it failed on can be read, and
-// [effects.PauseBadge] listed before [Outro] marks that frame before the FAIL
-// card:
+// [effects.PauseBadge] marks that frame before the FAIL card:
 //
 //	steep.WithRecording(reel.Profile{
 //		Effects: []reel.Effect{

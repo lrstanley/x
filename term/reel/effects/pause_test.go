@@ -111,8 +111,8 @@ func TestPauseBadgeCard(t *testing.T) {
 		t.Fatalf("%d frames in, %d out, want the same frames ending on the card", len(in), len(out))
 	}
 	for i, f := range out {
-		if f.Image != in[i].Image {
-			t.Errorf("badge before the card: frame %d changed", i)
+		if badged := f.Image != in[i].Image; badged != in[i].Hold {
+			t.Errorf("badge before the card: frame %d badged = %v, want %v", i, badged, in[i].Hold)
 		}
 	}
 
@@ -144,7 +144,7 @@ func TestPauseBadgeMerge(t *testing.T) {
 		delays  []int
 	}{
 		{"none", nil, []int{140}},
-		{"badge", []reel.Effect{PauseBadge(WithBadgeSize(8))}, []int{20, 120}},
+		{"badge", []reel.Effect{PauseBadge(WithBadgeSize(8))}, []int{40, 100}},
 	} {
 		var in []reel.Frame
 		path := filepath.Join(t.TempDir(), "out.gif")
@@ -156,8 +156,8 @@ func TestPauseBadgeMerge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(in) != 3 {
-			t.Fatalf("%s: %d terminal frames, want 3", tc.name, len(in))
+		if len(in) != 4 {
+			t.Fatalf("%s: %d terminal frames, want 4, the hold apart", tc.name, len(in))
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -272,9 +272,9 @@ func TestPauseBadgePieces(t *testing.T) {
 		{Image: img(), Cells: a, Delay: 400 * ms, First: true},
 		{Image: img(), Cells: a, Delay: 900 * ms},
 		{Image: img(), Cells: b, Delay: 300 * ms},
-		{Image: shared, Cells: b, Delay: 500 * ms},
-		{Image: shared, Cells: b, Delay: 400 * ms},
-		{Image: img(), Cells: b, Delay: 300 * ms, Last: true},
+		{Image: shared, Cells: b, Delay: 500 * ms, Hold: true},
+		{Image: shared, Cells: b, Delay: 400 * ms, Hold: true},
+		{Image: img(), Cells: b, Delay: 300 * ms, Hold: true, Last: true},
 	}
 	var out []reel.Frame
 	for _, f := range in {

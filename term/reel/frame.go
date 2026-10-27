@@ -42,10 +42,15 @@ type Frame struct {
 	At time.Duration
 	// Delay is how long the frame plays. For a terminal frame it is
 	// timeline time scaled by [Profile.Speed], a whole number of steps of
-	// [Context.Step], plus the [Profile.Hold] for the last frame, which the
-	// speed does not scale. The sinks are given it rounded to whole steps,
-	// at least one.
+	// [Context.Step]. The [Profile.Hold] after the last frame, which the
+	// speed does not scale, plays as frames of its own (see Hold), or as
+	// part of the last frame when there are no stages. The sinks are given
+	// it rounded to whole steps, at least one.
 	Delay time.Duration
+	// Hold is set on the frames that play the [Context.Hold] after the
+	// last terminal frame, copies of it, such as for a pause badge to mark.
+	// Effects that copy or split a frame keep it.
+	Hold bool
 	// First and Last are set for the first and last frame a stage is given.
 	// A recording of one frame sets both. The pipeline sets them on the way
 	// into each stage, so an effect need not.

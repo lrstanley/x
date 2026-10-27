@@ -10,7 +10,6 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
-	"time"
 
 	"github.com/lrstanley/x/term/reel"
 )
@@ -79,19 +78,12 @@ func WithBadgeColor(c color.Color) BadgeOption {
 // frames before the last are left alone, so duplicate frame merging still
 // merges them.
 //
-// The badge covers the last frame, which plays for [reel.Profile.Hold] past
-// its own time. When an effect before PauseBadge, such as [Keys], or an
-// indicator that moves while the screen holds still has split the last
-// frame into pieces, the badge covers the final pieces that play for the
-// hold, and at least the final one. For that, the stage holds back the
-// pieces of the newest terminal frame that play for the hold, until a frame
-// of another terminal comes along.
+// The badge covers the frames that play the hold ([reel.Frame.Hold]), which
+// keep it however an effect before PauseBadge, such as [Keys], splits them.
+// Without a hold ([reel.Profile.Hold] negative), it covers the last frame.
 //
-// Only a terminal frame gets the badge: when the last frame has no terminal
-// ([reel.Frame.Cells] is nil), as when an effect listed before PauseBadge
-// adds a card after the last frame, no frame gets it. List PauseBadge
-// before such an effect, so the badge lands on the held terminal frame and
-// not on the card.
+// Only a terminal frame gets the badge, so a card an effect adds after the
+// last frame, before or after PauseBadge in the list, does not.
 //
 // A recording that plays once (sink.WithLoopCount(sink.LoopOnce)) stays on
 // its last frame when it ends, badge and all, where the glyph reads as
@@ -135,51 +127,25 @@ type badgeStage struct {
 	size   int
 	glyph  *image.RGBA
 
-	// pieces are the newest frames of one terminal (see [PauseBadge]),
-	// held back until a frame shows whether they are last, and delay is how
-	// long they play. Older pieces of that terminal are sent on once the
-	// newer ones play for the hold.
-	pieces []reel.Frame
-	delay  time.Duration
+	// held is set once a frame of the hold has been seen. src is the image
+	// badged last, and badged its badged copy, which pieces that share an
+	// image share.
+	held        bool
+	src, badged *image.NRGBA
 }
 
 func (s *badgeStage) run(f reel.Frame, emit func(reel.Frame)) {
-	if len(s.pieces) > 0 && (f.Cells == nil || f.Cells.Screen != s.pieces[0].Cells.Screen) {
-		s.flush(emit, false)
-	}
-	if f.Cells == nil {
-		emit(f)
-		return
-	}
-	s.pieces = append(s.pieces, f)
-	s.delay += f.Delay
-	for len(s.pieces) > 1 && s.delay-s.pieces[0].Delay >= s.ctx.Hold {
-		s.delay -= s.pieces[0].Delay
-		emit(s.pieces[0])
-		s.pieces = s.pieces[1:]
-	}
-	if f.Last {
-		s.flush(emit, true)
-	}
-}
-
-// flush sends on the held pieces, with the badge when badge is set. Pieces
-// that share an image share its badged copy.
-func (s *badgeStage) flush(emit func(reel.Frame), badge bool) {
-	var src, badged *image.NRGBA
-	for _, f := range s.pieces {
-		if badge {
-			if f.Image != src {
-				b := f.Cells.Screen.Bounds()
-				grid := s.ctx.Rasterizer.Layout(b.Dx(), b.Dy()).Grid
-				src, badged = f.Image, cloneNRGBA(f.Image)
-				draw.Draw(badged, s.glyph.Rect.Add(badgeAt(grid, s.size, s.corner)), s.glyph, image.Point{}, draw.Over)
-			}
-			f.Image = badged
+	s.held = s.held || f.Hold
+	if f.Cells != nil && (f.Hold || f.Last && !s.held) {
+		if f.Image != s.src {
+			b := f.Cells.Screen.Bounds()
+			grid := s.ctx.Rasterizer.Layout(b.Dx(), b.Dy()).Grid
+			s.src, s.badged = f.Image, cloneNRGBA(f.Image)
+			draw.Draw(s.badged, s.glyph.Rect.Add(badgeAt(grid, s.size, s.corner)), s.glyph, image.Point{}, draw.Over)
 		}
-		emit(f)
+		f.Image = s.badged
 	}
-	s.pieces, s.delay = nil, 0
+	emit(f)
 }
 
 // badgeAt is where a badge of size goes in corner of grid, a third of its

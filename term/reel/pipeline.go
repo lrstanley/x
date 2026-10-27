@@ -128,14 +128,29 @@ func (p *pipeline) release(until time.Duration, last bool) {
 		return
 	}
 	f.Delay, p.shown = end-p.shown, end
+	// body is how long f plays before the hold, which frames past it are
+	// flagged as playing (see [Frame.Hold]). Without stages nothing reads
+	// the flag, so the hold is not split off.
+	body := f.Delay
 	if last {
 		f.Delay += p.hold
 	}
+	if len(p.stages) == 0 {
+		body = f.Delay
+	}
 	if p.anim == nil || f.Delay < 2*p.sweep || !p.anim.Animates(f.Cells.State) {
+		if body == f.Delay {
+			p.push(0, f)
+			return
+		}
+		held := f
+		f.Delay = body
+		held.At, held.Delay, held.Hold = f.At+time.Duration(float64(body)*p.speed), p.hold, true
 		p.push(0, f)
+		p.push(0, held)
 		return
 	}
-	p.sweepHold(f)
+	p.sweepHold(f, body)
 }
 
 // sweepHold sends on f, a frame held while its indicators move with the
@@ -143,24 +158,32 @@ func (p *pipeline) release(until time.Duration, last bool) {
 // frames p.sweep apart instead, each a copy of f with the indicators
 // repainted as of the timeline time it stands for. A step that would look
 // like the one before extends it instead of being drawn. The last frame takes
-// the remainder. f's own image may be reused once it is written, so the
+// the remainder. The frames past body play the hold, and are flagged (see
+// [Frame.Hold]). f's own image may be reused once it is written, so the
 // copies come from a clone.
-func (p *pipeline) sweepHold(f Frame) {
+func (p *pipeline) sweepHold(f Frame, body time.Duration) {
 	step := p.sweep
 	base := p.newImage(f.Image.Rect)
 	copy(base.Pix, f.Image.Pix)
 	cells := *f.Cells
 	start, left := f.At, f.Delay
 	var shown Frame
+	var played time.Duration
 	for k := 0; left > 0; k++ {
 		cur := f
-		cur.At = start + time.Duration(float64(k)*float64(step)*p.speed)
+		cur.At = start + time.Duration(float64(played)*p.speed)
 		cur.Delay = step
 		if left < 2*step {
 			cur.Delay = left
 		}
+		if played < body && played+cur.Delay > body {
+			// A piece ends where the hold starts.
+			cur.Delay = body - played
+		}
+		cur.Hold = played >= body
 		left -= cur.Delay
-		if k > 0 && !p.anim.Changes(cells.State, shown.At, cur.At) {
+		played += cur.Delay
+		if k > 0 && shown.Hold == cur.Hold && !p.anim.Changes(cells.State, shown.At, cur.At) {
 			shown.Delay += cur.Delay
 			continue
 		}
