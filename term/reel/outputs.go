@@ -109,36 +109,58 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 	return o, nil
 }
 
-// checkRedaction checks that every [Redactor] among effects comes before
-// every other effect, and when there is one, that no output is written
-// without the effects.
-func (o *outputs) checkRedaction(effects []Effect) error {
-	n := len(redactors(effects))
+// checkConcealers checks that every [Concealer] among effects comes before
+// every other effect, and when there is one, that no output skips the
+// effects.
+func (o *outputs) checkConcealers(effects []Effect) error {
+	n := 0
+	for n < len(effects) && conceals(effects[n]) {
+		n++
+	}
 	for i := n + 1; i < len(effects); i++ {
-		if redacts(effects[i]) {
-			return fmt.Errorf("reel: effect %d (%T) redacts, so it must come before effect %d (%T), which does not", i, effects[i], n, effects[n])
+		if conceals(effects[i]) {
+			return fmt.Errorf("reel: effect %d (%T) conceals, so it must come before effect %d (%T), which does not", i, effects[i], n, effects[n])
 		}
 	}
 	if n > 0 && len(o.casts) > 0 {
-		return fmt.Errorf("%w: %q is an asciicast file, the timeline as recorded", ErrUnredacted, o.casts[0].path)
+		return fmt.Errorf("%w: %q is an asciicast file, the timeline as recorded", ErrRawOutput, o.casts[0].path)
 	}
 	return nil
 }
 
-// redactors returns the effects effects starts with that are a [Redactor]
-// that redacts.
-func redactors(effects []Effect) []Effect {
-	n := 0
-	for n < len(effects) && redacts(effects[n]) {
-		n++
-	}
-	return effects[:n]
+// conceals reports whether e is a [Concealer] that conceals.
+func conceals(e Effect) bool {
+	c, ok := effectAs[Concealer](e)
+	return ok && c.Conceals()
 }
 
-// redacts reports whether e is a [Redactor] that redacts.
-func redacts(e Effect) bool {
-	r, ok := e.(Redactor)
-	return ok && r.Redacts()
+// effectAs returns the first effect in e's chain of Unwrap methods,
+// e included, that is a T.
+func effectAs[T Effect](e Effect) (T, bool) {
+	for e != nil {
+		if t, ok := e.(T); ok {
+			return t, true
+		}
+		u, ok := e.(interface{ Unwrap() Effect })
+		if !ok {
+			break
+		}
+		e = u.Unwrap()
+	}
+	var zero T
+	return zero, false
+}
+
+// stillEffects returns the effects that run on stills: each [Concealer]
+// that conceals and [StillEffect] that runs on stills, in order.
+func stillEffects(effects []Effect) []Effect {
+	var out []Effect
+	for _, e := range effects {
+		if s, ok := effectAs[StillEffect](e); conceals(e) || ok && s.Stills() {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // hasRecording reports whether any output records frames, rather than

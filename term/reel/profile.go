@@ -32,7 +32,7 @@ type Profile struct {
 	// Encode configures every frame output (see the sink package).
 	Encode []sink.Option
 	// Effects change the frames between the rasterizer and the frame
-	// outputs, in order. A [Redactor] must come before every effect that
+	// outputs, in order. A [Concealer] must come before every effect that
 	// is not one.
 	Effects []Effect
 	// FPS sets the delay grid: every frame plays for a whole number of
@@ -73,8 +73,8 @@ type File struct {
 	// these [Mark] labels instead of a recording, one file per label, whose
 	// Path must hold {mark}. A label that repeats is shown at its first mark
 	// in the timeline's window, and one that is not there is an error
-	// wrapping [ErrNoMark]. Stills run through the [Redactor] effects, and
-	// no other.
+	// wrapping [ErrNoMark]. Stills run through the [Concealer] and
+	// [StillEffect] effects, and no other.
 	Marks []string
 	// Cast is the asciicast version a ".cast" Path is written as. Zero is
 	// [CastV3]. It is an error on other paths.

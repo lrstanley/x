@@ -22,7 +22,7 @@
 // share [MinPartial], how much of the start or end of a secret they hide
 // where only that part of it shows.
 //
-// Redact and RedactInputs are [reel.Redactor] values, listed before every
+// Redact and RedactInputs are [reel.Concealer] values, listed before every
 // other effect. A redacted recording can not be saved as asciicast, and
 // its stills of [reel.File.Marks] are redacted too.
 //

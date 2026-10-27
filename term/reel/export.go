@@ -52,9 +52,9 @@ import (
 // [Timeline.WriteCast], with the [Profile.Title] and the palette the frames
 // are drawn with in its header. When every output is asciicast, nothing is
 // drawn and no renderer is built. It does not run through the effects, so
-// a profile with a [Redactor] and an asciicast output is an error wrapping
-// [ErrUnredacted]. A still of [File.Marks] runs through the Redactors
-// alone (see [Redactor]).
+// a profile with a [Concealer] and an asciicast output is an error wrapping
+// [ErrRawOutput]. A still of [File.Marks] runs through the Concealer and
+// [StillEffect] effects alone (see StillEffect).
 //
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
@@ -106,20 +106,20 @@ type recorder struct {
 	// effects is the context the effects were started with, closed with
 	// the recorder.
 	effects *Context
-	// stills redacts the stills, when there are both stills and
-	// [Redactor] values.
-	stills *stillRedaction
+	// stills runs the stills through the effects, when there are both
+	// stills and a [StillEffect] or [Concealer].
+	stills *stillChain
 }
 
-// stillRedaction runs the stills of a recording through its [Redactor]
-// values, started for the stills alone.
-type stillRedaction struct {
-	// ctx is the context the Redactors were started with, and stages are
+// stillChain runs the stills of a recording through the effects that run
+// on stills, started for the stills alone.
+type stillChain struct {
+	// ctx is the context the effects were started with, and stages are
 	// their stages.
 	ctx    *Context
 	stages []Stage
 	// span is the timeline time a still plays for, a step of playback,
-	// which the Redactors may look at past its offset.
+	// which the effects may look at past its offset.
 	span time.Duration
 	// held are the stills drawn, in order, held until the timeline is
 	// known past their span.
@@ -145,7 +145,7 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if err != nil {
 		return nil, err
 	}
-	err = outs.checkRedaction(p.Effects)
+	err = outs.checkConcealers(p.Effects)
 	if err != nil {
 		return nil, err
 	}
@@ -213,12 +213,12 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 	}
 	if r.outs.hasStills() {
 		r.replay.mark = r.still
-		if red := redactors(p.Effects); len(red) > 0 {
+		if fx := stillEffects(p.Effects); len(fx) > 0 {
 			// A still plays for no longer than its step.
 			ctx := newContext()
 			ctx.Hold = 0
-			r.stills = &stillRedaction{ctx: ctx, span: time.Duration(float64(r.s.step) * r.s.speed)}
-			if r.stills.stages, err = startEffects(red, ctx); err != nil {
+			r.stills = &stillChain{ctx: ctx, span: time.Duration(float64(r.s.step) * r.s.speed)}
+			if r.stills.stages, err = startEffects(fx, ctx); err != nil {
 				return err
 			}
 		}
@@ -335,8 +335,8 @@ func (r *recorder) apply(ev Event) error {
 }
 
 // still writes the terminal as it is at m to the stills of its label not
-// yet written. With Redactors, it is held until the timeline is known past
-// the still's span, so the Redactors see the marks that fall in it, as
+// yet written. With effects on stills, it is held until the timeline is
+// known past the still's span, so the effects see the marks that fall in it, as
 // they would for a frame of the recording.
 func (r *recorder) still(m Mark) error {
 	sinks := r.outs.stillsAt(m.Label)
@@ -361,7 +361,7 @@ func (r *recorder) drawCurrent(at time.Duration) Frame {
 	return Frame{Image: img, Cells: &cf, At: cf.At, Delay: r.s.step}
 }
 
-// writeHeld redacts and writes the stills held whose span ends before
+// writeHeld runs the effects on and writes the stills held whose span ends before
 // offset at, or every one when all is set.
 func (r *recorder) writeHeld(at time.Duration, all bool) error {
 	sr := r.stills
@@ -373,7 +373,7 @@ func (r *recorder) writeHeld(at time.Duration, all bool) error {
 		sr.held = sr.held[1:]
 		f, ok := runAlone(sr.stages, h.frame)
 		if !ok {
-			return fmt.Errorf("reel: the redacting effects dropped the still at mark %q", h.label)
+			return fmt.Errorf("reel: the still effects dropped the still at mark %q", h.label)
 		}
 		if err := writeStill(h.sinks, f, r.s.step); err != nil {
 			return err
@@ -458,7 +458,7 @@ func (r *recorder) release() error {
 	if r.stills != nil {
 		err := r.stills.ctx.close()
 		if r.effects != nil {
-			// The recording's effects hold the same Redactors, which
+			// The recording's effects hold the same still effects, which
 			// report the same marks that never came.
 			err = withoutNoMark(err)
 		}

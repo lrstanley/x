@@ -100,7 +100,7 @@ func Replace(c rune) RedactOption {
 // Redact read, such as [Intro]. [Cells], [Row], and [Rows] regions hide
 // cells only.
 //
-// Redact is a [reel.Redactor]: list it, and [RedactInputs], before every
+// Redact is a [reel.Concealer]: list it, and [RedactInputs], before every
 // other effect, such as [Keys], [Highlight], or [Intro]. What the effects
 // after it draw themselves, such as a card of a caller's own, is not
 // redacted. A redacted recording can not be saved as asciicast. A still of
@@ -140,8 +140,8 @@ type redact struct {
 	mask rune
 }
 
-// Redacts implements [reel.Redactor].
-func (redact) Redacts() bool { return true }
+// Conceals implements [reel.Concealer].
+func (redact) Conceals() bool { return true }
 
 func (e redact) Start(ctx *reel.Context) (reel.Stage, error) {
 	switch {

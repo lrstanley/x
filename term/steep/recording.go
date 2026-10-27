@@ -39,8 +39,8 @@ type StillKind uint8
 
 const (
 	// StillPNG is a PNG of the terminal at the mark, drawn with the
-	// recording's [reel.Profile.Render] options, through its redacting
-	// effects alone (see [reel.File.Marks]).
+	// recording's [reel.Profile.Render] options, through the effects that
+	// run on stills alone (see [reel.StillEffect]).
 	StillPNG StillKind = 1 << iota
 	// StillSnapshot is the screen's text at the mark, as [Harness.View]
 	// returned it then, in a ".snap" file.

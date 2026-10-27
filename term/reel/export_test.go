@@ -651,20 +651,20 @@ func readCastHeader(t *testing.T, path string) Header {
 	return readCast(t, data).Header()
 }
 
-// redactor is a [Redactor] that passes frames on, and redacts when on is
+// concealer is a [Concealer] that passes frames on, and conceals when on is
 // set.
-type redactor struct{ on bool }
+type concealer struct{ on bool }
 
-func (redactor) Start(*Context) (Stage, error) {
+func (concealer) Start(*Context) (Stage, error) {
 	return func(f Frame, emit func(Frame)) { emit(f) }, nil
 }
 
-func (r redactor) Redacts() bool { return r.on }
+func (r concealer) Conceals() bool { return r.on }
 
-// TestExportRedactor checks that a profile with a [Redactor] lists it
+// TestExportConcealer checks that a profile with a [Concealer] lists it
 // first, and writes no output that skips the effects, failing before it
 // writes anything.
-func TestExportRedactor(t *testing.T) {
+func TestExportConcealer(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"), Mark{event: at(10), Label: "m"})
 	keep := effectFunc(func(f Frame, emit func(Frame)) { emit(f) })
@@ -675,9 +675,11 @@ func TestExportRedactor(t *testing.T) {
 		is      error
 		want    string
 	}{
-		{"cast", Files("x.gif", "x.cast"), []Effect{redactor{true}}, ErrUnredacted, "asciicast"},
-		{"cast only", Files("x.cast"), []Effect{redactor{true}, keep}, ErrUnredacted, "asciicast"},
-		{"order", Files("x.gif"), []Effect{redactor{true}, keep, redactor{true}}, nil, "effect 2 (reel.redactor) redacts, so it must come before effect 1"},
+		{"cast", Files("x.gif", "x.cast"), []Effect{concealer{true}}, ErrRawOutput, "asciicast"},
+		{"cast only", Files("x.cast"), []Effect{concealer{true}, keep}, ErrRawOutput, "asciicast"},
+		{"order", Files("x.gif"), []Effect{concealer{true}, keep, concealer{true}}, nil, "effect 2 (reel.concealer) conceals, so it must come before effect 1"},
+		{"wrapped cast", Files("x.gif", "x.cast"), []Effect{wrapped{concealer{true}}}, ErrRawOutput, "asciicast"},
+		{"wrapped order", Files("x.gif"), []Effect{keep, wrapped{wrapped{concealer{true}}}}, nil, "conceals, so it must come before effect 0"},
 	} {
 		dir := t.TempDir()
 		var outputs []File
@@ -697,8 +699,8 @@ func TestExportRedactor(t *testing.T) {
 	// write the other outputs.
 	dir := t.TempDir()
 	for _, effects := range [][]Effect{
-		{keep, redactor{false}},
-		{redactor{true}, redactor{true}, keep},
+		{keep, concealer{false}},
+		{concealer{true}, concealer{true}, keep},
 	} {
 		if err := Export(t.Context(), tl, Profile{Outputs: Files(filepath.Join(dir, "x.gif")), Rasterizer: testutil.Rasterizer{}, Effects: effects}); err != nil {
 			t.Fatal(err)
@@ -706,10 +708,10 @@ func TestExportRedactor(t *testing.T) {
 	}
 }
 
-// TestExportRedactorStills checks that a still runs through the
-// [Redactor] values alone, as a recording of its one frame, and that one
-// the redactors drop is an error.
-func TestExportRedactorStills(t *testing.T) {
+// TestExportStillEffects checks that a still runs through the [Concealer]
+// and [StillEffect] values alone, as a recording of its one frame, and that
+// one they drop is an error.
+func TestExportStillEffects(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"), Mark{event: at(10), Label: "m"})
 	var got []Frame
@@ -729,18 +731,18 @@ func TestExportRedactorStills(t *testing.T) {
 	p := Profile{
 		Outputs:    []File{{Path: filepath.Join(dir, "{mark}.png"), Marks: []string{"m"}}},
 		Rasterizer: testutil.Rasterizer{},
-		Effects:    []Effect{redactorEffect{hide}, other},
+		Effects:    []Effect{concealerEffect{hide}, other},
 	}
 	if err := Export(t.Context(), tl, p); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || !got[0].First || !got[0].Last || got[0].At != 10*time.Millisecond || got[0].Cells == nil {
-		t.Fatalf("redactor given %+v, want the still's one frame", got)
+		t.Fatalf("concealer given %+v, want the still's one frame", got)
 	}
 	if text := testutil.Text(readPNG(t, filepath.Join(dir, "m.png"))); text != "x" {
 		t.Fatalf("still shows %q, want %q", text, "x")
 	}
-	// A redactor after one that emits two frames is given them as a
+	// A concealer after one that emits two frames is given them as a
 	// recording of two, and the first it emits is the still.
 	twice := effectFunc(func(f Frame, emit func(Frame)) {
 		emit(f)
@@ -751,7 +753,7 @@ func TestExportRedactorStills(t *testing.T) {
 		flags = append(flags, [2]bool{f.First, f.Last})
 		hide(f, emit)
 	})
-	p.Effects = []Effect{redactorEffect{twice}, redactorEffect{mark}}
+	p.Effects = []Effect{concealerEffect{twice}, concealerEffect{mark}}
 	p.Outputs[0].Path = filepath.Join(t.TempDir(), "{mark}.png")
 	if err := Export(t.Context(), tl, p); err != nil {
 		t.Fatal(err)
@@ -759,20 +761,45 @@ func TestExportRedactorStills(t *testing.T) {
 	if want := [][2]bool{{true, false}, {false, true}}; !slices.Equal(flags, want) {
 		t.Fatalf("First and Last %v, want %v", flags, want)
 	}
+	// A StillEffect after an effect that does not run on stills runs on
+	// them too, wrapped or not.
+	for _, e := range []Effect{stillEffect{hide}, wrapped{stillEffect{hide}}} {
+		got = nil
+		p.Effects = []Effect{other, e}
+		p.Outputs[0].Path = filepath.Join(t.TempDir(), "{mark}.png")
+		if err := Export(t.Context(), tl, p); err != nil {
+			t.Fatal(err)
+		}
+		if text := testutil.Text(readPNG(t, strings.Replace(p.Outputs[0].Path, "{mark}", "m", 1))); len(got) != 1 || text != "x" {
+			t.Fatalf("%T: still shows %q after %d frames, want %q after one", e, text, len(got), "x")
+		}
+	}
 	drop := effectFunc(func(Frame, func(Frame)) {})
-	p.Effects = []Effect{redactorEffect{drop}}
+	p.Effects = []Effect{concealerEffect{drop}}
 	p.Outputs[0].Path = filepath.Join(t.TempDir(), "{mark}.png")
 	if err := Export(t.Context(), tl, p); err == nil || !strings.Contains(err.Error(), "dropped the still") {
 		t.Fatalf("Export = %v, want an error for the dropped still", err)
 	}
 }
 
-// redactorEffect is a [Redactor] that runs its stage.
-type redactorEffect struct{ stage effectFunc }
+// wrapped wraps an effect, and unwraps to it.
+type wrapped struct{ Effect }
 
-func (e redactorEffect) Start(ctx *Context) (Stage, error) { return e.stage.Start(ctx) }
+func (w wrapped) Unwrap() Effect { return w.Effect }
 
-func (redactorEffect) Redacts() bool { return true }
+// stillEffect is a [StillEffect] that runs its stage.
+type stillEffect struct{ stage effectFunc }
+
+func (e stillEffect) Start(ctx *Context) (Stage, error) { return e.stage.Start(ctx) }
+
+func (stillEffect) Stills() bool { return true }
+
+// concealerEffect is a [Concealer] that runs its stage.
+type concealerEffect struct{ stage effectFunc }
+
+func (e concealerEffect) Start(ctx *Context) (Stage, error) { return e.stage.Start(ctx) }
+
+func (concealerEffect) Conceals() bool { return true }
 
 // TestContextValues checks that a value one effect stores is read by the
 // effects started after it.

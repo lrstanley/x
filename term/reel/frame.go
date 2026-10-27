@@ -91,46 +91,56 @@ type Animator interface {
 
 // Effect changes the frames of a recording between the [Rasterizer] and the
 // sinks, such as an overlay of the keys pressed or a title card. Each export
-// calls Start once, or for a [Redactor], once more for the stills, so an
+// calls Start once, or for a [StillEffect], once more for the stills, so an
 // effect shared by recordings that run in parallel must keep its
 // per-recording state in the [Stage] it returns, and close what it opens
 // for one with [Context.OnClose]. The effects package has some.
+//
+// An effect that wraps another, such as to log it, should have an
+// Unwrap() Effect method that returns it, so a [Concealer] or
+// [StillEffect] it wraps is still found, as [errors.As] finds an error.
 type Effect interface {
 	// Start returns the stage that runs the effect for one recording, or nil
 	// to leave the recording alone.
 	Start(ctx *Context) (Stage, error)
 }
 
-// Redactor is implemented by an [Effect] that hides part of what a
-// recording shows, such as a secret, like the effects package's Redact. It
-// can only hide what passes through it, so a profile with an effect whose
-// Redacts reports true must list it before every effect that does not, and
-// may not have an asciicast output, which is the timeline as recorded,
-// input included, and never runs through the effects. [Export] and [Record]
-// return an error for either, before they write anything: one wrapping
-// [ErrUnredacted] for an asciicast output.
-//
-// Stills of [File.Marks] run through the Redactors, and no other effect:
-// they are started once more, for the stills, on a [Context] of their own
-// without a Hold, and each still is given to the first as a recording of
-// its one frame, with [Frame.First] and [Frame.Last] set, a [Context.Step]
-// long. It is given once the timeline is known past that step, which in a
-// live recording may be after later stills are drawn. The first frame the
-// last Redactor emits for it is the still, so a Redactor's stage must emit
-// each frame it is given, hidden, before it returns. One that emits nothing
-// for a still is an error. The errors the stills' Redactors report on close
-// that wrap [ErrNoMark] are left to the recording's own stages, when there
-// are any.
-type Redactor interface {
+// Concealer is implemented by an [Effect] that hides part of what a
+// recording shows, such as a secret. It can only hide what passes through
+// it, so in a profile with an effect whose Conceals reports true, every
+// such effect must come before every effect that does not, and no output
+// may skip the effects, as an asciicast file of the timeline does. [Export]
+// and [Record] return an error for either before they write anything: one
+// wrapping [ErrRawOutput] for an output that skips the effects. A
+// Concealer runs on stills too, as a [StillEffect] does.
+type Concealer interface {
 	Effect
-	// Redacts reports whether the effect hides anything.
-	Redacts() bool
+	// Conceals reports whether the effect hides anything.
+	Conceals() bool
 }
 
-// ErrUnredacted is wrapped by the error [Export] and [Record] return for a
-// profile with a [Redactor] and an asciicast output, which would show what
-// it hides.
-var ErrUnredacted = errors.New("reel: output cannot be redacted")
+// StillEffect is implemented by an [Effect] that also runs on the stills
+// of [File.Marks], which run through these effects and the [Concealer]
+// effects alone, in the profile's order. They are started once more, for
+// the stills, on a [Context] of their own without a Hold, and each still is
+// given to the first as a recording of its one frame, with [Frame.First]
+// and [Frame.Last] set, a [Context.Step] long. It is given once the
+// timeline is known past that step, which in a live recording may be after
+// later stills are drawn. The first frame the last emits for it is the
+// still, so such an effect must emit each frame it is given before it
+// returns; emitting nothing for a still is an error. The errors these
+// effects report on close that wrap [ErrNoMark] are left to the
+// recording's own stages, when there are any.
+type StillEffect interface {
+	Effect
+	// Stills reports whether the effect runs on stills.
+	Stills() bool
+}
+
+// ErrRawOutput is wrapped by the error [Export] and [Record] return for a
+// profile with a [Concealer] and an output that skips the effects, such as
+// an asciicast file, which would show what it hides.
+var ErrRawOutput = errors.New("reel: output skips the effects")
 
 // Stage receives each frame of a recording in order, and emits the frames to
 // record in its place: the frame unchanged to keep it, nothing to drop it, a

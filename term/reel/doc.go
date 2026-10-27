@@ -35,9 +35,9 @@
 // the wall clock, so exporting a timeline twice writes the same bytes.
 // [Record] runs the same pipeline on a [Session] while it runs, tailing its
 // timeline with [Timeline.Updated], and writes the files Export would. An
-// effect that hides secrets is a [Redactor], which runs before every other
-// effect, and on stills too, which skip the others, and makes asciicast
-// outputs, the timeline as recorded, an error.
+// effect that hides secrets is a [Concealer], which runs before every other
+// effect, and on stills too, which skip the others but for a [StillEffect],
+// and makes asciicast outputs, the timeline as recorded, an error.
 //
 // Input is recorded as the exact bytes the terminal sent the program, encoded
 // in whatever keyboard and mouse modes the program had set.

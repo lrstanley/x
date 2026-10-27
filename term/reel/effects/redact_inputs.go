@@ -27,7 +27,7 @@ type typedRedaction struct {
 // the typed text [Keys] shows, as a • for each character, so a password
 // typed with "hunter2\n" shows as "•••••••⏎". It changes no frame: it only
 // tells the Keys after it what to hide, so list it before them, with
-// [Redact], before every other effect (see [reel.Redactor]). Like Redact,
+// [Redact], before every other effect (see [reel.Concealer]). Like Redact,
 // it makes asciicast outputs an error, since the timeline holds the bytes
 // typed.
 //
@@ -63,8 +63,8 @@ func RedactInputs(region Region, opts ...Matching) reel.Effect {
 
 type redactInputs typedRedaction
 
-// Redacts implements [reel.Redactor].
-func (redactInputs) Redacts() bool { return true }
+// Conceals implements [reel.Concealer].
+func (redactInputs) Conceals() bool { return true }
 
 func (e redactInputs) Start(ctx *reel.Context) (reel.Stage, error) {
 	if e.region == nil {

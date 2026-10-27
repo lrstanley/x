@@ -29,7 +29,7 @@ type redactorFunc func(f reel.Frame, emit func(reel.Frame))
 
 func (e redactorFunc) Start(*reel.Context) (reel.Stage, error) { return reel.Stage(e), nil }
 
-func (redactorFunc) Redacts() bool { return true }
+func (redactorFunc) Conceals() bool { return true }
 
 // redactFrames exports tl through effects with the fake rasterizer r at
 // 100 FPS, and returns the frames given to the effects and those they
@@ -435,9 +435,9 @@ func TestRedactOutputs(t *testing.T) {
 		effects []reel.Effect
 		is      error
 	}{
-		{"cast", reel.Files("out.gif", "out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrUnredacted},
-		{"cast only", reel.Files("out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrUnredacted},
-		{"inputs cast", reel.Files("out.gif", "out.cast"), []reel.Effect{RedactInputs(Text("hunter2"))}, reel.ErrUnredacted},
+		{"cast", reel.Files("out.gif", "out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrRawOutput},
+		{"cast only", reel.Files("out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrRawOutput},
+		{"inputs cast", reel.Files("out.gif", "out.cast"), []reel.Effect{RedactInputs(Text("hunter2"))}, reel.ErrRawOutput},
 		{"order", reel.Files("out.gif"), []reel.Effect{Keys(time.Second), Redact(Text("hunter2"))}, nil},
 		{"inputs order", reel.Files("out.gif"), []reel.Effect{Keys(time.Second), RedactInputs(Text("hunter2"))}, nil},
 	} {
@@ -465,8 +465,8 @@ func TestRedactOutputs(t *testing.T) {
 		Rasterizer: testutil.Rasterizer{},
 		Effects:    []reel.Effect{Redact(Text("hunter2"))},
 	})
-	if !errors.Is(err, reel.ErrUnredacted) {
-		t.Fatalf("Record = %v, want an error wrapping reel.ErrUnredacted", err)
+	if !errors.Is(err, reel.ErrRawOutput) {
+		t.Fatalf("Record = %v, want an error wrapping reel.ErrRawOutput", err)
 	}
 }
 

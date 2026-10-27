@@ -31,9 +31,8 @@ type Recording struct {
 // now when nothing has been appended yet. A still whose mark never comes
 // writes nothing, and Stop reports it as an error wrapping [ErrNoMark]; the
 // other outputs are still written. Effects are started with [Context.Live]
-// set, so those that look for marks, such as the effects package's Between,
-// find them as they are appended, and report those that never come the same
-// way.
+// set, so those that look for marks find them as they are appended, and
+// report those that never come the same way.
 //
 // Canceling ctx abandons the recording: its outputs are discarded, and Stop
 // returns ctx's error.
