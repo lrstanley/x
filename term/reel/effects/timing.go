@@ -142,7 +142,7 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 			// Off until the mark comes.
 			w.from = openTo
 		}
-		w.update(openTo)
+		w.update()
 		if w.wantFrom {
 			w.late = true
 			if !w.cover {
@@ -170,19 +170,14 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 }
 
 // update looks for the marks of a live window among the events appended
-// since it last looked, up to offset until: the first mark labeled from, and
-// then the first labeled to after it, as [reel.Timeline.Between] finds them.
-// Events past until are left for a later look, so the marks found are those
-// of the frames given so far, and never those appended after the recording
-// ended.
-func (w *window) update(until time.Duration) {
+// since it last looked: the first mark labeled from, and then the first
+// labeled to after it, as [reel.Timeline.Between] finds them. A mark found
+// past the frame given last changes nothing until a frame reaches it.
+func (w *window) update() {
 	if !w.wantFrom && !w.wantTo {
 		return
 	}
 	for ev := range w.tl.EventsFrom(w.read) {
-		if ev.At() > until {
-			return
-		}
 		w.read++
 		m, ok := ev.(reel.Mark)
 		switch {
@@ -201,8 +196,10 @@ func (w *window) update(until time.Duration) {
 }
 
 // missing returns an error wrapping [reel.ErrNoMark] for the marks of a live
-// window that the frames given never reached, or nil.
+// window that the recording never had, or nil. It looks once more, for the
+// marks appended after the last frame.
 func (w *window) missing() error {
+	w.update()
 	switch {
 	case w.wantFrom:
 		return fmt.Errorf("effects: between %q and %q: %w: %q", w.fromLabel, w.toLabel, reel.ErrNoMark, w.fromLabel)
@@ -255,7 +252,7 @@ type piece struct {
 // shows any of the window is at full strength. The last piece takes what is
 // left of f past its last step. The hold of the last frame is past the end
 // of the timeline, so it has the strength at that end. In a live recording,
-// the marks up to the end of f are looked for first.
+// the marks appended since the frame before are looked for first.
 func (w *window) pieces(f reel.Frame) []piece {
 	steps := max(1, int(f.Delay/w.step))
 	span := f.Delay
@@ -263,7 +260,7 @@ func (w *window) pieces(f reel.Frame) []piece {
 		span = max(0, span-w.hold)
 	}
 	end := f.At + time.Duration(float64(span)*w.speed)
-	w.update(end)
+	w.update()
 	stepAt := func(k float64) time.Duration {
 		return min(f.At+time.Duration(k*float64(w.step)*w.speed), end)
 	}

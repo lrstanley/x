@@ -239,7 +239,7 @@ func TestTimingLive(t *testing.T) {
 			return w
 		}
 		levels := func(w *window, at ...time.Duration) []float64 {
-			w.update(openTo)
+			w.update()
 			out := make([]float64, len(at))
 			for i, a := range at {
 				out[i] = w.level(a)
@@ -264,7 +264,7 @@ func TestTimingLive(t *testing.T) {
 		never := start(easeAfterMark, Between("on", "never"))
 		same := start(easeAfterMark, Between("m", "m"))
 		ends := start(easeAfterMark, Between("", "off"))
-		limited := start(easeAfterMark, Between("on", "off"))
+		unseen := start(easeAfterMark, Between("on", "off"))
 
 		// Before its mark, a late window is off, wherever the mark
 		// comes.
@@ -282,10 +282,9 @@ func TestTimingLive(t *testing.T) {
 		time.Sleep(100 * ms)
 		mustMark("off")
 		mustMark("m")
-		// Marks past where the frames have reached are left for later.
-		limited.update(350 * ms)
-		if limited.from != 300*ms || !limited.wantTo || limited.missing() == nil {
-			t.Fatalf("up to 350ms: from %v, want 300ms, and off still missing", limited.from)
+		// Marks no frame reached are found when the recording closes.
+		if err := unseen.missing(); err != nil || unseen.from != 300*ms || unseen.to != 400*ms {
+			t.Fatalf("closing with no frame given: window %v to %v, err %v, want 300ms to 400ms", unseen.from, unseen.to, err)
 		}
 		// on at 300ms, off at 400ms. The late window eases in after on.
 		if got, want := levels(late, 299*ms, 300*ms, 310*ms, 320*ms, 400*ms, 410*ms, 420*ms), []float64{0, 0, smooth(0.5), 1, 1, smooth(0.5), 0}; !slices.Equal(got, want) {
@@ -297,7 +296,7 @@ func TestTimingLive(t *testing.T) {
 			t.Fatalf("full window: levels %v, want %v", got, want)
 		}
 		for _, w := range []*window{known, same, ends, never} {
-			w.update(openTo)
+			w.update()
 		}
 		if known.to != 400*ms || ends.from != openFrom || ends.to != 400*ms {
 			t.Fatalf("ends: known to %v, open start %v to %v, want 400ms, open, 400ms", known.to, ends.from, ends.to)
@@ -318,8 +317,9 @@ func TestTimingLive(t *testing.T) {
 
 // TestBetweenRecord checks a highlight between marks placed while a
 // session is recorded: without easing, it writes what exporting the
-// timeline afterwards does, and a mark that never comes is an error from
-// Stop, which still writes the recording.
+// timeline afterwards does, a mark appended after the last frame is found,
+// and a mark that never comes is an error from Stop, which still writes the
+// recording.
 func TestBetweenRecord(t *testing.T) {
 	t.Parallel()
 	s, err := reel.Open(t.Context(), 6, 2)
@@ -344,6 +344,10 @@ func TestBetweenRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	last, err := reel.Record(t.Context(), s, profile("last", "last"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, step := range []string{"a", "on", "b", "c", "off", "d"} {
 		if len(step) > 1 {
 			err = s.Mark(step)
@@ -354,6 +358,17 @@ func TestBetweenRecord(t *testing.T) {
 			t.Fatal(i, err)
 		}
 		time.Sleep(30 * ms)
+	}
+	// Past where the last frame's end rounds down to on the 10ms grid.
+	if _, err = s.Write([]byte("e")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(14 * ms)
+	if err = s.Mark("last"); err != nil {
+		t.Fatal(err)
+	}
+	if err = last.Stop(); err != nil {
+		t.Fatalf("Stop with a mark after the last frame: %v", err)
 	}
 	if err = rec.Stop(); err != nil {
 		t.Fatal(err)

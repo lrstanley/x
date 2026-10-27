@@ -593,9 +593,9 @@ func TestRedactStills(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		check(name, dir)
-		// Without a recording, a mark after the last still is found, and
-		// with or without, one that never comes is reported once.
-		if err := record(t.TempDir(), "secret", "end"); !recording && err != nil {
+		// A mark after the last still is found, and one that never comes
+		// is reported once.
+		if err := record(t.TempDir(), "secret", "end"); err != nil {
 			t.Errorf("%s: Stop = %v", name, err)
 		}
 		err := record(t.TempDir(), "nope", "")

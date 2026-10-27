@@ -113,11 +113,9 @@ type Effect interface {
 // live recording may be after later stills are drawn. The first frame the
 // last Redactor emits for it is the still, so a Redactor's stage must emit
 // each frame it is given, hidden, before it returns. One that emits nothing
-// for a still is an error. In a live recording without a recording output,
-// the stills' stages are also given a frame of the end, a step long, whose
-// output is dropped, so they see the whole timeline. The errors they
-// report on close that wrap [ErrNoMark] are left to the recording's own
-// stages, when there are any.
+// for a still is an error. The errors the stills' Redactors report on close
+// that wrap [ErrNoMark] are left to the recording's own stages, when there
+// are any.
 type Redactor interface {
 	Effect
 	// Redacts reports whether the effect hides anything.
@@ -139,16 +137,19 @@ type Stage func(f Frame, emit func(Frame))
 
 // Context describes a recording to the [Effect] stages it runs.
 type Context struct {
-	// Timeline is the timeline being recorded. For [Record] it grows while
-	// the recording runs.
+	// Timeline is the timeline being recorded. For [Record] it holds the
+	// session's events the recording has replayed so far, and grows while
+	// it runs; once the recording stops, it holds every event the recording
+	// covers, and none appended after.
 	Timeline *Timeline
 	// Live is set when Timeline grows while the recording runs, as for
 	// [Record]: an event an effect looks for, such as a [Mark], may be
 	// appended after Start, though always before a stage is given the frame
 	// that plays at its offset. An effect then looks for it as frames
 	// arrive, and reports one that never came with a function it registered
-	// with [Context.OnClose]. Without Live, the timeline is complete at
-	// Start.
+	// with [Context.OnClose], which runs once Timeline is complete, so it
+	// can look once more for those appended after the last frame. Without
+	// Live, the timeline is complete at Start.
 	Live bool
 	// Rasterizer draws the terminal frames, and Layout is its layout for
 	// the timeline's starting size.

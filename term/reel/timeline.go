@@ -211,6 +211,16 @@ func (t *Timeline) append(ev Event) {
 	t.appendLocked(ev, now.Sub(t.start))
 }
 
+// follow appends ev, an event of src, at its offset, with src's start, so
+// t holds a prefix of src.
+func (t *Timeline) follow(src *Timeline, ev Event) {
+	start := src.started()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.start = start
+	t.appendLocked(ev, ev.At())
+}
+
 // pace makes append stamp events at the offsets passed to setPace rather
 // than by the wall clock, until unpace, and returns the offset the clock
 // has reached, which they count from. It reports false when the timeline

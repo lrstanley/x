@@ -99,6 +99,10 @@ type recorder struct {
 	closeRast bool
 	replay    *replay
 	pipe      *pipeline
+	// view is the timeline the effects of a live recording are given: the
+	// events of src replayed so far, so they never see those appended
+	// after it stops.
+	src, view *Timeline
 	// effects is the context the effects were started with, closed with
 	// the recorder.
 	effects *Context
@@ -189,6 +193,10 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 		return err
 	}
 	r.replay = replay
+	if live {
+		r.src, r.view = tl, newTimeline(tl.header)
+		tl = r.view
+	}
 	newContext := func() *Context {
 		return &Context{
 			Timeline:   tl,
@@ -315,6 +323,9 @@ func (r *recorder) apply(ev Event) error {
 	if r.replay == nil {
 		return nil
 	}
+	if r.view != nil {
+		r.view.follow(r.src, ev)
+	}
 	// The timeline is known up to ev, which a live one may not have held
 	// when a still was drawn.
 	if err := r.writeHeld(ev.At(), false); err != nil {
@@ -414,13 +425,6 @@ func (r *recorder) end(end time.Duration) error {
 	}
 	if err := r.writeHeld(0, true); err != nil {
 		return err
-	}
-	if r.stills != nil && r.stills.ctx.Live && r.pipe == nil {
-		// The Redactors have seen a live timeline up to the last still.
-		// Without a recording to show them the rest, a frame of the end,
-		// which is dropped, does, so they report the marks that never
-		// came, and only those.
-		runAlone(r.stills.stages, r.drawCurrent(end))
 	}
 	if r.pipe == nil {
 		return nil
