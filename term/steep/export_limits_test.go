@@ -11,7 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 // counterModel changes a status line and a progress bar on every key press: a
@@ -64,14 +64,14 @@ func TestExportKeepsEveryFrameByDefault(t *testing.T) {
 
 func TestExportMaxFramesOption(t *testing.T) {
 	t.Setenv("STEEP_EXPORT_MAX_FRAMES", "")
-	got := recordedFrames(t, 30, WithExport(ExportOn, ExportTypeGIF, export.WithMaxFrames(10)))
+	got := recordedFrames(t, 30, WithExport(ExportOn, ExportTypeGIF, sink.WithMaxFrames(10)))
 	if got != 10 {
-		t.Fatalf("got %d frames, want 10 from export.WithMaxFrames", got)
+		t.Fatalf("got %d frames, want 10 from sink.WithMaxFrames", got)
 	}
 }
 
 func TestExportMaxFramesEnv(t *testing.T) {
-	opt := WithExport(ExportOn, ExportTypeGIF, export.WithMaxFrames(5))
+	opt := WithExport(ExportOn, ExportTypeGIF, sink.WithMaxFrames(5))
 	tests := []struct {
 		name, env string
 		want      func(int) bool
@@ -99,7 +99,7 @@ func TestExportMaxBytes(t *testing.T) {
 	t.Run("option", func(t *testing.T) {
 		t.Setenv("STEEP_EXPORT_MAX_FRAMES", "")
 		t.Setenv("STEEP_EXPORT_MAX_BYTES", "")
-		got := recordedFrames(t, 40, WithExport(ExportOn, ExportTypeGIF, export.WithMaxBytes(limit)))
+		got := recordedFrames(t, 40, WithExport(ExportOn, ExportTypeGIF, sink.WithMaxBytes(limit)))
 		if got < 2 || got > 20 {
 			t.Fatalf("got %d frames, want a handful within %d bytes", got, limit)
 		}

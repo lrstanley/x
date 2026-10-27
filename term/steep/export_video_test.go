@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 // requireVideo skips the test unless ffmpeg can encode format.
-func requireVideo(t *testing.T, format export.VideoFormat) {
+func requireVideo(t *testing.T, format sink.VideoFormat) {
 	t.Helper()
-	if err := export.CheckVideo(format); err != nil {
+	if err := sink.CheckVideo(format); err != nil {
 		t.Skipf("cannot encode %s: %v", format, err)
 	}
 }
@@ -171,10 +171,10 @@ func TestDoneAfter(t *testing.T) {
 // with a Done to recycle its image ([doneAfter] makes it fire once).
 func TestExportPipelineFansOut(t *testing.T) {
 	t.Parallel()
-	var chs []chan export.Frame
-	var outs []chan<- export.Frame
+	var chs []chan sink.Frame
+	var outs []chan<- sink.Frame
 	for range 3 {
-		ch := make(chan export.Frame, 4)
+		ch := make(chan sink.Frame, 4)
 		chs = append(chs, ch)
 		outs = append(outs, ch)
 	}
@@ -191,7 +191,7 @@ func TestExportPipelineFansOut(t *testing.T) {
 		}
 	}
 	for want := uint8(1); want <= 2; want++ {
-		var got []export.Frame
+		var got []sink.Frame
 		for _, ch := range chs {
 			f := <-ch
 			if imageLabel(f.Image) != want {
@@ -219,13 +219,13 @@ func TestExportVideoMissingFFmpeg(t *testing.T) {
 			}
 		}()
 		NewHarness(tb, rootTestModel{},
-			WithExport(ExportOn, ExportTypeGIF|ExportTypeMP4, export.WithFFmpeg(filepath.Join(t.TempDir(), "no-ffmpeg"))),
+			WithExport(ExportOn, ExportTypeGIF|ExportTypeMP4, sink.WithFFmpeg(filepath.Join(t.TempDir(), "no-ffmpeg"))),
 			WithExportDir(dir),
 			WithIgnoreEnv(true),
 		)
 	}()
-	if !errors.Is(tb.err, export.ErrFFmpegNotFound) {
-		t.Fatalf("harness error = %v, want one wrapping export.ErrFFmpegNotFound", tb.err)
+	if !errors.Is(tb.err, sink.ErrFFmpegNotFound) {
+		t.Fatalf("harness error = %v, want one wrapping sink.ErrFFmpegNotFound", tb.err)
 	}
 	for _, want := range []string{"mp4", "WithExport", "STEEP_EXPORT_TYPE"} {
 		if !strings.Contains(tb.err.Error(), want) {
@@ -243,7 +243,7 @@ func TestExportTypeAllWithoutFFmpeg(t *testing.T) {
 	dir := t.TempDir()
 	h := NewHarness(t, rootTestModel{},
 		WithWindowSize(40, 4),
-		WithExport(ExportOn, ExportTypeGIF, export.WithFFmpeg(filepath.Join(t.TempDir(), "no-ffmpeg"))),
+		WithExport(ExportOn, ExportTypeGIF, sink.WithFFmpeg(filepath.Join(t.TempDir(), "no-ffmpeg"))),
 		WithExportDir(dir),
 		WithExportName("rec"),
 	)
@@ -260,7 +260,7 @@ func TestExportTypeAllWithoutFFmpeg(t *testing.T) {
 }
 
 func TestExportGIFAndVideo(t *testing.T) {
-	requireVideo(t, export.VideoMP4)
+	requireVideo(t, sink.VideoMP4)
 	dir := t.TempDir()
 	h := videoHarness(t, dir, ExportOn, ExportTypeGIF|ExportTypeMP4)
 	h.Type("a").Type("b").Type("c")
@@ -279,11 +279,11 @@ func TestExportGIFAndVideo(t *testing.T) {
 func TestExportEveryVideoFormat(t *testing.T) {
 	for _, v := range []struct {
 		typ    ExportType
-		format export.VideoFormat
+		format sink.VideoFormat
 	}{
-		{ExportTypeMP4, export.VideoMP4},
-		{ExportTypeWebM, export.VideoWebM},
-		{ExportTypeWebP, export.VideoWebP},
+		{ExportTypeMP4, sink.VideoMP4},
+		{ExportTypeWebM, sink.VideoWebM},
+		{ExportTypeWebP, sink.VideoWebP},
 	} {
 		t.Run(string(v.format), func(t *testing.T) {
 			requireVideo(t, v.format)
@@ -302,7 +302,7 @@ func TestExportEveryVideoFormat(t *testing.T) {
 // TestExportVideoOnly checks that a recording without a GIF still gets
 // commit-driven frames and the key overlay.
 func TestExportVideoOnly(t *testing.T) {
-	requireVideo(t, export.VideoMP4)
+	requireVideo(t, sink.VideoMP4)
 	dir := t.TempDir()
 	h := videoHarness(t, dir, ExportOn, ExportTypeMP4, WithExportKeys(time.Second))
 	if h.export.keys == nil {
@@ -321,7 +321,7 @@ func TestExportVideoOnly(t *testing.T) {
 }
 
 func TestExportVideoOnFailure(t *testing.T) {
-	requireVideo(t, export.VideoMP4)
+	requireVideo(t, sink.VideoMP4)
 	t.Run("passing", func(t *testing.T) {
 		dir := t.TempDir()
 		h := videoHarness(t, dir, ExportOnFailure, ExportTypeGIF|ExportTypeMP4)
@@ -344,7 +344,7 @@ func TestExportVideoOnFailure(t *testing.T) {
 }
 
 func TestExportVideoOnCopiesFailed(t *testing.T) {
-	requireVideo(t, export.VideoMP4)
+	requireVideo(t, sink.VideoMP4)
 	dir := t.TempDir()
 	h := videoHarness(t, dir, ExportOn, ExportTypeMP4)
 	h.Type("a").Type("b")

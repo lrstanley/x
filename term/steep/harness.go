@@ -5,8 +5,8 @@
 package steep
 
 import (
-	"cmp"
 	"context"
+	"image"
 	"iter"
 	"os"
 	"os/signal"
@@ -16,8 +16,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 type runResult struct {
@@ -41,26 +41,21 @@ type Harness struct {
 	result   *runResult
 	done     chan struct{}
 
-	imageRenderer *still.Renderer
+	imageRenderer *render.Renderer
 	// imageScreen is the last viewport clone drawn by Image. Close drops
 	// it so a later draw cannot reuse a grid from before reset.
 	imageScreen *screen.Buffer
-	// imageState is the last emulator state copied into the renderer.
-	// Its color interfaces stay when the NRGBA bytes are unchanged, and
-	// imageStatusGen is the generation of the OSC 7501 records it holds.
-	imageState     still.EmulatorState
-	imageStateSet  bool
-	imageStatusGen uint64
-	imageMu        sync.Mutex
-	export         *exportManager
-	hooks          []Hook
-	logHook        *hookLog
-	readyHooked    bool
-
-	// imageAt pins the renderer clock while a frame is drawn as of when it
-	// was on screen. Zero is the wall clock. It is read and written under
-	// imageMu, which every renderer draw holds.
-	imageAt time.Time
+	// image is the buffer [Harness.Image] draws into and returns.
+	image *image.NRGBA
+	// start is when the harness was created. Frames are drawn as of their
+	// offset from it, which blinking and animated indicators take their
+	// phase from (see [timelineAt]).
+	start       time.Time
+	imageMu     sync.Mutex
+	export      *exportManager
+	hooks       []Hook
+	logHook     *hookLog
+	readyHooked bool
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -81,18 +76,13 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	}
 
 	// The renderer is built before the emulator, which holds a pool slot, so
-	// its clock reads h once h exists. It comes before the caller's options,
-	// so a [still.WithClock] in [WithRenderer] replaces it, and export can no
-	// longer redraw a held frame's progress bar and program status as of a
-	// later time.
-	var h *Harness
-	clock := still.WithClock(func() time.Time { return cmp.Or(h.imageAt, time.Now()) })
-	imageRenderer, err := still.New(append([]still.Option{clock}, cfg.imageRendererOpts...)...)
+	// failing to build it leaves no slot taken.
+	imageRenderer, err := render.New(cfg.imageRendererOpts...)
 	if err != nil {
 		tb.Fatal(err)
 	}
 
-	h = &Harness{
+	h := &Harness{
 		tb:            tb,
 		failures:      failures,
 		emulator:      newEmulator(tb, cfg.width, cfg.height),
@@ -101,6 +91,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		opts:          append([]Option(nil), opts...),
 		cfg:           cfg,
 		imageRenderer: imageRenderer,
+		start:         time.Now(),
 		hooks:         append([]Hook(nil), cfg.hooks...),
 	}
 

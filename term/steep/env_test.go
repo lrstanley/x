@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 func TestParseExportTypes(t *testing.T) {
@@ -60,10 +60,10 @@ func TestApplyEnvExportTiming(t *testing.T) {
 
 func TestParseOptimizeFlags(t *testing.T) {
 	t.Parallel()
-	if got := parseOptimizeFlags("none"); got != export.OptimizeNone {
+	if got := parseOptimizeFlags("none"); got != sink.OptimizeNone {
 		t.Fatalf("got %v", got)
 	}
-	if got := parseOptimizeFlags("frames,dirty"); got != (export.OptimizeFrames | export.OptimizeDirtyRects) {
+	if got := parseOptimizeFlags("frames,dirty"); got != (sink.OptimizeFrames | sink.OptimizeDirtyRects) {
 		t.Fatalf("got %v", got)
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 // mediaTypes are the animated export types, in the order their outputs are
@@ -18,19 +18,19 @@ import (
 var mediaTypes = []struct {
 	typ    ExportType
 	ext    string
-	create func(path string, opts ...export.Option) (export.Encoder, error)
+	create func(path string, opts ...sink.Option) (sink.Encoder, error)
 }{
-	{ExportTypeGIF, "gif", func(path string, opts ...export.Option) (export.Encoder, error) {
-		return export.CreateGIF(path, opts...)
+	{ExportTypeGIF, "gif", func(path string, opts ...sink.Option) (sink.Encoder, error) {
+		return sink.CreateGIF(path, opts...)
 	}},
-	{ExportTypeMP4, "mp4", createVideo(export.VideoMP4)},
-	{ExportTypeWebM, "webm", createVideo(export.VideoWebM)},
-	{ExportTypeWebP, "webp", createVideo(export.VideoWebP)},
+	{ExportTypeMP4, "mp4", createVideo(sink.VideoMP4)},
+	{ExportTypeWebM, "webm", createVideo(sink.VideoWebM)},
+	{ExportTypeWebP, "webp", createVideo(sink.VideoWebP)},
 }
 
-func createVideo(format export.VideoFormat) func(string, ...export.Option) (export.Encoder, error) {
-	return func(path string, opts ...export.Option) (export.Encoder, error) {
-		enc, err := export.CreateVideo(path, format, opts...)
+func createVideo(format sink.VideoFormat) func(string, ...sink.Option) (sink.Encoder, error) {
+	return func(path string, opts ...sink.Option) (sink.Encoder, error) {
+		enc, err := sink.CreateVideo(path, format, opts...)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"steep: %w; remove %s from WithExport or STEEP_EXPORT_TYPE to run without it",
@@ -46,7 +46,7 @@ func createVideo(format export.VideoFormat) func(string, ...export.Option) (expo
 // [exportPipeline.out].
 type mediaOutput struct {
 	ext string
-	rec *export.Recorder
+	rec *sink.Recorder
 }
 
 // openOutputs starts a recorder for every animated type, so they all fail
@@ -61,11 +61,11 @@ func (m *exportManager) openOutputs(fps int) error {
 		if err != nil {
 			return err
 		}
-		ch := make(chan export.Frame, exportQueueSize)
-		rec, err := export.Record(enc, append(
+		ch := make(chan sink.Frame, exportQueueSize)
+		rec, err := sink.Record(enc, append(
 			slices.Clip(m.exportOpts),
-			export.WithChannel(ch),
-			export.WithDelayGrid(fps),
+			sink.WithChannel(ch),
+			sink.WithDelayGrid(fps),
 		)...)
 		if err != nil {
 			return err

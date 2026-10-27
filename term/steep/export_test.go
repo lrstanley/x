@@ -16,8 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/lrstanley/x/term/still/export"
-	"github.com/lrstanley/x/term/vt"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 func TestExportOnFailureWritesArtifacts(t *testing.T) {
@@ -172,8 +171,8 @@ func TestExportPipelineDelay(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ch := make(chan export.Frame, 1)
-			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, speed: tc.speed, out: []chan<- export.Frame{ch}}
+			ch := make(chan sink.Frame, 1)
+			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, speed: tc.speed, out: []chan<- sink.Frame{ch}}
 			p.record(labelImage(0), start, frameSource{})
 			p.finish(start.Add(tc.elapsed), false)
 			if got := (<-ch).Delay; got != tc.want {
@@ -265,49 +264,5 @@ func TestExportFilenameOverwrite(t *testing.T) {
 	}
 	if !strings.HasSuffix(name1, ".png") {
 		t.Fatalf("bad suffix: %q", name1)
-	}
-}
-
-// TestSameCommitTracksProgress checks that a write that only changes OSC 9;4
-// progress still records a GIF frame, since the bar is drawn on the window.
-func TestSameCommitTracksProgress(t *testing.T) {
-	t.Parallel()
-	a := vt.Snapshot{Generation: 3, Title: "t"}
-	b := a
-	b.Progress = vt.Progress{Reported: true, State: vt.ProgressSet, Percent: 10}
-	if !sameCommit(a, a) {
-		t.Fatal("sameCommit(a, a) = false")
-	}
-	if sameCommit(a, b) {
-		t.Fatal("snapshots that differ only in progress are the same commit")
-	}
-}
-
-// TestSameCommitTracksProgramStatus checks that a write that only changes
-// OSC 7501 records records a GIF frame, as does one that only marks that a
-// report arrived when that hides OSC 9;4 progress, and that a report that
-// changes nothing drawn does not.
-func TestSameCommitTracksProgramStatus(t *testing.T) {
-	t.Parallel()
-	a := vt.Snapshot{Generation: 3, Progress: vt.Progress{Reported: true, State: vt.ProgressSet, Percent: 10}}
-	b := a
-	b.ProgramStatusGeneration = 1
-	b.ProgramStatuses = []vt.ProgramStatus{{State: vt.ProgramWorking}}
-	if sameCommit(a, b) {
-		t.Fatal("snapshots that differ only in program status are the same commit")
-	}
-	c := a
-	c.ProgramStatusReported = true
-	if sameCommit(a, c) {
-		t.Fatal("snapshots that differ only in whether OSC 7501 arrived, which hides progress, are the same commit")
-	}
-	if !sameCommit(b, b) {
-		t.Fatal("sameCommit(b, b) = false")
-	}
-	quiet := vt.Snapshot{Generation: 3}
-	cleared := quiet
-	cleared.ProgramStatusReported = true
-	if !sameCommit(quiet, cleared) {
-		t.Fatal("a bare clear with no records and no progress is a new commit")
 	}
 }

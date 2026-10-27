@@ -10,7 +10,7 @@ import (
 	"image/draw"
 	"time"
 
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // logoBitmap is a teacup beside "STEEP" in a 5x7 pixel font, seven pixel rows

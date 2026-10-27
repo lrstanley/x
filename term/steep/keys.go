@@ -7,7 +7,7 @@ package steep
 import (
 	"strings"
 
-	"github.com/lrstanley/x/term/vt"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 func mapKey(key string) vt.Key {

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lrstanley/x/term/still/export"
-	"github.com/lrstanley/x/term/vt"
+	"github.com/lrstanley/x/term/reel/sink"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // ExportFrame is one recorded frame on its way to the encoders (the GIF and any
@@ -30,7 +30,7 @@ type ExportFrame struct {
 	// than one step plays for one step.
 	Delay time.Duration
 	// Isolated palettizes this frame on its own GIF palette (see
-	// [export.Frame.Isolated]). Intro cards, the logo, and the outro set it.
+	// [sink.Frame.Isolated]). Intro cards, the logo, and the outro set it.
 	// A mutator can set it on frames it inserts. Terminal frames leave it false.
 	Isolated bool
 }
@@ -39,7 +39,7 @@ type ExportFrame struct {
 // beside it matches its size and window chrome.
 type frameSource struct {
 	cols, rows int
-	state      vt.Snapshot
+	state      screen.State
 	// held keeps the frame's indicators (the progress bar and program
 	// status) moving while it is held. It is nil unless they move with the
 	// clock.
@@ -104,7 +104,7 @@ type exportPipeline struct {
 	stages []mutatorStage
 	// out holds one channel per recorded output, each of which receives every
 	// frame.
-	out []chan<- export.Frame
+	out []chan<- sink.Frame
 }
 
 // sourcedFrame is a frame with the terminal it was drawn from. Frames a
@@ -200,7 +200,7 @@ func (p *exportPipeline) push(i int, f sourcedFrame) {
 		return
 	}
 	if i == len(p.stages) {
-		out := export.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step), Isolated: f.Isolated}
+		out := sink.Frame{Image: f.Image, Delay: max(f.Delay, p.base.Step), Isolated: f.Isolated}
 		if len(p.stages) == 0 {
 			// Without mutators nothing else shares the image, so the encoders
 			// may recycle it once all of them are done. Mutators can emit one
@@ -244,7 +244,7 @@ func (p *exportPipeline) run(i int, f sourcedFrame, last, failed bool) {
 }
 
 // doneAfter returns a function that calls done on its n-th call. Each of n
-// encoders sharing one frame gets it as [export.Frame.Done], so the image is
+// encoders sharing one frame gets it as [sink.Frame.Done], so the image is
 // only released after the last encoder has finished with it. The encoders may
 // call it from different goroutines.
 func doneAfter(done func(), n int) func() {

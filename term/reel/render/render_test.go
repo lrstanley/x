@@ -1,0 +1,968 @@
+// Copyright (c) Liam Stanley <liam@liam.sh>. All rights reserved. Use of
+// this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+package render
+
+import (
+	"bytes"
+	"image"
+	"image/color"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel/render/fonts"
+	"github.com/lrstanley/x/term/reel/vt/screen"
+)
+
+func TestPowerlineIconRendering(t *testing.T) {
+	t.Parallel()
+
+	const icon = "\ue0b0"
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	palette := WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg})
+
+	t.Run("fills cell height", func(t *testing.T) {
+		t.Parallel()
+
+		scr := newTestScreen(1, 1)
+		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		d := MustNew(WithScale(scaleFor(20)), palette)
+		img := drawNRGBA(t, d, scr)
+		cell := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		ink, ok := inkBounds(img, cell, bg)
+		if !ok {
+			t.Fatal("powerline separator produced no ink")
+		}
+		if ink.Min.Y > cell.Min.Y+1 || ink.Max.Y < cell.Max.Y-1 {
+			t.Fatalf("separator should fill cell height: ink=%v cell=%v", ink, cell)
+		}
+	})
+
+	t.Run("bottom ink survives next row", func(t *testing.T) {
+		t.Parallel()
+
+		scr := newTestScreen(1, 2)
+		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		scr.SetCell(0, 1, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+		d := MustNew(
+			WithCellHeight(-0.25),
+			palette,
+		)
+		img := drawNRGBA(t, d, scr)
+		cell0 := d.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		rows := min(3, cell0.Dy())
+		nonBg := 0
+		for y := cell0.Max.Y - rows; y < cell0.Max.Y; y++ {
+			for x := cell0.Min.X; x < cell0.Max.X; x++ {
+				if img.NRGBAAt(x, y) != bg {
+					nonBg++
+				}
+			}
+		}
+		if nonBg < max(2, rows*cell0.Dx()/10) {
+			t.Fatalf("powerline icon bottom ink = %d (rows=%d cell=%#v); overflow likely erased by next row",
+				nonBg, rows, cell0)
+		}
+	})
+}
+
+func TestIconHeightRendering(t *testing.T) {
+	t.Parallel()
+
+	const nerdIcon = "\uf0ac"
+	const terminalGraphic = "\ue0b0"
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	palette := WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg})
+	fontOpts := []Option{WithScale(scaleFor(20)), palette}
+
+	t.Run("scales single cell nerd icon", func(t *testing.T) {
+		t.Parallel()
+
+		scr := newTestScreen(1, 1)
+		scr.SetCell(0, 0, &screen.Cell{Content: nerdIcon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+		base := MustNew(fontOpts...)
+		scaled := MustNew(append(fontOpts, WithIconHeight(0.5))...)
+		singleScaled := MustNew(append(fontOpts, WithIconHeightSingle(0.5))...)
+
+		baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		scaledCell := scaled.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		if baseCell != scaledCell {
+			t.Fatalf("WithIconHeight changed cell bounds: %v -> %v", baseCell, scaledCell)
+		}
+		singleScaledCell := singleScaled.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		if baseCell != singleScaledCell {
+			t.Fatalf("WithIconHeightSingle changed cell bounds: %v -> %v", baseCell, singleScaledCell)
+		}
+
+		baseBounds, ok := inkBounds(drawNRGBA(t, base, scr), baseCell, bg)
+		if !ok {
+			t.Fatal("base icon produced no ink")
+		}
+		scaledBounds, ok := inkBounds(drawNRGBA(t, scaled, scr), scaledCell, bg)
+		if !ok {
+			t.Fatal("scaled icon produced no ink")
+		}
+		if scaledBounds.Dy() >= baseBounds.Dy() {
+			t.Fatalf("WithIconHeight(0.5) ink height = %d, want less than default %d", scaledBounds.Dy(), baseBounds.Dy())
+		}
+		singleScaledBounds, ok := inkBounds(drawNRGBA(t, singleScaled, scr), singleScaledCell, bg)
+		if !ok {
+			t.Fatal("single-cell scaled icon produced no ink")
+		}
+		if singleScaledBounds.Dy() >= baseBounds.Dy() {
+			t.Fatalf("WithIconHeightSingle(0.5) ink height = %d, want less than default %d", singleScaledBounds.Dy(), baseBounds.Dy())
+		}
+	})
+
+	t.Run("default fits icon height metric", func(t *testing.T) {
+		t.Parallel()
+
+		scr := newTestScreen(1, 1)
+		scr.SetCell(0, 0, &screen.Cell{Content: nerdIcon, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+		d := MustNew(fontOpts...)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		bounds, ok := inkBounds(drawNRGBA(t, d, scr), ctx.cellBounds(0, 0), bg)
+		if !ok {
+			t.Fatal("icon produced no ink")
+		}
+		// The globe is round and wider than one cell, so it shrinks to
+		// the cell width and stays round.
+		cell := ctx.cellBounds(0, 0)
+		if d := bounds.Dx() - bounds.Dy(); d < -1 || d > 1 {
+			t.Fatalf("default icon ink = %dx%d, want it to keep its round aspect", bounds.Dx(), bounds.Dy())
+		}
+		if bounds.Dx() < cell.Dx()-2 {
+			t.Fatalf("default icon ink width = %d, want it to fill the cell width %d", bounds.Dx(), cell.Dx())
+		}
+		if bounds.Dy() > ctx.Metrics().IconHeightSingle.Int() {
+			t.Fatalf("default icon ink height = %d, want <= IconHeightSingle %d", bounds.Dy(), ctx.Metrics().IconHeightSingle)
+		}
+	})
+
+	t.Run("keeps aspect ratio when shrinking", func(t *testing.T) {
+		t.Parallel()
+
+		// fa-question-circle is round and fa-key's ink is about as wide as
+		// it is tall; both overflow one cell horizontally and must shrink
+		// without squashing, centered in the icon band.
+		const aspect = 1.0
+		for _, icon := range []rune{'\uf059', '\uf084'} {
+			scr := newTestScreen(1, 1)
+			scr.SetCell(0, 0, &screen.Cell{Content: string(icon), Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			d := MustNew(fontOpts...)
+			ctx := d.layoutSnapshot(t, image.Point{}, scr)
+			cell := ctx.cellBounds(0, 0)
+			b, ok := inkBounds(drawNRGBA(t, d, scr), cell, bg)
+			if !ok {
+				t.Fatalf("%U produced no ink", icon)
+			}
+			if got := float64(b.Dx()) / float64(b.Dy()); got < aspect*0.85 || got > aspect*1.15 {
+				t.Errorf("%U ink = %dx%d (aspect %.2f), want about %.2f", icon, b.Dx(), b.Dy(), got, aspect)
+			}
+			mid := cell.Min.Y + cell.Dy()/2
+			if c := (b.Min.Y + b.Max.Y) / 2; c < mid-1 || c > mid+1 {
+				t.Errorf("%U ink rows %d..%d, want centered on row %d", icon, b.Min.Y, b.Max.Y, mid)
+			}
+		}
+	})
+
+	t.Run("does not shrink terminal graphics", func(t *testing.T) {
+		t.Parallel()
+
+		scr := newTestScreen(1, 1)
+		scr.SetCell(0, 0, &screen.Cell{Content: terminalGraphic, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+		base := MustNew(fontOpts...)
+		scaled := MustNew(append(fontOpts, WithIconHeight(0.5))...)
+		baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		scaledCell := scaled.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+		if baseCell != scaledCell {
+			t.Fatalf("WithIconHeight changed cell bounds: %v -> %v", baseCell, scaledCell)
+		}
+		baseBounds, ok := inkBounds(drawNRGBA(t, base, scr), baseCell, bg)
+		if !ok {
+			t.Fatal("base terminal graphic produced no ink")
+		}
+		scaledBounds, ok := inkBounds(drawNRGBA(t, scaled, scr), scaledCell, bg)
+		if !ok {
+			t.Fatal("scaled terminal graphic produced no ink")
+		}
+		if scaledBounds != baseBounds {
+			t.Fatalf("terminal graphic bounds changed with WithIconHeight: %v -> %v", baseBounds, scaledBounds)
+		}
+	})
+}
+
+func TestSyntheticNerdIconStylesRenderDifferentlyAndFit(t *testing.T) {
+	t.Parallel()
+
+	const icon = "\uf0ac"
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	styles := map[string]screen.Style{
+		"regular":     {},
+		"bold":        {Attrs: screen.AttrBold},
+		"italic":      {Attrs: screen.AttrItalic},
+		"bold italic": {Attrs: screen.AttrBold | screen.AttrItalic},
+	}
+
+	signatures := map[string]string{}
+	for name, style := range styles {
+		scr := newTestScreen(1, 1)
+		scr.SetCell(0, 0, &screen.Cell{Content: icon, Width: 1, Style: style})
+		d := MustNew(
+			WithScale(scaleFor(20)),
+			WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}),
+		)
+		img := drawNRGBA(t, d, scr)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cell := ctx.cellBounds(0, 0)
+		bounds, ok := inkBounds(img, cell, bg)
+		if !ok {
+			t.Fatalf("%s icon produced no ink", name)
+		}
+		if bounds.Dy() > ctx.Metrics().IconHeightSingle.Int() {
+			t.Fatalf("%s icon ink height = %d, want <= IconHeightSingle %d", name, bounds.Dy(), ctx.Metrics().IconHeightSingle)
+		}
+		signatures[name] = cellInkSignature(img, cell, bg)
+	}
+	for _, name := range []string{"bold", "italic", "bold italic"} {
+		if signatures[name] == signatures["regular"] {
+			t.Fatalf("%s icon rendered the same as regular", name)
+		}
+	}
+}
+
+func TestRendererBoundsNormalizePaddingAndScrollbarGutter(t *testing.T) {
+	t.Parallel()
+
+	scr := offsetScreen{
+		bounds: image.Rect(5, 7, 7, 8),
+		cells: map[image.Point]*screen.Cell{
+			image.Pt(5, 7): {Content: "a", Width: 1},
+			image.Pt(6, 7): {Content: "b", Width: 1},
+		},
+	}
+	d := MustNew(
+		WithPadding(2),
+		WithMargin(3, color.NRGBA{R: 0xff, A: 0xff}),
+		WithScrollbar(true),
+	)
+
+	layout := d.layoutSnapshot(t, image.Point{}, scr)
+	areas := []image.Rectangle{layout.cellBounds(5, 7), layout.cellBounds(6, 7)}
+
+	cell := d.Layout(2, 1).Cell
+	wantSize := image.Pt(cell.X*2+1+2*2+3*2, cell.Y+2*2+3*2)
+	if got := d.Layout(2, 1).Image.Size(); got != wantSize {
+		t.Fatalf("Layout().Image size = %v, want %v", got, wantSize)
+	}
+	if len(areas) != 2 {
+		t.Fatalf("drawn cell areas = %d, want 2", len(areas))
+	}
+	if got, want := areas[0].Min, image.Pt(5, 5); got != want {
+		t.Fatalf("first cell min = %v, want normalized %v", got, want)
+	}
+	if got, want := areas[1].Min, image.Pt(5+cell.X, 5); got != want {
+		t.Fatalf("second cell min = %v, want %v", got, want)
+	}
+}
+
+func TestRendererWideCellsCoverContinuations(t *testing.T) {
+	t.Parallel()
+
+	blue := color.NRGBA{B: 0xff, A: 0xff}
+	green := color.NRGBA{G: 0xff, A: 0xff}
+	scr := newTestScreen(3, 1)
+	scr.SetCell(0, 0, &screen.Cell{Content: "w", Width: 2, Style: screen.Style{Bg: blue}})
+	scr.SetCell(2, 0, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Bg: green}})
+	d := MustNew()
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+
+	if got := sample(img, ctx.cellBounds(1, 0)); got != blue {
+		t.Fatalf("continuation cell pixel = %#v, want wide-cell background %#v", got, blue)
+	}
+	if got := sample(img, ctx.cellBounds(2, 0)); got != green {
+		t.Fatalf("next cell pixel = %#v, want %#v", got, green)
+	}
+}
+
+func TestRendererBoxDrawingGlyphsHaveDistinctShapes(t *testing.T) {
+	t.Parallel()
+
+	glyphs := []string{"┌", "─", "┐", "│", "└", "┘"}
+	scr := newTestScreen(len(glyphs), 1)
+	for x, glyph := range glyphs {
+		scr.SetCell(x, 0, &screen.Cell{
+			Content: glyph,
+			Width:   1,
+			Style: screen.Style{
+				Fg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+				Bg: color.NRGBA{A: 0xff},
+			},
+		})
+	}
+
+	d := MustNew()
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	signatures := map[string]struct{}{}
+	for x := range glyphs {
+		signatures[cellInkSignature(img, ctx.cellBounds(x, 0), color.NRGBA{A: 0xff})] = struct{}{}
+	}
+	if len(signatures) < 3 {
+		t.Fatalf("box drawing glyphs rendered as only %d distinct shapes, want at least 3", len(signatures))
+	}
+}
+
+func TestRendererContiguousBoxDrawingLinesAvoidSeams(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	d := MustNew(WithScale(scaleFor(14)))
+
+	t.Run("vertical", func(t *testing.T) {
+		t.Parallel()
+
+		rows := 4
+		scr := newTestScreen(1, rows)
+		for y := range rows {
+			scr.SetCell(0, y, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		}
+		img := drawNRGBA(t, d, scr)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cx := ctx.cellBounds(0, 0).Min.X + ctx.Metrics().CellWidth.Int()/2
+		midY := ctx.cellBounds(0, 0).Min.Y + 10
+		juncY := ctx.cellBounds(0, 1).Min.Y
+		if core := img.NRGBAAt(cx, juncY).R; core < 100 {
+			t.Fatalf("vertical line gap at junction core R=%d, want >= 100", core)
+		}
+		mid := img.NRGBAAt(cx-1, midY).R
+		junc := img.NRGBAAt(cx-1, juncY).R
+		if delta := int(junc) - int(mid); delta > 8 || delta < -8 {
+			t.Fatalf("vertical fringe delta at junction = %d (mid=%d junc=%d), want within ±8", delta, mid, junc)
+		}
+	})
+
+	t.Run("horizontal", func(t *testing.T) {
+		t.Parallel()
+
+		cols := 4
+		scr := newTestScreen(cols, 1)
+		for x := range cols {
+			scr.SetCell(x, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+		}
+		img := drawNRGBA(t, d, scr)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		cy := ctx.cellBounds(0, 0).Min.Y + ctx.Metrics().CellHeight.Int()/2
+		midX := ctx.cellBounds(0, 0).Min.X + 5
+		juncX := ctx.cellBounds(1, 0).Min.X
+		if core := img.NRGBAAt(juncX, cy).R; core < 100 {
+			t.Fatalf("horizontal line gap at junction core R=%d, want >= 100", core)
+		}
+		mid := img.NRGBAAt(midX, cy+1).R
+		junc := img.NRGBAAt(juncX, cy+1).R
+		if delta := int(junc) - int(mid); delta > 8 || delta < -8 {
+			t.Fatalf("horizontal fringe delta at junction = %d (mid=%d junc=%d), want within ±8", delta, mid, junc)
+		}
+	})
+}
+
+func TestRendererRoundedCornerBoxDrawingAvoidsOutsideArtifacts(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	d := MustNew(WithScale(scaleFor(40)), WithCellWidth(-0.1))
+
+	scr := newTestScreen(2, 2)
+	scr.SetCell(0, 0, &screen.Cell{Content: "╭", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 1, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	corner := ctx.cellBounds(0, 0)
+	bar := ctx.cellBounds(0, 1)
+	cx := corner.Min.X + ctx.Metrics().CellWidth.Int()/2
+	juncY := bar.Min.Y
+
+	if core := img.NRGBAAt(cx, juncY).R; core < 100 {
+		t.Fatalf("rounded corner vertical junction core R=%d, want >= 100", core)
+	}
+
+	barMidY := bar.Min.Y + bar.Dy()/2
+	juncW := boxStrokeWidthAtRow(img, corner, juncY, 100)
+	barW := boxStrokeWidthAtRow(img, bar, barMidY, 100)
+	if juncW == 0 {
+		t.Fatalf("no vertical stroke at junction y=%d", juncY)
+	}
+	if barW == 0 {
+		t.Fatalf("no vertical stroke in bar cell at y=%d", barMidY)
+	}
+	if juncW > barW+2 {
+		t.Fatalf("junction stroke width = %d, bar width = %d; want junction not bloated", juncW, barW)
+	}
+
+	// Outside the intended L-shape: left of the corner stroke column.
+	outsideX := corner.Min.X + 1
+	outsideY := corner.Min.Y + 2
+	if img.NRGBAAt(outsideX, outsideY).R > 32 {
+		t.Fatalf("spurious ink outside corner at (%d,%d) R=%d, want <= 32",
+			outsideX, outsideY, img.NRGBAAt(outsideX, outsideY).R)
+	}
+
+	// No spurious vertical stroke above the corner cell.
+	for y := corner.Min.Y - 8; y < corner.Min.Y; y++ {
+		if img.NRGBAAt(cx, y).R > 32 {
+			t.Fatalf("spurious ink above corner at (%d,%d) R=%d, want <= 32", cx, y, img.NRGBAAt(cx, y).R)
+		}
+	}
+}
+
+func TestRendererBoxCornerVerticalJunctionContinuity(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+
+	type cornerCase struct {
+		name      string
+		glyph     string
+		cornerPos image.Point
+		barPos    image.Point
+	}
+	cases := []cornerCase{
+		{"top-left", "╭", image.Pt(0, 0), image.Pt(0, 1)},
+		{"top-right", "╮", image.Pt(1, 0), image.Pt(1, 1)},
+		{"bottom-left", "╰", image.Pt(0, 1), image.Pt(0, 0)},
+		{"bottom-right", "╯", image.Pt(1, 1), image.Pt(1, 0)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := MustNew(WithScale(scaleFor(40)), WithCellWidth(-0.1))
+
+			scr := newTestScreen(2, 2)
+			scr.SetCell(tc.cornerPos.X, tc.cornerPos.Y, &screen.Cell{Content: tc.glyph, Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+			scr.SetCell(tc.barPos.X, tc.barPos.Y, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+			img := drawNRGBA(t, d, scr)
+			ctx := d.layoutSnapshot(t, image.Point{}, scr)
+			cornerCell := ctx.cellBounds(tc.cornerPos.X, tc.cornerPos.Y)
+			barCell := ctx.cellBounds(tc.barPos.X, tc.barPos.Y)
+
+			juncY := barCell.Min.Y
+			if tc.cornerPos.Y > tc.barPos.Y {
+				juncY = cornerCell.Min.Y
+			}
+
+			strokeX := cornerCell.Min.X + ctx.Metrics().CellWidth.Int()/2
+			for x := cornerCell.Min.X; x < cornerCell.Max.X; x++ {
+				if img.NRGBAAt(x, juncY-1).R > 50 || img.NRGBAAt(x, juncY).R > 50 {
+					strokeX = x
+					break
+				}
+			}
+
+			if core := img.NRGBAAt(strokeX, juncY).R; core < 100 {
+				t.Fatalf("vertical junction at (%d,%d) R=%d, want >= 100", strokeX, juncY, core)
+			}
+			if strings.HasPrefix(tc.name, "top-") {
+				if bridge := img.NRGBAAt(strokeX, juncY-1).R; bridge < 100 {
+					t.Fatalf("top corner bridge at (%d,%d) R=%d, want >= 100", strokeX, juncY-1, bridge)
+				}
+			}
+
+			barMidY := barCell.Min.Y + barCell.Dy()/2
+			juncW := boxStrokeWidthAtRow(img, cornerCell, juncY, 100)
+			barW := boxStrokeWidthAtRow(img, barCell, barMidY, 100)
+			if juncW > barW+2 {
+				t.Fatalf("junction stroke width = %d, bar width = %d; want junction not bloated", juncW, barW)
+			}
+		})
+	}
+}
+
+func TestRendererFiraRoundedCornerBorderWithMargin(t *testing.T) {
+	t.Parallel()
+
+	family, err := fonts.LoadFamily("FiraMono Nerd Font Mono")
+	if err != nil {
+		t.Skip(err)
+	}
+
+	fg := color.NRGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	margin := color.NRGBA{R: 0x81, G: 0x2c, B: 0xd1, A: 0xff}
+	d := MustNew(
+		WithFontFamily(family),
+		WithScale(scaleFor(40)),
+		WithCellWidth(-0.1),
+		WithBorderRadius(10),
+		WithMargin(40, margin),
+		WithPadding(10),
+	)
+
+	scr := newTestScreen(2, 2)
+	scr.SetCell(0, 0, &screen.Cell{Content: "╭", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(1, 0, &screen.Cell{Content: "─", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+	scr.SetCell(0, 1, &screen.Cell{Content: "│", Width: 1, Style: screen.Style{Fg: fg, Bg: bg}})
+
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	corner := ctx.cellBounds(0, 0)
+	bar := ctx.cellBounds(0, 1)
+	cx := corner.Min.X + ctx.Metrics().CellWidth.Int()/2
+	juncY := bar.Min.Y
+
+	if core := img.NRGBAAt(cx, juncY).R; core < 100 {
+		t.Fatalf("fira corner vertical junction core R=%d, want >= 100", core)
+	}
+
+	barMidY := bar.Min.Y + bar.Dy()/2
+	juncW := boxStrokeWidthAtRow(img, corner, juncY, 100)
+	barW := boxStrokeWidthAtRow(img, bar, barMidY, 100)
+	if juncW > barW+2 {
+		t.Fatalf("fira junction stroke width = %d, bar width = %d; want junction not bloated", juncW, barW)
+	}
+
+	for y := corner.Min.Y - 12; y < corner.Min.Y; y++ {
+		for x := corner.Min.X - 12; x < corner.Min.X; x++ {
+			c := img.NRGBAAt(x, y)
+			if c == margin {
+				continue
+			}
+			if c.R > 32 && c.R < 200 && c.G == c.R && c.B == c.R {
+				t.Fatalf("box artifact in margin at (%d,%d) = %#v (corner cell min=%v)", x, y, c, corner.Min)
+			}
+		}
+	}
+}
+
+func TestRendererColorAttributes(t *testing.T) {
+	t.Parallel()
+
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	blue := color.NRGBA{B: 0xff, A: 0xff}
+	gray := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+
+	tests := map[string]struct {
+		cell       *screen.Cell
+		wantBG     color.NRGBA
+		wantLine   color.NRGBA
+		lineSample func(*renderFrame, image.Rectangle) image.Point
+	}{
+		"reverse": {
+			cell: &screen.Cell{
+				Content: " ",
+				Width:   1,
+				Style: screen.Style{
+					Fg:        red,
+					Bg:        blue,
+					Underline: screen.UnderlineSingle,
+					Attrs:     screen.AttrReverse,
+				},
+			},
+			wantBG:   red,
+			wantLine: blue,
+			lineSample: func(f *renderFrame, area image.Rectangle) image.Point {
+				return image.Pt(area.Min.X, area.Min.Y+f.Metrics().UnderlinePosition.Int())
+			},
+		},
+		"faint": {
+			cell: &screen.Cell{
+				Content: " ",
+				Width:   1,
+				Style: screen.Style{
+					Fg:        color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+					Bg:        color.NRGBA{A: 0xff},
+					Underline: screen.UnderlineSingle,
+					Attrs:     screen.AttrFaint,
+				},
+			},
+			wantBG:   color.NRGBA{A: 0xff},
+			wantLine: gray,
+			lineSample: func(f *renderFrame, area image.Rectangle) image.Point {
+				return image.Pt(area.Min.X, area.Min.Y+f.Metrics().UnderlinePosition.Int())
+			},
+		},
+		"conceal": {
+			cell: &screen.Cell{
+				Content: " ",
+				Width:   1,
+				Style: screen.Style{
+					Fg:        red,
+					Bg:        blue,
+					Underline: screen.UnderlineSingle,
+					Attrs:     screen.AttrConceal,
+				},
+			},
+			wantBG:   blue,
+			wantLine: blue,
+			lineSample: func(f *renderFrame, area image.Rectangle) image.Point {
+				return image.Pt(area.Min.X, area.Min.Y+f.Metrics().UnderlinePosition.Int())
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			scr := newTestScreen(1, 1)
+			scr.SetCell(0, 0, tt.cell)
+			d := MustNew()
+			img := drawNRGBA(t, d, scr)
+			layout := d.layoutSnapshot(t, image.Point{}, scr)
+			area := layout.cellBounds(0, 0)
+
+			if got := sample(img, area.Inset(2)); got != tt.wantBG {
+				t.Fatalf("background pixel = %#v, want %#v", got, tt.wantBG)
+			}
+			if got := img.NRGBAAt(tt.lineSample(layout, area).X, tt.lineSample(layout, area).Y); got != tt.wantLine {
+				t.Fatalf("decoration pixel = %#v, want %#v", got, tt.wantLine)
+			}
+		})
+	}
+}
+
+func TestDottedUnderlineGlobalSpacing(t *testing.T) {
+	t.Parallel()
+
+	const cols = 8
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	style := screen.Style{Fg: fg, Bg: bg, Underline: screen.UnderlineDotted}
+
+	scr := newTestScreen(cols, 1)
+	for x := range cols {
+		scr.SetCell(x, 0, &screen.Cell{Content: " ", Width: 1, Style: style})
+	}
+
+	d := MustNew(WithPalette(Palette{DefaultForeground: fg, DefaultBackground: bg}))
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	metrics := ctx.Metrics()
+	y := ctx.cellBounds(0, 0).Min.Y + metrics.UnderlinePosition.Int()
+	step := max(2, metrics.UnderlineThickness.Int()*2)
+
+	var dots []int
+	for x := ctx.GridBounds().Min.X; x < ctx.GridBounds().Max.X; x++ {
+		if img.NRGBAAt(x, y) != fg {
+			continue
+		}
+		if x > ctx.GridBounds().Min.X && img.NRGBAAt(x-1, y) == fg {
+			continue
+		}
+		dots = append(dots, x)
+	}
+	if len(dots) < 2 {
+		t.Fatalf("dot count = %d, want at least 2", len(dots))
+	}
+	for i := 1; i < len(dots); i++ {
+		if got, want := dots[i]-dots[i-1], step; got != want {
+			t.Fatalf("dot gap[%d] = %d, want uniform %d (dots=%v)", i, got, want, dots)
+		}
+	}
+	thickness := metrics.UnderlineThickness.Int()
+	for _, x := range dots {
+		width := 0
+		for px := x; px < ctx.GridBounds().Max.X && img.NRGBAAt(px, y) == fg; px++ {
+			width++
+		}
+		if width != thickness {
+			t.Fatalf("dot at x=%d width = %d, want %d", x, width, thickness)
+		}
+	}
+}
+
+func TestRendererPaletteIndexedColors(t *testing.T) {
+	t.Parallel()
+
+	mapped := color.NRGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
+	scr := newTestScreen(1, 1)
+	scr.SetCell(0, 0, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Bg: ansi.IndexedColor(42)}})
+	d := MustNew(WithPalette(Palette{Indexed: map[int]color.Color{42: mapped}}))
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+
+	if got := sample(img, ctx.cellBounds(0, 0)); got != mapped {
+		t.Fatalf("indexed background = %#v, want palette color %#v", got, mapped)
+	}
+}
+
+func TestRendererBackgroundOpacity(t *testing.T) {
+	t.Parallel()
+
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	scr := newTestScreen(1, 1)
+	scr.SetCell(0, 0, &screen.Cell{Content: " ", Width: 1, Style: screen.Style{Bg: red}})
+
+	opaqueCells := MustNew(WithBackgroundOpacity(0.5))
+	img := drawNRGBA(t, opaqueCells, scr)
+	ctx := opaqueCells.layoutSnapshot(t, image.Point{}, scr)
+	if got := sample(img, ctx.cellBounds(0, 0)); got != red {
+		t.Fatalf("explicit cell background = %#v, want opaque %#v", got, red)
+	}
+
+	transparentCells := MustNew(WithBackgroundOpacity(0.5), WithBackgroundOpacityCells(true))
+	img = drawNRGBA(t, transparentCells, scr)
+	ctx = transparentCells.layoutSnapshot(t, image.Point{}, scr)
+	if got := sample(img, ctx.cellBounds(0, 0)); got != (color.NRGBA{R: 0xff, A: 0x80}) {
+		t.Fatalf("transparent cell background = %#v, want alpha-applied red", got)
+	}
+}
+
+// blinkingBar is a focused state with a visible, blinking bar cursor in c.
+func blinkingBar(c color.NRGBA) screen.State {
+	return screen.State{
+		Focused:        true,
+		Cursor:         screen.Cursor{Visible: true, Blink: true, Shape: screen.CursorBar},
+		CursorColor:    c,
+		CursorColorSet: true,
+	}
+}
+
+func TestRendererBlinkFollowsOffset(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text decoration", func(t *testing.T) {
+		t.Parallel()
+
+		red := color.NRGBA{R: 0xff, A: 0xff}
+		scr := newTestScreen(1, 1)
+		scr.SetCell(0, 0, &screen.Cell{
+			Content: " ",
+			Width:   1,
+			Style:   screen.Style{Fg: red, Underline: screen.UnderlineSingle, Attrs: screen.AttrBlink},
+		})
+
+		d := MustNew()
+		visibleImg := drawNRGBA(t, d, scr)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		p := image.Pt(ctx.cellBounds(0, 0).Min.X, ctx.cellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
+
+		if got := visibleImg.NRGBAAt(p.X, p.Y); got != red {
+			t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
+		}
+
+		hiddenImg := drawAt(t, d, scr, focused, 500*time.Millisecond)
+		if got := hiddenImg.NRGBAAt(p.X, p.Y); got != (color.NRGBA{A: 0xff}) {
+			t.Fatalf("hidden blink pixel = %#v, want background", got)
+		}
+	})
+
+	t.Run("cursor bar", func(t *testing.T) {
+		t.Parallel()
+
+		cursor := color.NRGBA{R: 0xff, A: 0xff}
+		scr := newTestScreen(1, 1)
+		st := blinkingBar(cursor)
+		d := MustNew(WithCursorBlinkSpeed(time.Second))
+		img := drawAt(t, d, scr, st, 0)
+		ctx := d.layoutSnapshot(t, image.Point{}, scr)
+		area := ctx.cellBounds(0, 0)
+		if got := img.NRGBAAt(area.Min.X, area.Min.Y); got != cursor {
+			t.Fatalf("cursor bar left pixel = %#v, want %#v", got, cursor)
+		}
+		if got := img.NRGBAAt(area.Min.X+ctx.Metrics().CursorThickness.Int(), area.Min.Y); got == cursor {
+			t.Fatalf("cursor bar extended past configured thickness")
+		}
+
+		img = drawAt(t, d, scr, st, time.Second)
+		if got := img.NRGBAAt(area.Min.X, area.Min.Y); got == cursor {
+			t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
+		}
+	})
+}
+
+func TestRendererScrollbarThumbPinnedToBottom(t *testing.T) {
+	t.Parallel()
+
+	scr := newTestScreen(1, 4)
+	d := MustNew(WithScrollbar(true))
+	img := drawAt(t, d, scr, screen.State{Focused: true, ScrollbackLen: 30}, 0)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	sb := ctx.ScrollbarBounds()
+	top := img.NRGBAAt(sb.Min.X, sb.Min.Y)
+	bottom := img.NRGBAAt(sb.Min.X, sb.Max.Y-1)
+
+	if top == bottom {
+		t.Fatalf("scrollbar track and thumb matched: %#v", top)
+	}
+	if bottom.R <= top.R {
+		t.Fatalf("scrollbar bottom thumb = %#v, want brighter than track %#v", bottom, top)
+	}
+}
+
+func TestRendererFocusDimmingExcludesMargin(t *testing.T) {
+	t.Parallel()
+
+	margin := color.NRGBA{R: 0xff, A: 0xff}
+	bg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	scr := newTestScreen(1, 1)
+	d := MustNew(
+		WithMargin(1, margin),
+		WithFocusDimming(0.5),
+		WithPalette(Palette{DefaultBackground: bg}),
+	)
+	img := drawAt(t, d, scr, screen.State{}, 0)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+
+	if got := img.NRGBAAt(0, 0); got != margin {
+		t.Fatalf("margin pixel = %#v, want undimmed %#v", got, margin)
+	}
+	if got := sample(img, ctx.WindowBounds()); got != (color.NRGBA{R: 0x7f, G: 0x7f, B: 0x7f, A: 0xff}) {
+		t.Fatalf("dimmed window pixel = %#v, want dimmed white", got)
+	}
+}
+
+func TestRendererRoundedMaskAffectsWindowCorners(t *testing.T) {
+	t.Parallel()
+
+	bg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	scr := newTestScreen(1, 1)
+	d := MustNew(
+		WithMargin(1, color.NRGBA{}),
+		WithBorderRadius(4),
+		WithPalette(Palette{DefaultBackground: bg}),
+	)
+	img := drawNRGBA(t, d, scr)
+	ctx := d.layoutSnapshot(t, image.Point{}, scr)
+	window := ctx.WindowBounds()
+
+	if got := img.NRGBAAt(window.Min.X, window.Min.Y); got.A != 0 {
+		t.Fatalf("rounded corner alpha = %d, want transparent", got.A)
+	}
+	if got := sample(img, window.Inset(4)); got != bg {
+		t.Fatalf("rounded center pixel = %#v, want %#v", got, bg)
+	}
+}
+
+func TestBoxThicknessOverrideThickensHorizontalLine(t *testing.T) {
+	t.Parallel()
+
+	fg := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	bg := color.NRGBA{A: 0xff}
+	scr := newTestScreen(1, 1)
+	scr.SetCell(0, 0, &screen.Cell{
+		Content: "─",
+		Width:   1,
+		Style:   screen.Style{Fg: fg, Bg: bg},
+	})
+
+	base := MustNew(WithScale(scaleFor(14)))
+	thick := MustNew(WithScale(scaleFor(14)), WithBoxThickness(4))
+
+	baseCell := base.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+	thickCell := thick.layoutSnapshot(t, image.Point{}, scr).cellBounds(0, 0)
+	baseInk, ok := inkBounds(drawNRGBA(t, base, scr), baseCell, bg)
+	if !ok {
+		t.Fatal("default horizontal box line produced no ink")
+	}
+	thickInk, ok := inkBounds(drawNRGBA(t, thick, scr), thickCell, bg)
+	if !ok {
+		t.Fatal("thickened horizontal box line produced no ink")
+	}
+
+	if thickInk.Dy() <= baseInk.Dy() {
+		t.Fatalf("thickened ink height = %d, want greater than default %d", thickInk.Dy(), baseInk.Dy())
+	}
+	if thickInk.Dy() < 4 {
+		t.Fatalf("thickened ink height = %d, want at least 4px", thickInk.Dy())
+	}
+}
+
+func TestDrawSkipsCleanBufferUntilPictureChanges(t *testing.T) {
+	t.Parallel()
+
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	buf := screen.NewBuffer(2, 1)
+	buf.SetCell(0, 0, &screen.Cell{Content: "A", Width: 1, Style: screen.Style{Fg: red}})
+	buf.ClearDirty()
+
+	// A sentinel in the renderer's own frame shows whether Draw painted it
+	// again or copied it out as it was.
+	d := MustNew()
+	drawNRGBA(t, d, buf)
+	sentinel := color.NRGBA{R: 1, G: 2, B: 3, A: 4}
+	d.frame.SetNRGBA(0, 0, sentinel)
+	buf.ClearDirty()
+	if got := drawNRGBA(t, d, buf).NRGBAAt(0, 0); got != sentinel {
+		t.Fatalf("clean buffer repainted pixel = %#v, want cached %#v", got, sentinel)
+	}
+
+	buf.SetCell(0, 0, &screen.Cell{Content: "B", Width: 1, Style: screen.Style{Fg: red}})
+	buf.ClearDirty()
+	if got := drawNRGBA(t, d, buf).NRGBAAt(0, 0); got == sentinel {
+		t.Fatal("cell change after ClearDirty kept the cached frame")
+	}
+
+	cur := screen.State{Focused: true, Cursor: screen.Cursor{Visible: true}, CursorColor: red, CursorColorSet: true}
+	buf.ClearDirty()
+	moved := drawAt(t, d, buf, cur, 0).Pix
+	cur.Cursor.X = 1
+	buf.ClearDirty()
+	if bytes.Equal(drawAt(t, d, buf, cur, 0).Pix, moved) {
+		t.Fatal("cursor move kept the cached frame")
+	}
+}
+
+func TestDrawCleanBufferDoesNotCacheBlink(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cell", func(t *testing.T) {
+		t.Parallel()
+
+		red := color.NRGBA{R: 0xff, A: 0xff}
+		buf := screen.NewBuffer(1, 1)
+		buf.SetCell(0, 0, &screen.Cell{
+			Content: " ",
+			Width:   1,
+			Style:   screen.Style{Fg: red, Underline: screen.UnderlineSingle, Attrs: screen.AttrBlink},
+		})
+		d := MustNew()
+		img := drawNRGBA(t, d, buf)
+		ctx := d.layoutSnapshot(t, image.Point{}, buf)
+		p := image.Pt(ctx.cellBounds(0, 0).Min.X, ctx.cellBounds(0, 0).Min.Y+ctx.Metrics().UnderlinePosition.Int())
+		if got := img.NRGBAAt(p.X, p.Y); got != red {
+			t.Fatalf("visible blink pixel = %#v, want %#v", got, red)
+		}
+		buf.ClearDirty()
+		if got := drawAt(t, d, buf, focused, 500*time.Millisecond).NRGBAAt(p.X, p.Y); got != (color.NRGBA{A: 0xff}) {
+			t.Fatalf("hidden blink pixel = %#v, want background", got)
+		}
+	})
+
+	t.Run("cursor", func(t *testing.T) {
+		t.Parallel()
+
+		cursor := color.NRGBA{R: 0xff, A: 0xff}
+		buf := screen.NewBuffer(1, 1)
+		buf.ClearDirty()
+		d := MustNew(WithCursorBlinkSpeed(time.Second))
+		st := blinkingBar(cursor)
+		img := drawAt(t, d, buf, st, 0)
+		area := d.layoutSnapshot(t, image.Point{}, buf).cellBounds(0, 0)
+		if got := img.NRGBAAt(area.Min.X, area.Min.Y); got != cursor {
+			t.Fatalf("cursor bar pixel = %#v, want %#v", got, cursor)
+		}
+		buf.ClearDirty()
+		if got := drawAt(t, d, buf, st, time.Second).NRGBAAt(area.Min.X, area.Min.Y); got == cursor {
+			t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
+		}
+	})
+}

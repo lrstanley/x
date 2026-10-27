@@ -12,14 +12,13 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lrstanley/x/term/still/export"
-	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/sink"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // frameBudget is one frame at the highest export frame rate. Capturing and
 // encoding a frame must take less, or a fast burst of paints backs up.
-const frameBudget = time.Second / export.MaxFrameRate
+const frameBudget = time.Second / sink.MaxFrameRate
 
 // reportBudget reports the benchmark's time per op as a share of frameBudget.
 func reportBudget(b *testing.B) {
@@ -61,18 +60,18 @@ func BenchmarkExportCapture(b *testing.B) {
 		b.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(b *testing.B) {
 			h := NewHarness(b, rootTestModel{}, WithWindowSize(size[0], size[1]), WithIgnoreEnv(true))
 			var screens []*screen.Buffer
-			var states []vt.Snapshot
+			var states []screen.State
 			// Two different screens, alternated so every draw paints instead
 			// of reusing the renderer's cached frame.
 			for _, text := range []string{"a", "ab"} {
 				h.Type(text[len(text)-1:]).Wait("text=" + text)
 				screens = append(screens, h.emulator.term.Screen())
-				states = append(states, h.emulator.term.Snapshot())
+				states = append(states, h.emulator.term.State())
 			}
 			b.ReportAllocs()
 			i := 0
 			for b.Loop() {
-				img, _ := copyCommitted(h, screens[i%2], states[i%2], time.Time{})
+				img, _ := copyCommitted(h, screens[i%2], states[i%2], h.start)
 				releaseNRGBA(img)
 				i++
 			}
@@ -89,14 +88,14 @@ func BenchmarkExportEncode(b *testing.B) {
 			b.Run(fmt.Sprintf("%s/%dx%d", m.name, size[0], size[1]), func(b *testing.B) {
 				h := NewHarness(b, m.model("encode"), WithWindowSize(size[0], size[1]), WithIgnoreEnv(true))
 				h.Wait("text=encode")
-				img, _ := copyCommitted(h, h.emulator.term.Screen(), h.emulator.term.Snapshot(), time.Time{})
-				enc, err := export.NewGIF(io.Discard, export.WithOptimize(export.OptimizeFrames))
+				img, _ := copyCommitted(h, h.emulator.term.Screen(), h.emulator.term.State(), h.start)
+				enc, err := sink.NewGIF(io.Discard, sink.WithOptimize(sink.OptimizeFrames))
 				if err != nil {
 					b.Fatal(err)
 				}
 				b.ReportAllocs()
 				for b.Loop() {
-					if err = enc.WriteFrame(export.Frame{Image: img, Delay: time.Millisecond}); err != nil {
+					if err = enc.WriteFrame(sink.Frame{Image: img, Delay: time.Millisecond}); err != nil {
 						b.Fatal(err)
 					}
 				}

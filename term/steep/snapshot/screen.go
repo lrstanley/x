@@ -19,7 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // Position represents a position in the terminal.

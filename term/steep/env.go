@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/sink"
 	"github.com/lrstanley/x/term/steep/snapshot"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/still/export"
 )
 
 func applyEnv(tb testing.TB, cfg *options) {
@@ -29,12 +29,12 @@ func applyEnv(tb testing.TB, cfg *options) {
 
 	if v := os.Getenv("STEEP_RENDERER_SCALE"); v != "" {
 		if scale, err := strconv.ParseFloat(v, 64); err == nil {
-			cfg.imageRendererOpts = append(cfg.imageRendererOpts, still.WithScale(scale))
+			cfg.imageRendererOpts = append(cfg.imageRendererOpts, render.WithScale(scale))
 		}
 	}
 
 	if v := os.Getenv("STEEP_RENDERER_FONT_FAMILY"); v != "" {
-		cfg.imageRendererOpts = append(cfg.imageRendererOpts, still.WithFontFamilyName(v))
+		cfg.imageRendererOpts = append(cfg.imageRendererOpts, render.WithFontFamilyName(v))
 	}
 
 	if v := os.Getenv("STEEP_EXPORT_MODE"); v != "" {
@@ -53,26 +53,26 @@ func applyEnv(tb testing.TB, cfg *options) {
 	}
 
 	if v := os.Getenv("STEEP_EXPORT_OPTIMIZE"); v != "" {
-		cfg.exportOpts = append(cfg.exportOpts, export.WithOptimize(parseOptimizeFlags(v)))
+		cfg.exportOpts = append(cfg.exportOpts, sink.WithOptimize(parseOptimizeFlags(v)))
 	}
 
 	if v := os.Getenv("STEEP_EXPORT_MAX_FRAMES"); v != "" {
 		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 {
-			cfg.exportOpts = append(cfg.exportOpts, export.WithMaxFrames(n))
+			cfg.exportOpts = append(cfg.exportOpts, sink.WithMaxFrames(n))
 		}
 	}
 
 	if v := os.Getenv("STEEP_EXPORT_MAX_BYTES"); v != "" {
 		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && n >= 0 {
-			cfg.exportOpts = append(cfg.exportOpts, export.WithMaxBytes(n))
+			cfg.exportOpts = append(cfg.exportOpts, sink.WithMaxBytes(n))
 		}
 	}
 
 	if v := os.Getenv("STEEP_EXPORT_QUALITY"); v != "" {
 		// Out of range values are ignored, as the video encoder would reject
 		// them.
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 && n <= export.MaxQuality {
-			cfg.exportOpts = append(cfg.exportOpts, export.WithQuality(n))
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 && n <= sink.MaxQuality {
+			cfg.exportOpts = append(cfg.exportOpts, sink.WithQuality(n))
 		}
 	}
 
@@ -147,25 +147,25 @@ func parseExportTypes(raw string) ExportType {
 	return t
 }
 
-func parseOptimizeFlags(raw string) export.OptimizeFlags {
-	var f export.OptimizeFlags
+func parseOptimizeFlags(raw string) sink.OptimizeFlags {
+	var f sink.OptimizeFlags
 	for part := range strings.SplitSeq(strings.ToLower(raw), ",") {
 		part = strings.TrimSpace(part)
 		switch part {
 		case "none":
-			return export.OptimizeNone
+			return sink.OptimizeNone
 		case "frames":
-			f |= export.OptimizeFrames
+			f |= sink.OptimizeFrames
 		case "dirty", "dirtyrects":
-			f |= export.OptimizeDirtyRects
+			f |= sink.OptimizeDirtyRects
 		case "quantize", "color":
-			f |= export.OptimizeColorQuantization
+			f |= sink.OptimizeColorQuantization
 		case "all":
-			return export.OptimizeAll
+			return sink.OptimizeAll
 		}
 	}
 	if f == 0 {
-		return export.OptimizeAll
+		return sink.OptimizeAll
 	}
 	return f
 }

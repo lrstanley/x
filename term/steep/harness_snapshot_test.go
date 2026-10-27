@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 	"github.com/lrstanley/x/term/steep/snapshot"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/vt/screen"
 )
 
 func TestHarnessAssertViewSnapshot(t *testing.T) {
@@ -50,12 +50,12 @@ func padScreen(lines []string, width int) string {
 	return strings.Join(out, "\n")
 }
 
-func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
+func TestHarnessImageRendersLiveState(t *testing.T) {
 	t.Parallel()
 
 	cursorColor := color.NRGBA{R: 0xff, A: 0xff}
 	h := NewHarness(t, rootTestModel{text: "image"}, WithWindowSize(24, 3),
-		WithRenderer(still.WithPadding(2)),
+		WithRenderer(render.WithPadding(2)),
 	)
 	h.Wait("text=image")
 	h.Blur()
@@ -71,15 +71,15 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	if screenBounds.Dx() != h.Width() || screenBounds.Dy() != h.Height() {
 		t.Fatalf("screen bounds = %v, want harness dimensions %dx%d", screenBounds, h.Width(), h.Height())
 	}
-	capturedState := h.imageRenderer.GetEmulatorState()
-	if capturedState == nil || capturedState.Focused {
-		t.Fatal("emulator state focused = true, want false")
+	st := liveState(h)
+	if st.Focused {
+		t.Fatal("state focused = true, want false")
 	}
-	if capturedState.CursorStyle != screen.CursorBar {
-		t.Fatalf("cursor style = %v, want CursorBar", capturedState.CursorStyle)
+	if st.Cursor.Shape != screen.CursorBar {
+		t.Fatalf("cursor style = %v, want CursorBar", st.Cursor.Shape)
 	}
-	if capturedState.CursorColor != cursorColor {
-		t.Fatalf("cursor color = %#v, want %#v", capturedState.CursorColor, cursorColor)
+	if !st.CursorColorSet || st.CursorColor != cursorColor {
+		t.Fatalf("cursor color = %#v set=%v, want %#v", st.CursorColor, st.CursorColorSet, cursorColor)
 	}
 
 	if got := h.Image().Bounds(); got != img.Bounds() {
@@ -87,7 +87,7 @@ func TestHarnessImageRendersLiveEmulatorState(t *testing.T) {
 	}
 }
 
-func TestHarnessImageTracksEmulatorStateChanges(t *testing.T) {
+func TestHarnessImageTracksStateChanges(t *testing.T) {
 	t.Parallel()
 
 	h := NewHarness(t, rootTestModel{text: "state"}, WithWindowSize(24, 3))
@@ -100,17 +100,17 @@ func TestHarnessImageTracksEmulatorStateChanges(t *testing.T) {
 	if err := h.emulator.writeString(ansi.SetWindowTitle("renamed")); err != nil {
 		t.Fatalf("set title: %v", err)
 	}
-	_ = h.Image()
-	st := h.imageRenderer.GetEmulatorState()
-	if st == nil || st.Focused || st.Title != "renamed" || st.FgColor != fg || st.BgColor != bg {
+	blurred := copyImage(t, h.Image())
+	if st := liveState(h); st.Focused || st.Title != "renamed" || st.Foreground != fg || st.Background != bg {
 		t.Fatalf("state = %#v", st)
 	}
 
 	fg = color.NRGBA{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}
 	h.SetFgColor(fg).Focus()
-	_ = h.Image()
-	st = h.imageRenderer.GetEmulatorState()
-	if st == nil || !st.Focused || st.Title != "renamed" || st.FgColor != fg || st.BgColor != bg {
+	if bytes.Equal(blurred.Pix, copyImage(t, h.Image()).Pix) {
+		t.Fatal("image did not change with the focus and colors")
+	}
+	if st := liveState(h); !st.Focused || st.Title != "renamed" || st.Foreground != fg || st.Background != bg {
 		t.Fatalf("updated state = %#v", st)
 	}
 }
@@ -121,23 +121,23 @@ func TestHarnessImageTracksEmulatorStateChanges(t *testing.T) {
 func TestHarnessImageTracksProgress(t *testing.T) {
 	t.Parallel()
 
-	h := NewHarness(t, rootTestModel{text: "progress"}, WithWindowSize(24, 3), WithRenderer(still.WithWindowChrome(true)))
+	h := NewHarness(t, rootTestModel{text: "progress"}, WithWindowSize(24, 3), WithRenderer(render.WithWindowChrome(true)))
 	h.Wait("text=progress")
 	before := copyImage(t, h.Image())
 
 	for _, tc := range []struct {
 		seq  string
-		want still.Progress
+		want screen.Progress
 	}{
-		{"\x1b]9;4;1;50\x07", still.Progress{State: still.ProgressSet, Percent: 50}},
-		{"\x1b]9;4;2;70\x07", still.Progress{State: still.ProgressError, Percent: 70}},
-		{"\x1b]9;4;3\x07", still.Progress{State: still.ProgressIndeterminate, Percent: -1}},
-		{"\x1b]9;4;4\x07", still.Progress{State: still.ProgressPause, Percent: -1}},
+		{"\x1b]9;4;1;50\x07", screen.Progress{Reported: true, State: screen.ProgressSet, Percent: 50}},
+		{"\x1b]9;4;2;70\x07", screen.Progress{Reported: true, State: screen.ProgressError, Percent: 70}},
+		{"\x1b]9;4;3\x07", screen.Progress{Reported: true, State: screen.ProgressIndeterminate, Percent: -1}},
+		{"\x1b]9;4;4\x07", screen.Progress{Reported: true, State: screen.ProgressPause, Percent: -1}},
 	} {
 		writeVT(t, h, tc.seq)
 		img := copyImage(t, h.Image())
-		if st := h.imageRenderer.GetEmulatorState(); st == nil || st.Progress != tc.want {
-			t.Fatalf("%q: renderer progress = %+v, want %+v", tc.seq, st, tc.want)
+		if got := liveState(h).ShownProgress(); got != tc.want {
+			t.Fatalf("%q: shown progress = %+v, want %+v", tc.seq, got, tc.want)
 		}
 		if bytes.Equal(before.Pix, img.Pix) {
 			t.Fatalf("%q: image did not change", tc.seq)
@@ -155,7 +155,7 @@ func TestHarnessImageTracksProgress(t *testing.T) {
 func statusHarness(t *testing.T, text string) *Harness {
 	t.Helper()
 	h := NewHarness(t, rootTestModel{text: text}, WithWindowSize(30, 3), WithRenderer(
-		still.WithWindowChrome(true), still.WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), still.WithBorderRadius(8),
+		render.WithWindowChrome(true), render.WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), render.WithBorderRadius(8),
 	))
 	h.Wait("text=" + text)
 	return h
@@ -171,10 +171,9 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 	h := statusHarness(t, "status")
 	agentDone := ansi.ProgramStatus{State: ansi.ProgramStateDone, App: "agent", Title: "Refactor complete"}
 	before := copyImage(t, h.Image())
-	records := func() []still.ProgramStatus {
+	records := func() []screen.ProgramStatus {
 		t.Helper()
-		_ = h.Image()
-		return h.imageRenderer.GetEmulatorState().ProgramStatuses
+		return liveState(h).ProgramStatuses
 	}
 
 	writeVT(t, h, ansi.SetProgramStatus(agentDone))
@@ -182,14 +181,14 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 	if bytes.Equal(before.Pix, rootOnly.Pix) {
 		t.Fatal("a done record did not change the image")
 	}
-	want := still.ProgramStatus{State: still.ProgramDone, App: "agent", Title: "Refactor complete", Progress: -1}
+	want := screen.ProgramStatus{State: screen.ProgramDone, App: "agent", Title: "Refactor complete", Progress: -1}
 	if got := records(); len(got) != 1 || got[0] != want {
-		t.Fatalf("renderer records = %+v, want %+v", got, want)
+		t.Fatalf("records = %+v, want %+v", got, want)
 	}
 
 	writeVT(t, h, ansi.SetProgramStatus(ansi.ProgramStatus{State: ansi.ProgramStateWorking, ID: "job", Progress: 40, HasProgress: true, Title: "build"}))
 	if got := records(); len(got) != 2 || got[1].ID != "job" || got[1].App != "agent" || got[1].Progress != 40 {
-		t.Fatalf("renderer records = %+v, want the root and job, which inherits its app", got)
+		t.Fatalf("records = %+v, want the root and job, which inherits its app", got)
 	}
 	if bytes.Equal(rootOnly.Pix, copyImage(t, h.Image()).Pix) {
 		t.Fatal("a child record did not change the image")
@@ -208,7 +207,7 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 		ansi.SetProgramStatus(agentDone))
 	writeVT(t, h, "\x1b]133;A\x1b\\")
 	if got := records(); len(got) != 1 || got[0] != want {
-		t.Fatalf("after OSC 133 A, renderer records = %+v, want only the done record", got)
+		t.Fatalf("after OSC 133 A, records = %+v, want only the done record", got)
 	}
 	if got := copyImage(t, h.Image()); !bytes.Equal(rootOnly.Pix, got.Pix) {
 		t.Fatal("records dropped by OSC 133 A are still drawn")
@@ -216,7 +215,7 @@ func TestHarnessImageTracksProgramStatus(t *testing.T) {
 
 	writeVT(t, h, "\x1bc")
 	if got := records(); got != nil {
-		t.Fatalf("after RIS, renderer records = %+v", got)
+		t.Fatalf("after RIS, records = %+v", got)
 	}
 }
 
@@ -241,23 +240,24 @@ func TestHarnessProgramStatusStopsProgress(t *testing.T) {
 	t.Parallel()
 
 	h := statusHarness(t, "rule")
-	progress := func() still.Progress {
+	progress := func() screen.Progress {
 		t.Helper()
-		_ = h.Image()
-		return h.imageRenderer.GetEmulatorState().Progress
+		return liveState(h).ShownProgress()
 	}
-	set := func(pct int) still.Progress { return still.Progress{State: still.ProgressSet, Percent: pct} }
+	set := func(pct int) screen.Progress {
+		return screen.Progress{Reported: true, State: screen.ProgressSet, Percent: pct}
+	}
 
 	writeVT(t, h, "\x1b]9;4;1;50\x07")
 	if got := progress(); got != set(50) {
 		t.Fatalf("before OSC 7501, progress = %+v", got)
 	}
 	writeVT(t, h, ansi.ClearProgramStatus)
-	if got := progress(); got != (still.Progress{}) {
+	if got := progress(); got != (screen.Progress{}) {
 		t.Fatalf("after an OSC 7501 report, progress = %+v, want none", got)
 	}
 	writeVT(t, h, "\x1b]9;4;1;70\x07")
-	if got := progress(); got != (still.Progress{}) {
+	if got := progress(); got != (screen.Progress{}) {
 		t.Fatalf("OSC 9;4 after OSC 7501 drew progress %+v", got)
 	}
 	writeVT(t, h, "\x1bc\x1b]9;4;1;30\x07")

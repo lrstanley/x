@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel/vt"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 	"github.com/lrstanley/x/term/steep/snapshot"
-	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
 )
 
 var (
@@ -471,7 +471,7 @@ func (h *Harness) LeftDrag(x1, y1, x2, y2 int) *Harness {
 }
 
 // Progress returns the latest OSC 9;4 progress report.
-func (h *Harness) Progress() vt.Progress { return h.emulator.term.Progress() }
+func (h *Harness) Progress() screen.Progress { return h.emulator.term.Progress() }
 
 // Notifications returns desktop notifications from OSC 9 and OSC 777.
 func (h *Harness) Notifications() []vt.Notification { return h.emulator.term.Notifications() }
@@ -508,9 +508,9 @@ const programStatusMaxRecords = 256
 // Working and blocked records are removed when a shell prompt starts (OSC 133
 // A). A full reset (RIS) removes every record.
 //
-// With [still.WithWindowChrome] in [WithRenderer], [Harness.Image] and GIF
+// With [render.WithWindowChrome] in [WithRenderer], [Harness.Image] and GIF
 // exports draw the records in the title bar and as an outline around the
-// window (see [still.WithProgramStatus]). Once any record has been reported,
+// window (see [render.WithProgramStatus]). Once any record has been reported,
 // OSC 9;4 progress is no longer drawn, until a full reset, as the OSC 7501
 // spec asks.
 func (h *Harness) ProgramStatuses() []ansi.ProgramStatus {
@@ -526,13 +526,13 @@ func (e *emulator) programStatuses() []ansi.ProgramStatus {
 	for i, s := range in {
 		out[i] = ansi.ProgramStatus{
 			ID:      s.ID,
-			State:   ansi.ProgramState(s.State),
-			Kind:    ansi.ProgramStatusKind(s.Kind),
+			State:   ansi.ProgramState(s.State.String()),
+			Kind:    ansi.ProgramStatusKind(s.Kind.String()),
 			App:     s.App,
 			Title:   s.Title,
 			Message: s.Message,
 		}
-		if s.HasProgress {
+		if s.Progress >= 0 {
 			out[i].Progress = s.Progress
 			out[i].HasProgress = true
 		}

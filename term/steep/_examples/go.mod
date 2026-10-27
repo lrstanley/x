@@ -4,9 +4,8 @@ go 1.27.2
 
 // Examples live next to the steep module; test/build against the workspace copy.
 replace (
+	github.com/lrstanley/x/term/reel => ../../reel
 	github.com/lrstanley/x/term/steep => ../
-	github.com/lrstanley/x/term/still => ../../still
-	github.com/lrstanley/x/term/vt => ../../vt
 )
 
 require (
@@ -16,8 +15,8 @@ require (
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/lrstanley/go-nf v0.0.0-20261018042953-dc908cf1060f
+	github.com/lrstanley/x/term/reel v0.0.0
 	github.com/lrstanley/x/term/steep v0.0.0-20260510074740-f99adc613ee2
-	github.com/lrstanley/x/term/still v0.0.0
 )
 
 require (
@@ -29,7 +28,6 @@ require (
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/lrstanley/x/term/vt v0.0.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.31 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect

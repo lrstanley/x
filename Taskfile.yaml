@@ -4,9 +4,8 @@ vars:
   PACKAGES:
     - charm/formatter
     - charm/layout
+    - term/reel
     - term/steep
-    - term/still
-    - term/vt
     - entx
     - entx/observe
     - http/utils

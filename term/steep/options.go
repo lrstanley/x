@@ -14,8 +14,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 const (
@@ -76,14 +76,14 @@ type options struct {
 	ctx           context.Context
 	wasContextSet bool
 
-	// imageRendererOpts configures the harness-owned [still.Renderer].
-	imageRendererOpts []still.Option
+	// imageRendererOpts configures the harness-owned [render.Renderer].
+	imageRendererOpts []render.Option
 
 	exportMode     ExportMode
 	exportTypes    ExportType
 	exportDir      string
 	exportName     string
-	exportOpts     []export.Option
+	exportOpts     []sink.Option
 	exportMutators []ExportMutator
 	exportKeys     time.Duration
 	exportIntro    ExportMutator
@@ -278,16 +278,16 @@ func WithANSI(enable bool) Option {
 	}
 }
 
-// WithRenderer configures the harness-owned [still.Renderer] used by
+// WithRenderer configures the harness-owned [render.Renderer] used by
 // [Harness.Image] and [Harness.ImageInto], and therefore by PNG and GIF exports
 // (font, size, padding, margin, and so on). Options apply only at harness
-// construction; per-draw emulator state is synchronized automatically. Calls
-// accumulate.
+// construction; each draw takes the terminal's state as it is at that moment.
+// Calls accumulate.
 //
-// Environment: STEEP_RENDERER_SCALE maps to [still.WithScale] and
-// STEEP_RENDERER_FONT_FAMILY maps to [still.WithFontFamilyName]. Both are
+// Environment: STEEP_RENDERER_SCALE maps to [render.WithScale] and
+// STEEP_RENDERER_FONT_FAMILY maps to [render.WithFontFamilyName]. Both are
 // appended after these options, so they win, unless [WithIgnoreEnv] is set.
-func WithRenderer(opts ...still.Option) Option {
+func WithRenderer(opts ...render.Option) Option {
 	return func(cfg *options) {
 		cfg.imageRendererOpts = append(cfg.imageRendererOpts, opts...)
 	}
@@ -313,7 +313,7 @@ func WithIgnoreEnv(ignore bool) Option {
 }
 
 // WithExport enables artifact export hooks for the given mode and types. opts
-// are passed to the PNG, GIF, and video encoders (see [export.Option]), each of
+// are passed to the PNG, GIF, and video encoders (see [sink.Option]), each of
 // which ignores the ones it does not use.
 //
 // With [ExportOn], artifacts are written as the test runs. With
@@ -325,12 +325,12 @@ func WithIgnoreEnv(ignore bool) Option {
 // [ExportTypeMP4], [ExportTypeWebM], and [ExportTypeWebP] record the same
 // frames as the GIF as a video ("name.mp4", "name.webm", "name.webp", or
 // "name_failed.<ext>" for [ExportOnFailure]), in any combination with the other
-// types. They are encoded by ffmpeg, which must be on PATH ([export.WithFFmpeg]
+// types. They are encoded by ffmpeg, which must be on PATH ([sink.WithFFmpeg]
 // points elsewhere), along with the format's encoder (libx264, libvpx-vp9, or
 // libwebp). [ExportTypeAll] does not include them. If ffmpeg or the encoder is
 // missing, the harness fails right away rather than at the end of the test, so
 // remove the type from here or from STEEP_EXPORT_TYPE to run without it.
-// [export.WithQuality] and [export.WithFullChroma] tune the encode.
+// [sink.WithQuality] and [sink.WithFullChroma] tune the encode.
 //
 // Without [WithExportDir], artifacts are only persisted when the tests are run
 // with "go test -artifacts" (Go 1.26+). Otherwise, [testing.TB.ArtifactDir] is a
@@ -343,12 +343,12 @@ func WithIgnoreEnv(ignore bool) Option {
 // STEEP_EXPORT_OPTIMIZE, STEEP_EXPORT_MAX_FRAMES, STEEP_EXPORT_MAX_BYTES,
 // STEEP_EXPORT_QUALITY (0 to 100, for video), STEEP_EXPORT_DIR.
 //
-// GIF recordings keep every frame unless [export.WithMaxFrames] or
-// [export.WithMaxBytes] (or their environment variables) set a limit. Frames
+// GIF recordings keep every frame unless [sink.WithMaxFrames] or
+// [sink.WithMaxBytes] (or their environment variables) set a limit. Frames
 // are stored as the part of the screen that changed, so a long recording of an
 // ordinary terminal UI is small, but one that repaints most of the screen on
 // every frame (a scrolling log, say) costs a whole frame each.
-func WithExport(mode ExportMode, types ExportType, opts ...export.Option) Option {
+func WithExport(mode ExportMode, types ExportType, opts ...sink.Option) Option {
 	return func(cfg *options) {
 		cfg.exportMode = mode
 		cfg.exportTypes = types
@@ -468,13 +468,13 @@ func WithSlow(d time.Duration) Option {
 // WithExportFPS sets the frame rate grid for exported GIFs and videos (default
 // 20, clamped to 1-100). Each frame is shown for the real time it was on
 // screen, snapped to the nearest step of 1/fps (rounded down to whole
-// centiseconds, see [export.WithDelayGrid]), and never for less than one step,
+// centiseconds, see [sink.WithDelayGrid]), and never for less than one step,
 // so every distinct screen the program painted stays visible even when several
 // paints land in the same instant. It does not sleep the test (see
 // [WithSlow]).
 //
 // GIF delays are centiseconds, and browsers often cap playback near 50 FPS and
-// clamp higher rates to 10 FPS, so prefer 10 or 20. See [export.WithFrameRate]
+// clamp higher rates to 10 FPS, so prefer 10 or 20. See [sink.WithFrameRate]
 // for the full caveats.
 //
 // Environment: STEEP_EXPORT_FPS (overrides this option unless [WithIgnoreEnv] is set).
@@ -504,7 +504,7 @@ func WithExportSpeed(factor float64) Option {
 // Unless [WithExportDir] is set, the GIF is written to [testing.TB.ArtifactDir],
 // which is a temporary directory that is deleted when the test completes unless
 // tests are run with "go test -artifacts". Without that flag, the GIF is lost.
-func WithFailureGIF(opts ...export.Option) Option {
+func WithFailureGIF(opts ...sink.Option) Option {
 	return WithExport(ExportOnFailure, ExportTypeGIF, opts...)
 }
 
@@ -515,7 +515,7 @@ func WithFailureGIF(opts ...export.Option) Option {
 // Unless [WithExportDir] is set, the PNG is written to [testing.TB.ArtifactDir],
 // which is a temporary directory that is deleted when the test completes unless
 // tests are run with "go test -artifacts". Without that flag, the PNG is lost.
-func WithFailurePNG(opts ...export.Option) Option {
+func WithFailurePNG(opts ...sink.Option) Option {
 	return WithExport(ExportOnFailure, ExportTypePNG, opts...)
 }
 

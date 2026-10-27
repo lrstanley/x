@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lrstanley/x/term/still/export"
+	"github.com/lrstanley/x/term/reel/sink"
 )
 
 // TestExportCardLocalPalettes records the key overlay at 56×22 with and
@@ -56,7 +56,7 @@ func TestExportCardLocalPalettes(t *testing.T) {
 	assertLocalTablesPacked(t, withCards.gif)
 	t.Logf("key overlay 56x22: %d bytes without cards, %d bytes with cards, local color tables %d bytes (%v entries)", plainStat.Size(), cardStat.Size(), local, localTableSizes(withCards.gif))
 
-	replayed, err := export.ReplayGIF(mustOpen(t, withCards.path))
+	replayed, err := sink.ReplayGIF(mustOpen(t, withCards.path))
 	if err != nil {
 		t.Fatal(err)
 	}

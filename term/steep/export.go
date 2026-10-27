@@ -17,9 +17,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/lrstanley/x/term/still/export"
-	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/sink"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // ExportMode controls when harness export artifacts are written.
@@ -85,7 +84,7 @@ type exportManager struct {
 	types      ExportType
 	dir        string
 	baseName   string
-	exportOpts []export.Option
+	exportOpts []sink.Option
 
 	// outputs are the animated recordings (the GIF and each video), which all
 	// receive the same frames. It is nil when nothing animated is recorded,
@@ -104,14 +103,14 @@ type exportManager struct {
 	stopped  bool
 	pending  []commitFrame
 	haveSent bool
-	sent     vt.Snapshot
+	sent     screen.State
 	heldSkip bool
 	// droppedPending records that the pending queue overflowed, so it is only
 	// reported once.
 	droppedPending bool
 
 	// pristine is the emulator state before the program has written anything.
-	pristine vt.Snapshot
+	pristine screen.State
 
 	lastPNG  image.Image
 	lastSnap []byte
@@ -123,7 +122,7 @@ type exportManager struct {
 // later writes. state is the metadata Draw needs for that same moment.
 type commitFrame struct {
 	screen *screen.Buffer
-	state  vt.Snapshot
+	state  screen.State
 	at     time.Time
 }
 
@@ -154,13 +153,13 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		dir = artifactDir(h.tb)
 	}
 
-	fps := min(max(cmp.Or(cfg.exportFPS, defaultExportFPS), 1), export.MaxFrameRate)
+	fps := min(max(cmp.Or(cfg.exportFPS, defaultExportFPS), 1), sink.MaxFrameRate)
 	speed := cfg.exportSpeed
 	if !(speed > 0) { // Also catches NaN.
 		speed = defaultExportSpeed
 	}
 
-	exportOpts := append([]export.Option(nil), cfg.exportOpts...)
+	exportOpts := append([]sink.Option(nil), cfg.exportOpts...)
 
 	m := &exportManager{
 		h:          h,
@@ -171,7 +170,7 @@ func newExportManager(h *Harness, cfg options) (*exportManager, error) {
 		baseName:   cfg.exportName,
 		exportOpts: exportOpts,
 	}
-	m.pristine = h.emulator.term.Snapshot()
+	m.pristine = h.emulator.term.State()
 	m.cards.opts = cfg.imageRendererOpts
 	m.frames = exportPipeline{
 		base:  ExportContext{Mode: cfg.exportMode, Step: time.Second / time.Duration(fps), h: h, cards: &m.cards},
@@ -267,7 +266,7 @@ func (m *exportManager) noteCommit() {
 	if term.Held() {
 		return
 	}
-	st := term.Snapshot()
+	st := term.State()
 	if m.duplicateCommit(st) {
 		return
 	}
@@ -294,18 +293,18 @@ func (m *exportManager) noteCommit() {
 	m.pending = append(m.pending, commitFrame{screen: scr, state: st, at: time.Now()})
 }
 
-func (m *exportManager) duplicateCommit(st vt.Snapshot) bool {
+func (m *exportManager) duplicateCommit(st screen.State) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.duplicateCommitLocked(st)
 }
 
-func (m *exportManager) duplicateCommitLocked(st vt.Snapshot) bool {
-	if m.haveSent && sameCommit(m.sent, st) {
+func (m *exportManager) duplicateCommitLocked(st screen.State) bool {
+	if m.haveSent && m.sent.SameCommit(st) {
 		return true
 	}
 	n := len(m.pending)
-	return n > 0 && sameCommit(m.pending[n-1].state, st)
+	return n > 0 && m.pending[n-1].state.SameCommit(st)
 }
 
 // flushCommits renders queued commits into the recording. It runs on the test
@@ -339,7 +338,7 @@ func (m *exportManager) captureFrame(event HookEvent) error {
 		m.noteHeldSkip()
 		return nil
 	}
-	src := frameSource{state: m.h.emulator.term.Snapshot()}
+	src := frameSource{state: m.h.emulator.term.State()}
 	if m.duplicateCommit(src.state) {
 		return nil
 	}
@@ -347,10 +346,8 @@ func (m *exportManager) captureFrame(event HookEvent) error {
 		return nil
 	}
 	src.cols, src.rows = m.h.Dimensions()
-	img := m.h.copyImage()
-	m.h.imageMu.Lock()
-	src.held = heldIndicatorsLocked(m.h, m.h.imageScreen)
-	m.h.imageMu.Unlock()
+	img, scr, st := copyLive(m.h)
+	src.held = newHeldIndicators(m.h, scr, st)
 	m.sendFrame(src, img, time.Now())
 	return nil
 }
@@ -404,42 +401,29 @@ func (m *exportManager) beforeFirstFrameLocked() bool {
 // support (launching a shell such as bash, typing into it, etc), a program can
 // legitimately sit on a pristine-looking screen, so this should likely be
 // removed or reworked at that point.
-func (m *exportManager) isPristine(st vt.Snapshot, text string) bool {
+func (m *exportManager) isPristine(st screen.State, text string) bool {
 	p := m.pristine
 	return strings.TrimSpace(text) == "" &&
 		st.Title == p.Title &&
-		snapshotProgress(st) == snapshotProgress(p) &&
+		st.ShownProgress() == p.ShownProgress() &&
 		st.ProgramStatusGeneration == p.ProgramStatusGeneration &&
 		st.AltScreen == p.AltScreen &&
 		st.Foreground == p.Foreground &&
 		st.Background == p.Background &&
-		st.Cursor.X == p.Cursor.X &&
-		st.Cursor.Y == p.Cursor.Y &&
-		st.Cursor.Visible == p.Cursor.Visible &&
-		st.Cursor.Blink == p.Cursor.Blink &&
-		st.Cursor.Shape == p.Cursor.Shape
-}
-
-func sameCommit(a, b vt.Snapshot) bool {
-	if a.Generation != b.Generation || a.Title != b.Title || a.AltScreen != b.AltScreen ||
-		snapshotProgress(a) != snapshotProgress(b) || a.ProgramStatusGeneration != b.ProgramStatusGeneration {
-		return false
-	}
-	ac, bc := a.Cursor, b.Cursor
-	return ac.X == bc.X && ac.Y == bc.Y && ac.Visible == bc.Visible && ac.Blink == bc.Blink && ac.Shape == bc.Shape
+		st.Cursor == p.Cursor
 }
 
 func (m *exportManager) capturePNG(event HookEvent) error {
 	if m.h.emulator.term.Held() {
 		return nil
 	}
-	img := m.h.copyImage()
+	img, _, _ := copyLive(m.h)
 	switch m.mode {
 	case ExportOnFailure:
 		m.lastPNG = img
 	case ExportOn:
 		path := filepath.Join(m.dir, m.artifactName(event.String(), ".png", false))
-		return export.PNG(img, path, m.exportOpts...)
+		return sink.PNG(img, path, m.exportOpts...)
 	}
 	return nil
 }
@@ -494,7 +478,7 @@ func (m *exportManager) Finalize(failed bool) error {
 		}
 		if m.types.has(ExportTypePNG) && m.lastPNG != nil {
 			path := m.failedPath("png")
-			if err := export.PNG(m.lastPNG, path, m.exportOpts...); err != nil {
+			if err := sink.PNG(m.lastPNG, path, m.exportOpts...); err != nil {
 				return err
 			}
 		}
@@ -552,9 +536,4 @@ func normalizeTestName(name string) string {
 func artifactDir(tb testing.TB) string {
 	tb.Helper()
 	return tb.ArtifactDir()
-}
-
-func (h *Harness) copyImage() image.Image {
-	h.tb.Helper()
-	return cloneNRGBA(h.drawImage())
 }

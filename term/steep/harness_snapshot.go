@@ -7,14 +7,11 @@ package steep
 import (
 	"bytes"
 	"image"
-	"image/color"
 	"image/draw"
 	"time"
 
+	"github.com/lrstanley/x/term/reel/vt/screen"
 	"github.com/lrstanley/x/term/steep/snapshot"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
 )
 
 func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
@@ -76,31 +73,33 @@ func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	return h
 }
 
-// ImageInto renders the current terminal screen buffer into dst. dst must be at
-// least as large as [Harness.ImageBounds] reports for the same options. Pixels
-// written to dst are caller-owned and safe to retain after the call returns.
+// ImageInto renders the current terminal screen buffer into dst, at
+// dst.Rect.Min. dst must be at least as large as the image [Harness.Image]
+// returns for the same options. Pixels written to dst are caller-owned and
+// safe to retain after the call returns.
 //
 // See also [Harness.Image].
-func (h *Harness) ImageInto(dst draw.Image) {
+func (h *Harness) ImageInto(dst *image.NRGBA) {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "image_into"})()
 	h.drawImageInto(dst)
 }
 
-func (h *Harness) drawImageInto(dst draw.Image) {
+func (h *Harness) drawImageInto(dst *image.NRGBA) {
 	h.tb.Helper()
-	scr := h.imageViewport()
+	st := liveState(h)
+	scr := h.imageViewport(st)
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
-	h.imageRenderer.DrawInto(dst, image.Rectangle{}, scr)
+	h.imageRenderer.Draw(dst, scr, st, timelineAt(h, time.Now()))
 }
 
 // Image renders the current terminal screen buffer as an image. Configure the
 // harness renderer with [WithRenderer] when creating the harness.
 //
-// The returned [image.Image] is owned by the harness renderer and invalidated
-// by the next [Harness.Image] call or [Harness.Close]. Do not mutate it and do
-// not retain it across [Harness.Image] calls; encode or copy immediately, or use
+// The returned [image.Image] is owned by the harness and invalidated by the
+// next [Harness.Image] call. Do not mutate it and do not retain it across
+// [Harness.Image] calls; encode or copy immediately, or use
 // [Harness.ImageInto] when pixels must outlive the draw.
 //
 // See also [Harness.ImageInto].
@@ -111,20 +110,22 @@ func (h *Harness) Image() image.Image {
 }
 
 func (h *Harness) drawImage() image.Image {
-	scr := h.imageViewport()
+	st := liveState(h)
+	scr := h.imageViewport(st)
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
-	return h.imageRenderer.Draw(scr)
+	r := h.imageRenderer.Layout(scr.Width(), scr.Height()).Image
+	if h.image == nil || h.image.Rect != r {
+		h.image = image.NewNRGBA(r)
+	}
+	h.imageRenderer.Draw(h.image, scr, st, timelineAt(h, time.Now()))
+	return h.image
 }
 
-// imageViewport copies emulator state into the renderer and returns the
-// retained viewport clone when its generation still matches the terminal.
-// A mismatch clones via Screen, so a generation change is never drawn
-// from the previous grid.
-func (h *Harness) imageViewport() *screen.Buffer {
-	st := h.emulator.term.Snapshot()
-	syncViewport(h, st)
-
+// imageViewport returns the viewport to draw with st: the retained clone when
+// its generation still matches st, or a new clone via Screen otherwise, so a
+// generation change is never drawn from the previous grid.
+func (h *Harness) imageViewport(st screen.State) *screen.Buffer {
 	h.imageMu.Lock()
 	if scr := h.imageScreen; st.Generation != 0 && scr != nil && scr.Generation() == st.Generation {
 		h.imageMu.Unlock()
@@ -145,108 +146,86 @@ func (h *Harness) dropImageScreen() {
 	h.imageMu.Unlock()
 }
 
-// syncViewport copies st into the renderer when it differs from the
-// last copy. Unchanged NRGBA colors keep the previous interface value.
-// The terminal lock is not held here.
-func syncViewport(h *Harness, st vt.Snapshot) {
+// liveState is the terminal's state now, with the harness's focus, which the
+// terminal does not track. Call it from the test goroutine, which is the one
+// that changes focus.
+func liveState(h *Harness) screen.State {
+	st := h.emulator.term.State()
+	st.Focused = h.emulator.focused
+	return st
+}
+
+// timelineAt is the offset of t from the harness start, which frames are
+// drawn as of.
+func timelineAt(h *Harness, t time.Time) time.Duration {
+	return t.Sub(h.start)
+}
+
+// copyLive renders the terminal now and returns an owned image, with the
+// screen and state it was drawn from. Call it from the test goroutine.
+func copyLive(h *Harness) (img image.Image, scr *screen.Buffer, st screen.State) {
+	st = liveState(h)
+	scr = h.imageViewport(st)
 	h.imageMu.Lock()
 	defer h.imageMu.Unlock()
-
-	prev := h.imageState
-	// Records of the generation prev was built from are the ones it holds,
-	// so they are neither mapped nor compared again.
-	sameStatus := h.imageStateSet && st.ProgramStatusGeneration == h.imageStatusGen
-	if sameStatus {
-		st.ProgramStatuses = nil
-	}
-	next := viewportState(h, prev, st)
-	old := prev
-	if sameStatus {
-		old.ProgramStatuses = nil
-	}
-	h.imageStatusGen = st.ProgramStatusGeneration
-	if h.imageStateSet && old.Equal(next) {
-		return
-	}
-	if sameStatus {
-		next.ProgramStatuses = prev.ProgramStatuses
-	}
-	h.imageRenderer.UpdateEmulatorState(&next)
-	h.imageState = next
-	h.imageStateSet = true
+	return copyDrawnLocked(h, scr, st, timelineAt(h, time.Now())), scr, st
 }
 
 // copyCommitted renders scr as it looked at st, as of time at, and returns an
 // owned image, with what keeps its indicators (the progress bar and program
 // status) moving in copies of the image as of later times when they move with
-// the clock (nil otherwise). The harness image cache is invalidated so the
-// next live draw does not reuse metadata from this historical frame. Call it
-// from the test goroutine.
-func copyCommitted(h *Harness, scr *screen.Buffer, st vt.Snapshot, at time.Time) (img image.Image, held *heldIndicators) {
+// the clock (nil otherwise). st takes the harness's focus now. Call it from
+// the test goroutine.
+func copyCommitted(h *Harness, scr *screen.Buffer, st screen.State, at time.Time) (img image.Image, held *heldIndicators) {
 	if scr == nil {
 		return nil, nil
 	}
+	st.Focused = h.emulator.focused
 	h.imageMu.Lock()
-	defer h.imageMu.Unlock()
-	img = copyDrawnLocked(h, scr, viewportState(h, h.imageState, st), at)
-	return img, heldIndicatorsLocked(h, scr)
+	img = copyDrawnLocked(h, scr, st, timelineAt(h, at))
+	h.imageMu.Unlock()
+	return img, newHeldIndicators(h, scr, st)
 }
 
-// heldIndicators keeps the indicators of a held frame moving: the image just
-// drawn for scr, with the state the renderer drew it with.
+// heldIndicators keeps the indicators of a held frame moving: the screen and
+// state the image was drawn from.
 type heldIndicators struct {
 	h     *Harness
 	scr   *screen.Buffer
-	state still.EmulatorState
+	state screen.State
 }
 
-// heldIndicatorsLocked returns the [heldIndicators] of the image just drawn
-// for scr. It is nil unless they move with the clock. h.imageMu must be held.
-func heldIndicatorsLocked(h *Harness, scr *screen.Buffer) *heldIndicators {
-	if scr == nil || !h.imageRenderer.IndicatorsAnimate() {
+// newHeldIndicators returns the [heldIndicators] of an image of scr drawn
+// with st. It is nil unless they move with the clock.
+func newHeldIndicators(h *Harness, scr *screen.Buffer, st screen.State) *heldIndicators {
+	if scr == nil || !h.imageRenderer.Animates(st) {
 		return nil
 	}
-	return &heldIndicators{h: h, scr: scr, state: *h.imageRenderer.GetEmulatorState()}
+	return &heldIndicators{h: h, scr: scr, state: st}
 }
 
 // change reports whether the indicators may look different at to than at
-// from, see [still.Renderer.IndicatorsChange].
-func (r *heldIndicators) change(from, to time.Time) (changed bool) {
+// from, see [render.Renderer.Changes].
+func (r *heldIndicators) change(from, to time.Time) bool {
 	r.h.imageMu.Lock()
 	defer r.h.imageMu.Unlock()
-	drawStateLocked(r.h, r.state, time.Time{}, func() { changed = r.h.imageRenderer.IndicatorsChange(from, to) })
-	return changed
+	return r.h.imageRenderer.Changes(r.state, timelineAt(r.h, from), timelineAt(r.h, to))
 }
 
 // repaint repaints the indicators of dst, a copy of the image, as of at.
 func (r *heldIndicators) repaint(dst *image.NRGBA, at time.Time) {
 	r.h.imageMu.Lock()
 	defer r.h.imageMu.Unlock()
-	drawStateLocked(r.h, r.state, at, func() { r.h.imageRenderer.RepaintIndicators(dst, r.scr) })
+	r.h.imageRenderer.Repaint(dst, r.scr, r.state, timelineAt(r.h, at))
 }
 
-// copyDrawnLocked renders scr with state, as of time at (zero for now), and
-// returns an owned image. It invalidates the harness image cache like
-// [copyCommitted]. h.imageMu must be held.
-func copyDrawnLocked(h *Harness, scr screen.Screen, state still.EmulatorState, at time.Time) *image.NRGBA {
-	var dst *image.NRGBA
-	drawStateLocked(h, state, at, func() {
-		dst = newNRGBA(h.imageRenderer.Bounds(scr))
-		h.imageRenderer.DrawInto(dst, image.Rectangle{}, scr)
-	})
+// copyDrawnLocked renders scr with st, as of offset at, and returns an owned
+// image. h.imageMu must be held.
+func copyDrawnLocked(h *Harness, scr screen.Screen, st screen.State, at time.Duration) *image.NRGBA {
+	b := scr.Bounds()
+	dst := newNRGBA(h.imageRenderer.Layout(b.Dx(), b.Dy()).Image)
+	h.imageRenderer.Draw(dst, scr, st, at)
 	return dst
-}
-
-// drawStateLocked loads state into the renderer, pins its clock to at (zero
-// for now) while paint runs, and invalidates the harness image cache, since the
-// next live draw would otherwise reuse metadata from this historical state.
-// h.imageMu must be held.
-func drawStateLocked(h *Harness, state still.EmulatorState, at time.Time, paint func()) {
-	h.imageRenderer.UpdateEmulatorState(&state)
-	h.imageStateSet = false
-	h.imageAt = at
-	defer func() { h.imageAt = time.Time{} }()
-	paint()
 }
 
 // frameBufs holds a few finished frame buffers for [newNRGBA]. It is a small
@@ -279,111 +258,6 @@ func releaseNRGBA(img image.Image) {
 	}
 }
 
-func viewportState(h *Harness, prev still.EmulatorState, st vt.Snapshot) still.EmulatorState {
-	cur := st.Cursor
-	return still.EmulatorState{
-		Title:           st.Title,
-		Focused:         h.emulator.focused,
-		AltScreen:       st.AltScreen,
-		CursorVisible:   cur.Visible,
-		CursorX:         cur.X,
-		CursorY:         cur.Y,
-		CursorColor:     reuseNRGBA(prev.CursorColor, st.CursorColor),
-		CursorStyle:     cur.Shape,
-		CursorBlink:     cur.Blink,
-		FgColor:         reuseNRGBA(prev.FgColor, st.Foreground),
-		BgColor:         reuseNRGBA(prev.BgColor, st.Background),
-		ScrollbackCount: st.ScrollbackLen,
-		Progress:        snapshotProgress(st),
-		ProgramStatuses: stillStatuses(prev.ProgramStatuses, st.ProgramStatuses),
-	}
-}
-
-// snapshotProgress is the OSC 9;4 progress to draw for st. As the OSC 7501
-// spec asks, it is none once any OSC 7501 report has arrived, until the next
-// full reset, so the program status is the only progress shown.
-func snapshotProgress(st vt.Snapshot) still.Progress {
-	if st.ProgramStatusReported {
-		return still.Progress{}
-	}
-	return stillProgress(st.Progress)
-}
-
-// stillStatuses maps OSC 7501 records to the renderer's, returning prev when
-// it already holds them, so an unchanged state does not allocate. Each record
-// is mapped once.
-func stillStatuses(prev []still.ProgramStatus, in []vt.ProgramStatus) []still.ProgramStatus {
-	if len(in) == 0 {
-		return nil
-	}
-	var out []still.ProgramStatus
-	for i, s := range in {
-		rec := stillStatus(s)
-		if out == nil {
-			if len(prev) == len(in) && prev[i] == rec {
-				continue
-			}
-			out = make([]still.ProgramStatus, len(in))
-			copy(out, prev[:i])
-		}
-		out[i] = rec
-	}
-	if out == nil {
-		return prev
-	}
-	return out
-}
-
-// stillStatus maps one OSC 7501 record to the renderer's.
-func stillStatus(s vt.ProgramStatus) still.ProgramStatus {
-	out := still.ProgramStatus{ID: s.ID, App: s.App, Title: s.Title, Message: s.Message, Progress: -1}
-	if s.HasProgress {
-		out.Progress = s.Progress
-	}
-	switch s.State {
-	case vt.ProgramWorking:
-		out.State = still.ProgramWorking
-	case vt.ProgramDone:
-		out.State = still.ProgramDone
-	case vt.ProgramBlocked:
-		out.State = still.ProgramBlocked
-	case vt.ProgramError:
-		out.State = still.ProgramError
-	case vt.ProgramIdle, vt.ProgramClear:
-		out.State = still.ProgramIdle
-	}
-	switch s.Kind {
-	case vt.ProgramKindPermission:
-		out.Kind = still.ProgramKindPermission
-	case vt.ProgramKindQuestion:
-		out.Kind = still.ProgramKindQuestion
-	case vt.ProgramKindAuth:
-		out.Kind = still.ProgramKindAuth
-	case vt.ProgramKindNone:
-	}
-	return out
-}
-
-// stillProgress maps an OSC 9;4 report to the renderer's progress state.
-func stillProgress(p vt.Progress) still.Progress {
-	var state still.ProgressState
-	switch p.State {
-	case vt.ProgressSet:
-		state = still.ProgressSet
-	case vt.ProgressError:
-		state = still.ProgressError
-	case vt.ProgressIndeterminate:
-		state = still.ProgressIndeterminate
-	case vt.ProgressPause:
-		state = still.ProgressPause
-	case vt.ProgressRemove:
-		return still.Progress{}
-	default:
-		return still.Progress{}
-	}
-	return still.Progress{State: state, Percent: p.Percent}
-}
-
 // cloneNRGBA returns an owned copy of src, which must not be nil, to draw on.
 // Frames stay NRGBA, the renderer's own format, from the renderer to the GIF
 // encoder: copying one is a plain byte copy, the encoder maps it to the GIF
@@ -396,13 +270,4 @@ func cloneNRGBA(src image.Image) *image.NRGBA {
 	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, src, b.Min, draw.Src)
 	return dst
-}
-
-// reuseNRGBA returns prev when it already boxes next. Assigning an
-// NRGBA to a color.Color allocates, so an unchanged color must not.
-func reuseNRGBA(prev color.Color, next color.NRGBA) color.Color {
-	if c, ok := prev.(color.NRGBA); ok && c == next {
-		return prev
-	}
-	return next
 }

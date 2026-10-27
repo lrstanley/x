@@ -17,10 +17,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/still/export"
-	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/sink"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // labelImage is a 1x1 image whose red channel identifies the frame.
@@ -144,8 +143,8 @@ func TestExportPipeline(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var log []string
-			ch := make(chan export.Frame, 16)
-			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, out: []chan<- export.Frame{ch}}
+			ch := make(chan sink.Frame, 16)
+			p := exportPipeline{base: ExportContext{Step: 50 * time.Millisecond}, out: []chan<- sink.Frame{ch}}
 			for _, mutate := range tc.mutators(&log) {
 				p.stages = append(p.stages, mutatorStage{mutate: mutate})
 			}
@@ -331,11 +330,11 @@ func TestCardRendererIgnoresWindowChrome(t *testing.T) {
 	t.Parallel()
 	scr := screen.NewBuffer(10, 2)
 	var plain, chrome cardRenderer
-	chrome.opts = []still.Option{still.WithWindowChrome(true)}
+	chrome.opts = []render.Option{render.WithWindowChrome(true)}
 	t.Cleanup(func() { _ = plain.close(); _ = chrome.close() })
 
-	want := plain.draw(t, 1, still.EmulatorState{Title: "title"}, scr)
-	got := chrome.draw(t, 1, still.EmulatorState{Title: "title"}, scr)
+	want := plain.draw(t, 1, screen.State{Title: "title"}, scr)
+	got := chrome.draw(t, 1, screen.State{Title: "title"}, scr)
 	if got == nil || want == nil {
 		t.Fatalf("draw returned nil: got %v, want %v", got, want)
 	}
@@ -367,7 +366,7 @@ func TestExportFramesKeepTranslucency(t *testing.T) {
 	t.Parallel()
 	var frames []ExportFrame
 	h := NewHarness(t, rootTestModel{}, gifOptions(t,
-		WithRenderer(still.WithBackgroundOpacity(0.6)),
+		WithRenderer(render.WithBackgroundOpacity(0.6)),
 		WithExportMutators(recordFrames(&frames)),
 	)...)
 	h.Type("abc").Wait("text=abc")
@@ -398,17 +397,17 @@ func TestExportFramesKeepTranslucency(t *testing.T) {
 func TestExportRecycledFramesMatch(t *testing.T) {
 	h := NewHarness(t, backgroundModel{rootTestModel{}}, WithWindowSize(20, 4), WithIgnoreEnv(true))
 	var screens []*screen.Buffer
-	var states []vt.Snapshot
+	var states []screen.State
 	text := ""
 	for _, c := range "abcdefg" {
 		text += string(c)
 		h.Type(string(c)).Wait("text=" + text)
 		screens = append(screens, h.emulator.term.Screen())
-		states = append(states, h.emulator.term.Snapshot())
+		states = append(states, h.emulator.term.State())
 	}
 
 	record := func(recycle bool) *gif.GIF {
-		in, out, relayed := make(chan export.Frame), make(chan export.Frame), make(chan struct{})
+		in, out, relayed := make(chan sink.Frame), make(chan sink.Frame), make(chan struct{})
 		go func() {
 			defer close(relayed)
 			defer close(out)
@@ -428,19 +427,19 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 			}
 		}()
 		var buf bytes.Buffer
-		enc, err := export.NewGIF(&buf)
+		enc, err := sink.NewGIF(&buf)
 		if err != nil {
 			t.Fatal(err)
 		}
-		rec, err := export.Record(enc, export.WithChannel(out))
+		rec, err := sink.Record(enc, sink.WithChannel(out))
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := &exportPipeline{base: ExportContext{Step: 10 * time.Millisecond}, speed: 1, out: []chan<- export.Frame{in}}
+		p := &exportPipeline{base: ExportContext{Step: 10 * time.Millisecond}, speed: 1, out: []chan<- sink.Frame{in}}
 		at := time.Now()
 		for i := range 40 {
 			j := (i * 3) % len(screens)
-			img, _ := copyCommitted(h, screens[j], states[j], time.Time{})
+			img, _ := copyCommitted(h, screens[j], states[j], h.start)
 			p.record(img, at, frameSource{})
 			at = at.Add(50 * time.Millisecond)
 		}
@@ -477,12 +476,14 @@ func TestExportRecycledFramesMatch(t *testing.T) {
 func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 	h := NewHarness(t, backgroundModel{rootTestModel{}}, WithWindowSize(20, 4), WithIgnoreEnv(true))
 	h.Type("a").Wait("text=a")
-	scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
+	scr, st := h.emulator.term.Screen(), h.emulator.term.State()
 
+	// copyCommitted draws with the harness's focus, as of h.start.
+	fresh := st
+	fresh.Focused = h.emulator.focused
 	h.imageMu.Lock()
-	state := viewportState(h, h.imageState, st)
-	h.imageRenderer.UpdateEmulatorState(&state)
-	want := cloneNRGBA(h.imageRenderer.Draw(scr))
+	want := image.NewNRGBA(h.imageRenderer.Layout(scr.Width(), scr.Height()).Image)
+	h.imageRenderer.Draw(want, scr, fresh, 0)
 	h.imageMu.Unlock()
 	for _, size := range []int{1, len(want.Pix), 2 * len(want.Pix)} {
 		pix := slices.Repeat([]byte{0xAA}, size)
@@ -492,7 +493,7 @@ func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 			<-frameBufs
 			frameBufs <- pix
 		}
-		img, _ := copyCommitted(h, scr, st, time.Time{})
+		img, _ := copyCommitted(h, scr, st, h.start)
 		got, ok := img.(*image.NRGBA)
 		if !ok {
 			t.Fatalf("copyCommitted image is %T, want *image.NRGBA", img)
@@ -511,7 +512,7 @@ func TestNewNRGBAIgnoresStalePixels(t *testing.T) {
 func TestExportAnimatesIndicators(t *testing.T) {
 	t.Parallel()
 
-	progress := NewHarness(t, rootTestModel{text: "busy"}, WithWindowSize(20, 3), WithRenderer(still.WithWindowChrome(true)))
+	progress := NewHarness(t, rootTestModel{text: "busy"}, WithWindowSize(20, 3), WithRenderer(render.WithWindowChrome(true)))
 	progress.Wait("text=busy")
 	status := statusHarness(t, "held")
 	set := ansi.SetProgramStatus
@@ -539,11 +540,13 @@ func TestExportAnimatesIndicators(t *testing.T) {
 func assertHeldFrames(t *testing.T, h *Harness, seq string, frames int) {
 	t.Helper()
 	writeVT(t, h, seq)
-	scr, st := h.emulator.term.Screen(), h.emulator.term.Snapshot()
+	scr, st := h.emulator.term.Screen(), h.emulator.term.State()
 
-	ch := make(chan export.Frame, 64)
-	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: []chan<- export.Frame{ch}}
-	at := time.Unix(1000, 0)
+	ch := make(chan sink.Frame, 64)
+	p := exportPipeline{base: ExportContext{Step: 10 * time.Millisecond, h: h}, speed: 1, out: []chan<- sink.Frame{ch}}
+	// A fixed offset into the timeline, so the indicators start at the same
+	// phase every run.
+	at := h.start.Add(1000 * time.Second)
 	img, held := copyCommitted(h, scr, st, at)
 	if (held != nil) != (frames > 1) {
 		t.Fatalf("%q: held indicators set = %v, want %v", seq, held != nil, frames > 1)

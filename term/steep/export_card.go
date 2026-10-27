@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 	"github.com/lrstanley/x/term/steep/internal/xansi"
-	"github.com/lrstanley/x/term/still"
-	"github.com/lrstanley/x/term/vt/screen"
 	"github.com/rivo/uniseg"
 )
 
@@ -37,7 +37,7 @@ type CardLine struct {
 func (ec ExportContext) Card(lines ...CardLine) image.Image {
 	state := ec.cardState()
 	ec.h.imageMu.Lock()
-	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state, time.Time{})
+	card := copyDrawnLocked(ec.h, screen.NewBuffer(ec.src.cols, ec.src.rows), state, 0)
 	ec.h.imageMu.Unlock()
 
 	if text := ec.cardText(state, lines); text != nil {
@@ -48,17 +48,12 @@ func (ec ExportContext) Card(lines ...CardLine) image.Image {
 	return card
 }
 
-// cardState is the renderer state for cards: the frame's window state with
-// default colors, no cursor, no progress or program status, and nothing to
-// scroll.
-func (ec ExportContext) cardState() still.EmulatorState {
-	state := viewportState(ec.h, still.EmulatorState{}, ec.src.state)
-	state.FgColor, state.BgColor = nil, nil
-	state.CursorVisible = false
-	state.ScrollbackCount = 0
-	state.Progress = still.Progress{}
-	state.ProgramStatuses = nil
-	return state
+// cardState is the renderer state for cards: the frame's title and the
+// harness's focus, with default colors, no cursor, no progress or program
+// status, and nothing to scroll. Cards hold still, so they are drawn as of
+// offset 0.
+func (ec ExportContext) cardState() screen.State {
+	return screen.State{Title: ec.src.state.Title, Focused: ec.h.emulator.focused}
 }
 
 // cardScale is how much larger card text is than the terminal font. It grows
@@ -79,7 +74,7 @@ func (ec ExportContext) cardGrid() (cols, rows int) {
 // cardText renders lines, each centered, as a block of text without window
 // chrome, at [ExportContext.cardScale] and cut to [ExportContext.cardGrid].
 // It returns nil when there is nothing to draw.
-func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) image.Image {
+func (ec ExportContext) cardText(state screen.State, lines []CardLine) image.Image {
 	cols, rows := ec.cardGrid()
 	var width int
 	for _, line := range lines {
@@ -102,8 +97,8 @@ func (ec ExportContext) cardText(state still.EmulatorState, lines []CardLine) im
 // one; it is built on first use, rebuilt when the size changes, and closed
 // when the recording finishes.
 type cardRenderer struct {
-	opts  []still.Option
-	r     *still.Renderer
+	opts  []render.Option
+	r     *render.Renderer
 	scale float64
 	// failed is set when building the renderer fails, so the error is logged
 	// once and later cards are drawn without text.
@@ -112,18 +107,18 @@ type cardRenderer struct {
 
 // draw renders scr at scale with state and returns an owned image, or nil when
 // the renderer cannot be built.
-func (c *cardRenderer) draw(tb testing.TB, scale float64, state still.EmulatorState, scr screen.Screen) image.Image {
+func (c *cardRenderer) draw(tb testing.TB, scale float64, state screen.State, scr screen.Screen) image.Image {
 	if c.failed {
 		return nil
 	}
 	if c.r == nil || c.scale != scale {
-		r, err := still.New(append(slices.Clip(c.opts),
-			still.WithScale(scale),
-			still.WithPadding(0),
-			still.WithMargin(0, nil),
-			still.WithBorderRadius(0),
-			still.WithScrollbar(false),
-			still.WithWindowChrome(false),
+		r, err := render.New(append(slices.Clip(c.opts),
+			render.WithScale(scale),
+			render.WithPadding(0),
+			render.WithMargin(0, nil),
+			render.WithBorderRadius(0),
+			render.WithScrollbar(false),
+			render.WithWindowChrome(false),
 		)...)
 		if err != nil {
 			c.failed = true
@@ -135,8 +130,10 @@ func (c *cardRenderer) draw(tb testing.TB, scale float64, state still.EmulatorSt
 		}
 		c.r, c.scale = r, scale
 	}
-	c.r.UpdateEmulatorState(&state)
-	return cloneNRGBA(c.r.Draw(scr))
+	b := scr.Bounds()
+	img := image.NewNRGBA(c.r.Layout(b.Dx(), b.Dy()).Image)
+	c.r.Draw(img, scr, state, 0)
+	return img
 }
 
 func (c *cardRenderer) close() error {

@@ -15,8 +15,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/x/term/vt"
-	"github.com/lrstanley/x/term/vt/screen"
+	"github.com/lrstanley/x/term/reel/vt"
+	"github.com/lrstanley/x/term/reel/vt/screen"
 )
 
 // terminalProbe is a minimal model with a stable empty view.
