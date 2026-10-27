@@ -35,12 +35,14 @@ type Timeline struct {
 	// header is fixed when the timeline is created.
 	header Header
 
-	// mu guards start and events. Readers copy the slice header under it and
-	// read the elements without it, which is safe because appends never
-	// change an element already in the slice.
+	// mu guards start, events, and paced. Readers copy the slice header
+	// under it and read the elements without it, which is safe because
+	// appends never change an element already in the slice.
 	mu sync.RWMutex
 	// start is when the first event was appended with the wall clock, which
-	// event offsets are measured from. It is zero until then.
+	// event offsets are measured from. It is zero until then. A paced
+	// stretch moves it, so the wall clock carries on from where the
+	// stretch ended.
 	start time.Time
 	// events are in the order they were appended, with offsets that never
 	// decrease.
@@ -52,6 +54,11 @@ type Timeline struct {
 	// updated is closed, and cleared, by the next append. It is created by
 	// [Timeline.Updated], and guarded by mu.
 	updated chan struct{}
+	// paced is set while a timed [Attach] owns the clock: append stamps
+	// events at pacedAt, the offset it set last, rather than by the wall
+	// clock.
+	paced   bool
+	pacedAt time.Duration
 }
 
 // newTimeline returns an empty timeline with header.
@@ -179,15 +186,56 @@ func (e Theme) stamp(at time.Duration) Event  { e.at = at; return e }
 func (e Exit) stamp(at time.Duration) Event   { e.at = at; return e }
 
 // append adds ev at the wall clock's offset from the first event appended
-// this way.
+// this way, or while the timeline is paced, at the offset of the pace.
 func (t *Timeline) append(ev Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.paced {
+		t.appendLocked(ev, t.pacedAt)
+		return
+	}
 	now := time.Now()
 	if t.start.IsZero() {
 		t.start = now
 	}
 	t.appendLocked(ev, now.Sub(t.start))
+}
+
+// pace makes append stamp events at the offsets passed to setPace rather
+// than by the wall clock, until unpace, and returns the offset the clock
+// has reached, which they count from. It reports false when the timeline
+// is paced already.
+func (t *Timeline) pace() (time.Duration, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.paced {
+		return 0, false
+	}
+	t.paced, t.pacedAt = true, lastAt(t.events)
+	if !t.start.IsZero() {
+		t.pacedAt = max(t.pacedAt, time.Since(t.start))
+	}
+	return t.pacedAt, true
+}
+
+// setPace sets the offset append stamps events at while the timeline is
+// paced.
+func (t *Timeline) setPace(at time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.pacedAt = at
+}
+
+// unpace returns append to the wall clock, which carries on from the last
+// offset of the pace. A timeline still without events starts with the next
+// one, as a new one does.
+func (t *Timeline) unpace() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.paced = false
+	if len(t.events) > 0 {
+		t.start = time.Now().Add(-t.pacedAt)
+	}
 }
 
 // appendAt adds ev at offset at, for events whose times come from elsewhere

@@ -18,6 +18,15 @@
 // [Timeline.WriteTo], which asciinema plays, and read back, or read from a
 // file asciinema recorded, with [ReadTimeline].
 //
+// A driver connects a program to a session. [Exec] runs a command on a
+// pseudo-terminal, copying its output to the session and the session's
+// input to it, and records its exit. [Attach] writes output read from
+// elsewhere, such as a typescript script(1) recorded, timed by its timing
+// file. steep, a test harness for Bubble Tea programs, runs the program
+// in the test on a session. A program that writes capability queries
+// before its first paint, as Bubble Tea programs do, wants its session
+// opened [WithSkipPristine], so recordings start on that paint.
+//
 // [Export] turns a timeline into files: GIF, MP4, WebM, animated WebP, a PNG
 // of the last frame, per-mark stills, and asciicast. It replays the timeline
 // into a fresh terminal, draws each change the terminal shows as a frame,

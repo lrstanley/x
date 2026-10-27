@@ -121,7 +121,8 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // the colors reel draws with by default for its nil entries. The colors are
 // left out unless Fg and Bg are set. A v3 header has reel's own
 // "skip_pristine": true when [Header.SkipPristine] is set, which other
-// readers ignore. Events are asciicast's output ("o"),
+// readers ignore; [CastV2] leaves it out, so a v2 file read back replays
+// the frames it skipped. Events are asciicast's output ("o"),
 // input ("i"), resize ("r", as "COLSxROWS"), marker ("m"), and exit ("x"),
 // and two of reel's own, which other readers ignore: focus ("f", as "1" or
 // "0") and theme ("t", as "fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", leaving out

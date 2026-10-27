@@ -110,6 +110,30 @@ func TestSendInputAfterCloseReader(t *testing.T) {
 	}
 }
 
+func TestReadContext(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 8, 2)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := term.ReadContext(ctx, make([]byte, 1))
+		done <- err
+	}()
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("ReadContext after cancel = %v, want context.Canceled", err)
+	}
+	// Input queued after the canceled read is left for the next one, and a
+	// done context still reads what is queued.
+	if err := term.SendInput([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 4)
+	if n, err := term.ReadContext(ctx, buf); err != nil || string(buf[:n]) != "x" {
+		t.Fatalf("ReadContext = %q, %v, want x", buf[:n], err)
+	}
+}
+
 func TestRuneKey(t *testing.T) {
 	t.Parallel()
 	tests := map[rune]Key{

@@ -5,6 +5,7 @@
 package vt
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"io"
@@ -236,13 +237,20 @@ func (t *Terminal) writeLocked(p []byte) error {
 // Read reads pty replies produced while processing VT. It blocks until a
 // reply arrives or the terminal is closed.
 func (t *Terminal) Read(p []byte) (int, error) {
+	return t.ReadContext(context.Background(), p)
+}
+
+// ReadContext is [Terminal.Read], which also returns ctx's error once ctx is
+// done, unless there is something to read by then. What it has not read is
+// left for the next read.
+func (t *Terminal) ReadContext(ctx context.Context, p []byte) (int, error) {
 	t.mu.Lock()
 	replies := t.replies
 	t.mu.Unlock()
 	if replies == nil {
 		return 0, io.EOF
 	}
-	return replies.Read(p)
+	return replies.Read(ctx, p)
 }
 
 // Close resets the emulator and returns it to the pool. The Wasm image is

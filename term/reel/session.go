@@ -50,6 +50,12 @@ type Session struct {
 	// and State can read them without mu.
 	closed  atomic.Bool
 	focused atomic.Bool
+	// pty is the pseudo-terminal of the process [Exec] runs on the session,
+	// which Resize resizes too, until it hangs up. running is set from when
+	// Exec starts the process until its exit is recorded. Both are guarded
+	// by mu.
+	pty     *pty
+	running bool
 }
 
 // SessionOption configures [Open].
@@ -156,10 +162,15 @@ func (s *Session) Write(p []byte) (int, error) {
 // returns [io.EOF] once [vt.Terminal.CloseReader] is called and what was
 // queued has been read, and at once after [Session.Close].
 func (s *Session) Read(p []byte) (int, error) {
+	return s.readContext(context.Background(), p)
+}
+
+// readContext is [Session.Read], which also ends when ctx is done.
+func (s *Session) readContext(ctx context.Context, p []byte) (int, error) {
 	if s.closed.Load() {
 		return 0, io.EOF
 	}
-	return s.term.Read(p)
+	return s.term.ReadContext(ctx, p)
 }
 
 // Close returns the terminal to its pool, unblocking [Session.Read] with
@@ -279,14 +290,24 @@ func (s *Session) Focus(on bool) error {
 }
 
 // Resize changes the terminal to cols by rows cells and appends a [Resize]
-// event.
+// event. While a process [Exec] started runs, its pseudo-terminal is resized
+// too; an error doing so is returned after the terminal has been resized and
+// the event appended.
 func (s *Session) Resize(cols, rows int) error {
-	return s.change(func() (Event, error) {
+	var ptyErr error
+	err := s.change(func() (Event, error) {
 		if err := s.term.Resize(cols, rows); err != nil {
 			return nil, err
 		}
+		if s.pty != nil {
+			ptyErr = s.pty.Resize(cols, rows)
+		}
 		return Resize{Cols: cols, Rows: rows}, nil
 	})
+	if err == nil && ptyErr != nil {
+		err = fmt.Errorf("reel: resizing the pseudo-terminal: %w", ptyErr)
+	}
+	return err
 }
 
 // Mark appends a [Mark] event labeled label, which [Timeline.Between] can cut

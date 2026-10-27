@@ -1,0 +1,9 @@
+Script started on 2026-10-25 19:27:02-06:00 [COMMAND="bash --norc --noprofile demo.sh" TERM="xterm-256color" TTY="/dev/pts/5" COLUMNS="48" LINES="6"]
+[1;36m$[0m make test
+[33m…[0m reel[K[32m✔[0m reel
+[33m…[0m reel/vt[K[32m✔[0m reel/vt
+[33m…[0m reel/render[K[32m✔[0m reel/render
+[33m…[0m reel/sink[K[32m✔[0m reel/sink
+[1mPASS[0m 4 packages in 1.2s
+[1;36m$[0m 
+Script done on 2026-10-25 19:27:04-06:00 [COMMAND_EXIT_CODE="0"]

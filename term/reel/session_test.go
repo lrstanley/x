@@ -54,8 +54,8 @@ func TestSessionOpen(t *testing.T) {
 	if h.Cols != 20 || h.Rows != 4 || h.Title != "demo" || h.Theme.Fg != white || h.Theme.Bg != black || h.Theme.Cursor != nil || h.SkipPristine {
 		t.Fatalf("Header = %+v", h)
 	}
-	if h := openTest(t, 20, 4, WithSkipPristine()).Timeline().Header(); !h.SkipPristine {
-		t.Fatalf("Header with WithSkipPristine = %+v", h)
+	if skip := openTest(t, 20, 4, WithSkipPristine()).Timeline().Header(); !skip.SkipPristine {
+		t.Fatalf("Header with WithSkipPristine = %+v", skip)
 	}
 	if !s.Focused() || !s.State().Focused {
 		t.Fatal("new session is not focused")
