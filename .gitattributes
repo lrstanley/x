@@ -1,3 +1,5 @@
 **/testdata linguist-generated=true
 **/testdata/**/*.png filter=lfs diff=lfs merge=lfs -text
 **/testdata/**/*.gif filter=lfs diff=lfs merge=lfs -text
+*.cast filter=lfs diff=lfs merge=lfs -text
+*.cast.gz filter=lfs diff=lfs merge=lfs -text
