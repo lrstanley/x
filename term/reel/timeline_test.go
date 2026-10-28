@@ -383,3 +383,22 @@ func TestTimelineConcurrentReaders(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestMissingMarks checks that MissingMarks finds the marks of errors
+// joined at any depth, and wrapped, each label once, and keeps the rest.
+func TestMissingMarks(t *testing.T) {
+	t.Parallel()
+	other := errors.New("other")
+	err := errors.Join(
+		fmt.Errorf("effect: %w", &NoMarkError{Label: "a"}),
+		errors.Join(&NoMarkError{Label: "b"}, other, &NoMarkError{Label: "a"}),
+		nil,
+	)
+	labels, rest := MissingMarks(err)
+	if !slices.Equal(labels, []string{"a", "b"}) || !errors.Is(rest, other) || errors.Is(rest, ErrNoMark) {
+		t.Fatalf("MissingMarks = %q, %v; want [a b] and the other error alone", labels, rest)
+	}
+	if labels, rest = MissingMarks(nil); labels != nil || rest != nil {
+		t.Fatalf("MissingMarks(nil) = %q, %v", labels, rest)
+	}
+}

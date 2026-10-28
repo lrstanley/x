@@ -368,9 +368,9 @@ func TestExportCastEffects(t *testing.T) {
 }
 
 // TestCheckMarks checks that the effects that look for marks report those a
-// cut does not have, so an asciicast output of the cut is an error before
-// anything is written, and that a file of the others exports again with
-// them.
+// cut does not have, which an export of the cut reports as it writes an
+// asciicast output without their descriptions, and that the file exports
+// again with the effects it has.
 func TestCheckMarks(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(t, 2, 1, "",
@@ -412,11 +412,11 @@ func TestCheckMarks(t *testing.T) {
 			if cerr := mc.CheckMarks(cut); !errors.Is(cerr, reel.ErrNoMark) {
 				t.Errorf("%s: CheckMarks = %v, want ErrNoMark", name, cerr)
 			}
-			if !errors.Is(err, reel.ErrNoMark) {
-				t.Errorf("%s: Export = %v, want ErrNoMark", name, err)
+			if labels, rest := reel.MissingMarks(err); rest != nil || !slices.Equal(labels, []string{"a"}) {
+				t.Errorf("%s: Export = %v, want a NoMarkError for \"a\"", name, err)
 			}
-			if _, err = os.Stat(path); !os.IsNotExist(err) {
-				t.Errorf("%s: wrote the file: %v", name, err)
+			if read, rerr := FromTimeline(readCastFile(t, path)); rerr != nil || len(read) != 0 {
+				t.Errorf("%s: the file describes %d effects (%v), want none", name, len(read), rerr)
 			}
 			continue
 		}

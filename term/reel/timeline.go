@@ -9,13 +9,57 @@ import (
 	"fmt"
 	"image/color"
 	"iter"
+	"slices"
 	"sync"
 	"time"
 )
 
-// ErrNoMark is returned by [Timeline.Between] when a label names no mark in
-// the timeline's window.
+// ErrNoMark is wrapped by the [NoMarkError] [Timeline.Between] returns when
+// a label names no mark in the timeline's window.
 var ErrNoMark = errors.New("reel: no such mark")
+
+// NoMarkError is the error for a mark a timeline lacks, such as one a
+// recording never reached, which wraps [ErrNoMark]. Every error reel and its
+// effects return for a missing mark wraps one, so [errors.As] tells which
+// label it was, and an [Effect] of a caller's own that looks for marks
+// should return one too, for [MissingMarks] to find.
+type NoMarkError struct {
+	// Label is the label of the missing mark.
+	Label string
+}
+
+func (e *NoMarkError) Error() string { return fmt.Sprintf("%v: %q", ErrNoMark, e.Label) }
+func (e *NoMarkError) Unwrap() error { return ErrNoMark }
+
+// MissingMarks splits err, such as from [Export] or [Recording.Stop], into
+// the labels of the marks it reports missing, in order and each once, and
+// the rest of it, nil when it reports nothing else. It looks through the
+// errors err joins, and those they join, so a mark several effects or
+// stills look for is listed once.
+func MissingMarks(err error) (labels []string, rest error) {
+	var errs []error
+	var split func(error)
+	split = func(err error) {
+		if j, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, e := range j.Unwrap() {
+				split(e)
+			}
+			return
+		}
+		var nm *NoMarkError
+		switch {
+		case err == nil:
+		case errors.As(err, &nm):
+			if !slices.Contains(labels, nm.Label) {
+				labels = append(labels, nm.Label)
+			}
+		default:
+			errs = append(errs, err)
+		}
+	}
+	split(err)
+	return labels, errors.Join(errs...)
+}
 
 // Timeline is the event log of a [Session]: what the program wrote, what the
 // session sent it, and what the host did to its terminal, each at its offset
@@ -435,7 +479,7 @@ func eventsOf[E Event](t *Timeline) iter.Seq[E] {
 // the call, even when t is still growing. See [Timeline.WriteCast] for how
 // it is written as a file.
 //
-// Between returns an error wrapping [ErrNoMark] when either label names no
+// Between returns a [NoMarkError] when either label names no
 // mark in the window. When from and to are the same label, the window runs
 // from its first mark to its second.
 func (t *Timeline) Between(from, to string) (*Timeline, error) {
@@ -444,14 +488,14 @@ func (t *Timeline) Between(from, to string) (*Timeline, error) {
 	if from != "" {
 		i := findMark(events, from, start, end)
 		if i < 0 {
-			return nil, fmt.Errorf("%w: %q", ErrNoMark, from)
+			return nil, &NoMarkError{Label: from}
 		}
 		start = i
 	}
 	if to != "" {
 		i := findMark(events, to, start+1, end)
 		if i < 0 {
-			return nil, fmt.Errorf("%w: %q after the start of the window", ErrNoMark, to)
+			return nil, fmt.Errorf("%w after the start of the window", &NoMarkError{Label: to})
 		}
 		end = i
 	}

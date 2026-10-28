@@ -29,7 +29,7 @@ type Recording struct {
 // Paths are expanded when Record starts, so {duration}, which is only known
 // at the end, is an error, and {timestamp} is when the timeline started, or
 // now when nothing has been appended yet. A still whose mark never comes
-// writes nothing, and Stop reports it as an error wrapping [ErrNoMark]; the
+// writes nothing, and Stop reports it as a [NoMarkError]; the
 // other outputs are still written. Effects are started with [Context.Live]
 // set, so those that look for marks find them as they are appended, and
 // report those that never come the same way. The asciicast files leave out

@@ -120,7 +120,10 @@ func Replace(c rune) RedactOption {
 //
 // [Between] limits Redact to a window of the timeline. A step of the delay
 // grid that shows any of the window is redacted whole, as is the rest of a
-// live recording ([reel.Record]) once its from mark is appended. [Ease],
+// live recording ([reel.Record]) once its from mark is appended. An export
+// ([reel.Export]) of a timeline without the from mark, such as of a test
+// that failed before it, is redacted whole, since where the secret starts
+// is not known; without the to mark, it is redacted to the end. [Ease],
 // [EaseIn], and [EaseOut] are an error from Start, since easing would show
 // part of what is hidden. A nil region is an error from Start.
 func Redact(region Region, opts ...RedactOption) reel.Effect {

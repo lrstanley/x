@@ -411,7 +411,6 @@ func TestRedactErrors(t *testing.T) {
 		{"negative ease", Redact(Row(0), Ease(-ms))},
 		{"wide replacement", Redact(Row(0), Replace('日'))},
 		{"control replacement", Redact(Row(0), Replace('\t'))},
-		{"unknown mark", Redact(Row(0), Between("m", "nope"))},
 		{"inputs nil region", RedactInputs(nil)},
 		{"inputs cells", RedactInputs(Any(Text("a"), Row(0)))},
 		{"min partial", Redact(Text("a"), MinPartial(0))},
@@ -514,6 +513,38 @@ func TestRedactRecord(t *testing.T) {
 		}
 		if testutil.Text(f.Image) != testutil.Text(drawCells(f.Cells)) {
 			t.Errorf("frame %d does not show its cells", i)
+		}
+	}
+}
+
+// TestRedactUnreachedMarks checks an export of a timeline that never
+// reached a mark of [Between], as a test that failed early leaves: without
+// its to mark the secret stays hidden to the end, and without its from mark
+// the whole recording is, so a secret never shows, and either way the
+// export is written and reports the mark.
+func TestRedactUnreachedMarks(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 12, 1, "", output(0, "pw"), mark(100, "secret"), output(200, " hunter2"), output(300, "!"))
+	for _, tc := range []struct {
+		from, to string
+		hidden   bool
+	}{
+		{"secret", "nope", true},
+		{"nope", "", true},
+	} {
+		var frames []reel.Frame
+		err := reel.Export(t.Context(), tl, reel.Profile{
+			Outputs:    reel.Files(filepath.Join(t.TempDir(), "out.gif")),
+			Rasterizer: testutil.Rasterizer{},
+			FPS:        100,
+			Effects:    []reel.Effect{Redact(Text("hunter2"), Between(tc.from, tc.to)), recordFrames{&frames}},
+		})
+		if labels, rest := reel.MissingMarks(err); rest != nil || !slices.Equal(labels, []string{"nope"}) {
+			t.Errorf("between %q and %q: Export = %v, want a NoMarkError for \"nope\"", tc.from, tc.to, err)
+		}
+		last := frames[len(frames)-1]
+		if shown := strings.Contains(testutil.Text(last.Image), "hunter2"); shown == tc.hidden {
+			t.Errorf("between %q and %q: the last frame shows the secret: %v, want %v", tc.from, tc.to, shown, !tc.hidden)
 		}
 	}
 }

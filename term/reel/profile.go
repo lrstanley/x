@@ -80,8 +80,9 @@ type File struct {
 	// Marks, when set, makes the output a still of the terminal at each of
 	// these [Mark] labels instead of a recording, one file per label, whose
 	// Path must hold {mark}. A label that repeats is shown at its first mark
-	// in the timeline's window, and one that is not there is an error
-	// wrapping [ErrNoMark]. Stills run through the [Concealer] and
+	// in the timeline's window, and one that is not there writes nothing,
+	// and is reported as a [NoMarkError] once the other outputs are
+	// written. Stills run through the [Concealer] and
 	// [StillEffect] effects, and no other.
 	Marks []string
 	// Cast is the asciicast version a ".cast" Path is written as. Zero is

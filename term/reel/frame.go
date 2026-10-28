@@ -131,12 +131,11 @@ type Describer interface {
 // MarkChecker is implemented by a [Describer] whose effect looks for marks,
 // such as to run between two of them, so an asciicast output does not hold
 // a description that names marks the file lacks, which an export of the
-// file could not apply. [Export] returns the error of CheckMarks before it
-// writes anything, and [Record] leaves the description out of its asciicast
-// outputs (see Export and Record).
+// file could not apply. [Export] and [Record] leave the description out of
+// their asciicast outputs (see Export and Record).
 type MarkChecker interface {
 	Describer
-	// CheckMarks returns an error wrapping [ErrNoMark] for each mark the
+	// CheckMarks returns a [NoMarkError] for each mark the
 	// effect looks for that tl's window does not have, as the effect would
 	// look for it, or nil.
 	CheckMarks(tl *Timeline) error
@@ -166,7 +165,7 @@ type Concealer interface {
 // later stills are drawn. The first frame the last emits for it is the
 // still, so such an effect must emit each frame it is given before it
 // returns; emitting nothing for a still is an error. The errors these
-// effects report on close that wrap [ErrNoMark] are left to the
+// effects report on close for missing marks are left to the
 // recording's own stages, when there are any.
 type StillEffect interface {
 	Effect
@@ -201,7 +200,8 @@ type Context struct {
 	// arrive, and reports one that never came with a function it registered
 	// with [Context.OnClose], which runs once Timeline is complete, so it
 	// can look once more for those appended after the last frame. Without
-	// Live, the timeline is complete at Start.
+	// Live, the timeline is complete at Start, and a mark it lacks was never
+	// reached, which an effect reports the same way.
 	Live bool
 	// Rasterizer draws the terminal frames, and Layout is its layout for
 	// the timeline's starting size.

@@ -208,8 +208,12 @@ func TestTimingResolve(t *testing.T) {
 		{[]Timing{Between("", "off")}, openFrom, 200 * ms, 0, 0, false, nil},
 		// The first mark labeled to after the first labeled from.
 		{[]Timing{Between("off", "on")}, 200 * ms, 300 * ms, 0, 0, false, nil},
-		{[]Timing{Between("on", "nope")}, 0, 0, 0, 0, true, reel.ErrNoMark},
-		{[]Timing{Between("nope", "")}, 0, 0, 0, 0, true, reel.ErrNoMark},
+		// A mark the recording never reached: without its to mark, the
+		// window runs to the end, and without its from mark, it never
+		// opens.
+		{[]Timing{Between("on", "nope")}, 100 * ms, openTo, 0, 0, false, nil},
+		{[]Timing{Between("nope", "")}, openTo, openTo, 0, 0, false, nil},
+		{[]Timing{Between("nope", "on")}, openTo, openTo, 0, 0, false, nil},
 		{[]Timing{Ease(-ms)}, 0, 0, 0, 0, true, nil},
 		{[]Timing{EaseIn(-ms)}, 0, 0, 0, 0, true, nil},
 		{[]Timing{EaseOut(-ms)}, 0, 0, 0, 0, true, nil},
@@ -408,9 +412,17 @@ func TestBetweenRecord(t *testing.T) {
 	if err = reel.Export(t.Context(), s.Timeline(), profile("export", "off")); err != nil {
 		t.Fatal(err)
 	}
-	a, aerr := os.ReadFile(filepath.Join(dir, "record.gif"))
-	b, berr := os.ReadFile(filepath.Join(dir, "export.gif"))
-	if aerr != nil || berr != nil || !slices.Equal(a, b) {
-		t.Fatalf("recorded and exported files differ (%v, %v)", aerr, berr)
+	// An export of a timeline that never reached a mark writes what the
+	// recording that waited for it did, and reports the same label.
+	err = reel.Export(t.Context(), s.Timeline(), profile("export-never", "never"))
+	if labels, rest := reel.MissingMarks(err); rest != nil || !slices.Equal(labels, []string{"never"}) {
+		t.Fatalf("Export = %v, want a NoMarkError for \"never\"", err)
+	}
+	for _, pair := range [][2]string{{"record", "export"}, {"never", "export-never"}} {
+		a, aerr := os.ReadFile(filepath.Join(dir, pair[0]+".gif"))
+		b, berr := os.ReadFile(filepath.Join(dir, pair[1]+".gif"))
+		if aerr != nil || berr != nil || !slices.Equal(a, b) {
+			t.Fatalf("%s and %s differ (%v, %v)", pair[0], pair[1], aerr, berr)
+		}
 	}
 }

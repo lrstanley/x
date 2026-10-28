@@ -32,16 +32,18 @@ type timing struct {
 // recording, and an empty to is its end. Without Between, the effect covers
 // the whole recording.
 //
-// For an [reel.Export], the marks are looked for when the effect starts, and
-// a label that names no mark in the timeline is an error from Start,
-// wrapping [reel.ErrNoMark]. A [reel.Record] runs while its timeline grows,
-// so the marks are looked for as they are appended: the window opens when
-// the from mark comes, and closes when the to mark does. A mark still
-// missing when the recording stops is an error from
-// [reel.Recording.Stop], wrapping [reel.ErrNoMark], which still writes the
-// outputs. A from mark appended after the effect started was not known in
-// advance, so [EaseIn] eases the effect in after it rather than before, and
-// it is at full strength one ease-in after the mark.
+// A [reel.Record] runs while its timeline grows, so the marks are looked for
+// as they are appended: the window opens when the from mark comes, and
+// closes when the to mark does. For an [reel.Export], they are looked for
+// when the effect starts. A mark the recording never reaches is treated
+// the same way by both: without its from mark the effect never comes on,
+// and without its to mark it stays on to the end. The one exception is an
+// effect that hides what it covers, such as [Redact]: exported without its
+// from mark, it covers the whole recording, since it cannot tell where its
+// window would have started. The mark is reported as a [reel.NoMarkError],
+// from [reel.Recording.Stop] or Export, which still write the outputs. A from mark appended after the effect started was not
+// known in advance, so [EaseIn] eases the effect in after it rather than
+// before, and it is at full strength one ease-in after the mark.
 func Between(from, to string) Timing {
 	return func(t *timing) { t.from, t.to = from, to }
 }
@@ -166,6 +168,23 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		return w, nil
 	}
 	cut, err := t.between(ctx.Timeline)
+	if errors.Is(err, reel.ErrNoMark) {
+		// The recording never reached a mark, which is reported as it
+		// closes (err is reassigned below). Without its to mark, the effect
+		// stays on to the end, and without its from mark, it never comes
+		// on, as in a live window whose mark never comes, but for an effect
+		// that must cover its window: where the window would have started
+		// is not known, so it covers the whole recording.
+		missing := err
+		ctx.OnClose(func() error { return missing })
+		if cut, err = ctx.Timeline.Between(t.from, ""); errors.Is(err, reel.ErrNoMark) {
+			if !w.cover {
+				w.from = openTo
+			}
+			return w, nil
+		}
+		t.to = ""
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +199,8 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 }
 
 // between returns the part of tl the window of t runs over, as
-// [reel.Timeline.Between] cuts it, with an error wrapping [reel.ErrNoMark]
-// for a mark tl's window does not have.
+// [reel.Timeline.Between] cuts it, with a [reel.NoMarkError] for a mark tl's
+// window does not have.
 func (t timing) between(tl *reel.Timeline) (*reel.Timeline, error) {
 	cut, err := tl.Between(t.from, t.to)
 	if errors.Is(err, reel.ErrNoMark) {
@@ -226,16 +245,16 @@ func (w *window) update() {
 	}
 }
 
-// missing returns an error wrapping [reel.ErrNoMark] for the marks of a live
+// missing returns a [reel.NoMarkError] for the marks of a live
 // window that the recording never had, or nil. It looks once more, for the
 // marks appended after the last frame.
 func (w *window) missing() error {
 	w.update()
 	switch {
 	case w.wantFrom:
-		return fmt.Errorf("effects: between %q and %q: %w: %q", w.fromLabel, w.toLabel, reel.ErrNoMark, w.fromLabel)
+		return fmt.Errorf("effects: between %q and %q: %w", w.fromLabel, w.toLabel, &reel.NoMarkError{Label: w.fromLabel})
 	case w.wantTo:
-		return fmt.Errorf("effects: between %q and %q: %w: %q after the start of the window", w.fromLabel, w.toLabel, reel.ErrNoMark, w.toLabel)
+		return fmt.Errorf("effects: between %q and %q: %w after the start of the window", w.fromLabel, w.toLabel, &reel.NoMarkError{Label: w.toLabel})
 	}
 	return nil
 }

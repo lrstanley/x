@@ -498,8 +498,16 @@ func TestPauseRecord(t *testing.T) {
 	if err = missing.Stop(); !errors.Is(err, reel.ErrNoMark) {
 		t.Errorf("Stop = %v, want ErrNoMark", err)
 	}
-	if _, err = os.Stat(filepath.Join(dir, "missing.gif")); err != nil {
-		t.Error(err)
+	// An export of a timeline without the mark writes what the recording
+	// that waited for it did, and reports the label.
+	err = reel.Export(t.Context(), s.Timeline(), profile("export-missing", "never"))
+	if labels, rest := reel.MissingMarks(err); rest != nil || !slices.Equal(labels, []string{"never"}) {
+		t.Errorf("Export = %v, want a NoMarkError for \"never\"", err)
+	}
+	waited, werr := os.ReadFile(filepath.Join(dir, "missing.gif"))
+	lacked, lerr := os.ReadFile(filepath.Join(dir, "export-missing.gif"))
+	if werr != nil || lerr != nil || !bytes.Equal(waited, lacked) {
+		t.Errorf("recorded and exported GIFs without the mark differ (%v, %v)", werr, lerr)
 	}
 	if err = reel.Export(t.Context(), s.Timeline(), profile("export")); err != nil {
 		t.Fatal(err)

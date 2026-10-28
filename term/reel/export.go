@@ -66,9 +66,14 @@ import (
 // Describer, or only wraps one, and one whose Describe returns an error
 // wrapping [errors.ErrUnsupported], is left out. Any other error, or a
 // description [AnnotationSchema] does not allow, is an error before
-// anything is written, as is the error of a [MarkChecker] for a mark the
-// timeline's window does not have, wrapping [ErrNoMark], since the file
-// holds the window alone.
+// anything is written. The file holds the window alone, so it leaves out
+// the description of a [MarkChecker] whose marks the window does not have.
+//
+// A mark the profile looks for that the timeline's window does not have,
+// such as one a test failed before it reached, does not stop the export:
+// the outputs are written as a [Record] of the timeline would write them,
+// whose marks never came (see Record), and Export then returns a
+// [NoMarkError] for each.
 //
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
@@ -175,14 +180,6 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 		if r.castEffects, err = describeEffects(p.Effects); err != nil {
 			return nil, err
 		}
-		if !live {
-			// Live marks are looked for once the recording stops.
-			for _, c := range r.castEffects {
-				if err = c.checkMarks(tl); err != nil {
-					return nil, err
-				}
-			}
-		}
 		if p.Rasterizer == nil {
 			// The palette the frames are drawn with. A custom rasterizer
 			// keeps the timeline's.
@@ -264,29 +261,10 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 	return nil
 }
 
-// withoutNoMark returns err, or the errors it joins, without those that
-// wrap [ErrNoMark].
-func withoutNoMark(err error) error {
-	errs := []error{err}
-	if j, ok := err.(interface{ Unwrap() []error }); ok {
-		errs = j.Unwrap()
-	}
-	return errors.Join(slices.DeleteFunc(slices.Clone(errs), func(e error) bool { return errors.Is(e, ErrNoMark) })...)
-}
-
 // castEffect is an effect an asciicast output records, and its description.
 type castEffect struct {
 	effect Effect
 	desc   Annotation
-}
-
-// checkMarks returns what CheckMarks returns for tl, for an effect that is
-// a [MarkChecker], or nil.
-func (c castEffect) checkMarks(tl *Timeline) error {
-	if mc, ok := c.effect.(MarkChecker); ok {
-		return mc.CheckMarks(tl)
-	}
-	return nil
 }
 
 // describeEffects returns each effect that is a [Describer], with its
@@ -379,17 +357,8 @@ func drawnPalette(opts []render.Option) ([16]color.Color, error) {
 }
 
 // replayAll replays every event of tl, a fixed timeline whose window ends at
-// end, after checking the stills' marks are in its window.
+// end.
 func (r *recorder) replayAll(ctx context.Context, tl *Timeline, end time.Duration) error {
-	var marks []string
-	for _, ev := range tl.events[max(tl.from, 0):] {
-		if m, ok := ev.(Mark); ok {
-			marks = append(marks, m.Label)
-		}
-	}
-	if err := r.outs.missingMarks(marks); err != nil {
-		return err
-	}
 	if r.replay != nil {
 		for _, ev := range tl.events {
 			if err := ctx.Err(); err != nil {
@@ -526,20 +495,21 @@ func (r *recorder) end(end time.Duration) error {
 // asciicast ones.
 //
 // The asciicast outputs leave out the descriptions of the effects whose
-// marks tl lacks, as a live recording's marks may never come, which are an
-// error wrapping [ErrNoMark] when the effects did not run on frames to
-// report them. An export checked them before it started.
+// marks tl lacks. When no effects ran on frames to report those marks,
+// commit reports them itself.
 func (r *recorder) commit(tl *Timeline) error {
 	// The effects that ran on frames report the same marks as they close.
 	report := r.effects == nil
 	var descs []Annotation
 	var missing []error
 	for _, c := range r.castEffects {
-		if err := c.checkMarks(tl); err != nil {
-			if report {
-				missing = append(missing, err)
+		if mc, ok := c.effect.(MarkChecker); ok {
+			if err := mc.CheckMarks(tl); err != nil {
+				if report {
+					missing = append(missing, err)
+				}
+				continue
 			}
-			continue
 		}
 		descs = append(descs, c.desc)
 	}
@@ -562,7 +532,7 @@ func (r *recorder) release() error {
 		if r.effects != nil {
 			// The recording's effects hold the same still effects, which
 			// report the same marks that never came.
-			err = withoutNoMark(err)
+			_, err = MissingMarks(err)
 		}
 		errs = append(errs, err)
 		r.stills = nil

@@ -60,9 +60,9 @@ func PauseAtEnd(d time.Duration) PauseOption {
 
 // PauseAtMarks pauses for d at each mark labeled one of labels, or at every
 // mark without labels. A label that names no mark in the timeline's window
-// is an error wrapping [reel.ErrNoMark], from Start for an [reel.Export],
-// and from [reel.Recording.Stop] for a [reel.Record], as [Between] reports
-// it.
+// is not paused at, and is reported as a [reel.NoMarkError] once the
+// outputs are written, from [reel.Export] or [reel.Recording.Stop], as
+// [Between] reports it.
 func PauseAtMarks(d time.Duration, labels ...string) PauseOption {
 	labels = slices.Clone(labels)
 	return func(p *pause) { p.points = append(p.points, pausePoint{at: pauseAtMarks, d: d, labels: labels}) }
@@ -221,14 +221,11 @@ func (e pause) Start(ctx *reel.Context) (reel.Stage, error) {
 		s.corner, s.size, s.glyph = e.corner, size, pauseGlyph(size, e.color)
 	}
 	s.readMarks()
-	if ctx.Live {
-		ctx.OnClose(func() error {
-			s.readMarks()
-			return s.missing()
-		})
-	} else if err := s.missing(); err != nil {
-		return nil, err
-	}
+	// A mark missing as the recording closes was never reached.
+	ctx.OnClose(func() error {
+		s.readMarks()
+		return s.missing()
+	})
 	return s.run, nil
 }
 
@@ -323,7 +320,7 @@ func (s *pauseStage) readMarks() {
 	}
 }
 
-// missing returns an error wrapping [reel.ErrNoMark] for each label a
+// missing returns a [reel.NoMarkError] for each label a
 // point names that no mark read has, or nil.
 func (s *pauseStage) missing() error {
 	var errs []error
@@ -332,7 +329,7 @@ func (s *pauseStage) missing() error {
 		for _, label := range pt.labels {
 			if !s.seen[label] && !reported[label] {
 				reported[label] = true
-				errs = append(errs, fmt.Errorf("effects: pause at marks: %w: %q", reel.ErrNoMark, label))
+				errs = append(errs, fmt.Errorf("effects: pause at marks: %w", &reel.NoMarkError{Label: label}))
 			}
 		}
 	}

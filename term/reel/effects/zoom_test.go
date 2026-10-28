@@ -240,7 +240,6 @@ func TestZoomErrors(t *testing.T) {
 		{"anchor above 1", Zoom(Row(0), Anchor(0, 1.5)), nil},
 		{"anchor NaN", Zoom(Row(0), Anchor(math.NaN(), 0)), nil},
 		{"ease", Zoom(Row(0), Ease(-ms)), nil},
-		{"unknown mark", Zoom(Row(0), Between("m", "nope")), reel.ErrNoMark},
 	} {
 		st, err := tc.effect.Start(ctx)
 		if err == nil || st != nil || (tc.is != nil && !errors.Is(err, tc.is)) {

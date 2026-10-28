@@ -177,10 +177,11 @@ func TestExportDescribeErrors(t *testing.T) {
 	}
 }
 
-// TestExportEffectMarks checks that an asciicast output of a cut is an error
-// for a [MarkChecker] that looks for a mark outside it, which the file would
-// not have, before anything is written, and that a file of the others
-// exports again with them. The effects package checks its own effects.
+// TestExportEffectMarks checks that an asciicast output of a cut leaves out
+// the description of a [MarkChecker] that looks for a mark outside it, which
+// the file does not have, and reports the mark, and that the file exports
+// again with the effects it describes. The effects package checks its own
+// effects, which report their marks themselves when they run on frames.
 func TestExportEffectMarks(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(Header{Cols: 2, Rows: 1},
@@ -206,24 +207,25 @@ func TestExportEffectMarks(t *testing.T) {
 		effects := []Effect{describer{a: keys, marks: tc.marks}}
 		dir := t.TempDir()
 		path := filepath.Join(dir, "a.cast")
-		p := Profile{Outputs: Files(path, filepath.Join(dir, "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: effects}
+		p := Profile{Outputs: Files(path), Effects: effects}
 		err := Export(t.Context(), cut, p)
-		if !tc.ok {
-			if !errors.Is(err, ErrNoMark) || !strings.Contains(err.Error(), `"a"`) {
-				t.Errorf("%s: Export = %v, want ErrNoMark for \"a\"", name, err)
-			}
-			if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-				t.Errorf("%s: wrote %d files", name, len(entries))
-			}
+		switch labels, rest := MissingMarks(err); {
+		case !tc.ok && (rest != nil || !slices.Equal(labels, []string{"a"})):
+			t.Errorf("%s: Export = %v, want a NoMarkError for \"a\"", name, err)
 			continue
-		}
-		if err != nil {
+		case tc.ok && err != nil:
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if described := strings.Contains(string(data), `\"effect\":\"keys\"`); described != tc.ok {
+			t.Errorf("%s: the file describes the effect: %v, want %v", name, described, tc.ok)
+		}
+		if !tc.ok {
+			continue
 		}
 		again := filepath.Join(t.TempDir(), "a.cast")
 		if err = Export(t.Context(), readCast(t, data), Profile{Outputs: Files(again), Effects: effects}); err != nil {

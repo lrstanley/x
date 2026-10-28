@@ -47,7 +47,7 @@ type fileOutput struct {
 }
 
 func (f *fileOutput) errNoMark() error {
-	return fmt.Errorf("%w: %q for %s", ErrNoMark, f.mark, f.path)
+	return fmt.Errorf("%w for %s", &NoMarkError{Label: f.mark}, f.path)
 }
 
 // planOutputs expands the paths of p's outputs with vars.
@@ -174,18 +174,6 @@ func (o *outputs) hasStills() bool {
 	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return f.still })
 }
 
-// missingMarks returns an error wrapping [ErrNoMark] for each still whose
-// label is not among marks, or nil.
-func (o *outputs) missingMarks(marks []string) error {
-	var errs []error
-	for i := range o.files {
-		if f := &o.files[i]; f.still && !slices.Contains(marks, f.mark) {
-			errs = append(errs, f.errNoMark())
-		}
-	}
-	return errors.Join(errs...)
-}
-
 // open creates every recording and still, and is discarded when one fails.
 func (o *outputs) open() error {
 	var recordings []sink.Sink
@@ -221,7 +209,7 @@ func (o *outputs) stillsAt(label string) []sink.Sink {
 }
 
 // close finishes every open output. Stills whose mark never came write
-// nothing, and are reported as errors wrapping [ErrNoMark].
+// nothing, and are reported as a [NoMarkError] each.
 func (o *outputs) close() error {
 	var errs []error
 	for i := range o.files {

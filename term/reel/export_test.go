@@ -431,18 +431,20 @@ func TestExportStills(t *testing.T) {
 		}
 	}
 
-	// A mark not in the window is an error, before anything is written.
+	// A mark not in the window writes no still, and is reported once the
+	// others are written.
 	cut, err := tl.Between("two", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty := t.TempDir()
-	p.Outputs[0].Path = filepath.Join(empty, "{mark}.png")
-	if err = Export(t.Context(), cut, p); !errors.Is(err, ErrNoMark) {
-		t.Fatalf("Export = %v, want ErrNoMark", err)
+	cutDir := t.TempDir()
+	p.Outputs[0].Path = filepath.Join(cutDir, "{mark}.png")
+	err = Export(t.Context(), cut, p)
+	if labels, rest := MissingMarks(err); rest != nil || !slices.Equal(labels, []string{"one"}) {
+		t.Fatalf("Export = %v, want a NoMarkError for \"one\"", err)
 	}
-	if entries, _ := os.ReadDir(empty); len(entries) != 0 {
-		t.Fatalf("a failed export left %d files", len(entries))
+	if entries, _ := os.ReadDir(cutDir); len(entries) != 1 || entries[0].Name() != "two.png" {
+		t.Fatalf("export of the cut wrote %v, want two.png", entries)
 	}
 }
 

@@ -182,7 +182,6 @@ func TestHighlightErrors(t *testing.T) {
 		{"outline width", Highlight(Row(0), Outline(red, -1)), nil},
 		{"padding", Highlight(Row(0), Padding(-1)), nil},
 		{"ease", Highlight(Row(0), Ease(-ms)), nil},
-		{"unknown mark", Highlight(Row(0), Between("m", "nope")), reel.ErrNoMark},
 	} {
 		st, err := tc.effect.Start(ctx)
 		if err == nil || st != nil || (tc.is != nil && !errors.Is(err, tc.is)) {
