@@ -22,48 +22,43 @@ import (
 // ErrClosed is returned by [Session] methods called after [Session.Close].
 var ErrClosed = errors.New("reel: session is closed")
 
-// defaultRuntime is the emulator pool sessions open from unless [WithRuntime]
-// names another. Its size follows GOMAXPROCS, so parallel sessions stay
-// within one Wasm instance per processor.
+// defaultRuntime is the emulator pool sessions open from unless
+// [WithRuntime] names another. Its size follows GOMAXPROCS.
 var defaultRuntime = vt.NewRuntime(0)
 
 var _ io.ReadWriter = (*Session)(nil)
 
 // Session owns a terminal emulator that a program runs in, and records what
-// happens to it in a [Timeline]. The program writes its output with
-// [Session.Write] and reads its input with [Session.Read]. The host sends it
-// keys, text, pastes, and mouse events, resizes and focuses its window, sets
-// its colors, and marks points to cut a recording at.
+// happens to it in a [Timeline]. The program writes output with
+// [Session.Write] and reads input with [Session.Read]; the host sends keys,
+// text, pastes, and mouse events, resizes, focuses, sets colors, and adds
+// marks.
 //
 // Every change made through the session is appended to the timeline in the
-// order the terminal saw it, so replaying the timeline into a fresh terminal
-// reproduces it. The terminal's replies to the program's queries are not
-// recorded as input, because replaying its output produces them again, but
-// each query and its reply are recorded as a [QueryKind] annotation after
-// the output that held the query, unless the session was opened
-// [WithoutQueries]. Changes made through [Session.Terminal] are not
-// recorded. Methods are safe for concurrent use.
+// order the terminal saw it, so replaying the timeline into a fresh
+// terminal reproduces it. Query replies are recorded as [Query]
+// annotations unless opened [WithoutQueries], not as input. Changes made
+// through [Session.Terminal] are not recorded. Methods are safe for
+// concurrent use.
 type Session struct {
 	term     *vt.Terminal
 	timeline *Timeline
 
-	// mu serializes each change to the terminal with the event that records
-	// it, and Close with those changes.
+	// mu makes each terminal change and its recorded event atomic, and
+	// serializes Close with them.
 	mu sync.Mutex
-	// closed and focused are atomic so that Read, which blocks, and Focused
-	// and State can read them without mu.
+	// closed and focused are atomic so the blocking Read, Focused, and State
+	// can read them without mu.
 	closed  atomic.Bool
 	focused atomic.Bool
-	// pty is the pseudo-terminal of the process [Exec] runs on the session,
-	// which Resize resizes too, until it hangs up. running is set from when
-	// Exec starts the process until its exit is recorded. Both are guarded
-	// by mu.
+	// pty is the [Exec] process's pseudo-terminal, resized by Resize until
+	// it hangs up. running is set from Exec until the exit is recorded.
+	// Both are guarded by mu.
 	pty     *pty.PTY
 	running bool
-	// scrollOnInput is whether Type, Key, and Paste scroll the viewport to the
-	// bottom first, see [WithScrollOnInput].
+	// scrollOnInput is [WithScrollOnInput].
 	scrollOnInput bool
-	// noQueries stops Write recording the program's queries.
+	// noQueries disables recording [QueryKind] annotations.
 	noQueries bool
 	// typingDelay is how long Type and Key pause after each key press.
 	typingDelay time.Duration
@@ -82,7 +77,7 @@ type sessionConfig struct {
 	typingDelay   time.Duration
 }
 
-// WithRuntime opens the session's terminal from rt instead of the package's
+// WithRuntime opens the session's terminal from rt instead of the default
 // pool, which lends at most GOMAXPROCS terminals at once.
 func WithRuntime(rt *vt.Runtime) SessionOption {
 	return func(cfg *sessionConfig) {
@@ -105,39 +100,32 @@ func WithTitle(title string) SessionOption {
 	return func(cfg *sessionConfig) { cfg.title = title }
 }
 
-// WithSkipPristine sets [Header.SkipPristine], so a recording of the
-// session starts on the program's first paint rather than on the blank
-// terminal it opened on. It is for programs that write capability queries
-// before they draw, as Bubble Tea programs do.
+// WithSkipPristine sets [Header.SkipPristine].
 func WithSkipPristine() SessionOption {
 	return func(cfg *sessionConfig) { cfg.skipPristine = true }
 }
 
 // WithScrollOnInput sets whether [Session.Type], [Session.Key], and
-// [Session.Paste] scroll the viewport back to the bottom first when it is
-// scrolled up (see [Session.ScrollUp]), as a real terminal does when a key is
-// pressed, so the program's response is in view. Enabled by default. The scroll
-// is recorded as a [Scroll] event, before the [Input], and only when the
-// viewport was scrolled, so typing at the bottom adds nothing. Mouse events
+// [Session.Paste] first scroll a scrolled-up viewport (see
+// [Session.ScrollUp]) back to the bottom, as a real terminal does on a key
+// press, so the program's response is in view. Enabled by default. The
+// scroll is recorded as a [Scroll] event before the [Input]. Mouse events
 // never scroll, since the program may be handling them.
 func WithScrollOnInput(enabled bool) SessionOption {
 	return func(cfg *sessionConfig) { cfg.scrollOnInput = enabled }
 }
 
-// WithoutQueries stops the session recording a [QueryKind] annotation for
-// each query the program writes, such as to keep the replies out of a
-// recording: a reply to a clipboard read holds the clipboard's text. A
-// query costs one small annotation, and programs write a few, mostly as they
-// start, so they are recorded by default.
+// WithoutQueries disables recording [QueryKind] annotations, such as to keep
+// replies out of a recording (a clipboard read reply holds the clipboard's
+// text).
 func WithoutQueries() SessionOption {
 	return func(cfg *sessionConfig) { cfg.noQueries = true }
 }
 
 // WithTypingDelay makes [Session.Type] and [Session.Key] pause for d after
-// each key press, so the program has time to echo each one, and a recording
-// shows the text typed rather than appearing at once. Without it, or with d
-// zero or less, keys are sent with no pause. [KeyDelay] overrides it for one
-// call. The pause is a [time.Sleep], so it costs no real time inside a
+// each key press, so a recording shows text being typed. Zero or less (the
+// default) sends keys with no pause. [KeyDelay] overrides it for one call.
+// The pause is a [time.Sleep], so it costs no real time inside a
 // [testing/synctest] bubble.
 func WithTypingDelay(d time.Duration) SessionOption {
 	return func(cfg *sessionConfig) { cfg.typingDelay = d }
@@ -150,14 +138,13 @@ type keyConfig struct {
 	delay time.Duration
 }
 
-// KeyDelay pauses for d after each key press of the call, rather than for the
-// delay set with [WithTypingDelay]. Zero or less sends the keys with no
-// pause.
+// KeyDelay pauses for d after each key press of the call, instead of the
+// [WithTypingDelay] delay. Zero or less sends the keys with no pause.
 func KeyDelay(d time.Duration) KeyOption {
 	return func(cfg *keyConfig) { cfg.delay = d }
 }
 
-// keyDelay returns the pause after each key press, the session's unless
+// keyDelay returns the pause after each key press: the session's, unless
 // opts set one.
 func (s *Session) keyDelay(opts []KeyOption) time.Duration {
 	cfg := keyConfig{delay: s.typingDelay}
@@ -169,9 +156,9 @@ func (s *Session) keyDelay(opts []KeyOption) time.Duration {
 	return cfg.delay
 }
 
-// Open starts a session on a terminal of cols by rows cells. It blocks until
-// the terminal's pool has room or ctx is canceled. The session starts
-// focused. Close it to return the terminal to the pool.
+// Open starts a session on a cols by rows terminal. It blocks until the
+// pool has room or ctx is canceled. The session starts focused. Close it to
+// return the terminal to the pool.
 func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session, error) {
 	cfg := sessionConfig{runtime: defaultRuntime, scrollOnInput: true}
 	for _, opt := range opts {
@@ -202,24 +189,23 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 // after [Session.Close], which returns it to its pool.
 func (s *Session) Terminal() *vt.Terminal { return s.term }
 
-// Timeline returns the session's event log. It is the same timeline for the
-// life of the session, and grows as the session runs.
+// Timeline returns the session's event log, which is the same timeline for
+// the session's life and grows as it runs.
 func (s *Session) Timeline() *Timeline { return s.timeline }
 
 // Focused reports whether the terminal window has focus.
 func (s *Session) Focused() bool { return s.focused.Load() }
 
-// State returns the terminal's state, as [vt.Terminal.State] does, with
-// Focused set from the session.
+// State returns [vt.Terminal.State] with Focused set from the session.
 func (s *Session) State() vt.State {
 	st := s.term.State()
 	st.Focused = s.Focused()
 	return st
 }
 
-// Write feeds program output to the terminal, after appending it to the
-// timeline as an [Output] event, followed by a [QueryKind] annotation for
-// each query it holds. It never returns a short write.
+// Write appends p as an [Output] event, feeds it to the terminal, then
+// appends a [QueryKind] annotation for each query it holds. It never
+// returns a short write.
 func (s *Session) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -242,15 +228,15 @@ func (s *Session) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Read reads the program's input: what the session sent it, and the
-// terminal's replies to its queries. It blocks until there is some. It
-// returns [io.EOF] once [vt.Terminal.CloseReader] is called and what was
-// queued has been read, and at once after [Session.Close].
+// Read reads the program's input, including query replies, blocking until
+// some is available. It returns [io.EOF] once [vt.Terminal.CloseReader] is
+// called and queued input is drained, and immediately after
+// [Session.Close].
 func (s *Session) Read(p []byte) (int, error) {
 	return s.readContext(context.Background(), p)
 }
 
-// readContext is [Session.Read], which also ends when ctx is done.
+// readContext is [Session.Read] that also ends when ctx is done.
 func (s *Session) readContext(ctx context.Context, p []byte) (int, error) {
 	if s.closed.Load() {
 		return 0, io.EOF
@@ -272,9 +258,8 @@ func (s *Session) Close() error {
 }
 
 // change runs fn, which changes the terminal, with the session locked, and
-// appends the event it returns, if any. Program output waits for the lock to
-// be appended, so the event precedes any output the program writes in
-// response to the change.
+// appends the event it returns, if any. Holding the lock guarantees the
+// event precedes any output the program writes in response.
 func (s *Session) change(fn func() (Event, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -291,11 +276,10 @@ func (s *Session) change(fn func() (Event, error)) error {
 	return nil
 }
 
-// send sends the program the input encode returns, and appends it as an
-// [Input] event. Nothing is sent or appended when encode returns no bytes.
-// With snap, and unless [WithScrollOnInput] turned it off, a scrolled viewport
-// first goes back to the bottom, which appends a [Scroll] event before the
-// input.
+// send sends the program encode's bytes and appends them as an [Input]
+// event. Nothing happens when encode returns no bytes. With snap, a
+// scrolled viewport first goes back to the bottom (unless
+// [WithScrollOnInput] is off), appending a [Scroll] event.
 func (s *Session) send(encode func() ([]byte, error), snap bool) error {
 	return s.change(func() (Event, error) {
 		data, err := encode()
@@ -312,17 +296,16 @@ func (s *Session) send(encode func() ([]byte, error), snap bool) error {
 	})
 }
 
-// Type sends text as key presses, one per character. Each character is
-// pressed as the key that types it on a US layout, with shift held for upper
-// case letters and shifted symbols. Other characters, including control
-// characters such as "\n", are sent as they are. Type is for text, not for
-// keys with modifiers; see [Session.Key]. A scrolled viewport goes back to
-// the bottom first (see [WithScrollOnInput]).
+// Type sends text as one key press per character. Characters are pressed as
+// on a US layout, with shift for upper case and shifted symbols; others,
+// including control characters such as "\n", are sent as is. For keys with
+// modifiers, use [Session.Key]. A scrolled viewport goes back to the bottom
+// first (see [WithScrollOnInput]).
 //
-// With no delay set by [WithTypingDelay] or [KeyDelay], the text is sent at
-// once, as one [Input] event, or not at all if a key fails to encode. With a
-// delay, each key press is its own [Input] event, followed by the pause, and
-// the keys before one that fails to encode have been sent.
+// Without a delay ([WithTypingDelay], [KeyDelay]), the text is one [Input]
+// event, sent only if every key encodes. With one, each key press is its own
+// [Input] event followed by the pause, and the keys before one that fails to
+// encode have been sent.
 func (s *Session) Type(text string, opts ...KeyOption) error {
 	d := s.keyDelay(opts)
 	if d <= 0 {
@@ -351,18 +334,16 @@ func (s *Session) encodeText(text string) ([]byte, error) {
 }
 
 // Key sends one key press, such as "enter", "ctrl+c", "shift+tab", "f5", or
-// "a". Modifiers come first, joined by "+": ctrl, alt, shift, and super. The
+// "a". Modifiers (ctrl, alt, shift, super) come first, joined by "+". The
 // key is a single character or one of: enter, esc (escape), tab, backspace,
 // delete, insert, up, down, left, right, home, end, pgup (pageup), pgdown
-// (pagedown), space, and f1 through f12. An unknown name is an error.
+// (pagedown), space, and f1 through f12. Unknown names are an error.
 //
-// The key is encoded the way the program's keyboard mode asks, such as the
-// kitty keyboard protocol. A combination the mode cannot encode, such as
-// ctrl+shift+a without the kitty protocol, is an error, and sends nothing.
-// A scrolled viewport goes back to the bottom first (see [WithScrollOnInput]).
-//
-// Key pauses after the press for the delay set with [WithTypingDelay] or
-// [KeyDelay].
+// The key is encoded per the program's keyboard mode, such as the kitty
+// keyboard protocol. A combination the mode cannot encode (such as
+// ctrl+shift+a without kitty) is an error and sends nothing. A scrolled
+// viewport goes back to the bottom first (see [WithScrollOnInput]). Key
+// pauses after the press for the [WithTypingDelay] or [KeyDelay] delay.
 func (s *Session) Key(name string, opts ...KeyOption) error {
 	key, perr := parseKey(name)
 	if perr != nil {
@@ -389,16 +370,15 @@ func (s *Session) Paste(text string) error {
 	return s.send(func() ([]byte, error) { return s.term.EncodePaste(text) }, true)
 }
 
-// Mouse sends a mouse event at cell (x, y), counted from 0. The program
-// must have enabled a mouse tracking mode that reports the event, as in a real
-// terminal; otherwise nothing is sent. Unlike keys, it leaves a scrolled
-// viewport where it is, since the program may be handling the event.
+// Mouse sends a mouse event at zero-based cell (x, y). Nothing is sent
+// unless the program enabled a mouse tracking mode that reports the event.
+// Unlike keys, it leaves a scrolled viewport where it is.
 func (s *Session) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) error {
 	return s.send(func() ([]byte, error) { return s.term.EncodeMouse(action, button, x, y) }, false)
 }
 
-// Focus gives the terminal window focus, or takes it away, and appends a
-// [Focus] event. The program is told when it has enabled focus reporting.
+// Focus sets whether the terminal window has focus and appends a [Focus]
+// event. The program is told if it enabled focus reporting.
 func (s *Session) Focus(on bool) error {
 	return s.change(func() (Event, error) {
 		data, err := s.term.EncodeFocus(on)
@@ -413,11 +393,10 @@ func (s *Session) Focus(on bool) error {
 	})
 }
 
-// ScrollUp scrolls the terminal's viewport n rows toward older scrollback, as
-// scrolling a real terminal's window does, and appends a [Scroll] event. The
-// program is not told. The viewport stays put as the program writes more, until
-// it is scrolled back to the bottom, or until keys, text, or a paste are sent to
-// it (see [WithScrollOnInput]).
+// ScrollUp scrolls the viewport n rows toward older scrollback and appends a
+// [Scroll] event. The program is not told. The viewport stays put as the
+// program writes more, until it is scrolled back to the bottom or input is
+// sent (see [WithScrollOnInput]).
 func (s *Session) ScrollUp(n int) error {
 	return s.scroll(func() error { return s.term.ScrollUp(n) })
 }
@@ -436,8 +415,7 @@ func (s *Session) ScrollToTop() error { return s.scroll(s.term.ScrollToTop) }
 // [Session.ScrollUp].
 func (s *Session) ScrollToBottom() error { return s.scroll(s.term.ScrollToBottom) }
 
-// scroll runs move, which scrolls the terminal's viewport, and appends a
-// [Scroll] event when it moved.
+// scroll runs move and appends a [Scroll] event if the viewport moved.
 func (s *Session) scroll(move func() error) error {
 	return s.change(func() (Event, error) {
 		before := s.term.ScrollbackOffset()
@@ -452,10 +430,10 @@ func (s *Session) scroll(move func() error) error {
 	})
 }
 
-// Resize changes the terminal to cols by rows cells and appends a [Resize]
-// event. While a process [Exec] started runs, its pseudo-terminal is resized
-// too; an error doing so is returned after the terminal has been resized and
-// the event appended.
+// Resize resizes the terminal to cols by rows and appends a [Resize] event.
+// While an [Exec] process runs, its pseudo-terminal is resized too; an
+// error doing so is returned after the terminal is resized and the event
+// appended.
 func (s *Session) Resize(cols, rows int) error {
 	var ptyErr error
 	err := s.change(func() (Event, error) {
@@ -473,8 +451,8 @@ func (s *Session) Resize(cols, rows int) error {
 	return err
 }
 
-// Mark appends a [Mark] event labeled label, which [Timeline.Between] can cut
-// a recording at. The label must not be empty. Labels need not be unique.
+// Mark appends a [Mark] event, which [Timeline.Between] can cut at. The
+// label must not be empty but need not be unique.
 func (s *Session) Mark(label string) error {
 	if label == "" {
 		return errors.New("reel: empty mark label")
@@ -482,9 +460,8 @@ func (s *Session) Mark(label string) error {
 	return s.change(func() (Event, error) { return Mark{Label: label}, nil })
 }
 
-// Annotate appends a, an [Annotation] of something the terminal does not
-// show, such as what a test did. It returns an error wrapping
-// [ErrInvalidAnnotation] when [AnnotationSchema] does not allow it.
+// Annotate appends a. It returns an error wrapping [ErrInvalidAnnotation]
+// when [AnnotationSchema] does not allow it.
 func (s *Session) Annotate(a Annotation) error {
 	if err := a.validate(); err != nil {
 		return err
@@ -493,23 +470,20 @@ func (s *Session) Annotate(a Annotation) error {
 	return s.change(func() (Event, error) { return a, nil })
 }
 
-// SetForeground sets the terminal's foreground color. Nil clears it back to
-// the default set with [Session.SetDefaultForeground]. It appends a [Theme]
-// event.
+// SetForeground sets the foreground color, or with nil reverts to
+// [Session.SetDefaultForeground]'s. It appends a [Theme] event.
 func (s *Session) SetForeground(c color.Color) error {
 	return s.setColor(s.term.SetForeground, c)
 }
 
-// SetBackground sets the terminal's background color. Nil clears it back to
-// the default set with [Session.SetDefaultBackground]. It appends a [Theme]
-// event.
+// SetBackground sets the background color, or with nil reverts to
+// [Session.SetDefaultBackground]'s. It appends a [Theme] event.
 func (s *Session) SetBackground(c color.Color) error {
 	return s.setColor(s.term.SetBackground, c)
 }
 
-// SetCursorColor sets the terminal's cursor color. Nil clears it back to the
-// default set with [Session.SetDefaultCursorColor]. It appends a [Theme]
-// event.
+// SetCursorColor sets the cursor color, or with nil reverts to
+// [Session.SetDefaultCursorColor]'s. It appends a [Theme] event.
 func (s *Session) SetCursorColor(c color.Color) error {
 	return s.setColor(s.term.SetCursorColor, c)
 }
@@ -532,7 +506,7 @@ func (s *Session) SetDefaultCursorColor(c color.Color) error {
 	return s.setColor(s.term.SetDefaultCursorColor, c)
 }
 
-// setColor applies c with set and appends the host colors that result.
+// setColor applies c with set and appends the resulting host colors.
 func (s *Session) setColor(set func(color.Color) error, c color.Color) error {
 	return s.change(func() (Event, error) {
 		if err := set(c); err != nil {

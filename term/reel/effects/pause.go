@@ -21,23 +21,21 @@ import (
 const (
 	// badgeMinSize is the smallest badge, in pixels, the glyph fits in.
 	badgeMinSize = 8
-	// pauseEnd is how long [Pause] pauses at the end of a recording
-	// without pause points.
+	// pauseEnd is the end pause of a [Pause] without pause points.
 	pauseEnd = time.Second
 )
 
 var (
-	// badgeColor is the default color of the pause bars, the light grey of
-	// the [Keys] chip text, xterm 255.
+	// badgeColor is the default color of the pause bars, xterm 255, as the
+	// [Keys] chip text.
 	badgeColor = color.NRGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}
 	// badgeDark and badgeLight are the translucent discs behind light and
-	// dark bars. badgeDark is the grey of the [Keys] chips, xterm 238.
+	// dark bars. badgeDark is xterm 238, as the [Keys] chips.
 	badgeDark  = color.NRGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xc0}
 	badgeLight = color.NRGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xc0}
 )
 
-// Corner is a corner of the terminal's cell grid in a frame, where an
-// effect places an overlay.
+// Corner is a corner of the terminal's cell grid in a frame.
 type Corner int
 
 // The corners of the cell grid.
@@ -48,12 +46,10 @@ const (
 	BottomRight
 )
 
-// PauseOption configures [Pause]: where it pauses, and the badge it
-// draws.
+// PauseOption configures [Pause]: where it pauses, and its badge.
 type PauseOption func(*pause)
 
-// PauseAtEnd pauses for d after the last terminal frame, so a looping
-// recording rests on its final screen.
+// PauseAtEnd pauses for d after the last terminal frame.
 func PauseAtEnd(d time.Duration) PauseOption {
 	return func(p *pause) { p.points = append(p.points, pausePoint{at: pauseAtEnd, d: d}) }
 }
@@ -61,8 +57,7 @@ func PauseAtEnd(d time.Duration) PauseOption {
 // PauseAtMarks pauses for d at each mark labeled one of labels, or at every
 // mark without labels. A label that names no mark in the timeline's window
 // is not paused at, and is reported as a [reel.NoMarkError] once the
-// outputs are written, from [reel.Export] or [reel.Recording.Stop], as
-// [Between] reports it.
+// outputs are written, as for [Between].
 func PauseAtMarks(d time.Duration, labels ...string) PauseOption {
 	labels = slices.Clone(labels)
 	return func(p *pause) { p.points = append(p.points, pausePoint{at: pauseAtMarks, d: d, labels: labels}) }
@@ -75,25 +70,22 @@ func PauseAtMatch(d time.Duration, re *regexp.Regexp) PauseOption {
 }
 
 // WithBadgeCorner puts the badge in corner c of the terminal's cell grid,
-// inset by a third of its size. The default, [TopRight], sits below any
-// window chrome and clear of the [Keys] overlay, which is bottom right:
-// with [BottomRight], keys shown when the pause starts overlap it.
+// inset by a third of its size. The default is [TopRight]; [BottomRight]
+// overlaps the [Keys] overlay.
 func WithBadgeCorner(c Corner) PauseOption {
 	return func(p *pause) { p.corner = c }
 }
 
 // WithBadgeSize sets the badge's diameter in pixels. Zero, the default, is
-// one and a half times the height of a terminal cell
-// ([reel.Context.Layout]), and at least 8. Any other size below 8, which
-// the glyph does not fit, is an error from Start.
+// one and a half times the height of a terminal cell, and at least 8. Any
+// other size below 8 is an error from Start.
 func WithBadgeSize(px int) PauseOption {
 	return func(p *pause) { p.size = px }
 }
 
 // WithBadgeColor sets the color of the pause bars. The default, and a nil
-// c, is the light grey of the [Keys] chip text. The disc behind the bars is
-// a translucent dark grey for a light color, and a translucent light grey
-// for a dark one.
+// c, is light grey. The disc behind the bars is a translucent grey that
+// contrasts with c.
 func WithBadgeColor(c color.Color) PauseOption {
 	return func(p *pause) {
 		p.color = badgeColor
@@ -112,31 +104,24 @@ func WithoutBadge() PauseOption {
 // give: [PauseAtEnd], [PauseAtMarks], and [PauseAtMatch], each for a
 // duration of its own, unscaled by [reel.Profile.Speed]. Without any, it
 // pauses for a second at the end. Each pause is a frozen copy of the
-// terminal frame that shows its point, [reel.Frame.Paused], that plays
-// for the duration, so the recording grows by it. A pause at a mark splits
-// the frame that shows the mark there, on the delay grid. Pauses that fall
-// on one step of a frame play as one, for the longest of them, and a pause
-// of zero is none. A duration below zero is an error from Start.
+// terminal frame that shows its point ([reel.Frame.Paused]), so the
+// recording grows by its duration. Pauses that fall on one step of the
+// delay grid play as one, for the longest of them, and a pause of zero is
+// none. A duration below zero is an error from Start.
 //
-// Each pause shows a pause glyph, two bars on a translucent disc, in a
-// corner of the frame, so a viewer reads it as paused rather than frozen,
-// and the end of a looping recording as finished and about to loop. The
-// badge is drawn on copies of the images, so the frames around a pause are
-// left alone, and duplicate frame merging still merges them.
+// Each pause shows a badge, two bars on a translucent disc, in a corner of
+// the frame, so a viewer reads it as paused rather than frozen, and a
+// looping recording's end as finished.
 //
-// The end pause follows the last terminal frame, so a card an effect adds
-// after it, before or after Pause in the list, follows the pause. A [Hide]
-// listed before Pause leaves out the pauses at the marks in what it cuts. Effects
-// listed after Pause draw a paused frame as of its moment, so [Keys] keys
-// stay as they were when the pause started; list [Highlight] and [Zoom]
-// before Pause, so the badge is drawn over them.
+// The end pause follows the last terminal frame, so a card added after it
+// follows the pause. A [Hide] listed before Pause leaves out the pauses at
+// marks in what it cuts. Effects listed after Pause draw a paused frame as
+// of its moment; see the package documentation for where to list it.
 //
 // A recording that plays once (sink.WithLoopCount(sink.LoopOnce)) stays on
-// its last frame when it ends, badge and all, where the glyph reads as
-// paused rather than about to loop, so such a profile may use
-// WithoutBadge. Effects change only the frames of recordings: a PNG output,
-// which writes the last frame, gets the badge of an end pause, but the
-// stills of [reel.File.Marks] get no effects at all.
+// its last frame, badge and all, so such a profile may want WithoutBadge. A
+// PNG output, which writes the last frame, gets the badge of an end pause,
+// but the stills of [reel.File.Marks] do not.
 func Pause(opts ...PauseOption) reel.Effect {
 	p := pause{corner: TopRight, color: badgeColor}
 	for _, opt := range opts {
@@ -158,20 +143,16 @@ type pause struct {
 	noBadge bool
 }
 
-// Where a [pausePoint] pauses, by the names its description gives them.
+// Where a [pausePoint] pauses, by its name in an annotation:
+// [PauseAtEnd], [PauseAtMarks], or [PauseAtMatch].
 const (
-	// pauseAtEnd is after the last terminal frame.
-	pauseAtEnd = "end"
-	// pauseAtMarks is at each mark labeled one of the point's labels, or
-	// at every mark without labels.
+	pauseAtEnd   = "end"
 	pauseAtMarks = "marks"
-	// pauseAtMatch is at each mark whose label the point's regexp matches.
 	pauseAtMatch = "match"
 )
 
 // pausePoint is where [Pause] pauses, at, and for how long, d. labels are
-// the labels of [PauseAtMarks], which must be in the timeline, and re is
-// the regexp of [PauseAtMatch].
+// the labels of [PauseAtMarks], and re is the regexp of [PauseAtMatch].
 type pausePoint struct {
 	at     string
 	d      time.Duration
@@ -246,8 +227,8 @@ func (e pause) CheckMarks(tl *reel.Timeline) error {
 	return s.missing()
 }
 
-// newStage returns the stage of the pauses for the recording of ctx,
-// without a badge, before it reads any mark.
+// newStage returns the stage for the recording of ctx, without a badge,
+// before it reads any mark.
 func (e pause) newStage(ctx *reel.Context) *pauseStage {
 	s := &pauseStage{ctx: ctx}
 	s.cuts, _ = ctx.Value(cutsKey{}).([]*cuts)
@@ -286,14 +267,14 @@ type pauseStage struct {
 	glyph  *image.RGBA
 
 	// marks are the pauses at marks not yet played, oldest first, read
-	// from the first read events of the timeline, which grows while a
-	// [reel.Record] runs. seen holds the labels of the marks read.
+	// from the first read events of the timeline. seen holds the labels of
+	// the marks read.
 	marks []markPause
 	read  int
 	seen  map[string]bool
 	// held is the newest terminal frame, and the frames without a terminal
-	// after it, held back until the next terminal frame says it is not the
-	// last.
+	// after it, held back until it is known whether it is the last, which
+	// the end pause follows.
 	held []reel.Frame
 	// src is the image badged last, and badged its badged copy, which the
 	// pauses of one frame share.
@@ -360,8 +341,8 @@ func (s *pauseStage) run(f reel.Frame, emit func(reel.Frame)) {
 type stop struct{ off, d time.Duration }
 
 // release emits the held frames, with the pauses at the marks before offset
-// until, where the next terminal frame starts, and when the held one is the
-// last, the end pause.
+// until, where the next terminal frame starts, and the end pause when the
+// held one is the last.
 func (s *pauseStage) release(until time.Duration, last bool, emit func(reel.Frame)) {
 	if len(s.held) == 0 {
 		return
@@ -372,9 +353,9 @@ func (s *pauseStage) release(until time.Duration, last bool, emit func(reel.Fram
 		s.readMarks()
 	}
 
-	// Marks are in timeline order, so the stops come out in order too. A
-	// paused frame shows one moment: marks up to it pause before it, and
-	// those past it after.
+	// Marks are in timeline order, so the stops are too. A paused frame
+	// shows one moment: marks up to it pause before it, and those past it
+	// after.
 	var stops []stop
 	add := func(off, d time.Duration) {
 		if n := len(stops); n > 0 && stops[n-1].off == off {
@@ -443,9 +424,9 @@ func (s *pauseStage) release(until time.Duration, last bool, emit func(reel.Fram
 	}
 }
 
-// badge returns f's image with the badge drawn on a copy, or the image
-// itself without a badge, or for a frame paused already, which may have
-// one.
+// badge returns a copy of f's image with the badge drawn on it, or the
+// image itself without a badge, or for a frame already paused, which may
+// have one.
 func (s *pauseStage) badge(f reel.Frame) *image.NRGBA {
 	if s.glyph == nil || f.Paused {
 		return f.Image
@@ -473,9 +454,9 @@ func badgeAt(grid image.Rectangle, size int, corner Corner) image.Point {
 	return at
 }
 
-// pauseGlyph draws the badge: two bars of fg, rounded, on a disc of size
-// that contrasts with fg, antialiased by each pixel's coverage. The bars'
-// edges fall on whole pixels, so they stay sharp at small sizes.
+// pauseGlyph draws the badge: two rounded bars of fg on a disc of size that
+// contrasts with fg. The bars' edges fall on whole pixels, so they stay
+// sharp at small sizes.
 func pauseGlyph(size int, fg color.NRGBA) *image.RGBA {
 	disc := badgeDark
 	if 299*int(fg.R)+587*int(fg.G)+114*int(fg.B) < 128*1000 {

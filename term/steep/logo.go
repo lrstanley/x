@@ -16,8 +16,7 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// logoBitmap is a teacup beside "STEEP" in a 5x7 pixel font, seven pixel rows
-// tall. "#" is lit.
+// logoBitmap is a teacup beside "STEEP" in a 5x7 pixel font. "#" is lit.
 var logoBitmap = []string{
 	"##########........####.#####.#####.#####.####.",
 	"##########.##....#.......#...#.....#.....#...#",
@@ -45,7 +44,7 @@ const (
 var logoSteamX = []int{2, 5, 8}
 
 // logoTea is the tea gradient, top pixel row to bottom. The colors are on the
-// xterm-256 cube, so any GIF palette that includes it keeps them exact.
+// xterm-256 cube, so GIF palettes that include it keep them exact.
 var logoTea = []color.Color{
 	vt.Indexed(229), vt.Indexed(228), vt.Indexed(221), vt.Indexed(220),
 	vt.Indexed(214), vt.Indexed(208), vt.Indexed(202),
@@ -61,16 +60,14 @@ var (
 )
 
 // Logo returns an effect that shows steep's animated logo before the first
-// frame of a recording: a teacup and wordmark fill with tea, then steam rises
-// for d while the recording's title ([reel.Context.Title], the test name for
-// a [Harness]) fades in below. Terminals too small for the logo get a card of
-// "steep" and the title instead (see [effects.CardRenderer.Card]). A d of
-// zero or less is no logo. The speed does not scale it.
+// frame of a recording, with steam rising for d while the recording's title
+// (the test name, for a [Harness]) fades in. Terminals too small for the logo
+// get a plain "steep" card instead. A d of zero or less shows nothing.
+// Playback speed does not scale it.
 //
-// Its frames are palettized on their own GIF palette ([reel.Frame.Isolated]),
-// and have no terminal ([reel.Frame.Cells] is nil), so effects after it, such
-// as [effects.Keys], leave them alone. They count toward any GIF frame or
-// byte limit.
+// Its frames are [reel.Frame.Isolated] and have no cells, so later effects
+// such as [effects.Keys] leave them alone. They count toward GIF frame and
+// byte limits.
 func Logo(d time.Duration) reel.Effect {
 	return logo{d: d}
 }
@@ -97,11 +94,9 @@ func (e logo) Start(ctx *reel.Context) (reel.Stage, error) {
 	}, nil
 }
 
-// logoFrames emits the frames of the logo on cards the size of src: the
-// teacup and wordmark start empty and fill with tea from the bottom up, one
-// pixel row per step, then steam rises from the cup for d while title fades
-// in. It emits nothing and returns false when the card is too small for the
-// logo.
+// logoFrames emits the logo's frames on cards the size of src: the logo
+// fills with tea from the bottom up, then steam rises for d while title fades
+// in. It emits nothing and returns false when the card is too small.
 func logoFrames(cards *effects.CardRenderer, src *reel.CellFrame, title string, d time.Duration, emit func(reel.Frame)) bool {
 	logoW, logoH := len(logoBitmap[0]), len(logoBitmap)
 	base := cards.Card(src)
@@ -112,8 +107,8 @@ func logoFrames(cards *effects.CardRenderer, src *reel.CellFrame, title string, 
 		return false
 	}
 
-	// The wordmark sits a pixel above the middle, and the title below it,
-	// a line of its own text height plus a logo pixel away.
+	// The logo sits a pixel above the middle, with the title one text line
+	// and a logo pixel below it.
 	origin := image.Pt(b.Min.X+(b.Dx()-logoW*px)/2, b.Min.Y+(b.Dy()-logoH*px)/2-px)
 	var name *image.NRGBA
 	if title != "" {

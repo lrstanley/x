@@ -2,10 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package gifopt optimizes the frames of a GIF: it diffs palettized frames,
-// and rewrites a recording of full frames as sub-rect frames with disposal
-// methods, as gifsicle -O1/-O2 does. Unchanged pixels of a sub-rect frame
-// are [palette.TransparentIndex].
+// Package gifopt rewrites GIF frames as sub-rect frames with disposal
+// methods, like gifsicle -O1/-O2. Unchanged pixels of a sub-rect frame are
+// [palette.TransparentIndex].
 package gifopt
 
 import (
@@ -20,17 +19,15 @@ import (
 )
 
 const (
-	// dirtyRectThreshold is the maximum fraction of canvas area a diff bbox may
-	// occupy before keeping a full keyframe instead of a sub-rect frame.
+	// dirtyRectThreshold is the fraction of canvas area changed at which a
+	// full keyframe is written instead of a sub-rect frame.
 	dirtyRectThreshold = 0.5
 
-	// smallOverlayThreshold is the maximum fraction of canvas area treated as a
-	// cursor-sized overlay eligible for DisposalPrevious.
+	// smallOverlayThreshold and maxOverlayExtentPx bound the changed area
+	// fraction and sub-rect size of a cursor-sized overlay that uses
+	// DisposalPrevious.
 	smallOverlayThreshold = 0.02
-
-	// maxOverlayExtentPx is the maximum sub-rect width or height eligible for
-	// DisposalPrevious (cursor blink, caret overlays).
-	maxOverlayExtentPx = 64
+	maxOverlayExtentPx    = 64
 )
 
 type framePlanKind int
@@ -41,24 +38,22 @@ const (
 	planReveal
 )
 
-// framePlan captures per-output-frame disposal metadata decided during planning.
+// framePlan is one output frame.
 type framePlan struct {
 	kind     framePlanKind
 	delay    time.Duration
 	disposal byte
-	image    *image.Paletted // output frame; built during planning
+	image    *image.Paletted
 }
 
-// disposalCanvas is the simulated screen after each planned frame's disposal.
-// view may alias an output image; owned is set once view is a private copy
-// that later frames are allowed to mutate.
+// disposalCanvas is the simulated screen after each planned frame. view may
+// alias an output image until owned, after which it is a private copy.
 type disposalCanvas struct {
 	view  *image.Paletted
 	owned bool
 }
 
-// mutable returns a canvas buffer that is safe to write. The first write
-// copies view so an output keyframe that aliases it stays unchanged.
+// mutable returns view, copying it first if it is not owned.
 func (c *disposalCanvas) mutable() *image.Paletted {
 	if !c.owned {
 		c.view = Clone(c.view)
@@ -67,15 +62,13 @@ func (c *disposalCanvas) mutable() *image.Paletted {
 	return c.view
 }
 
-// Optimize rewrites frames, which are full frames on screen, as gifsicle
-// -O1/-O2 style sub-rect frames with disposal methods: frames that are
-// smaller offset rects, with transparent unchanged pixels. When deltaAt is
-// not negative, the frames after frames[deltaAt] are instead crops of what
-// changed since the frame before them, which [BlitOpaque] applies. screen is
-// not empty, and there are at least two frames, with a delay for each.
+// Optimize rewrites full frames as sub-rect frames, returning the new frames
+// with their delays and disposal methods. When deltaAt is not negative, the
+// frames after frames[deltaAt] are instead crops of what changed since the
+// frame before, as [BlitOpaque] applies them. screen must not be empty, and
+// there must be at least two frames, with a delay for each.
 //
-// It returns the new frames with their delays and disposal methods. Only
-// [gif.DisposalNone] and [gif.DisposalPrevious] are used, so the GIF's
+// Only [gif.DisposalNone] and [gif.DisposalPrevious] are used, so the GIF's
 // background color never shows.
 func Optimize(
 	screen image.Rectangle,
@@ -83,9 +76,8 @@ func Optimize(
 	delays []time.Duration,
 	deltaAt int,
 ) (outFrames []*image.Paletted, outDelays []time.Duration, disposals []byte) {
-	// The first capture is the keyframe. Reuse it when it is already full-screen
-	// so a cursor-sized blink does not clone the canvas. Later mutations copy
-	// on write.
+	// The first frame is the keyframe, aliased by the canvas until it is
+	// written to.
 	first := frameForDiff(frames[0], screen)
 	canvas := disposalCanvas{view: first}
 
@@ -98,18 +90,15 @@ func Optimize(
 	return outFrames, outDelays, disposals
 }
 
-// planDisposalFrames walks input captures: diff and decide each output frame,
-// build its image, then apply it to the simulated canvas for subsequent diffs.
-// Frames are only diffed by index against the canvas when both use the same
-// palette. A palette change diffs by color instead and writes what changed
-// color, or a full keyframe when most of the screen did.
+// planDisposalFrames diffs each frame after the first against the simulated
+// canvas, plans its output frame, and applies it to the canvas. A frame on a
+// different palette than the canvas is diffed by color instead of index.
 func planDisposalFrames(frames []*image.Paletted, delays []time.Duration, deltaAt int, canvas *disposalCanvas, screen image.Rectangle) (plans []framePlan, firstDelayExtra time.Duration) {
 	n := len(frames)
 	canvasArea := screen.Dx() * screen.Dy()
 	plans = make([]framePlan, 0, n-1)
 
-	// Delta recordings rebuild each full frame of the current segment on a
-	// rolling clone. Earlier segments are already full frames.
+	// cur rebuilds full frames of the delta segment on a rolling clone.
 	var cur *image.Paletted
 	for i := 1; i < n; i++ {
 		var full *image.Paletted
@@ -125,9 +114,8 @@ func planDisposalFrames(frames []*image.Paletted, delays []time.Duration, deltaA
 			full = frameForDiff(frames[i], screen)
 		}
 		framePal := full.Palette
-		// Indices on two palettes name different colors, so a palette change
-		// diffs by color. Pixels outside what changed color already show what
-		// full has, so afterwards the screen is full, on its palette.
+		// After a palette switch, pixels outside what changed color already
+		// show what full has, so the canvas becomes full, on its palette.
 		switched := !palette.Same(canvas.view.Palette, framePal)
 		diff := Diff
 		if switched {
@@ -156,8 +144,8 @@ func planDisposalFrames(frames []*image.Paletted, delays []time.Duration, deltaA
 				image:    Clone(full),
 			}
 		case switched:
-			// An opaque crop: subRectFrame finds the holes by comparing
-			// indices, which name different colors on the two palettes.
+			// An opaque crop, as subRectFrame compares indices, which name
+			// different colors on the two palettes.
 			plan = framePlan{
 				kind:     planSubRect,
 				delay:    delays[i],
@@ -169,15 +157,11 @@ func planDisposalFrames(frames []*image.Paletted, delays []time.Duration, deltaA
 			if overlayEligible(bbox, diffArea, canvasArea) {
 				disposal = gif.DisposalPrevious
 			}
-			// DisposalBackground clears the entire sub-rect to BackgroundIndex,
-			// including pixels encoded transparent that were showing prior canvas
-			// content. Scroll strips and selection rows rely on those pixels, so
-			// leave the composited canvas intact instead.
+			// DisposalBackground is never used: it clears the whole sub-rect,
+			// including transparent pixels that show the canvas beneath.
 			//
-			// A bbox that is mostly new pixels encodes smaller and builds faster
-			// as an opaque crop. Punching those pixels transparent fragments
-			// runs that would otherwise be one index. Sparse changes (a cursor
-			// inside a larger box) still use a transparent hole.
+			// A bbox of mostly changed pixels encodes smaller as an opaque
+			// crop, since transparent holes fragment runs of one index.
 			var patch *image.Paletted
 			bboxArea := bbox.Dx() * bbox.Dy()
 			unchanged := bboxArea - diffArea
@@ -205,9 +189,8 @@ func planDisposalFrames(frames []*image.Paletted, delays []time.Duration, deltaA
 	return plans, firstDelayExtra
 }
 
-// applyPlanToCanvas updates simulated canvas state after an output frame is planned.
-// DisposalPrevious restores the pre-frame screen, so the canvas is left as-is.
-// Other sub-rects composite onto a copy-on-write canvas.
+// applyPlanToCanvas updates the simulated canvas after plan. DisposalPrevious
+// restores the screen before the frame, so it leaves the canvas as is.
 func applyPlanToCanvas(canvas *disposalCanvas, plan framePlan) {
 	switch plan.kind {
 	case planFullKeyframe:
@@ -222,11 +205,10 @@ func applyPlanToCanvas(canvas *disposalCanvas, plan framePlan) {
 	}
 }
 
-// planIdleMergeOrReveal handles canvas-identical captures after the first
-// output frame exists. When the previous planned frame used DisposalPrevious,
-// viewers still show that frame until disposal runs; revealFrame triggers
-// disposal without changing simulated canvas state. Otherwise the delay
-// merges into the prior output frame.
+// planIdleMergeOrReveal handles a frame identical to the canvas. Its delay
+// merges into the previous output frame, unless that frame used
+// DisposalPrevious: viewers still show it until the next frame, so a
+// [revealFrame] is added to trigger the disposal.
 func planIdleMergeOrReveal(plans *[]framePlan, pal color.Palette, delay time.Duration) {
 	last := len(*plans) - 1
 	if (*plans)[last].disposal == gif.DisposalPrevious {
@@ -241,8 +223,8 @@ func planIdleMergeOrReveal(plans *[]framePlan, pal color.Palette, delay time.Dur
 	(*plans)[last].delay += delay
 }
 
-// collectDisposalOutput copies planned frames into output slices. Index 0 is
-// reserved for the initial full keyframe filled in by Optimize.
+// collectDisposalOutput copies plans into output slices from index 1, leaving
+// index 0 for the keyframe.
 func collectDisposalOutput(plans []framePlan, n int) (images []*image.Paletted, delays []time.Duration, disposals []byte) {
 	images = make([]*image.Paletted, n)
 	delays = make([]time.Duration, n)
@@ -255,8 +237,6 @@ func collectDisposalOutput(plans []framePlan, n int) (images []*image.Paletted, 
 	return images, delays, disposals
 }
 
-// overlayEligible reports whether a diff bbox is small enough for
-// DisposalPrevious (cursor blink, caret overlays).
 func overlayEligible(bbox image.Rectangle, diffArea, canvasArea int) bool {
 	if canvasArea <= 0 || diffArea <= 0 {
 		return false
@@ -267,8 +247,8 @@ func overlayEligible(bbox image.Rectangle, diffArea, canvasArea int) bool {
 	return bbox.Dx() <= maxOverlayExtentPx && bbox.Dy() <= maxOverlayExtentPx
 }
 
-// frameForDiff returns a full-screen view of frame for diffing against canvas.
-// A frame that is already full-screen is returned as-is and must not be mutated.
+// frameForDiff returns frame drawn on the full screen. A frame that already
+// covers it is returned as is and must not be mutated.
 func frameForDiff(frame *image.Paletted, screen image.Rectangle) *image.Paletted {
 	if frame.Bounds().Eq(screen) {
 		return frame
@@ -278,17 +258,16 @@ func frameForDiff(frame *image.Paletted, screen image.Rectangle) *image.Paletted
 	return dst
 }
 
-// revealFrame is a 1×1 transparent sub-rect emitted when the next capture
-// matches simulated canvas but the previous frame used DisposalPrevious.
-// It triggers disposal in viewers without changing state.
+// revealFrame is a 1×1 transparent frame, which triggers the previous frame's
+// disposal without changing the canvas.
 func revealFrame(pal color.Palette) *image.Paletted {
 	sub := image.NewPaletted(image.Rect(0, 0, 1, 1), pal)
 	sub.SetColorIndex(0, 0, palette.TransparentIndex)
 	return sub
 }
 
-// Diff returns the smallest rectangle enclosing pixels that differ
-// between canvas and full, and the count of differing pixels.
+// Diff returns the bounding box of the pixel indices that differ between
+// canvas and full within screen, and how many differ.
 func Diff(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
 	if canvas != nil && full != nil && canvas.Rect.Eq(screen) && full.Rect.Eq(screen) {
 		if fast, n, ok := diffBoundingBoxRows(canvas, full, screen); ok {
@@ -314,9 +293,8 @@ func diffBoundingBoxFunc(screen image.Rectangle, same func(x, y int) bool) (bbox
 	return bbox, diff
 }
 
-// diffBoundingBoxRows compares full-canvas frames by row. Identical rows are
-// skipped with bytes.Equal. ok is false when the pixel storage cannot cover
-// the screen, and the caller falls back to per-pixel indexing.
+// diffBoundingBoxRows is the fast path of [Diff] for frames covering screen.
+// ok is false when the pixel storage cannot cover the screen.
 func diffBoundingBoxRows(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int, ok bool) {
 	width := screen.Dx()
 	height := screen.Dy()
@@ -369,8 +347,8 @@ func diffBoundingBoxRows(canvas, full *image.Paletted, screen image.Rectangle) (
 	return image.Rect(screen.Min.X+minX, screen.Min.Y+minY, screen.Min.X+maxX+1, screen.Min.Y+maxY+1), diff, true
 }
 
-// diffColorBoundingBox is [Diff] for frames on different
-// palettes: a pixel differs when the colors its indices name differ.
+// diffColorBoundingBox is [Diff] for frames on different palettes: a pixel
+// differs when the colors its indices name differ.
 func diffColorBoundingBox(canvas, full *image.Paletted, screen image.Rectangle) (bbox image.Rectangle, diff int) {
 	var cc, fc [256]uint32
 	pack := func(dst *[256]uint32, pal color.Palette) {
@@ -397,9 +375,8 @@ func indexAt(pm *image.Paletted, x, y int) uint8 {
 	return pm.Pix[(y-pm.Rect.Min.Y)*pm.Stride+(x-pm.Rect.Min.X)]
 }
 
-// subRectFrame builds an offset sub-image: changed pixels copy from full,
-// unchanged pixels within bbox are marked transparent (-O2). It is on full's
-// palette.
+// subRectFrame returns bbox of full, on its palette, with pixels unchanged
+// from canvas marked transparent.
 func subRectFrame(canvas, full *image.Paletted, bbox image.Rectangle) *image.Paletted {
 	sub := image.NewPaletted(bbox, full.Palette)
 	width := bbox.Dx()
@@ -428,8 +405,7 @@ func subRectFrame(canvas, full *image.Paletted, bbox image.Rectangle) *image.Pal
 	return sub
 }
 
-// Crop copies bbox out of src into a tightly packed frame with no
-// transparent holes. Used when almost every pixel in the bbox changed.
+// Crop copies bbox out of src into a tightly packed frame.
 func Crop(src *image.Paletted, bbox image.Rectangle) *image.Paletted {
 	dst := image.NewPaletted(bbox, src.Palette)
 	width := bbox.Dx()
@@ -447,7 +423,8 @@ func Crop(src *image.Paletted, bbox image.Rectangle) *image.Paletted {
 	return dst
 }
 
-// palettedSpan returns n palette indices starting at (x, y).
+// palettedSpan returns n palette indices starting at (x, y), or false when
+// they are not all in pm.
 func palettedSpan(pm *image.Paletted, x, y, n int) ([]byte, bool) {
 	if pm == nil || n <= 0 || y < pm.Rect.Min.Y || y >= pm.Rect.Max.Y || x < pm.Rect.Min.X || x+n > pm.Rect.Max.X {
 		return nil, false

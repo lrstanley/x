@@ -11,8 +11,7 @@ import (
 	"time"
 )
 
-// Matroska element IDs used by [MKV]. IDs carry their own length
-// marker, so they are written as is.
+// Matroska element IDs, which carry their own length marker.
 const (
 	mkvEBML               = 0x1A45DFA3
 	mkvEBMLVersion        = 0x4286
@@ -45,25 +44,21 @@ const (
 	mkvBlockDuration      = 0x9B
 )
 
-// mkvTick is the Matroska timestamp unit [MKV] declares. GIF delays are
-// whole centiseconds, so a millisecond tick represents them exactly.
+// mkvTick is the Matroska timestamp unit [MKV] declares.
 const mkvTick = time.Millisecond
 
-// mkvUnknownSize marks an element whose size is not known up front: the
-// segment, which grows for as long as frames arrive.
+// mkvUnknownSize marks the segment, whose size is not known up front.
 var mkvUnknownSize = []byte{0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 
 // MKV streams uncompressed RGBA frames as a Matroska file with one video
-// track. Each frame carries its own timestamp and duration, which a pipe of
-// raw frames cannot: ffmpeg reads it from stdin and keeps every frame's
-// timing without frames being repeated to fill a fixed rate.
+// track. Unlike raw frames on a pipe, each frame carries its own timestamp
+// and duration, so ffmpeg needs no fixed frame rate.
 type MKV struct {
 	w io.Writer
-	// pts is the timestamp of the next frame, in [mkvTick] units.
+	// pts is the next frame's timestamp, in [mkvTick] units.
 	pts uint64
 }
 
-// NewMKV returns an MKV writing to w.
 func NewMKV(w io.Writer) *MKV { return &MKV{w: w} }
 
 // Duration is how long the frames written so far play.
@@ -98,13 +93,11 @@ func appendMkvSize(b []byte, n uint64) []byte {
 	return appendBE(b, n|1<<(7*length), length)
 }
 
-// mkvHeader is an element's ID and the size of its payload.
 func mkvHeader(id uint32, size uint64) []byte {
 	return appendMkvSize(appendMkvID(nil, id), size)
 }
 
-// mkvElem is a whole element whose payload is parts joined: child elements,
-// or a single value.
+// mkvElem is a whole element whose payload is parts joined.
 func mkvElem(id uint32, parts ...[]byte) []byte {
 	payload := slices.Concat(parts...)
 	return append(mkvHeader(id, uint64(len(payload))), payload...)
@@ -148,10 +141,10 @@ func (m *MKV) WriteHeader(width, height int) error {
 	return err
 }
 
-// WriteFrame writes one frame of size bytes, written to w by pixels, that
-// plays for delay. Each frame is its own cluster, so its timestamp is absolute
-// and never overflows a block's 16-bit relative timestamp. The pixels are
-// streamed between the element headers rather than joined into them.
+// WriteFrame writes a frame of size bytes, which pixels writes to w, that
+// plays for delay, truncated to whole ticks (at least one). Each frame is its
+// own cluster, so its timestamp never overflows a block's 16-bit relative
+// timestamp.
 func (m *MKV) WriteFrame(size int, delay time.Duration, pixels func(w io.Writer) error) error {
 	ticks := uint64(max(delay/mkvTick, 1)) //nolint:gosec // positive.
 	timestamp := mkvUint(mkvTimestamp, m.pts)

@@ -17,8 +17,8 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// Matching is an option [Redact] and [RedactInputs] take: how they match
-// the text of [Text] and [Env] regions, with [MinPartial].
+// Matching is an option [Redact] and [RedactInputs] take, such as
+// [MinPartial].
 type Matching func(*matching)
 
 // matching is how the text of [Text] and [Env] regions is matched.
@@ -33,13 +33,14 @@ var defaultMatching = matching{minPartial: 3}
 
 // MinPartial sets the fewest characters of the start or end of a [Text] or
 // [Env] secret that [Redact] and [RedactInputs] hide where only that part
-// of it shows, such as while it is typed (see [Redact]): its first n
-// characters or more, and its last n or more. A secret of n characters or
-// fewer is only hidden whole, so an n as long as the longest secret turns
-// partial matching off. The default is 3: a lower n shows less of a secret
-// as it is typed, but hides more text that only starts or ends like it,
-// down to 1, which hides a lone first or last character of a secret. An n
-// below 1 is an error from Start.
+// of it shows. A start is hidden where it is cut off at the end of a line,
+// at the cursor, or before a character that is not a letter or digit, as
+// while it is typed into a prompt; an end at the start of a line or after
+// such a character, as when its first wrapped row has scrolled away. A
+// secret of n characters or fewer is only hidden whole, so an n as long as
+// the longest secret turns partial matching off. The default is 3: a lower
+// n shows less of a secret as it is typed, but hides more unrelated text
+// that starts or ends like it. An n below 1 is an error from Start.
 func MinPartial(n int) Matching {
 	return func(m *matching) { m.minPartial = n }
 }
@@ -58,16 +59,14 @@ func (m matching) check() error {
 	return nil
 }
 
-// redactMask is the character hidden text shows as where no cell is drawn
-// for it: in a title, in program status, and in typed text.
+// redactMask is the character hidden text shows as outside the cells: in a
+// title, in program status, and in typed text.
 const redactMask = '•'
 
 // secrets is what a region given to [Redact] or [RedactInputs] looks for,
-// as of one frame: literal text, the secrets of [Text] and [Env] regions,
-// matched with their prefixes and suffixes of at least minPartial
-// characters too (see [secrets.ranges]), the regular expressions of
-// [Regexp] regions, and the other regions, which find no text, matched
-// with their Rects.
+// as of one frame: the literals of [Text] and [Env] regions (see
+// [secrets.ranges]), the regular expressions of [Regexp] regions, and the
+// other regions, which find no text and are matched with their Rects.
 type secrets struct {
 	literals   []string
 	minPartial int
@@ -75,8 +74,8 @@ type secrets struct {
 	others     []Region
 }
 
-// secretsOf returns what region looks for now, matched with m: the values
-// of the variables of an [Env] region are read as it is called.
+// secretsOf returns what region looks for now, matched with m. The values
+// of an [Env] region's variables are read when it is called.
 func secretsOf(region Region, m matching) secrets {
 	s := secrets{minPartial: m.minPartial}
 	addSecrets(&s, region)
@@ -133,9 +132,8 @@ func (s secrets) ranges(text string, cursor int) [][2]int {
 	return out
 }
 
-// appendLiteral appends to out the ranges of text that lit, and its
-// prefixes of at least minPartial characters, match, as [secrets.ranges]
-// matches literals.
+// appendLiteral appends the ranges of text that lit and its prefixes match
+// to out (see [secrets.ranges]).
 func appendLiteral(out [][2]int, text, lit string, cursor, minPartial int) [][2]int {
 	// least is the length of the shortest prefix that matches: the first
 	// minPartial characters, or all of lit.
@@ -164,11 +162,11 @@ func appendLiteral(out [][2]int, text, lit string, cursor, minPartial int) [][2]
 	return out
 }
 
-// appendSuffix appends to out the ranges of text that suffixes of lit of
-// at least minPartial characters match, as [secrets.ranges] matches them:
-// the longest at each start.
+// appendSuffix appends the ranges of text that suffixes of lit match to
+// out, the longest at each start (see [secrets.ranges]).
 func appendSuffix(out [][2]int, text, lit string, minPartial int) [][2]int {
-	// starts are where the suffixes of lit that match start, longest first.
+	// starts are where the suffixes of lit that can match start, longest
+	// first.
 	var starts []int
 	for i := range lit {
 		if i > 0 && utf8.RuneCountInString(lit[i:]) >= minPartial {
@@ -193,8 +191,8 @@ func appendSuffix(out [][2]int, text, lit string, minPartial int) [][2]int {
 	return out
 }
 
-// wordChar reports whether r is a letter or digit, which a secret cut off
-// next to may go on with.
+// wordChar reports whether r is a letter or digit. A partial secret only
+// matches where it is not next to one.
 func wordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
@@ -269,7 +267,7 @@ func (s secrets) scrub(text string) string {
 }
 
 // scrubStatuses returns statuses with the text of each record scrubbed (see
-// [secrets.scrub]), and whether any changed. statuses is left alone.
+// [secrets.scrub]), and whether any changed. statuses is not modified.
 func (s secrets) scrubStatuses(statuses []vt.ProgramStatus) ([]vt.ProgramStatus, bool) {
 	var out []vt.ProgramStatus
 	for i, st := range statuses {

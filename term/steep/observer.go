@@ -19,21 +19,20 @@ type observer struct {
 	model    tea.Model
 	messages *broker.Broker[uv.Event]
 
-	// firstEvent closes after the first user-visible message reaches Update.
-	firstEvent chan struct{}
-	// firstEventOnce guarantees firstEvent closes exactly once.
+	// firstEvent closes once the first message, other than a mutate
+	// request, has been through Update.
+	firstEvent     chan struct{}
 	firstEventOnce sync.Once
-	// lastViewSnapshot stores the most recent View content observed by the renderer.
+	// lastViewSnapshot is the most recent View content.
 	lastViewSnapshot string
-	// onMessage, when set, is called with each message before the wrapped
-	// model receives it, but for mutate requests, with mu held. It is set
-	// before the program starts, and must not call back into the observer.
+	// onMessage, when set, is called with each message but mutate requests
+	// before the wrapped model receives it, without mu held. It is set
+	// before the program starts.
 	onMessage func(uv.Event)
 }
 
-// newObserver returns a tea.Model wrapper around model that records every
-// message passed to Update in a broker, captures the latest view text, and
-// coordinates harness-driven mutations.
+// newObserver returns a [tea.Model] wrapping model, which records every
+// message in a broker and serves [Harness.Mutate] requests.
 func newObserver(tb testing.TB, model tea.Model) *observer {
 	return &observer{
 		tb:         tb,
@@ -43,22 +42,19 @@ func newObserver(tb testing.TB, model tea.Model) *observer {
 	}
 }
 
-// Init implements [tea.Model] by delegating to the wrapped model.
 func (o *observer) Init() tea.Cmd {
 	o.tb.Helper()
 	return o.currentModel().Init()
 }
 
-// Update implements [tea.Model]. It serves [mutateRequest] without forwarding
-// them to the wrapped model, delegates all other messages to the wrapped
-// model, publishes a copy of each inbound message to the broker (in receipt
-// order), and closes firstEvent after the first Update completes.
+// Update serves mutate requests itself, and passes other messages to the
+// wrapped model before publishing them to the broker.
 func (o *observer) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	o.tb.Helper()
 	copiedMsg := msg
 
-	// Recorded before taking the lock, which View waits on. Update runs on
-	// the program's goroutine alone, so messages are still recorded in order.
+	// Recorded before taking the lock, which View waits on. Update only runs
+	// on the program's goroutine, so the order is kept.
 	if _, ok := msg.(mutateRequest); !ok && o.onMessage != nil {
 		o.onMessage(msg)
 	}
@@ -82,8 +78,6 @@ func (o *observer) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	return o, cmd
 }
 
-// View implements [tea.Model], stores the rendered content for harness
-// assertions, and returns the wrapped model's view.
 func (o *observer) View() tea.View {
 	o.tb.Helper()
 	o.mu.Lock()
@@ -94,17 +88,16 @@ func (o *observer) View() tea.View {
 	return view
 }
 
-// currentModel returns the wrapped [tea.Model]. Callers should treat it as
-// read-only unless they hold [observer.mu] exclusively while mutating the wrapped
-// model through the observer's own helpers.
+// currentModel returns the wrapped model, which callers must treat as
+// read-only.
 func (o *observer) currentModel() tea.Model {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.model
 }
 
-// replaceLocked updates o.model from an Update return value or mutation.
-// Caller must hold [observer.mu].
+// replaceLocked sets the wrapped model, unwrapping an observer. Caller must
+// hold mu.
 func (o *observer) replaceLocked(model tea.Model) {
 	if model == nil {
 		return
@@ -120,21 +113,21 @@ func (o *observer) replaceLocked(model tea.Model) {
 	o.model = model
 }
 
-// replace sets the wrapped model, holding [observer.mu] for the duration.
+// replace is replaceLocked, taking mu.
 func (o *observer) replace(model tea.Model) {
 	o.mu.Lock()
 	o.replaceLocked(model)
 	o.mu.Unlock()
 }
 
-// mutate applies a test-only mutate request against the current tree of models.
+// mutate applies req to the wrapped model.
 func (o *observer) mutate(req mutateRequest) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.mutateLocked(req)
 }
 
-// mutateLocked implements mutate while assuming [observer.mu] is held.
+// mutateLocked is mutate with mu held.
 func (o *observer) mutateLocked(req mutateRequest) error {
 	if wrapper, ok := o.model.(*observer); ok && wrapper != o {
 		return wrapper.mutate(req)

@@ -14,69 +14,63 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// Replays open their terminals from pools of their own, so a replay never
-// waits on the sessions still running, and an export or a cut written as a
-// file never waits on the recordings still running: replayRuntime lends
-// terminals for the length of one export, and recordRuntime for the life of
-// a [Record].
+// Replays use their own terminal pools so they never wait on running
+// sessions, and exports and cuts never wait on running recordings:
+// replayRuntime lends terminals for one export, recordRuntime for the life
+// of a [Record].
 var (
 	replayRuntime = vt.NewRuntime(0)
 	recordRuntime = vt.NewRuntime(0)
 )
 
-// replay feeds the events of a timeline, one at a time, into a fresh
-// terminal, and passes the frames a recording of the timeline's window shows
-// to frame. Every event is applied, those before the window too, since they
-// put the terminal in the state the window starts in.
+// replay feeds a timeline's events into a fresh terminal one at a time and
+// passes the frames of the timeline's window to frame. Events before the
+// window are applied too, to reach the state the window starts in.
 type replay struct {
 	term *vt.Terminal
-	// base is the header colors set as the terminal's defaults: nil where
-	// the header has none, or where it matches the terminal's own.
+	// base is the header colors applied as terminal defaults: nil where the
+	// header has none or matches the terminal's own.
 	base    Colors
 	focused bool
 
-	// skipPristine drops the frames that look like a terminal nothing has
-	// drawn on yet, until the first frame, as [Header.SkipPristine] asks.
-	// pristine is the state of the fresh terminal they are compared with.
+	// skipPristine drops frames that look like a fresh terminal (pristine)
+	// until the first real frame, per [Header.SkipPristine].
 	skipPristine bool
 	pristine     vt.State
 
-	// sent is the state of the last frame, which an event must change the
-	// look of (see [vt.State.SameLook]) to make a frame of its own: a
-	// change of focus or colors is one too, so blur dimming and new colors
-	// show when they happen.
+	// sent is the last frame's state; an event must change its look (see
+	// [vt.State.SameLook]), including focus or colors, to make a new frame.
 	sent     vt.State
 	haveSent bool
 
-	// start is the index of the window's first event, and from its offset.
+	// start is the index of the window's first event, from its offset.
 	start int
 	from  time.Duration
 	// n is the number of events applied.
 	n int
-	// early is set when a frame changed the terminal before the window,
-	// which then starts on the terminal as it is at its start, and opening
-	// is that frame until the terminal changes again.
+	// early is set when a frame occurred before the window; the window then
+	// opens on the terminal at its start, held in opening until the
+	// terminal changes again.
 	early   bool
 	opening *CellFrame
-	// emitted is set once frame has been called.
 	emitted bool
 
-	// frame receives the frames of the window, in order. When it is nil,
-	// the replay only applies events.
+	// frame receives the window's frames in order; if nil, the replay only
+	// applies events.
 	frame func(CellFrame) error
-	// mark, when set, is called for each [Mark] in the window, after the
+	// mark, if set, is called for each [Mark] in the window, after the
 	// events before it are applied.
 	mark func(Mark) error
 }
 
-// newReplay opens a terminal from rt for a timeline that starts with h,
-// whose window starts at the event with index start, at offset from.
+// newReplay opens a terminal from rt for a timeline with header h whose
+// window starts at event index start, offset from.
 func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from time.Duration) (*replay, error) {
 	term, err := rt.Open(ctx, h.Cols, h.Rows)
 	if err != nil {
 		return nil, err
 	}
-	// Nothing reads the replies to the program's queries.
+	// Nothing reads query replies.
 	term.CloseReader()
 	r := &replay{term: term, focused: true, skipPristine: h.SkipPristine, start: start, from: from}
 	if c := h.Theme.Fg; c != nil && nrgba(c) != term.Foreground() {
@@ -105,8 +99,7 @@ func nrgba(c color.Color) color.NRGBA {
 
 func (r *replay) close() error { return r.term.Close() }
 
-// setColors sets the colors a [Theme] event reports the host set, falling
-// back to the header's.
+// setColors applies a [Theme] event's colors, falling back to the header's.
 func (r *replay) setColors(c Colors) error {
 	if err := r.term.SetDefaultForeground(cmp.Or(c.Fg, r.base.Fg)); err != nil {
 		return err
@@ -117,12 +110,11 @@ func (r *replay) setColors(c Colors) error {
 	return r.term.SetDefaultCursorColor(cmp.Or(c.Cursor, r.base.Cursor))
 }
 
-// apply applies the next event, and passes on the frame it shows, if any.
+// apply applies the next event and passes on the resulting frame, if any.
 func (r *replay) apply(ev Event) error {
 	inWindow := r.n >= r.start
 	if r.n == r.start && r.early && r.frame != nil {
-		// What the events before the window left, focus and colors
-		// included, whose frames fall before it.
+		// Capture what the pre-window events left as the opening frame.
 		cf := r.current(r.from)
 		r.opening = &cf
 	}
@@ -155,21 +147,20 @@ func (r *replay) apply(ev Event) error {
 	return r.commit(ev.At(), inWindow)
 }
 
-// state returns the terminal's state, with the timeline's focus.
+// state returns the terminal's state with the timeline's focus.
 func (r *replay) state() vt.State {
 	st := r.term.State()
 	st.Focused = r.focused
 	return st
 }
 
-// current returns the terminal as it is shown now, as of at.
+// current returns the terminal as shown now, stamped at.
 func (r *replay) current(at time.Duration) CellFrame {
 	return CellFrame{Screen: r.term.Screen(), State: r.state(), At: at}
 }
 
-// commit passes on the terminal as a frame at at, unless it is held in
-// synchronized output, looks the same as the last frame, or is still
-// pristine.
+// commit passes on the terminal as a frame at at, unless it is in
+// synchronized output, looks unchanged, or is still pristine.
 func (r *replay) commit(at time.Duration, inWindow bool) error {
 	if r.frame == nil || r.term.Held() {
 		return nil
@@ -189,8 +180,8 @@ func (r *replay) commit(at time.Duration, inWindow bool) error {
 	return r.send(CellFrame{Screen: r.term.Screen(), State: st, At: at})
 }
 
-// isPristine reports whether st and the screen text are indistinguishable
-// from the terminal before anything was written to it.
+// isPristine reports whether st and the screen text look like the fresh
+// terminal.
 func (r *replay) isPristine(st vt.State, text string) bool {
 	p := r.pristine
 	return strings.TrimSpace(text) == "" &&
@@ -203,8 +194,8 @@ func (r *replay) isPristine(st vt.State, text string) bool {
 		st.Cursor == p.Cursor
 }
 
-// send passes on cf, after the frame the window opens on when cf comes after
-// the window's start.
+// send passes on cf, preceded by the opening frame if cf comes after the
+// window's start.
 func (r *replay) send(cf CellFrame) error {
 	if o := r.opening; o != nil {
 		r.opening = nil
@@ -218,9 +209,8 @@ func (r *replay) send(cf CellFrame) error {
 	return r.frame(cf)
 }
 
-// finish passes on the frame the window opens on if nothing replaced it, or
-// the terminal as it is now when the window has no frame at all, so a
-// recording always has one.
+// finish ensures the recording has at least one frame: the pending opening
+// frame, or else the current terminal if nothing was emitted.
 func (r *replay) finish() error {
 	switch {
 	case r.frame == nil:

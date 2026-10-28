@@ -11,22 +11,17 @@ import (
 	"path/filepath"
 )
 
-// pendingFile is an output written to a temporary file and, by commit,
-// renamed into place beside it, or copied to a writer. A failed or discarded
-// write leaves an existing destination alone.
+// pendingFile is an output written to a temporary file, which commit renames
+// to path or copies to out. abort leaves an existing destination alone.
 type pendingFile struct {
-	// path is the destination. It is empty when out is set.
+	// path is empty when out is set.
 	path string
-	// out, when set, receives the file's contents on commit, and the file is
-	// removed.
-	out io.Writer
-	// f is the temporary file. Writers that need it by name (such as ffmpeg)
-	// close it first; commit and abort accept that.
+	out  io.Writer
+	// f may already be closed by a writer that needs it by name (ffmpeg).
 	f *os.File
 }
 
-// createPending returns a pending file beside path, which commit renames to
-// path.
+// createPending returns a pending file beside path.
 func createPending(path string) (*pendingFile, error) {
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -36,7 +31,7 @@ func createPending(path string) (*pendingFile, error) {
 }
 
 // createPendingWriter returns a pending file in the system temporary
-// directory, which commit copies to w.
+// directory.
 func createPendingWriter(w io.Writer) (*pendingFile, error) {
 	f, err := os.CreateTemp("", "sink-*.tmp")
 	if err != nil {
@@ -45,8 +40,6 @@ func createPendingWriter(w io.Writer) (*pendingFile, error) {
 	return &pendingFile{out: w, f: f}, nil
 }
 
-// commit moves the temporary file to the destination, or copies it to the
-// writer and removes it.
 func (p *pendingFile) commit() error {
 	if err := p.f.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		_ = p.abort()
@@ -73,7 +66,6 @@ func (p *pendingFile) copyOut() error {
 	return err
 }
 
-// abort removes the temporary file.
 func (p *pendingFile) abort() error {
 	_ = p.f.Close()
 	if err := os.Remove(p.f.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {

@@ -12,52 +12,43 @@ import (
 	"strings"
 )
 
-// QueryKind is the kind of the [Annotation] a [Session] records for each
-// query the program writes to its terminal, whose fields are a [Query].
+// QueryKind is the kind of the [Annotation], with [Query] fields, that a
+// [Session] records for each query the program writes to its terminal.
 const QueryKind = "reel.query"
 
-// Query is a query the program wrote to its terminal, such as for its device
-// attributes or its background color, and the terminal's reply: the fields
-// of a [QueryKind] annotation. The program reads the reply as input, which
-// the timeline does not record, since replaying the program's output makes
-// the terminal reply again. The annotation follows the [Output] event that
-// held the query.
+// Query is the fields of a [QueryKind] annotation: a query the program
+// wrote to its terminal, such as for device attributes or the background
+// color, and the terminal's reply. Replies are not recorded as input, since
+// replaying the output makes the terminal reply again. The annotation
+// follows the [Output] event that held the query.
 type Query struct {
-	// Query names what the program asked for: "enq" (ENQ), "da1", "da2",
-	// and "da3" (primary, secondary, and tertiary device attributes),
-	// "xtversion" (the terminal's name and version), "dsr" (device status),
-	// "cpr" (the cursor position), "color_scheme" (dark or light), "decrqm"
-	// (a mode), "osc_color" (a dynamic or palette color), "osc52" (the
-	// clipboard), "kitty_keyboard" (the kitty keyboard protocol flags),
-	// "decrqss" (a setting), "xtgettcap" (terminfo capabilities),
-	// "xtwinops" (the window's size or state), "decrqcra" (a checksum of a
-	// rectangle of cells), or "unknown", for a reply to no query reel knows.
+	// Query names what was asked: "enq", "da1", "da2", "da3", "xtversion",
+	// "dsr", "cpr", "color_scheme", "decrqm", "osc_color", "osc52",
+	// "kitty_keyboard", "decrqss", "xtgettcap", "xtwinops", "decrqcra", or
+	// "unknown" for a reply to no known query. [AnnotationSchema] describes
+	// what each asks.
 	Query string `json:"query"`
-	// Param is what the query asked about, where it names one: the mode
-	// of "decrqm", with "?" before a DEC private mode, such as "?2026"; the
-	// OSC number of "osc_color", such as "11" for the background; the
-	// selection of "osc52"; the setting of "decrqss"; the capability names
-	// of "xtgettcap", joined by ";"; the operation of "xtwinops", such as
-	// "14"; and the status asked for by "dsr" and "cpr", such as "5", "6",
-	// or "?6".
+	// Param is what the query asked about, if it names one: the mode for
+	// "decrqm" ("?" prefixed for DEC private modes, such as "?2026"), the
+	// OSC number for "osc_color" (such as "11"), the selection for "osc52",
+	// the setting for "decrqss", ";"-joined capability names for
+	// "xtgettcap", the operation for "xtwinops" (such as "14"), and the
+	// status for "dsr" and "cpr" (such as "5", "6", or "?6").
 	Param string `json:"param,omitzero"`
-	// Request is the query as the program wrote it. It is empty for a reply
-	// whose query was not found in the output that produced it, such as a
-	// query split across two writes.
+	// Request is the query as written. It is empty for a reply whose query
+	// was not found in the same output, such as one split across writes.
 	Request string `json:"request,omitzero"`
-	// Reply is what the terminal answered, every reply in the order written
-	// when the query asked for more than one thing, such as two palette
-	// colors. It is empty when the terminal did not answer.
+	// Reply is the terminal's answer, all replies concatenated in order when
+	// there are several (such as two palette colors), or empty if none.
 	Reply string `json:"reply,omitzero"`
-	// Truncated is set when Request or Reply was longer than 4 KiB, and cut
-	// to it.
+	// Truncated is set when a field was cut to [AnnotationTextMax].
 	Truncated bool `json:"truncated,omitzero"`
 }
 
-// queries returns the queries in out, output the program wrote, matched
-// with replies, which the terminal wrote while it parsed out, oldest first.
-// Each reply goes to the first query of its kind that has none, else to the
-// last query of its kind, else it is a query of its own, without a request.
+// queries returns the queries in program output out, oldest first, matched
+// with the terminal's replies to it. Each reply goes to the first unanswered
+// query of its kind, else the last query of its kind, else becomes its own
+// entry with no request.
 func queries(out, replies []byte) []Query {
 	var qs []Query
 	scanSeqs(out, func(s ctlSeq) {
@@ -90,9 +81,8 @@ func queries(out, replies []byte) []Query {
 	return qs
 }
 
-// queryAnnotation returns the [QueryKind] annotation of q, one of those
-// queries returns, which [AnnotationSchema] always allows, so it is not
-// checked against it. A Query always encodes, so an error is a bug.
+// queryAnnotation returns q's [QueryKind] annotation. A Query always
+// encodes and validates, so it skips the schema and panics on error.
 func queryAnnotation(q Query) Annotation {
 	a, err := newAnnotation(QueryKind, q)
 	if err != nil {
@@ -110,26 +100,22 @@ func lastIndexFunc[E any](s []E, f func(E) bool) int {
 	return -1
 }
 
-// ctlSeq is an escape sequence or control character in a stream of terminal
-// bytes.
+// ctlSeq is an escape sequence or control character in terminal bytes.
 type ctlSeq struct {
-	// raw is the whole sequence.
 	raw []byte
-	// intro is '[' for CSI, ']' for OSC, and 'P' for DCS, or the control
+	// intro is '[' for CSI, ']' for OSC, 'P' for DCS, or the control
 	// character.
 	intro byte
-	// marker, params, and inter are a CSI or DCS sequence's private marker
-	// ("<", "=", ">", or "?"), parameters, and intermediate bytes, and
-	// final its final byte.
+	// marker is a CSI or DCS private marker ("<", "=", ">", or "?").
 	marker, params, inter string
 	final                 byte
-	// data is the text of an OSC sequence, or of a DCS sequence after its
-	// final byte. It is a slice of the scanned bytes, since output can hold
-	// many OSC sequences, such as hyperlinks, that are no query or reply.
+	// data is an OSC's text, or a DCS's text after its final byte. It
+	// aliases the scanned bytes to avoid copying the many OSCs (such as
+	// hyperlinks) that are neither queries nor replies.
 	data []byte
 }
 
-// firstParam returns the first of the sequence's parameters.
+// firstParam returns the sequence's first parameter.
 func (s ctlSeq) firstParam() string {
 	p, _, _ := strings.Cut(s.params, ";")
 	return p
@@ -139,9 +125,9 @@ func (s ctlSeq) firstParam() string {
 // [replyOf] classify.
 var queryFinals = []byte("Rcnpqtuy")
 
-// scanSeqs calls yield for each CSI sequence in b that ends in one of
-// queryFinals, each OSC and DCS sequence, and each ENQ and ACK. A sequence
-// cut off by the end of b is skipped.
+// scanSeqs calls yield for each CSI sequence in b ending in one of
+// queryFinals, each OSC and DCS sequence, and each ENQ and ACK. Sequences
+// cut off by the end of b are skipped.
 func scanSeqs(b []byte, yield func(ctlSeq)) {
 	for {
 		i := bytes.IndexAny(b, "\x1b\x05\x06")
@@ -168,9 +154,8 @@ func scanSeqs(b []byte, yield func(ctlSeq)) {
 				continue
 			}
 			n := len(b) - len(rest) + 1
-			// Only these finals end a query or a reply, so the rest, such
-			// as the colors and cursor moves of most output, are skipped
-			// without parsing them.
+			// Skip, unparsed, the CSIs that cannot be queries or replies,
+			// such as the colors and cursor moves of most output.
 			if bytes.IndexByte(queryFinals, rest[0]) < 0 {
 				b = b[n:]
 				continue
@@ -208,8 +193,8 @@ func scanSeqs(b []byte, yield func(ctlSeq)) {
 	}
 }
 
-// splitHead splits the parameter and intermediate bytes off the start of a
-// CSI or DCS sequence, after its introducer.
+// splitHead splits the parameter and intermediate bytes off a CSI or DCS
+// sequence following its introducer.
 func splitHead(b []byte) (head, rest []byte) {
 	i := 0
 	for i < len(b) && b[i] >= 0x20 && b[i] <= 0x3f {
@@ -218,8 +203,8 @@ func splitHead(b []byte) (head, rest []byte) {
 	return b[:i], b[i:]
 }
 
-// parseHead splits the head of a CSI or DCS sequence into its private
-// marker, its parameters, and its intermediate bytes.
+// parseHead splits a CSI or DCS head into private marker, parameters, and
+// intermediate bytes.
 func parseHead(head []byte) (marker, params, inter string) {
 	s := string(head)
 	if s != "" && strings.ContainsRune("<=>?", rune(s[0])) {
@@ -232,11 +217,10 @@ func parseHead(head []byte) (marker, params, inter string) {
 	return marker, s[:i], s[i:]
 }
 
-// stringBody returns the text of the OSC or DCS sequence that b starts
-// with, between its introducer and its terminator, BEL or ST, and the
-// sequence's length. It reports false for a sequence another escape cuts
-// short, whose length is then that of what precedes the escape, or for one
-// b ends before the terminator of, whose length is then 0.
+// stringBody returns the text of the OSC or DCS sequence at the start of b
+// (up to its BEL or ST terminator) and the sequence's length. It reports
+// false if another escape cuts it short (n is the length before that
+// escape) or b ends first (n is 0).
 func stringBody(b []byte) (body []byte, n int, ok bool) {
 	for i := 2; i < len(b); i++ {
 		switch {
@@ -323,8 +307,7 @@ func csiRequest(s ctlSeq) (Query, bool) {
 	return Query{}, false
 }
 
-// replyOf returns the query s answers, with the parameter the reply names,
-// if any.
+// replyOf returns the query s answers, with the parameter it names, if any.
 func replyOf(s ctlSeq) Query {
 	switch s.intro {
 	case 0x06:
@@ -346,8 +329,8 @@ func replyOf(s ctlSeq) Query {
 		case s.final == 'u' && s.marker == "?":
 			return Query{Query: "kitty_keyboard"}
 		case s.final == 't':
-			// A report's first parameter is its operation's less ten, but
-			// for the window state, reported as 1 or 2.
+			// A report's first parameter is its operation minus ten,
+			// except the window state, reported as 1 or 2.
 			op, _ := strconv.Atoi(s.firstParam())
 			if op == 2 {
 				op = 1
@@ -383,8 +366,8 @@ func replyOf(s ctlSeq) Query {
 	return Query{Query: "unknown"}
 }
 
-// isColorOSC reports whether num is the number of an OSC sequence that sets
-// or reports a color: 4 for the palette, or 10 to 19 for the dynamic colors.
+// isColorOSC reports whether num is a color OSC: 4 (palette) or 10-19
+// (dynamic colors).
 func isColorOSC(num []byte) bool {
 	switch string(num) {
 	case "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19":
@@ -393,8 +376,8 @@ func isColorOSC(num []byte) bool {
 	return false
 }
 
-// capNames returns the hex encoded capability names of an XTGETTCAP query,
-// decoded and joined by ";", or as they are when they do not decode.
+// capNames hex-decodes XTGETTCAP capability names, joined by ";", or
+// returns data unchanged if any fail to decode.
 func capNames(data string) string {
 	names := strings.Split(data, ";")
 	for i, name := range names {

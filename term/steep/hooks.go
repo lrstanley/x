@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// InputKind is the kind of an input action: the "action" of its
-// "steep.input" annotation.
+// InputKind is the kind of an input action.
 type InputKind string
 
 const (
@@ -31,8 +30,7 @@ const (
 	InputKindDrag InputKind = "drag"
 )
 
-// InputMeta is the metadata of [HookInput] events: keyboard, paste, and
-// mouse actions.
+// InputMeta is the metadata of [HookInput] events.
 type InputMeta struct {
 	Kind InputKind `json:"action"`
 	// Text is the text of [InputKindType] and [InputKindPaste].
@@ -63,8 +61,7 @@ func (m InputMeta) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-// WaitKind is what a wait waits for: the "wait" of its "steep.wait.start"
-// and "steep.wait.end" annotations.
+// WaitKind is what a wait waits for.
 type WaitKind string
 
 const (
@@ -115,8 +112,7 @@ func (m WaitMeta) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-// AssertKind is what an assertion asserts: the "assert" of its
-// "steep.assert" annotation.
+// AssertKind is what an assertion asserts.
 type AssertKind string
 
 const (
@@ -149,8 +145,7 @@ const (
 // AssertMeta is the metadata of [HookAssert] events.
 type AssertMeta struct {
 	Kind AssertKind `json:"assert"`
-	// Required is true for a Require method, whose failure stops the test,
-	// and false for an Assert method, which lets it go on.
+	// Required is true for a Require method, whose failure stops the test.
 	Required bool `json:"required"`
 }
 
@@ -158,8 +153,7 @@ func (m AssertMeta) LogValue() slog.Value {
 	return slog.GroupValue(slog.String("kind", string(m.Kind)), slog.Bool("required", m.Required))
 }
 
-// CaptureKind is what a capture captures. For a snapshot comparison, it is
-// the "format" of its "steep.snapshot" annotation.
+// CaptureKind is what a capture captures.
 type CaptureKind string
 
 const (
@@ -185,8 +179,8 @@ func (m CaptureMeta) LogValue() slog.Value {
 	return slog.GroupValue(slog.String("kind", string(m.Kind)), slog.Bool("required", m.Required))
 }
 
-// HookEvent identifies a harness action for hooks, and labels the action's
-// mark in the timeline (see [Harness.Mark]).
+// HookEvent identifies a harness action for hooks and mark labels (see
+// [Harness.Mark]).
 type HookEvent int
 
 const (
@@ -210,8 +204,7 @@ const (
 	HookCapture
 )
 
-// String returns the stable event name used in mark labels and still file
-// names.
+// String returns the event name used in mark labels and still file names.
 func (e HookEvent) String() string {
 	switch e {
 	case HookInput:
@@ -235,7 +228,7 @@ func (e HookEvent) String() string {
 	}
 }
 
-// HookStage is whether a hook runs before or after the harness action body.
+// HookStage is whether a hook runs before or after the harness action.
 type HookStage int
 
 const (
@@ -257,10 +250,8 @@ func (s HookStage) String() string {
 // immediately.
 //
 // metadata is nil, or the action's [InputMeta], [WaitMeta], [AssertMeta], or
-// [CaptureMeta]. Each uses the vocabulary of the [reel.Annotation] the
-// harness records for the same action (see reel's annotation.schema.json):
-// it marshals to JSON as the fields of that annotation it holds, with the
-// same names and values.
+// [CaptureMeta], which marshal to JSON as the matching fields of the
+// annotation the harness records for the action.
 type Hook func(event HookEvent, stage HookStage, metadata any) error
 
 func (h *Harness) hook(event HookEvent, metadata any) func() {
@@ -286,10 +277,8 @@ func (h *Harness) hook(event HookEvent, metadata any) func() {
 }
 
 // awaitsPaint reports whether the mark and After hooks for event must wait
-// until the program has painted the action's terminal output. Without the
-// wait, a still at the mark shows the screen from before the action. It only
-// waits while an export policy is on, so tests that write nothing do not pay
-// for it.
+// for the program to paint its response, so a still at the mark shows it.
+// Only while exporting, so other tests do not pay for it.
 func (h *Harness) awaitsPaint(event HookEvent) bool {
 	if h.cfg.policy == exportOff {
 		return false
@@ -297,10 +286,10 @@ func (h *Harness) awaitsPaint(event HookEvent) bool {
 	return event == HookInput || event == HookProgram || event == HookTerminal
 }
 
-// waitForPaint blocks until the terminal has accepted program output newer
-// than start and then stayed idle for one check interval, or until the paint
-// wait elapses. Synchronized-output holds do not count as idle: the visible
-// grid is still the previous frame.
+// waitForPaint blocks until the terminal has output newer than start and has
+// then stayed idle for one check interval, or until [Harness.paintWait]
+// passes with no new output. Synchronized-output holds do not count as idle:
+// the visible grid is still the previous frame.
 func (h *Harness) waitForPaint(start uint64) {
 	h.tb.Helper()
 	quiet := h.cfg.checkInterval
@@ -335,9 +324,8 @@ func (h *Harness) waitForPaint(start uint64) {
 }
 
 // paintWait is how long an exporting action waits for a program write before
-// it is marked. A paint that never comes must not stall for
-// the full test timeout. The floor covers a harness whose settle interval is
-// shorter than one scheduler delay.
+// it is marked. The floor covers settle intervals shorter than a scheduler
+// delay.
 func (h *Harness) paintWait() time.Duration {
 	wait := h.cfg.settleTimeout
 	if wait < 50*time.Millisecond {
@@ -366,8 +354,8 @@ func (w testLogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// LoggerHook returns a hook that mirrors events to logger. When logger is nil,
-// events are written with [testing.TB.Log].
+// LoggerHook returns a hook that logs events to logger, or with
+// [testing.TB.Log] when logger is nil.
 func LoggerHook(tb testing.TB, logger *slog.Logger) Hook {
 	tb.Helper()
 	if logger == nil {

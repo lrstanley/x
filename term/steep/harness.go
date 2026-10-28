@@ -28,9 +28,23 @@ type runResult struct {
 	err   error
 }
 
-var _ MessageCollector = (*Harness)(nil) // Enforce implementation of [MessageCollector].
+var _ MessageCollector = (*Harness)(nil)
 
 // Harness is a test harness for a [tea.Program].
+//
+// Its checks follow one naming convention:
+//
+//   - Assert* report a failed check with [testing.TB.Errorf] and let the
+//     test continue.
+//   - Require* stop the test with [testing.TB.FailNow] when the check fails.
+//   - Wait* block until the condition holds, and stop the test with
+//     [testing.TB.Fatalf] if [WithTimeout] passes or the context is canceled
+//     first.
+//
+// Most methods return the harness for chaining. The package-level
+// functions of the same names check any [Viewable] or [MessageCollector]
+// and return a result instead: whether an Assert* passed, or the view or
+// message that satisfied a Wait*.
 type Harness struct {
 	tb       testing.TB
 	failures *failureTB
@@ -50,28 +64,26 @@ type Harness struct {
 	imageScreen *vt.Buffer
 	// image is the buffer [Harness.Image] draws into and returns.
 	image *image.NRGBA
-	// start is when the harness was created. Frames are drawn as of their
-	// offset from it, which blinking and animated indicators take their
-	// phase from (see [timelineAt]).
+	// start is when the harness was created; blink and animation phases in
+	// images are drawn relative to it.
 	start       time.Time
 	imageMu     sync.Mutex
 	hooks       []Hook
 	readyHooked bool
 
-	// marksMu guards markCount and marks, the marks placed for hook events
-	// (see [Harness.Mark]).
+	// marksMu guards markCount and marks.
 	marksMu   sync.Mutex
 	markCount map[HookEvent]int
 	marks     []hookMark
-	// closed is set by the first [Harness.Close].
-	closed atomic.Bool
-	// waits counts the waits recorded, for the ids of their annotations.
+	closed    atomic.Bool
+	// waits numbers recorded waits, for their annotation ids.
 	waits atomic.Int64
 }
 
-// NewHarness creates a test harness by running the root [tea.Model] in a
-// [tea.Program]. The harness captures rendered terminal output and exposes
-// helpers for driving and asserting on runtime behavior.
+// NewHarness runs the root [tea.Model] in a [tea.Program] and returns a
+// harness to drive and assert on it. It waits up to the [WithTimeout]
+// timeout for the model's first message, and registers [Harness.Close] as a
+// test cleanup.
 func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	tb.Helper()
 	failures := &failureTB{TB: tb}
@@ -86,8 +98,8 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		cfg = collectOptions(tb, opts...)
 	}
 
-	// The renderer is built before the session, whose terminal holds a pool
-	// slot, so failing to build it leaves no slot taken.
+	// Built before the session, whose terminal holds a pool slot, so a
+	// failure here leaves no slot taken.
 	imageRenderer, err := render.New(cfg.recording.Render...)
 	if err != nil {
 		tb.Fatal(err)
@@ -116,8 +128,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		hooks:         append([]Hook(nil), cfg.hooks...),
 		markCount:     make(map[HookEvent]int),
 	}
-	// Clipped, so appending to the options of one call cannot write into
-	// another's.
+	// Clipped, so one call's appends cannot write into another's.
 	h.opts = slices.Clip(append(h.opts, withHarness(h)))
 	failures.note = h.noteFailure
 	if cfg.recordMessages {
@@ -155,8 +166,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		close(h.done)
 	}()
 
-	// Registered before waiting for the program, so a startup failure still
-	// stops it, exports, and returns the terminal.
+	// Registered before waiting, so a startup failure still cleans up.
 	tb.Cleanup(h.Close)
 
 	h.waitStarted(cfg)
@@ -164,18 +174,17 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	return h
 }
 
-// Close stops the program, exports the recording when the export policy says
-// to (see [WithExportOnFailure] and [WithExportAlways]), and returns the
-// terminal. [NewHarness] registers it as a cleanup of the test, so calling it
-// is optional. Calls after the first do nothing.
+// Close stops the program, exports the recording if the export policy says
+// to, and releases the terminal. [NewHarness] registers it as a test cleanup,
+// so calling it is optional. Calls after the first do nothing.
 func (h *Harness) Close() {
 	if h.closed.Swap(true) {
 		return
 	}
-	// These run last, in reverse, even when a hook or stopping the program
-	// fails the test: the terminal returns to the pool once the After hooks
-	// have run, and the retained screen is dropped before then so a later
-	// draw cannot paint the previous checkout's grid.
+	// These run even when a hook or stopping the program fails the test. The
+	// terminal returns to the pool after the After hooks, and the retained
+	// screen is dropped first so a later draw cannot paint the previous
+	// checkout's grid.
 	defer h.session.Close()
 	defer h.dropImageScreen()
 	defer func() {
@@ -187,15 +196,14 @@ func (h *Harness) Close() {
 
 	cfg := collectOptions(h.tb, h.mergedOpts()...)
 
-	// The recording ends here, on the last screen the test saw: the
-	// program's repaint as it exits, such as leaving the alternate screen,
-	// is left out. It is exported once the program has stopped, or failed
-	// to. The result is recorded first, so the recording holds it.
+	// The recording ends here, on the last screen the test saw, leaving out
+	// the program's exit repaint. The result is recorded first so the
+	// recording holds it.
 	h.annotate(h.newResultNote())
 	end := h.markEvent(HookClose)
 	defer h.exportRecording(end)
 
-	// Unblock the program input loop before Quit.
+	// Unblock the program's input loop before Quit.
 	h.session.Terminal().CloseReader()
 
 	quitDone := make(chan struct{})
@@ -225,8 +233,7 @@ func (h *Harness) Close() {
 			h.program.Kill()
 		}
 	}
-	// TB context is already canceled during Cleanups (see testing.T.Context); join with
-	// a detached parent so WaitFinished observes h.done/timer only.
+	// The test's context is canceled during cleanups.
 	h.waitFinished(collectOptions(h.tb, h.mergedOpts(WithContext(context.Background()))...), nil)
 }
 
@@ -258,8 +265,9 @@ func (h *Harness) waitStarted(cfg options) {
 	}
 }
 
-// NewComponentHarness creates a test harness for a component model by wrapping it
-// in a root [tea.Model] and running it inside a [tea.Program].
+// NewComponentHarness is [NewHarness] for a component model, which must have
+// a View() string method and an Update method returning either a [tea.Cmd]
+// or the updated model and a [tea.Cmd]. Init is optional.
 func NewComponentHarness[M any](tb testing.TB, model M, opts ...Option) *Harness {
 	tb.Helper()
 	m := &componentWrapper[M]{tb: tb, model: model}
@@ -267,8 +275,7 @@ func NewComponentHarness[M any](tb testing.TB, model M, opts ...Option) *Harness
 	return NewHarness(tb, m, opts...)
 }
 
-// check fails the test, without stopping it, when a terminal action returned
-// err.
+// check reports err from a terminal action without stopping the test.
 func (h *Harness) check(err error) {
 	h.tb.Helper()
 	if err != nil {
@@ -288,11 +295,10 @@ func (h *Harness) requireProgram() {
 	}
 }
 
-// SendProgram sends msg ([tea.Msg] or [uv.Event], either works) to the [tea.Program].
+// SendProgram sends msg to the [tea.Program].
 //
-// Prefer not to use SendProgram. It will error if the Harness is not a [tea.Program].
-// Drive input with [Harness.Type], [Harness.Key], [Harness.Paste], or the mouse
-// helpers instead.
+// Prefer driving input with [Harness.Type], [Harness.Key], [Harness.Paste],
+// or the mouse helpers, which go through the terminal as real input would.
 func (h *Harness) SendProgram(msg uv.Event) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookProgram, nil)()
@@ -305,8 +311,6 @@ func (h *Harness) SendProgram(msg uv.Event) *Harness {
 }
 
 // QuitProgram requests a graceful shutdown of the [tea.Program].
-//
-// Prefer not to use QuitProgram. It will error if the Harness is not a [tea.Program].
 func (h *Harness) QuitProgram() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookClose, nil)()
@@ -316,10 +320,8 @@ func (h *Harness) QuitProgram() *Harness {
 	return h
 }
 
-// FinalModel waits for the [tea.Program] to finish and returns the latest
-// underlying root model.
-//
-// Prefer not to use FinalModel. It will error if the Harness is not a [tea.Program].
+// FinalModel waits for the [tea.Program] to finish and returns the root
+// model.
 func (h *Harness) FinalModel(opts ...Option) tea.Model {
 	h.tb.Helper()
 	h.requireProgram()
@@ -327,12 +329,8 @@ func (h *Harness) FinalModel(opts ...Option) tea.Model {
 	return h.observer.currentModel()
 }
 
-// FinalModelAs waits for the [tea.Program] to finish and returns the underlying
-// model as M. It fails the test when the model is not M.
-//
-// Prefer not to use FinalModelAs. It will error if the Harness is not a [tea.Program].
-//
-// See also [Harness.FinalModel].
+// FinalModelAs is [Harness.FinalModel], with the model as M. It fails the
+// test when the model is not M.
 func (h *Harness) FinalModelAs[M any](opts ...Option) M {
 	h.tb.Helper()
 	model := h.FinalModel(opts...)
@@ -344,30 +342,23 @@ func (h *Harness) FinalModelAs[M any](opts ...Option) M {
 	return typed
 }
 
-// MessageHistory returns a copy of all messages observed by the underlying model.
-//
-// Prefer not to use MessageHistory. It will error if the Harness is not a [tea.Program].
+// MessageHistory returns a copy of all messages the model received.
 func (h *Harness) MessageHistory() iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()
 	return h.observer.messages.History()
 }
 
-// Messages returns a iterator to all (historical and live) messages observed
-// by the underlying model.
-//
-// Prefer not to use Messages. It will error if the Harness is not a [tea.Program].
+// Messages returns an iterator over all messages the model received, past
+// and future, until ctx is done.
 func (h *Harness) Messages(ctx context.Context) iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()
 	return h.observer.messages.SubscribeAll(ctx)
 }
 
-// LiveMessages returns a new iterator to live messages observed by the
-// underlying model, starting from the first message observed after the call
-// returns.
-//
-// Prefer not to use LiveMessages. It will error if the Harness is not a [tea.Program].
+// LiveMessages returns an iterator over messages the model receives after
+// the call returns, until ctx is done.
 func (h *Harness) LiveMessages(ctx context.Context) iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()

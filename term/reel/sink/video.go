@@ -18,8 +18,8 @@ import (
 	"github.com/lrstanley/x/term/reel/sink/internal/ffmpeg"
 )
 
-// ErrFFmpegNotFound is wrapped by the error [CreateVideo] and [CheckVideo]
-// return when the ffmpeg binary is not on PATH (or not at [WithFFmpeg]).
+// ErrFFmpegNotFound is wrapped by the error [CreateVideo], [NewVideo], and
+// [CheckVideo] return when the ffmpeg binary is not found.
 var ErrFFmpegNotFound = errors.New("sink: ffmpeg not found")
 
 // MissingEncoderError reports an ffmpeg build without any encoder a format
@@ -40,8 +40,7 @@ func (e *MissingEncoderError) Error() string {
 	)
 }
 
-// findFFmpeg resolves the ffmpeg binary (name on PATH, or a path) and probes
-// it once.
+// findFFmpeg resolves and probes the ffmpeg binary.
 func findFFmpeg(name string, format Format) (*ffmpeg.Info, error) {
 	if name == "" {
 		name = "ffmpeg"
@@ -60,11 +59,10 @@ func findFFmpeg(name string, format Format) (*ffmpeg.Info, error) {
 type videoProfile struct {
 	// muxer is ffmpeg's output format name.
 	muxer string
-	// encoders are the ffmpeg encoders the format can use, preferred first.
+	// encoders are preferred first.
 	encoders []string
-	// alpha reports whether the format keeps transparency. Formats without it
-	// are encoded as 4:2:0 (or 4:4:4) YUV, which also needs even dimensions at
-	// 4:2:0.
+	// alpha reports whether the format keeps transparency; formats without it
+	// are encoded as YUV.
 	alpha bool
 	// args returns the encoder arguments after "-c:v <encoder>".
 	args func(o options) []string
@@ -105,17 +103,13 @@ var videoProfiles = map[Format]videoProfile{ //nolint:exhaustive // GIF and PNG 
 	},
 	FormatWebP: {
 		muxer: "webp",
-		// libwebp_anim stores only what changed between frames, which makes
-		// a terminal recording about a seventh the size of libwebp's full
-		// frames. Both come with ffmpeg's libwebp support, so libwebp is a
-		// fallback for unusual builds.
+		// libwebp_anim stores only what changed between frames, about a
+		// seventh the size of libwebp's full frames for a terminal.
 		encoders: []string{"libwebp_anim", "libwebp"},
 		alpha:    true,
 		// The loop count is not passed to ffmpeg: its webp muxer ignores it
 		// for libwebp_anim, so [fixWebP] writes it instead.
 		args: func(o options) []string {
-			// Lossless is the default: on terminal frames it is smaller than
-			// lossy at any quality worth using, and exact.
 			if o.qualitySet && o.quality < MaxQuality {
 				return []string{"-lossless", "0", "-quality", strconv.Itoa(o.quality)}
 			}
@@ -130,8 +124,8 @@ func qualityToCRF(q, worst int) int {
 	return int(math.Round(float64(MaxQuality-q) * float64(worst) / MaxQuality))
 }
 
-// webpLoopCount converts a [WithLoopCount] value, which counts repeats like
-// GIF, into WebP's count of plays (0 is forever).
+// webpLoopCount converts a [WithLoopCount] value, which counts repeats, into
+// WebP's count of plays (0 is forever).
 func webpLoopCount(n int) int {
 	switch n {
 	case LoopForever:
@@ -165,8 +159,7 @@ func findVideoEncoder(format Format, p videoProfile, o options) (*ffmpeg.Info, s
 }
 
 // CheckVideo reports whether [CreateVideo] can encode format with opts: that
-// ffmpeg is installed and has an encoder for it. It runs ffmpeg only to probe
-// it, once per binary.
+// ffmpeg is installed and has an encoder for it. Probes are cached per binary.
 func CheckVideo(format Format, opts ...Option) error {
 	cfg, err := videoOptions(opts)
 	if err != nil {
@@ -180,15 +173,10 @@ func CheckVideo(format Format, opts ...Option) error {
 	return err
 }
 
-// VideoEncoder is an [Encoder] that encodes frames with ffmpeg as they
-// arrive. Frames stream to ffmpeg uncompressed, with their delays, so a hold
-// stays a single frame and the timeline matches the delays given. The canvas
+// VideoEncoder is a [Sink] that encodes frames with ffmpeg as they arrive.
+// Each frame keeps its own delay, so a hold stays a single frame. The canvas
 // is the first frame's size: later frames of another size are anchored at the
-// top left, cropped or padded with the background.
-//
-// ffmpeg writes to a temporary file beside the destination, which
-// [VideoEncoder.Close] renames into place once the encode succeeds, so a
-// failed or discarded encode leaves an existing file alone.
+// top left, and cropped or padded with the background.
 type VideoEncoder struct {
 	opts    options
 	format  Format
@@ -201,8 +189,7 @@ type VideoEncoder struct {
 	mkv    *ffmpeg.MKV
 	bounds image.Rectangle
 	// canvas holds frames that cannot be streamed as is.
-	canvas *image.NRGBA
-	// background is the compositing and padding color.
+	canvas     *image.NRGBA
 	background color.NRGBA
 	frames     int
 	// err is the first encode error; once set, frames are rejected.
@@ -212,10 +199,10 @@ type VideoEncoder struct {
 
 var _ Sink = (*VideoEncoder)(nil)
 
-// CreateVideo returns an encoder that writes frames to path as format. It
-// finds and probes ffmpeg first, so a missing binary (wrapping
-// [ErrFFmpegNotFound]) or encoder ([MissingEncoderError]) is reported here,
-// before any frames are recorded. ffmpeg itself starts with the first frame.
+// CreateVideo returns an encoder that writes frames to path as format, via a
+// temporary file beside path that [VideoEncoder.Close] renames into place. A
+// missing ffmpeg (wrapping [ErrFFmpegNotFound]) or encoder
+// ([MissingEncoderError]) is reported here, before any frames are recorded.
 //
 // It reads [WithQuality], [WithFullChroma], [WithBackground], [WithFFmpeg],
 // and, for WebP, [WithLoopCount]. Other options are ignored.
@@ -233,7 +220,6 @@ func NewVideo(w io.Writer, format Format, opts ...Option) (*VideoEncoder, error)
 	return newVideo(func() (*pendingFile, error) { return createPendingWriter(w) }, format, opts)
 }
 
-// newVideo probes ffmpeg for format, then creates the output with create.
 func newVideo(create func() (*pendingFile, error), format Format, opts []Option) (*VideoEncoder, error) {
 	cfg, err := videoOptions(opts)
 	if err != nil {
@@ -272,8 +258,7 @@ func newVideo(create func() (*pendingFile, error), format Format, opts []Option)
 }
 
 // WriteFrame encodes f for f.Delay, truncated to whole milliseconds (at least
-// one). It returns once ffmpeg has read the frame, so f.Image may be reused.
-// [Frame.Isolated] is ignored.
+// one). [Frame.Isolated] is ignored.
 func (s *VideoEncoder) WriteFrame(f Frame) error {
 	img := f.Image
 	switch {
@@ -316,7 +301,6 @@ func (s *VideoEncoder) WriteFrame(f Frame) error {
 	return nil
 }
 
-// start launches ffmpeg for a canvas of size and writes the stream header.
 func (s *VideoEncoder) start(size image.Point) error {
 	s.bounds = image.Rectangle{Max: size}
 	job, err := ffmpeg.Start(s.info.Path, s.args())
@@ -331,7 +315,6 @@ func (s *VideoEncoder) start(size image.Point) error {
 	return nil
 }
 
-// args is the full ffmpeg command line after the binary.
 func (s *VideoEncoder) args() []string {
 	args := []string{
 		"-hide_banner", "-nostdin", "-loglevel", "error",
@@ -339,8 +322,7 @@ func (s *VideoEncoder) args() []string {
 		"-map", "0:v:0", "-an", "-sn", "-dn",
 	}
 	args = append(args, s.info.PassthroughArgs()...)
-	// Encode in the stream's millisecond time base rather than one derived
-	// from a guessed frame rate.
+	// Keep the stream's millisecond time base rather than a guessed frame rate.
 	args = append(args, "-enc_time_base", "-1")
 	if !s.profile.alpha {
 		pixFmt := "yuv420p"
@@ -365,8 +347,8 @@ func (s *VideoEncoder) args() []string {
 
 // streamable returns img as tightly packed NRGBA on the canvas, composited
 // onto the background when the format has no alpha or [WithBackground] is
-// set. Opaque NRGBA frames of the canvas size, the common case for the render
-// package's renderer, are returned as is.
+// set. Opaque NRGBA frames of the canvas size, the common case, are returned
+// as is.
 func (s *VideoEncoder) streamable(img image.Image) *image.NRGBA {
 	composite := !s.profile.alpha || s.opts.background != nil
 	if src, ok := img.(*image.NRGBA); ok && src.Rect.Size() == s.bounds.Size() && (!composite || src.Opaque()) {
@@ -380,7 +362,6 @@ func (s *VideoEncoder) streamable(img image.Image) *image.NRGBA {
 	w := min(dst.Rect.Dx(), src.Rect.Dx())
 	h := min(dst.Rect.Dy(), src.Rect.Dy())
 	if w < dst.Rect.Dx() || h < dst.Rect.Dy() {
-		// Only a smaller frame leaves part of the canvas uncovered.
 		fill := color.NRGBA{}
 		if composite {
 			fill = s.background
@@ -412,8 +393,7 @@ func fillNRGBA(img *image.NRGBA, c color.NRGBA) {
 	}
 }
 
-// compositeRow blends NRGBA src over the opaque bg into dst. Runs of opaque
-// pixels, most of a terminal frame, are copied in one go.
+// compositeRow blends NRGBA src over the opaque bg into dst.
 func compositeRow(dst, src []byte, bg color.NRGBA) {
 	dst = dst[:len(src)]
 	for i := 0; i+3 < len(src); i += 4 {
@@ -439,8 +419,8 @@ func compositeRow(dst, src []byte, bg color.NRGBA) {
 	}
 }
 
-// Close finishes the encode and moves it to the destination path. With no
-// frames written, it writes nothing and returns nil. If the encode failed, the
+// Close finishes the encode and moves it into place, or copies it to the
+// writer. With no frames written, it writes nothing. If the encode failed, the
 // destination is left alone and the error includes ffmpeg's output. Later
 // calls return the same result.
 func (s *VideoEncoder) Close() error {
@@ -471,7 +451,7 @@ func (s *VideoEncoder) Close() error {
 }
 
 // Discard stops ffmpeg and removes its output without touching the
-// destination path. It returns nil after [VideoEncoder.Close] has run.
+// destination. It returns nil after [VideoEncoder.Close] has run.
 func (s *VideoEncoder) Discard() error {
 	if s.done {
 		return nil

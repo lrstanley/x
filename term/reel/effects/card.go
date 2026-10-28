@@ -17,8 +17,8 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// cardCols and cardRows are the terminal size up to which card text is the
-// size of the terminal font. Past it, card text grows (see [cardScale]).
+// cardCols and cardRows are the terminal size past which card text grows
+// (see [cardScale]).
 const (
 	cardCols = 80
 	cardRows = 24
@@ -26,25 +26,20 @@ const (
 
 // Line is one line of text on a card.
 type Line struct {
-	// Text is the text, drawn as it is: escape sequences are not
-	// interpreted.
-	Text string
-	// Style is how the text is drawn.
+	// Text is drawn as is: escape sequences are not interpreted.
+	Text  string
 	Style vt.Style
 }
 
 // CardRenderer draws the cards of one recording: lines of text centered on
 // an otherwise blank terminal, drawn by the recording's [reel.Rasterizer] at
-// the size and with the window chrome of a terminal frame, so a card can sit
-// beside the frames. Cards use the rasterizer's default colors, not ones the
-// program set, so every card in a recording looks the same.
+// the size and with the window chrome of a terminal frame. Cards use the
+// rasterizer's default colors, not ones the program set, so every card in a
+// recording looks the same.
 //
-// The text is drawn by a renderer of its own, built from [reel.Context.Render]
-// without window chrome, padding, margin, or scrollbar. On terminals larger
-// than 80x24 the text is larger than the terminal font, so it stays readable
-// when the recording is scaled down to fit a page, and the renderer is
-// rebuilt when a terminal frame of a size that changes the text size comes
-// along. Text that does not fit is cut off.
+// The text is drawn with [reel.Context.Render] options. On terminals larger
+// than 80x24 it is larger than the terminal font, so it stays readable when
+// the recording is scaled down. Text that does not fit is cut off.
 //
 // A card renderer is for the stages of the recording it was made for, which
 // run on one goroutine. It is closed when the recording ends, and must not be
@@ -55,22 +50,17 @@ type CardRenderer struct {
 	opts []render.Option
 	// base is the scale of the terminal font.
 	base float64
-	// cols and rows are the timeline's starting size, for cards drawn
-	// without a terminal frame.
+	// cols and rows are the timeline's starting size, for a nil src.
 	cols, rows int
 
-	text *render.Renderer
-	// scale is the text renderer's card scale (see [cardScale]).
-	scale float64
-	// err is the errors rebuilding the text renderer and closing the ones
-	// replaced, returned when the recording ends.
+	text  *render.Renderer
+	scale float64 // See [cardScale].
+	// err is returned when the recording ends.
 	err error
 }
 
-// NewCardRenderer returns a card renderer for the recording ctx describes,
-// which is closed when the recording ends (see [reel.Context.OnClose]). It
-// is for an [reel.Effect]'s Start: an error building the text renderer is
-// returned there.
+// NewCardRenderer returns a card renderer for the recording of ctx, for use
+// in an [reel.Effect]'s Start. It is closed when the recording ends.
 func NewCardRenderer(ctx *reel.Context) (*CardRenderer, error) {
 	h := ctx.Timeline.Header()
 	c := &CardRenderer{
@@ -108,8 +98,8 @@ func (c *CardRenderer) close() error {
 	return err
 }
 
-// Card returns a card of lines, centered, the size of src, a terminal frame
-// of the recording, with its title and focus. A nil src is a terminal of the
+// Card returns a card of lines the size of src, a terminal frame of the
+// recording, with its title and focus. A nil src is a terminal of the
 // timeline's starting size, focused and untitled. The image is the caller's.
 func (c *CardRenderer) Card(src *reel.CellFrame, lines ...Line) *image.NRGBA {
 	cols, rows, st := c.source(src)
@@ -171,9 +161,8 @@ func (c *CardRenderer) drawText(cols, rows int, st vt.State, lines []Line) *imag
 }
 
 // renderer returns the text renderer for card scale scale, rebuilding it
-// when the scale changed. The options built one already, so rebuilding
-// should not fail; when it does, it keeps the one it has, which draws at
-// the old scale, and the error is returned when the recording ends.
+// when the scale changed. If rebuilding fails, it keeps drawing at the old
+// scale, and the error is returned when the recording ends.
 func (c *CardRenderer) renderer(scale float64) *render.Renderer {
 	if scale == c.scale {
 		return c.text
@@ -190,9 +179,8 @@ func (c *CardRenderer) renderer(scale float64) *render.Renderer {
 }
 
 // cardScale is how much larger card text is than the terminal font on a
-// cols by rows terminal. It grows at three quarters the rate the terminal
-// grows past 80x24, so text on a large terminal stays readable without
-// filling the card.
+// cols by rows terminal: it grows at three quarters the rate the terminal
+// grows past 80x24.
 func cardScale(cols, rows int) float64 {
 	grown := min(float64(cols)/cardCols, float64(rows)/cardRows)
 	return max(1, 1+(grown-1)*3/4)
@@ -205,7 +193,7 @@ func cardGrid(cols, rows int) (gridCols, gridRows int) {
 	return int(float64(cols) / scale), int(float64(rows) / scale)
 }
 
-// textWidth is the width of s in cells, grapheme by grapheme.
+// textWidth is the width of s in cells.
 func textWidth(s string) int {
 	var width int
 	for s != "" {
@@ -240,7 +228,7 @@ func writeCentered(buf *vt.Buffer, y int, line Line) {
 	}
 }
 
-// cloneNRGBA returns a copy of img, to draw an overlay on.
+// cloneNRGBA returns a copy of img.
 func cloneNRGBA(img *image.NRGBA) *image.NRGBA {
 	return &image.NRGBA{Pix: slices.Clone(img.Pix), Stride: img.Stride, Rect: img.Rect}
 }

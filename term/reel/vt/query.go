@@ -213,7 +213,9 @@ func (t *Terminal) scrollRow(row int) {
 }
 
 // ProgramStatuses returns OSC 7501 records sorted by id. App is copied from
-// the nearest ancestor that set one. The slice is a copy.
+// the nearest ancestor that set one. The slice is a copy. Working and blocked
+// records are removed when a shell prompt starts (OSC 133 A), and a full
+// reset (RIS) removes every record.
 func (t *Terminal) ProgramStatuses() []ProgramStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()

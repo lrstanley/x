@@ -19,61 +19,32 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// Export writes the outputs of p from tl, which is replayed into a fresh
-// terminal: every event is applied in order, and each time the terminal
-// looks different (outside synchronized output) is a frame: new program
-// output, or a change of focus or colors.
+// Export replays tl into a fresh terminal and writes the outputs of p. Each
+// visible change (outside synchronized output) is a frame: program output,
+// or a change of focus or colors. Frames run through p's effects into every
+// frame output; effects that drop every frame are an error.
 //
-// The frames of a timeline returned by [Timeline.Between] are those of its
-// window, which opens on the terminal the events before it left. Frames are
-// drawn as of their offset into the timeline, never the wall clock, so
-// exporting one timeline twice writes the same bytes, as does exporting the
-// asciicast file [Timeline.WriteTo] saved of it, but for the exceptions
-// [Timeline] lists. The frames then run through p's effects into every frame
-// output; effects that drop every frame are an error.
+// For a timeline from [Timeline.Between], frames are those of its window,
+// opening on the screen the earlier events left. Output is deterministic
+// (see [Timeline]). [Header.SkipPristine] skips the bare terminal before
+// the first paint. A window with no frames at all shows the terminal as it
+// is at the end.
 //
-// Until the first frame, a terminal that looks like nothing was drawn on it
-// is not a frame, which skips the capability queries programs start with. A
-// recording whose window has no frame at all shows the terminal as it is at
-// the end.
-//
-// Each output's path may hold variables, written {name}: {duration}, the
-// length of the timeline's window rounded to 100ms (such as "4.2s"),
-// {timestamp}, when the window started in UTC as 20060102T150405 (or now,
-// when the timeline has no start time), {mark} in an output with Marks, and
-// every name in [Profile.Vars]. Values are used as they are. Any other name,
-// and two outputs with one path, are errors. Every output is checked, and
-// every frame output created, before any frame is drawn, so a video without
-// ffmpeg fails at once. Each output is written to a temporary file, moved
-// into place once complete, so an output that fails leaves an existing file
-// alone.
-//
-// An asciicast output is the timeline itself, written with
-// [Timeline.WriteCast], with the [Profile.Title] and the palette the frames
-// are drawn with in its header. When every output is asciicast, nothing is
-// drawn and no renderer is built. It does not run through the effects, so
-// a profile with a [Concealer] or [Cutter] and an asciicast output is an
-// error wrapping [ErrRawOutput]. A still of [File.Marks] runs through the
-// Concealer and [StillEffect] effects alone (see StillEffect).
-//
-// An asciicast output records the profile's effects instead: the
-// description of each effect that is a [Describer], in the profile's
-// order, as [Annotation] events at the start of the file, before the
-// timeline's events. They replace the timeline's annotations of
-// [EffectKind] and of the kinds the descriptions have, so the file holds
-// the effects of the profile it was written with, and a file exported again
-// with the effects read from it holds each once. An effect that is not a
-// Describer, or only wraps one, and one whose Describe returns an error
-// wrapping [errors.ErrUnsupported], is left out. Any other error, or a
-// description [AnnotationSchema] does not allow, is an error before
-// anything is written. The file holds the window alone, so it leaves out
-// the description of a [MarkChecker] whose marks the window does not have.
+// Output paths may contain {name} variables: {duration} (window length
+// rounded to 100ms, such as "4.2s"), {timestamp} (window start in UTC as
+// 20060102T150405, or now if the timeline has no start time), {mark} for
+// outputs with Marks, and any name in [Profile.Vars]. Unknown names and
+// duplicate paths are errors. All outputs are checked and created before
+// any frame is drawn, so a missing ffmpeg fails at once. Each output is
+// written to a temporary file and moved into place when complete, so a
+// failure leaves an existing file untouched.
 //
 // A mark the profile looks for that the timeline's window does not have,
 // such as one a test failed before it reached, does not stop the export:
 // the outputs are written as a [Record] of the timeline would write them,
 // whose marks never came (see Record), and Export then returns a
-// [NoMarkError] for each.
+// [NoMarkError] for each. See [File] for what an asciicast output holds;
+// when every output is asciicast, nothing is drawn.
 //
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
@@ -106,58 +77,48 @@ func Export(ctx context.Context, tl *Timeline, p Profile) error {
 	return rec.commit(tl)
 }
 
-// recorder writes a profile's outputs from the events of a timeline it is
-// given one at a time. Once created, it must be committed or aborted.
+// recorder writes a profile's outputs from timeline events fed to it one at
+// a time. Once created, it must be committed or aborted.
 type recorder struct {
-	s    settings
-	outs *outputs
-	// castHdr is the header of the asciicast outputs, and castEffects the
-	// effects they record, with their descriptions.
+	s           settings
+	outs        *outputs
 	castHdr     Header
 	castEffects []castEffect
-	// rast draws the frames, and closeRast closes it when the recorder
-	// built it.
-	rast      Rasterizer
+	rast        Rasterizer
+	// closeRast is set when the recorder built rast and must close it.
 	closeRast bool
 	replay    *replay
 	pipe      *pipeline
-	// view is the timeline the effects of a live recording are given: the
-	// events of src replayed so far, so they never see those appended
-	// after it stops.
+	// view is what a live recording's effects see: the events of src
+	// replayed so far, so they never see events appended after it stops.
 	src, view *Timeline
-	// effects is the context the effects were started with, closed with
-	// the recorder.
-	effects *Context
-	// stills runs the stills through the effects, when there are both
-	// stills and a [StillEffect] or [Concealer].
+	effects   *Context
+	// stills is set when there are both stills and still-capable effects.
 	stills *stillChain
 }
 
-// stillChain runs the stills of a recording through the effects that run
-// on stills, started for the stills alone.
+// stillChain runs stills through the effects that apply to them, started
+// separately from the recording's.
 type stillChain struct {
-	// ctx is the context the effects were started with, and stages are
-	// their stages.
 	ctx    *Context
 	stages []Stage
-	// span is the timeline time a still plays for, a step of playback,
-	// which the effects may look at past its offset.
+	// span is how long a still plays for (one playback step); effects may
+	// look this far past its offset.
 	span time.Duration
-	// held are the stills drawn, in order, held until the timeline is
-	// known past their span.
+	// held are drawn stills waiting until the timeline is known past their
+	// span.
 	held []heldStill
 }
 
-// heldStill is a still drawn, and the sinks to write it to.
+// heldStill is a drawn still and the sinks to write it to.
 type heldStill struct {
 	frame Frame
 	label string
 	sinks []sink.Sink
 }
 
-// newRecorder checks p and opens its outputs for tl, with a replay terminal
-// from rt. live is set when tl grows while the recorder runs. It draws
-// nothing when every output is asciicast.
+// newRecorder checks p and opens its outputs for tl. live is set when tl
+// grows while the recorder runs.
 func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p Profile, vars map[string]string) (*recorder, error) {
 	s, err := p.settings()
 	if err != nil {
@@ -181,8 +142,8 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 			return nil, err
 		}
 		if p.Rasterizer == nil {
-			// The palette the frames are drawn with. A custom rasterizer
-			// keeps the timeline's.
+			// Record the drawn palette; a custom rasterizer keeps the
+			// timeline's.
 			if r.castHdr.Palette, err = drawnPalette(opts); err != nil {
 				return nil, err
 			}
@@ -202,7 +163,7 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 }
 
 // openDrawn builds the rasterizer, opens the frame outputs, and starts the
-// replay and the pipeline.
+// replay and pipeline.
 func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p Profile, opts []render.Option, title string) error {
 	r.rast = p.Rasterizer
 	if r.rast == nil {
@@ -261,15 +222,15 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 	return nil
 }
 
-// castEffect is an effect an asciicast output records, and its description.
+// castEffect is an effect recorded in asciicast outputs, with its
+// description.
 type castEffect struct {
 	effect Effect
 	desc   Annotation
 }
 
-// describeEffects returns each effect that is a [Describer], with its
-// description, checked against [AnnotationSchema], leaving out those whose
-// Describe returns an error wrapping [errors.ErrUnsupported].
+// describeEffects returns the validated descriptions of each [Describer]
+// effect, skipping those that return [errors.ErrUnsupported].
 func describeEffects(effects []Effect) ([]castEffect, error) {
 	var out []castEffect
 	for i, e := range effects {
@@ -292,8 +253,7 @@ func describeEffects(effects []Effect) ([]castEffect, error) {
 	return out, nil
 }
 
-// startEffects starts each effect for a recording, leaving out those that
-// return no stage.
+// startEffects starts each effect, leaving out those that return no stage.
 func startEffects(effects []Effect, ctx *Context) ([]Stage, error) {
 	var stages []Stage
 	for _, e := range effects {
@@ -308,8 +268,8 @@ func startEffects(effects []Effect, ctx *Context) ([]Stage, error) {
 	return stages, nil
 }
 
-// renderOptions returns the options the frames of a timeline that starts
-// with h are drawn with: its palette, replaced by one opts sets.
+// renderOptions returns opts preceded by h's palette, so opts can override
+// it.
 func renderOptions(h Header, opts []render.Option) []render.Option {
 	var indexed map[int]color.Color
 	for i, c := range h.Palette {
@@ -343,7 +303,7 @@ func (p Profile) fitRender(h Header, opts []render.Option) ([]render.Option, err
 }
 
 // drawnPalette returns the 16 colors a renderer built from opts draws with,
-// nil for its defaults.
+// nil for defaults.
 func drawnPalette(opts []render.Option) ([16]color.Color, error) {
 	var out [16]color.Color
 	pal, err := render.PaletteOf(opts...)
@@ -379,18 +339,17 @@ func (r *recorder) apply(ev Event) error {
 	if r.view != nil {
 		r.view.follow(r.src, ev)
 	}
-	// The timeline is known up to ev, which a live one may not have held
-	// when a still was drawn.
+	// The timeline is now known up to ev, so held stills before it can be
+	// finished.
 	if err := r.writeHeld(ev.At(), false); err != nil {
 		return err
 	}
 	return r.replay.apply(ev)
 }
 
-// still writes the terminal as it is at m to the stills of its label not
-// yet written. With effects on stills, it is held until the timeline is
-// known past the still's span, so the effects see the marks that fall in it, as
-// they would for a frame of the recording.
+// still writes the terminal at m to the unwritten stills for its label.
+// With still effects, it is held until the timeline is known past the
+// still's span, so effects see the marks in it as they would for a frame.
 func (r *recorder) still(m Mark) error {
 	sinks := r.outs.stillsAt(m.Label)
 	if len(sinks) == 0 {
@@ -404,8 +363,7 @@ func (r *recorder) still(m Mark) error {
 	return nil
 }
 
-// drawCurrent returns the terminal as it is now, as of at, as a frame a
-// step long.
+// drawCurrent draws the current terminal as a one-step frame at at.
 func (r *recorder) drawCurrent(at time.Duration) Frame {
 	cf := r.replay.current(at)
 	b := cf.Screen.Bounds()
@@ -414,8 +372,8 @@ func (r *recorder) drawCurrent(at time.Duration) Frame {
 	return Frame{Image: img, Cells: &cf, At: cf.At, Delay: r.s.step}
 }
 
-// writeHeld runs the effects on and writes the stills held whose span ends before
-// offset at, or every one when all is set.
+// writeHeld runs effects on and writes the held stills whose span ends
+// before at, or all of them when all is set.
 func (r *recorder) writeHeld(at time.Duration, all bool) error {
 	sr := r.stills
 	if sr == nil {
@@ -435,7 +393,7 @@ func (r *recorder) writeHeld(at time.Duration, all bool) error {
 	return nil
 }
 
-// writeStill writes f, a still, to sinks.
+// writeStill writes the still f to sinks.
 func writeStill(sinks []sink.Sink, f Frame, step time.Duration) error {
 	for _, s := range sinks {
 		if err := s.WriteFrame(sink.Frame{Image: f.Image, Delay: step, Isolated: f.Isolated}); err != nil {
@@ -445,9 +403,9 @@ func writeStill(sinks []sink.Sink, f Frame, step time.Duration) error {
 	return nil
 }
 
-// runAlone runs f through stages, giving each the frames the one before it
-// emitted as a recording of their own, and returns the first frame the last
-// emits, or false when none does.
+// runAlone runs f through stages, each seeing the previous stage's output
+// as a whole recording, and returns the first frame the last stage emits,
+// or false if none.
 func runAlone(stages []Stage, f Frame) (Frame, bool) {
 	frames := []Frame{f}
 	for _, run := range stages {
@@ -468,7 +426,7 @@ func runAlone(stages []Stage, f Frame) (Frame, bool) {
 	return frames[0], true
 }
 
-// end ends the recording at offset end, sending every frame on.
+// end flushes the recording at offset end.
 func (r *recorder) end(end time.Duration) error {
 	if r.replay == nil {
 		return nil
@@ -491,14 +449,12 @@ func (r *recorder) end(end time.Duration) error {
 	return nil
 }
 
-// commit writes every output, with tl, under the recording's header, to the
-// asciicast ones.
+// commit finishes every output, writing tl to the asciicast ones.
 //
-// The asciicast outputs leave out the descriptions of the effects whose
-// marks tl lacks. When no effects ran on frames to report those marks,
-// commit reports them itself.
+// Effects whose marks tl lacks are left out of the asciicast outputs. When
+// no effects ran on frames to report those marks, commit reports them
+// itself.
 func (r *recorder) commit(tl *Timeline) error {
-	// The effects that ran on frames report the same marks as they close.
 	report := r.effects == nil
 	var descs []Annotation
 	var missing []error
@@ -513,7 +469,7 @@ func (r *recorder) commit(tl *Timeline) error {
 		}
 		descs = append(descs, c.desc)
 	}
-	// The terminal goes back first: writing a cut replays it.
+	// Release the terminal first: writing a cut replays into one.
 	err := errors.Join(r.outs.close(), r.release(), errors.Join(missing...))
 	return errors.Join(err, r.outs.writeCasts(tl, r.castHdr, descs))
 }
@@ -523,15 +479,13 @@ func (r *recorder) abort() {
 	_ = r.release()
 }
 
-// release returns the terminal, closes what the effects opened, and closes
-// the rasterizer the recorder built.
+// release closes the effects, replay terminal, and owned rasterizer.
 func (r *recorder) release() error {
 	var errs []error
 	if r.stills != nil {
 		err := r.stills.ctx.close()
 		if r.effects != nil {
-			// The recording's effects hold the same still effects, which
-			// report the same marks that never came.
+			// The recording's effects report the same missing marks.
 			_, err = MissingMarks(err)
 		}
 		errs = append(errs, err)

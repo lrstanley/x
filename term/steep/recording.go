@@ -25,16 +25,12 @@ import (
 type exportPolicy int
 
 const (
-	// exportOff keeps the timeline in memory and writes nothing.
 	exportOff exportPolicy = iota
-	// exportOnFailure exports at [Harness.Close] when the test failed.
 	exportOnFailure
-	// exportAlways exports at [Harness.Close].
 	exportAlways
 )
 
-// String returns the name of the policy, as the "export" of a "steep.start"
-// annotation: "off", "failure", or "always".
+// String returns the policy's name in "steep.start" annotations.
 func (p exportPolicy) String() string {
 	switch p {
 	case exportOnFailure:
@@ -51,12 +47,10 @@ func (p exportPolicy) String() string {
 type StillKind uint8
 
 const (
-	// StillPNG is a PNG of the terminal at the mark, drawn with the
-	// recording's [reel.Profile.Render] options, through the effects that
-	// run on stills alone (see [reel.StillEffect]).
+	// StillPNG is a PNG of the terminal at the mark, drawn with the profile's
+	// Render options and only its [reel.StillEffect] effects.
 	StillPNG StillKind = 1 << iota
-	// StillSnapshot is the screen's text at the mark, as [Harness.View]
-	// returned it then, in a ".snap" file.
+	// StillSnapshot is a ".snap" file of [Harness.View] at the mark.
 	StillSnapshot
 )
 
@@ -77,7 +71,6 @@ const (
 	varStatus = "status"
 )
 
-// Values of {status}.
 const (
 	statusPassed = "passed"
 	statusFailed = "failed"
@@ -88,82 +81,52 @@ const (
 type Result struct {
 	// Name is the test's name, [testing.TB.Name].
 	Name string
-	// Failed is whether the test failed, or was panicking, by the time
+	// Failed is whether the test had failed, or was panicking, by the time
 	// [Harness.Close] ran.
 	Failed bool
-	// Failures are the failure messages the harness reported, oldest first:
-	// failed assertions, waits, and snapshots, and harness errors such as
-	// timeouts, followed by "test panicked" for a test that panicked. The
-	// harness marked the nth "failure-n" (see [Harness.Mark]), all but
-	// "test panicked". Failures a test reports itself, through its own
-	// [testing.TB], are not included.
+	// Failures are the failure messages the harness reported, oldest first,
+	// followed by "test panicked" for a test that panicked. The harness marks
+	// each but "test panicked" as "failure-n" (see [Harness.Mark]). Failures
+	// the test reports through its own [testing.TB] are not included.
 	Failures []string
 	// Duration is how long the harness ran, from [NewHarness] to
 	// [Harness.Close].
 	Duration time.Duration
 }
 
-// captureEvents are the hook events [WithStills] uses when it is given none,
-// those of actions that change what the terminal shows or wait for it.
+// captureEvents are the default events of [WithStills].
 var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookWait, HookReady, HookClose}
 
-// WithRecording sets what an export writes: the outputs, renderer, encoder
-// options, effects, and timing of a [reel.Profile]. It does not export by
-// itself: see [WithExportAlways] and [WithExportOnFailure]. Calls merge,
-// later ones winning (see [reel.Profile.Merge]).
+// WithRecording sets what an export writes as a [reel.Profile]. It does not
+// export by itself (see [WithExportAlways] and [WithExportOnFailure]). Calls
+// merge with [reel.Profile.Merge]. The profile's Render options also draw
+// [Harness.Image] and [Harness.ImageInto].
 //
-// The profile's Render options also draw [Harness.Image] and
-// [Harness.ImageInto], whether or not the harness exports.
-//
-// Output paths may hold reel's path variables ({duration}, {timestamp}, and
-// {mark}), the profile's Vars, and two of steep's: {name}, the test's name
-// with every character but letters and digits replaced by "_" (so a subtest's
-// slashes do not make directories), and {status}, "passed" or "failed". A
-// {name} or {status} in the profile's Vars replaces steep's, such as to give
-// a recording a stable name. A relative path is relative to the directory
-// [WithArtifacts] sets. A profile with nil Outputs writes
+// Besides reel's path variables and the profile's Vars, output paths may use
+// {name}, the test's name with everything but letters and digits replaced by
+// "_", and {status}, "passed" or "failed". Vars of the same names override
+// them. Relative paths are under [WithArtifacts]. Nil Outputs write
 // "{name}_{status}.gif" and "{name}_{status}.cast".
 //
-// At export, [reel.Context.Meta] is the test's *[Result], replacing the
-// profile's, which [Outro] reads to show PASS or FAIL, and for a failed test,
-// to hold the screen it failed on for at least 3s before the card.
+// At export, [reel.Context.Meta] is the test's *[Result]. A mark the
+// profile looks for that the test never placed does not stop the export
+// (see [reel.Export]): for a failed test it is logged, and for a passing
+// test it is a test error, except for "failure-n" marks, so a profile can
+// pause on "failure-1" whatever the result. The recording ends where
+// [Harness.Close] starts, so the program's repaint as it exits is left out.
 //
-// A mark the profile's effects or stills look for that the test never
-// placed does not stop the export: the outputs are written as if the test
-// never got to it (see [reel.Export]). For a failed test, which may have
-// stopped before it, that is logged. For a passing test, it is a test
-// error, but for the marks of failures, which a passing test has none of,
-// so a profile can pause on "failure-1" (see [Harness.Mark]) whatever the
-// result.
-//
-// The recording is the [reel.Timeline] of the session up to the start of
-// [Harness.Close], so a program's repaint as it exits is left out.
-//
-// Environment (each applied unless [WithIgnoreEnv] is set): STEEP_EXPORT_TYPE
-// replaces the outputs and stills, as a comma-separated list of gif, mp4,
-// webm, webp, and cast, which write "{name}_{status}.<type>", png and
-// snapshot, which write [StillPNG] and [StillSnapshot] stills at the events
-// [WithStills] uses by default, and all, which is gif, cast, png, and
-// snapshot. Unknown names are ignored. STEEP_EXPORT_FPS and
-// STEEP_EXPORT_SPEED replace FPS and Speed.
-// STEEP_EXPORT_QUALITY (0 to 100), STEEP_EXPORT_MAX_FRAMES,
-// STEEP_EXPORT_MAX_BYTES, and STEEP_EXPORT_OPTIMIZE (none, frames, dirty,
-// quantize, or all, comma-separated) are appended to the profile's Encode
-// options, and STEEP_RENDERER_SCALE and STEEP_RENDERER_FONT_FAMILY to its
-// Render options, so they win over options of the same kind without
-// dropping the others.
+// The STEEP_EXPORT_* and STEEP_RENDERER_* variables patch the profile (see
+// the package documentation).
 func WithRecording(p reel.Profile) Option {
 	return func(cfg *options) {
 		cfg.recording = cfg.recording.Merge(p)
 	}
 }
 
-// WithArtifacts sets the directory an export writes relative output paths
-// under, created when needed. A relative dir is relative to the test's
-// package directory. Without it, files go to [testing.TB.ArtifactDir], which
-// only keeps them when tests run with "go test -artifacts" (see
-// "-outputdir"): otherwise it is a temporary directory, removed when the test
-// ends.
+// WithArtifacts sets the directory relative output paths are written under,
+// created when needed. A relative dir is relative to the test's package
+// directory. Without it, files go to [testing.TB.ArtifactDir], which is only
+// kept with "go test -artifacts".
 //
 // Environment: STEEP_EXPORT_DIR (overrides this option unless [WithIgnoreEnv]
 // is set).
@@ -174,20 +137,13 @@ func WithArtifacts(dir string) Option {
 }
 
 // WithExportOnFailure exports the recording (see [WithRecording]) at
-// [Harness.Close] if the test has failed by then, and writes nothing when it
-// passes. Without an export policy, nothing is written: the [reel.Timeline]
-// is kept in memory, for [Harness.Timeline], since a failing test already
-// prints the screen as text, and artifacts written into a package directory
-// may not be ignored by version control.
+// [Harness.Close] if the test has failed by then. Without an export policy,
+// nothing is written.
 //
-// [Harness.Close] runs as a cleanup of the test, which also runs when the
-// test panics or calls [testing.TB.FailNow], so those export too. A test
-// killed by "go test -timeout", or a panic on a goroutine of its own, ends
-// the process before cleanups run, and writes nothing.
+// Tests that panic or call [testing.TB.FailNow] still export. A test killed
+// by "go test -timeout", or a panic on another goroutine, writes nothing.
 //
-// Environment: STEEP_EXPORT_MODE sets the policy: on (or always, true, 1)
-// for [WithExportAlways], failure (or on-failure) for this one, and off (or
-// false, 0) for none. It overrides this option unless [WithIgnoreEnv] is set.
+// Environment: STEEP_EXPORT_MODE (see the package documentation).
 func WithExportOnFailure() Option {
 	return func(cfg *options) {
 		cfg.policy = exportOnFailure
@@ -195,9 +151,8 @@ func WithExportOnFailure() Option {
 }
 
 // WithExportAlways exports the recording (see [WithRecording]) at
-// [Harness.Close], whether the test passed or failed. See
-// [WithExportOnFailure] for when an export runs, and the environment
-// override.
+// [Harness.Close], whether the test passed or failed, except for a skipped
+// test. See [WithExportOnFailure] for caveats and the environment override.
 func WithExportAlways() Option {
 	return func(cfg *options) {
 		cfg.policy = exportAlways
@@ -205,17 +160,13 @@ func WithExportAlways() Option {
 }
 
 // WithStills writes stills of kinds at the marks of events (see
-// [Harness.Mark] for how each hook event is marked), one file per mark:
-// "{name}_{status}_{mark}.png" for [StillPNG], and
-// "{name}_{status}_{mark}.snap" for [StillSnapshot], such as
-// "TestLogin_failed_input-2.png" for the second input. Without events, it
-// covers the events of actions that change what the terminal shows or wait
-// for it: input, terminal, program, wait, ready, and close. Calls
-// accumulate.
+// [Harness.Mark]), one file per mark: "{name}_{status}_{mark}.png" for
+// [StillPNG] and "{name}_{status}_{mark}.snap" for [StillSnapshot], such as
+// "TestLogin_failed_input-2.png". Without events, it uses input, terminal,
+// program, wait, ready, and close. Calls accumulate.
 //
-// Stills are written with the recording, so only when an export policy is on
-// (see [WithExportOnFailure]). For a single PNG of the last frame, add a
-// ".png" output to the profile instead.
+// Stills are only written when the recording is exported. For a single PNG
+// of the last frame, add a ".png" output to the profile instead.
 func WithStills(kinds StillKind, events ...HookEvent) Option {
 	return func(cfg *options) {
 		if len(events) == 0 {
@@ -225,7 +176,6 @@ func WithStills(kinds StillKind, events ...HookEvent) Option {
 	}
 }
 
-// addStills returns stills with kinds added at events.
 func addStills(stills map[HookEvent]StillKind, kinds StillKind, events []HookEvent) map[HookEvent]StillKind {
 	if kinds == 0 {
 		return stills
@@ -239,13 +189,12 @@ func addStills(stills map[HookEvent]StillKind, kinds StillKind, events []HookEve
 	return stills
 }
 
-// stillPath is the path of a still, before its extension.
+// stillPath is the path of a still, without its extension.
 const stillPath = "{name}_{status}_{mark}"
 
 // hookMark is a mark the harness placed for a hook event.
 type hookMark struct {
-	label string
-	// stills are the kinds of still written at the mark.
+	label  string
 	stills StillKind
 	// snap is the screen's text at the mark, for a [StillSnapshot].
 	snap string
@@ -255,18 +204,19 @@ type hookMark struct {
 // [reel.Timeline.Between] can cut a recording at. The label must not be
 // empty.
 //
-// The harness marks every hook event once its action is done, just before
-// its After hooks run, labeled with the event's name and its count so far,
-// such as "input-1", "input-2", and "wait-1", so each one can be told apart
-// in an asciicast file and cut at. While an export policy is on, an input,
-// terminal, or program action is marked once the program has painted its
-// response (see [WithSettle]). [Harness.Close] places its mark as it starts,
-// where the recording ends.
+// The harness marks every hook event once its action is done, before its
+// After hooks run, labeled with the event's name and count, such as
+// "input-1" or "wait-1". While exporting, input, terminal, and program
+// actions are marked once the program has painted its response: when its
+// output has then been quiet for the [WithCheck] interval, or, if it writes
+// nothing, after the [WithSettle] period (at least 50ms). A very large
+// check interval therefore slows those actions. [Harness.Close] places its
+// mark as it starts, where the recording ends.
 //
-// The harness also marks each failure it reports, as it reports it, labeled
+// The harness also marks each failure it reports as it reports it,
 // "failure-1", "failure-2", and so on, numbered as in [Result.Failures],
-// such as for [effects.PauseAtMarks] to pause on the first failure of a test
-// that went on past it. Use other labels for marks of a test's own.
+// such as for [effects.PauseAtMarks] to pause on a test's first failure.
+// Use other labels for a test's own marks.
 func (h *Harness) Mark(label string) *Harness {
 	h.tb.Helper()
 	h.check(h.session.Mark(label))
@@ -280,8 +230,8 @@ func (h *Harness) Session() *reel.Session { return h.session }
 // program runs.
 func (h *Harness) Timeline() *reel.Timeline { return h.session.Timeline() }
 
-// markEvent marks event in the timeline (see [Harness.Mark]), and returns
-// the label, or "" once the session is closed.
+// markEvent marks event (see [Harness.Mark]) and returns the label, or ""
+// once the session is closed.
 func (h *Harness) markEvent(event HookEvent) string {
 	h.tb.Helper()
 	h.marksMu.Lock()
@@ -308,11 +258,8 @@ func (h *Harness) markEvent(event HookEvent) string {
 }
 
 // exportRecording exports the recording up to the mark labeled end, as the
-// policy says. A skipped test that did not fail exports nothing. It reports
-// a failure to export as a test error, but for a mark the profile looks for
-// that the recording lacks, which reel writes the outputs without: a failed
-// test may have stopped before it, so it is logged, and a passing test has
-// no failure marks.
+// policy says. A skipped test that did not fail exports nothing. A failure
+// to export is a test error, except for missing marks (see [WithRecording]).
 func (h *Harness) exportRecording(end string) {
 	h.tb.Helper()
 	if h.cfg.policy == exportOff {
@@ -403,8 +350,8 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 	return errors.Join(errs...)
 }
 
-// exportTimeline exports the session's timeline up to the mark labeled end,
-// or all of it without one.
+// exportTimeline exports the timeline up to the mark labeled end, or all of
+// it for "".
 func (h *Harness) exportTimeline(end string, p reel.Profile) error {
 	tl, err := h.session.Timeline().Between("", end)
 	if err != nil {
@@ -416,8 +363,8 @@ func (h *Harness) exportTimeline(end string, p reel.Profile) error {
 	return reel.Export(context.Background(), tl, p)
 }
 
-// marksUpTo returns the hook marks placed up to the one labeled end, it
-// included, or every one without it.
+// marksUpTo returns the hook marks up to and including the one labeled end,
+// or all of them if there is none.
 func (h *Harness) marksUpTo(end string) []hookMark {
 	h.marksMu.Lock()
 	defer h.marksMu.Unlock()
@@ -439,19 +386,17 @@ func writeSnapshot(path, text string) error {
 	return nil
 }
 
-// testStatus returns whether the test has failed, or is panicking, and
-// whether it is panicking. A test that panics runs its cleanups before it is
-// marked failed (see [panicking]).
+// testStatus returns whether the test has failed or is panicking, and
+// whether it is panicking.
 func (h *Harness) testStatus() (failed, panicked bool) {
 	panicked = panicking()
 	return panicked || h.tb.Failed(), panicked
 }
 
-// panicking reports whether the calling goroutine is panicking. A test that
-// panics runs its cleanups, [Harness.Close] among them, before the testing
-// package marks it failed, so [testing.TB.Failed] does not tell yet. A
-// deferred function that recovers a panic is still panicking until it
-// returns, so a Close it calls reports a failure too.
+// panicking reports whether the calling goroutine is panicking. A panicking
+// test runs its cleanups before it is marked failed, so [testing.TB.Failed]
+// does not tell yet. A deferred function that recovers a panic is still
+// panicking until it returns.
 func panicking() bool {
 	pc := make([]uintptr, 128)
 	frames := runtime.CallersFrames(pc[:runtime.Callers(2, pc)])
@@ -466,8 +411,8 @@ func panicking() bool {
 	}
 }
 
-// normalizeTestName replaces every character of a test name but letters and
-// digits with "_", and trims them from the ends, for {name}.
+// normalizeTestName returns name for {name}: every character but letters
+// and digits becomes "_", trimmed from the ends.
 func normalizeTestName(name string) string {
 	s := strings.Trim(strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {

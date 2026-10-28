@@ -14,20 +14,15 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// View returns the current VT screen text. Harness wait, assert, and
-// snapshot helpers sample this rendered output.
-//
-// Empty cells are spaces, so each line is the terminal width and a blank
-// row is a line of spaces. [Harness.Width] and [Harness.Height] match
-// that grid. Size the terminal with [WithWindowSize] or [Harness.Resize]
-// when the text under test should fill the window.
+// View returns the screen's text, which the harness's waits, assertions,
+// and snapshots compare. Empty cells are spaces, so every line is
+// [Harness.Width] wide and there are [Harness.Height] lines.
 func (h *Harness) View() string {
 	h.tb.Helper()
 	return h.session.Terminal().Text()
 }
 
-// Focus sends the terminal a focus event if focus events mode is enabled. This is
-// the opposite of [Harness.Blur].
+// Focus sends the program a focus event if it enabled focus reporting.
 func (h *Harness) Focus() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -35,8 +30,7 @@ func (h *Harness) Focus() *Harness {
 	return h
 }
 
-// Blur sends the terminal a blur event if focus events mode is enabled. This is
-// the opposite of [Harness.Focus].
+// Blur sends the program a blur event if it enabled focus reporting.
 func (h *Harness) Blur() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -50,8 +44,8 @@ func (h *Harness) IsFocused() bool { return h.session.Focused() }
 // Title returns the last known window title.
 func (h *Harness) Title() string { return h.session.Terminal().Title() }
 
-// LastBellAt returns the wall clock time of the most recent bell ([ansi.BEL])
-// processed by the VT emulator. It is the zero [time.Time] until the first bell.
+// LastBellAt returns the time of the most recent bell ([ansi.BEL]), or the
+// zero [time.Time] before the first.
 func (h *Harness) LastBellAt() time.Time { return h.session.Terminal().LastBellAt() }
 
 // Bounds returns the terminal's current screen bounds.
@@ -63,8 +57,8 @@ func (h *Harness) Bounds() image.Rectangle {
 // IsAltScreen returns true if the terminal is in alt screen mode.
 func (h *Harness) IsAltScreen() bool { return h.session.Terminal().AltScreen() }
 
-// ModeSetting returns the tracked ANSI mode setting. An absent mode yields
-// [ansi.ModeNotRecognized].
+// ModeSetting returns the setting of mode, or [ansi.ModeNotRecognized] for a
+// mode the terminal does not track.
 func (h *Harness) ModeSetting(mode ansi.Mode) ansi.ModeSetting {
 	_, ansiMode := mode.(ansi.ANSIMode)
 	on, ok := h.session.Terminal().Mode(vt.Mode{Number: mode.Mode(), ANSI: ansiMode})
@@ -77,15 +71,13 @@ func (h *Harness) ModeSetting(mode ansi.Mode) ansi.ModeSetting {
 	return ansi.ModeReset
 }
 
-// Width returns the terminal width in cells. This matches [Harness.View], which
-// pads each line out to this width.
+// Width returns the terminal width in cells.
 func (h *Harness) Width() int {
 	w, _ := h.session.Terminal().Size()
 	return w
 }
 
-// Height returns the terminal's current height in cells (matches [Harness.View]
-// row count).
+// Height returns the terminal height in cells.
 func (h *Harness) Height() int {
 	_, height := h.session.Terminal().Size()
 	return height
@@ -94,8 +86,8 @@ func (h *Harness) Height() int {
 // Dimensions returns the terminal's width and height in cells.
 func (h *Harness) Dimensions() (width, height int) { return h.session.Terminal().Size() }
 
-// Resize resizes the terminal to the given width and height. This should result
-// in a [tea.WindowSizeMsg] being sent to the [tea.Program].
+// Resize resizes the terminal, which sends the program a
+// [tea.WindowSizeMsg].
 func (h *Harness) Resize(width, height int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -103,8 +95,8 @@ func (h *Harness) Resize(width, height int) *Harness {
 	return h
 }
 
-// Paste pastes text into the terminal. If bracketed paste mode is enabled, the
-// text is bracketed with the appropriate escape sequences.
+// Paste pastes text into the terminal, bracketed if the program enabled
+// bracketed paste.
 func (h *Harness) Paste(text string) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindPaste, Text: text}
@@ -150,7 +142,7 @@ func (h *Harness) SetCursorColor(c color.Color) *Harness {
 	return h
 }
 
-// SetDefaultFgColor sets the default foreground color used when none is specified.
+// SetDefaultFgColor sets the foreground color used when the program sets none.
 func (h *Harness) SetDefaultFgColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -158,7 +150,7 @@ func (h *Harness) SetDefaultFgColor(c color.Color) *Harness {
 	return h
 }
 
-// SetDefaultBgColor sets the default background color used when none is specified.
+// SetDefaultBgColor sets the background color used when the program sets none.
 func (h *Harness) SetDefaultBgColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -166,7 +158,7 @@ func (h *Harness) SetDefaultBgColor(c color.Color) *Harness {
 	return h
 }
 
-// SetDefaultCursorColor sets the default cursor color used when none is specified.
+// SetDefaultCursorColor sets the cursor color used when the program sets none.
 func (h *Harness) SetDefaultCursorColor(c color.Color) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -181,7 +173,7 @@ func (h *Harness) CursorPosition() image.Point {
 	return image.Pt(cur.X, cur.Y)
 }
 
-// CursorVisible reports whether the cursor is shown. Visibility follows DECTCEM.
+// CursorVisible reports whether the cursor is shown (DECTCEM).
 func (h *Harness) CursorVisible() bool { return h.session.Terminal().Cursor().Visible }
 
 // CursorBlink reports whether the cursor style is blinking.
@@ -203,13 +195,12 @@ func (h *Harness) ScrollbackCount() int { return h.session.Terminal().Scrollback
 // from the bottom, so zero while it shows the live screen.
 func (h *Harness) ScrollbackOffset() int { return h.session.Terminal().ScrollbackOffset() }
 
-// ScrollUp scrolls the terminal's viewport n rows toward older scrollback, the
-// way a terminal's scrollbar does, so [Harness.View] and snapshots show the
-// older rows, and a scrollbar drawn with window chrome moves. The program
-// is not told, and the viewport stays where it is as the program writes more,
-// until [Harness.ScrollDown] or [Harness.ScrollToBottom] returns to the bottom,
-// or until [Harness.Type], [Harness.Key], or [Harness.Paste] send it input
-// (see [WithScrollOnInput]).
+// ScrollUp scrolls the terminal's viewport n rows toward older scrollback, so
+// [Harness.View], snapshots, and a window-chrome scrollbar show the older
+// rows. The program is not told. The viewport stays put as the program
+// writes more, until [Harness.ScrollDown] or [Harness.ScrollToBottom], or
+// input from [Harness.Type], [Harness.Key], or [Harness.Paste] (see
+// [WithScrollOnInput]).
 func (h *Harness) ScrollUp(n int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -244,8 +235,7 @@ func (h *Harness) ScrollToBottom() *Harness {
 	return h
 }
 
-// SetScrollbackSize sets the maximum scrollback lines retained on the terminal's
-// screen buffer.
+// SetScrollbackSize sets the most scrollback lines the terminal keeps.
 func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -254,7 +244,7 @@ func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 	return h
 }
 
-// ClearScrollback clears all scrollback history on the screen buffer.
+// ClearScrollback clears the terminal's scrollback.
 func (h *Harness) ClearScrollback() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
@@ -263,14 +253,11 @@ func (h *Harness) ClearScrollback() *Harness {
 	return h
 }
 
-// Type sends a sequence of key presses to the terminal emulator itself.
-// This is for regular text input, not modifier combinations such as
-// ctrl-key or alt-key.
+// Type sends s to the terminal as key presses. Use [Harness.Key] for
+// modifier combinations such as ctrl+a.
 //
-// Because this goes through the emulator, pairing it with [Harness.SendProgram]
-// can deliver events to the [tea.Program] in a different order than the
-// calls were made.
-//
+// Input goes through the terminal, so mixing it with [Harness.SendProgram]
+// can deliver events to the program in a different order than the calls.
 // Pass [WithTypingDelay] to pause after each key press of this call.
 func (h *Harness) Type(s string, opts ...Option) *Harness {
 	h.tb.Helper()
@@ -281,16 +268,11 @@ func (h *Harness) Type(s string, opts ...Option) *Harness {
 	return h
 }
 
-// Key sends a single key press to the terminal emulator itself, for example
-// "ctrl+a", "enter", "shift+tab", or "space". See
-// [github.com/lrstanley/x/term/reel.Session.Key] for the names it accepts; an
-// unknown name fails the test.
-//
-// Because this goes through the emulator, pairing it with [Harness.SendProgram]
-// can deliver events to the [tea.Program] in a different order than the
-// calls were made.
-//
-// Pass [WithTypingDelay] to pause after the key press of this call.
+// Key sends a single key press to the terminal, such as "ctrl+a", "enter",
+// "shift+tab", or "space" (see [reel.Session.Key]).
+// An unknown name fails the test. Like [Harness.Type], it can be reordered
+// against [Harness.SendProgram]. Pass [WithTypingDelay] to pause after the
+// key press.
 func (h *Harness) Key(key string, opts ...Option) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindKey, Key: key}
@@ -334,10 +316,8 @@ func (h *Harness) KeyCtrlC(opts ...Option) *Harness { return h.Key("ctrl+c", opt
 // KeyCtrlD sends ctrl+d to the terminal emulator.
 func (h *Harness) KeyCtrlD(opts ...Option) *Harness { return h.Key("ctrl+d", opts...) }
 
-// Mouse forwards a mouse event through the terminal emulator. The running
-// [tea.Program] must have enabled a mouse tracking mode and, typically, SGR
-// mouse encoding. Otherwise the emulator discards the event, matching a
-// real terminal.
+// Mouse sends a mouse event through the terminal. As with a real terminal,
+// it is dropped unless the program enabled mouse tracking.
 func (h *Harness) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindMouse, Mouse: mouseName(action), Button: buttonName(button)}
@@ -347,7 +327,7 @@ func (h *Harness) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) 
 	return h
 }
 
-// MouseClick simulates a full press and release at (x, y).
+// MouseClick sends a press and release at (x, y).
 func (h *Harness) MouseClick(button vt.MouseButton, x, y int) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindClick, Button: buttonName(button)}
@@ -367,7 +347,8 @@ func (h *Harness) MiddleClick(x, y int) *Harness { return h.MouseClick(vt.MouseM
 // RightClick is [Harness.MouseClick] with the right mouse button.
 func (h *Harness) RightClick(x, y int) *Harness { return h.MouseClick(vt.MouseRight, x, y) }
 
-// MouseDrag simulates a drag from (x1, y1) to (x2, y2).
+// MouseDrag sends a press at (x1, y1), motion through each cell toward
+// (x2, y2), and a release there.
 func (h *Harness) MouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindDrag, Button: buttonName(button)}
@@ -430,27 +411,16 @@ func (h *Harness) WorkingDirectory() string { return h.session.Terminal().Workin
 // Prompt returns the latest OSC 133 semantic prompt step.
 func (h *Harness) Prompt() vt.Prompt { return h.session.Terminal().Prompt() }
 
-// ResizeRequest returns the last CSI 8 t window-resize request.
-// ok is false until the program asks. The harness is not resized.
+// ResizeRequest returns the last CSI 8 t window-resize request, with ok
+// false until the program asks. The terminal is not resized.
 func (h *Harness) ResizeRequest() (cols, rows int, ok bool) {
 	return h.session.Terminal().ResizeRequest()
 }
 
 const programStatusMaxRecords = 256
 
-// ProgramStatuses returns the current OSC 7501 records, sorted by id. App is
-// copied from the nearest ancestor that set one. Each report replaces its
-// record; at most 256 records are kept. The returned slice is a copy.
-//
-// Working and blocked records are removed when a shell prompt starts (OSC 133
-// A). A full reset (RIS) removes every record.
-//
-// With [render.WithWindowChrome] in the profile's Render options (see
-// [WithRecording]), [Harness.Image] and recordings draw the records in the
-// title bar and as an outline around the window (see
-// [render.WithProgramStatus]). Once any record has been reported,
-// OSC 9;4 progress is no longer drawn, until a full reset, as the OSC 7501
-// spec asks.
+// ProgramStatuses returns the current OSC 7501 records (see
+// [vt.Terminal.ProgramStatuses]). At most 256 are kept.
 func (h *Harness) ProgramStatuses() []ansi.ProgramStatus {
 	return programStatuses(h.session.Terminal())
 }

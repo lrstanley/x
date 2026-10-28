@@ -16,12 +16,11 @@ import (
 // milliseconds.
 const maxWebPDuration = 1<<24 - 1
 
-// fixWebP corrects an animated WebP that ffmpeg wrote. libwebp_anim learns a
-// frame's duration from the next frame's timestamp, so it guesses the last
-// one (the average of the others) in ffmpeg releases before the fix, and the
-// webp muxer passes its file through without applying a loop count. The last
-// frame is set to whatever remains of total, which also holds when libwebp
-// merged identical frames, and the loop count is written in.
+// fixWebP patches the loop count and last frame duration of an animated WebP
+// that ffmpeg wrote. ffmpeg's webp muxer ignores the loop count for
+// libwebp_anim, and older releases guess the last frame's duration from the
+// others. The last frame gets whatever remains of total, which also holds
+// when libwebp merged identical frames.
 func fixWebP(path string, loopCount int, total time.Duration) error {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -66,8 +65,7 @@ func fixWebP(path string, loopCount int, total time.Duration) error {
 		off += 8 + size + size&1
 	}
 	if anim < 0 || last < 0 {
-		// A single frame is written as a still image, which has no timing
-		// or loop count to fix.
+		// A single frame is written as a still image.
 		return nil
 	}
 

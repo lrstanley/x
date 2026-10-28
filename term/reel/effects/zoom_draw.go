@@ -13,12 +13,10 @@ import (
 )
 
 // drawZoom returns a copy of f's image with its grid zoomed l of the way to
-// t, from none at 0 to t at 1. cells is t's crop drawn by the cell renderer,
-// or nil to scale the frame's own pixels.
-//
-// At full strength the cells are drawn as they are. On the way, the grid is
-// scaled from the frame, and the cells scaled down over the part they
-// cover, so the image moves smoothly into the sharp one at 1.
+// t. cells is t's crop drawn by the cell renderer, or nil to scale the
+// frame's own pixels. On the way, the grid is scaled from the frame, and the
+// cells scaled down over the part they cover, so the image moves smoothly
+// into the sharp one at 1.
 func (s *zoomStage) drawZoom(f reel.Frame, t *zoomTarget, l float64, cells *image.NRGBA) *image.NRGBA {
 	out := cloneNRGBA(f.Image)
 	grid := t.layout.Grid.Add(f.Image.Rect.Min)

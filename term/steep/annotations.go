@@ -24,8 +24,8 @@ import (
 	"github.com/lrstanley/x/term/steep/snapshot"
 )
 
-// The kinds of the [reel.Annotation] events a harness records in its
-// timeline. reel's annotation.schema.json describes each.
+// Kinds of the [reel.Annotation] events a harness records, as described by
+// reel's annotation.schema.json.
 const (
 	kindStart     = "steep.start"
 	kindReady     = "steep.ready"
@@ -42,19 +42,16 @@ const (
 	kindResult    = "steep.result"
 )
 
-// note is the fields of an annotation the harness records. Each kind has a
-// note type of its own, which names the kind and cuts its text, so no
-// annotation is recorded with its text uncut.
+// note is the data of an annotation the harness records.
 type note interface {
-	// kind returns the kind of the annotation.
 	kind() string
-	// clip cuts each text field of the note with [reel.ClipText], and marks
-	// the note truncated when it cut one.
+	// clip cuts each text field with [reel.ClipText], marking the note
+	// truncated when it cut one.
 	clip()
 }
 
-// annotate records n in the session's timeline, failing the test when it
-// cannot. Once the session is closed, it does nothing.
+// annotate records n, failing the test when it cannot. It does nothing once
+// the session is closed.
 func (h *Harness) annotate(n note) {
 	h.tb.Helper()
 	if err := h.record(n); err != nil {
@@ -62,12 +59,11 @@ func (h *Harness) annotate(n note) {
 	}
 }
 
-// record is annotate, which returns the error instead, for goroutines other
-// than the test's, and for failures, which must not fail again.
+// record is annotate returning the error instead, for goroutines other than
+// the test's, and for failures, which must not fail again.
 func (h *Harness) record(n note) error {
 	n.clip()
-	// Annotate checks the annotation against the schema, so it is built
-	// without NewAnnotation, which would check it too.
+	// Not NewAnnotation: Annotate already checks against the schema.
 	data, err := json.Marshal(n, json.Deterministic(true))
 	if err != nil {
 		return fmt.Errorf("steep: %s annotation: %w", n.kind(), err)
@@ -79,8 +75,7 @@ func (h *Harness) record(n note) error {
 	return err
 }
 
-// clipAll is [reel.ClipText] for each of texts, in a new slice, or nil for
-// nil.
+// clipAll is [reel.ClipText] for each of texts, in a new slice.
 func clipAll(texts []string, truncated *bool) []string {
 	if texts == nil {
 		return nil
@@ -103,7 +98,7 @@ const (
 	outcomeFailed    outcome = "failed"
 )
 
-// startNote is a "steep.start" annotation: the harness's configuration.
+// startNote is a "steep.start" annotation.
 type startNote struct {
 	Test      string `json:"test"`
 	Cols      int    `json:"cols"`
@@ -142,8 +137,7 @@ func newStartNote(test string, cfg options) *startNote {
 	return n
 }
 
-// readyNote is a "steep.ready" annotation: how the harness's wait for the
-// program to start ended.
+// readyNote is a "steep.ready" annotation.
 type readyNote struct {
 	Outcome   outcome `json:"outcome"`
 	ElapsedMS int64   `json:"elapsed_ms"`
@@ -152,14 +146,13 @@ type readyNote struct {
 func (*readyNote) kind() string { return kindReady }
 func (*readyNote) clip()        {}
 
-// cell is a cell of the screen, counted from 0 at the top left.
+// cell is a 0-based screen position.
 type cell struct {
 	Row int `json:"row"`
 	Col int `json:"col"`
 }
 
-// inputNote is a "steep.input" annotation: an input action of the test,
-// with the metadata of its hook event.
+// inputNote is a "steep.input" annotation.
 type inputNote struct {
 	InputMeta
 	At        *cell `json:"at,omitzero"`
@@ -170,16 +163,14 @@ type inputNote struct {
 func (*inputNote) kind() string { return kindInput }
 func (n *inputNote) clip()      { n.Text = reel.ClipText(n.Text, &n.Truncated) }
 
-// mouseNames are the "mouse" values of [vt.MouseAction] values, and
-// buttonNames the "button" values of [vt.MouseButton] values. See
-// [mouseName] and [buttonName] for those they leave out.
+// mouseNames and buttonNames are the annotation names of mouse actions and
+// buttons.
 var (
 	mouseNames  = map[vt.MouseAction]string{vt.MousePress: "press", vt.MouseRelease: "release", vt.MouseMotion: "motion"}
 	buttonNames = map[vt.MouseButton]string{vt.MouseLeft: "left", vt.MouseRight: "right", vt.MouseMiddle: "middle"}
 )
 
-// mouseName returns the "mouse" value of action, or "unknown" for an action
-// it does not name.
+// mouseName returns the annotation name of action, or "unknown".
 func mouseName(action vt.MouseAction) string {
 	if name, ok := mouseNames[action]; ok {
 		return name
@@ -187,8 +178,8 @@ func mouseName(action vt.MouseAction) string {
 	return "unknown"
 }
 
-// buttonName returns the "button" value of b, or "none" for no button, such
-// as [vt.MouseUnknown] for motion without one.
+// buttonName returns the annotation name of b, or "none", such as for
+// motion without a button.
 func buttonName(b vt.MouseButton) string {
 	if name, ok := buttonNames[b]; ok {
 		return name
@@ -196,8 +187,8 @@ func buttonName(b vt.MouseButton) string {
 	return "none"
 }
 
-// terminalNote is a "steep.terminal" annotation: a change the test made to
-// the terminal that its timeline does not record otherwise.
+// terminalNote is a "steep.terminal" annotation, for terminal changes no
+// other timeline event records.
 type terminalNote struct {
 	Action    string `json:"action"`
 	Lines     *int   `json:"lines,omitzero"`
@@ -208,8 +199,8 @@ type terminalNote struct {
 func (*terminalNote) kind() string { return kindTerminal }
 func (n *terminalNote) clip()      { n.Text = reel.ClipText(n.Text, &n.Truncated) }
 
-// programNote is a "steep.program" annotation: an action of the test on the
-// program, past its terminal.
+// programNote is a "steep.program" annotation, for actions on the program
+// that bypass its terminal.
 type programNote struct {
 	Action    string `json:"action"`
 	Type      string `json:"type,omitzero"`
@@ -220,7 +211,7 @@ type programNote struct {
 func (*programNote) kind() string { return kindProgram }
 func (n *programNote) clip()      { n.Value = reel.ClipText(n.Value, &n.Truncated) }
 
-// valueNote returns the type of v and its value, as fmt's %+v prints it.
+// valueNote returns v's type and its %+v formatting.
 func valueNote(v any) (typ, value string) {
 	return fmt.Sprintf("%T", v), fmt.Sprintf("%+v", v)
 }
@@ -231,8 +222,7 @@ type match struct {
 	cell
 }
 
-// matchAt returns the match of view[i:j], with the row and column, in cells,
-// of view[i].
+// matchAt returns the match of view[i:j], positioned in cells.
 func matchAt(view string, i, j int) match {
 	line := strings.LastIndexByte(view[:i], '\n') + 1
 	return match{
@@ -241,15 +231,14 @@ func matchAt(view string, i, j int) match {
 	}
 }
 
-// clipMatches clips the text of each of matches.
 func clipMatches(matches []match, truncated *bool) {
 	for i := range matches {
 		matches[i].Text = reel.ClipText(matches[i].Text, truncated)
 	}
 }
 
-// textMatches returns where each of texts first appears in view, leaving
-// out those that do not.
+// textMatches returns where each of texts first appears in view, skipping
+// those that do not.
 func textMatches(view string, texts []string) []match {
 	var out []match
 	for _, text := range texts {
@@ -268,13 +257,11 @@ func patternMatches(re *regexp.Regexp, view string) []match {
 	return nil
 }
 
-// typeName returns the name of type T, such as for a message type.
 func typeName[T any]() string {
 	return reflect.TypeFor[T]().String()
 }
 
-// waitNote is a "steep.wait.start" annotation: a wait of the test, as it
-// starts, with the metadata of its hook event.
+// waitNote is a "steep.wait.start" annotation.
 type waitNote struct {
 	ID int64 `json:"id"`
 	WaitMeta
@@ -294,7 +281,7 @@ func (n *waitNote) clip() {
 	n.Pattern = reel.ClipText(n.Pattern, &n.Truncated)
 }
 
-// waitEndNote is a "steep.wait.end" annotation: how a wait ended.
+// waitEndNote is a "steep.wait.end" annotation.
 type waitEndNote struct {
 	ID        int64    `json:"id"`
 	Wait      WaitKind `json:"wait"`
@@ -308,18 +295,16 @@ type waitEndNote struct {
 func (*waitEndNote) kind() string { return kindWaitEnd }
 func (n *waitEndNote) clip()      { clipMatches(n.Matches, &n.Truncated) }
 
-// waitRecord is a wait being recorded. The wait sets how it ended where it
-// decides that, before it fails the test for one that was not satisfied, and
-// defers [waitRecord.finish], which records the end after the failure. A
-// nil waitRecord, of a wait without a harness, records nothing.
+// waitRecord is a wait being recorded. A wait sets its outcome before it
+// fails the test, and defers [waitRecord.finish] to record the end. A nil
+// waitRecord, for a wait without a harness, records nothing.
 type waitRecord struct {
 	h     *Harness
 	start time.Time
 	end   waitEndNote
 }
 
-// startWait records the start of n, a wait of the harness, and returns its
-// record.
+// startWait records the start of n and returns its record.
 func (h *Harness) startWait(n waitNote) *waitRecord {
 	h.tb.Helper()
 	n.ID = h.waits.Add(1)
@@ -327,9 +312,8 @@ func (h *Harness) startWait(n waitNote) *waitRecord {
 	return &waitRecord{h: h, start: time.Now(), end: waitEndNote{ID: n.ID, Wait: n.Kind}}
 }
 
-// startWait records the start of n, a wait with the options' timeout, for
-// the harness the options are for, and returns its record, or nil without
-// one.
+// startWait records the start of n, with the options' timeout, for the
+// options' harness, or returns nil without one.
 func (o options) startWait(n waitNote) *waitRecord {
 	if o.harness == nil {
 		return nil
@@ -339,15 +323,14 @@ func (o options) startWait(n waitNote) *waitRecord {
 	return o.harness.startWait(n)
 }
 
-// ended sets how the wait ended.
 func (w *waitRecord) ended(o outcome) {
 	if w != nil {
 		w.end.Outcome = o
 	}
 }
 
-// foundOn sets the wait as satisfied by view, where find, when not nil,
-// finds what the wait waited for.
+// foundOn sets the wait as satisfied by view. find, if not nil, locates
+// what the wait waited for.
 func (w *waitRecord) foundOn(view string, find func(view string) []match) {
 	if w == nil {
 		return
@@ -358,7 +341,6 @@ func (w *waitRecord) foundOn(view string, find func(view string) []match) {
 	}
 }
 
-// received sets the wait as satisfied by msg.
 func (w *waitRecord) received(msg uv.Event) {
 	if w != nil {
 		w.end.Outcome = outcomeSatisfied
@@ -366,8 +348,8 @@ func (w *waitRecord) received(msg uv.Event) {
 	}
 }
 
-// finish records the end of the wait. A wait that did not set how it ended,
-// such as one a panic stopped, records no end.
+// finish records the end of the wait, unless no outcome was set, such as
+// when a panic stopped it.
 func (w *waitRecord) finish() {
 	if w == nil || w.end.Outcome == "" {
 		return
@@ -377,13 +359,11 @@ func (w *waitRecord) finish() {
 	w.h.annotate(&w.end)
 }
 
-// errWaitTimeout is the cause of the context of a wait for messages that
-// ran for its timeout.
+// errWaitTimeout is the context cause of a message wait that timed out.
 var errWaitTimeout = errors.New("steep: wait timed out")
 
-// doneOutcome returns how a wait for messages ended, which stopped when ctx,
-// a context from [context.WithTimeoutCause] with errWaitTimeout, was done or
-// its messages ended.
+// doneOutcome returns how a message wait on ctx, a context with
+// errWaitTimeout as its timeout cause, ended without a match.
 func doneOutcome(ctx context.Context) outcome {
 	switch {
 	case ctx.Err() == nil:
@@ -395,14 +375,13 @@ func doneOutcome(ctx context.Context) outcome {
 	}
 }
 
-// dims is a width and height, either of which may be left out.
+// dims is a width and height, either of which may be omitted.
 type dims struct {
 	Width  *int `json:"width,omitzero"`
 	Height *int `json:"height,omitzero"`
 }
 
-// assertNote is a "steep.assert" annotation: an assertion or requirement of
-// the test, with the metadata of its hook event, and whether it passed.
+// assertNote is a "steep.assert" annotation.
 type assertNote struct {
 	AssertMeta
 	Pass      bool     `json:"pass"`
@@ -423,10 +402,8 @@ func (n *assertNote) clip() {
 	clipMatches(n.Matches, &n.Truncated)
 }
 
-// noteAssert records n, an assertion of kind, for the harness the options
-// are for, if any, as a requirement when they are for one (see
-// [withRequired]). find, when not nil, returns where a passing assertion
-// found what it asserted.
+// noteAssert records n for the options' harness, if any. find, if not nil,
+// returns where a passing assertion found what it asserted.
 func (o options) noteAssert(kind AssertKind, n assertNote, find func() []match) {
 	if o.harness == nil {
 		return
@@ -439,8 +416,7 @@ func (o options) noteAssert(kind AssertKind, n assertNote, find func() []match) 
 	o.harness.annotate(&n)
 }
 
-// snapshotNote is a "steep.snapshot" annotation: a comparison of the screen
-// with a snapshot file, with the metadata of its hook event.
+// snapshotNote is a "steep.snapshot" annotation.
 type snapshotNote struct {
 	CaptureMeta
 	Path      string `json:"path"`
@@ -454,16 +430,14 @@ type snapshotNote struct {
 func (*snapshotNote) kind() string { return kindSnapshot }
 func (n *snapshotNote) clip()      { n.Diff = reel.ClipText(n.Diff, &n.Truncated) }
 
-// noteSnapshot records n, a comparison of the screen, with what res, from
-// [snapshot.WithResult], says it found.
+// noteSnapshot records n with the outcome in res.
 func (h *Harness) noteSnapshot(n snapshotNote, res snapshot.Result) {
 	h.tb.Helper()
 	n.Path, n.Updated, n.Missing, n.Diff = res.Path, res.Updated, res.Missing, res.Diff
 	h.annotate(&n)
 }
 
-// failureNote is a "steep.failure" annotation: a failure the harness
-// reported.
+// failureNote is a "steep.failure" annotation.
 type failureNote struct {
 	Message   string `json:"message"`
 	Truncated bool   `json:"truncated,omitzero"`
@@ -473,16 +447,14 @@ func (*failureNote) kind() string { return kindFailure }
 func (n *failureNote) clip()      { n.Message = reel.ClipText(n.Message, &n.Truncated) }
 
 // noteFailure records the nth failure the harness reported, and marks it
-// (see [Harness.Mark]).
+// (see [Harness.Mark]). Errors are dropped, since reporting them would
+// record another failure.
 func (h *Harness) noteFailure(n int, msg string) {
-	// A failure to record or mark a failure is not reported, which would
-	// record another.
 	_ = h.record(&failureNote{Message: msg})
 	_ = h.session.Mark(failurePrefix + strconv.Itoa(n))
 }
 
-// messageNote is a "steep.message" annotation: a message the program's
-// model received.
+// messageNote is a "steep.message" annotation.
 type messageNote struct {
 	Type      string `json:"type"`
 	Value     string `json:"value"`
@@ -492,15 +464,15 @@ type messageNote struct {
 func (*messageNote) kind() string { return kindMessage }
 func (n *messageNote) clip()      { n.Value = reel.ClipText(n.Value, &n.Truncated) }
 
-// noteMessage records a message the program's model received, from the
-// goroutine that runs the program.
+// noteMessage records a message the model received. It runs on the
+// program's goroutine.
 func (h *Harness) noteMessage(msg uv.Event) {
 	var n messageNote
 	n.Type, n.Value = valueNote(msg)
 	_ = h.record(&n)
 }
 
-// exitNote is a "steep.exit" annotation: how the program ended.
+// exitNote is a "steep.exit" annotation.
 type exitNote struct {
 	Error     string `json:"error,omitzero"`
 	Killed    bool   `json:"killed,omitzero"`
@@ -510,7 +482,8 @@ type exitNote struct {
 func (*exitNote) kind() string { return kindExit }
 func (n *exitNote) clip()      { n.Error = reel.ClipText(n.Error, &n.Truncated) }
 
-// noteExit records how the program ended, from the goroutine that ran it.
+// noteExit records how the program ended. It runs on the program's
+// goroutine.
 func (h *Harness) noteExit(err error) {
 	n := exitNote{Killed: errors.Is(err, tea.ErrProgramKilled)}
 	if err != nil && !n.Killed {
@@ -519,8 +492,7 @@ func (h *Harness) noteExit(err error) {
 	_ = h.record(&n)
 }
 
-// resultNote is a "steep.result" annotation: the test's result, as of
-// [Harness.Close].
+// resultNote is a "steep.result" annotation, recorded by [Harness.Close].
 type resultNote struct {
 	Test       string `json:"test"`
 	Failed     bool   `json:"failed"`
@@ -535,8 +507,8 @@ type resultNote struct {
 func (*resultNote) kind() string { return kindResult }
 func (n *resultNote) clip()      { n.Stack = reel.ClipText(n.Stack, &n.Truncated) }
 
-// newResultNote returns the test's result so far. For a test that is
-// panicking, it holds the stack of the goroutine from where it panicked.
+// newResultNote returns the test's result so far, with the panic's stack
+// for a panicking test.
 func (h *Harness) newResultNote() *resultNote {
 	n := &resultNote{
 		Test:       h.tb.Name(),

@@ -19,11 +19,11 @@ import (
 	"github.com/lrstanley/x/term/steep/internal/xansi"
 )
 
+// Viewable returns the output the package-level waits and assertions
+// check, such as [Harness.View].
 type Viewable func() string
 
 // WaitViewFunc waits until condition returns true for the latest view output.
-//
-// See also [Harness.WaitFunc], [Wait], [WaitNot], and [WaitMatch].
 func WaitViewFunc[T ~string | ~[]byte](
 	tb testing.TB,
 	view Viewable,
@@ -37,9 +37,8 @@ func WaitViewFunc[T ~string | ~[]byte](
 	return waitView(tb, view, condition, nil, cfg, w)
 }
 
-// waitView waits, with cfg, until condition returns true for the latest view
-// output, and sets how the wait ended on w, if any. find, when not nil,
-// returns where the output that satisfied the wait has what it waited for.
+// waitView waits until condition returns true for the latest view output,
+// setting the outcome on w. find, if not nil, locates what satisfied the wait.
 func waitView[T ~string | ~[]byte](
 	tb testing.TB,
 	view Viewable,
@@ -78,7 +77,6 @@ func waitView[T ~string | ~[]byte](
 	}
 }
 
-// texts returns contents as strings, in a new slice.
 func texts[T string | []byte | []string](contents T) []string {
 	switch c := any(contents).(type) {
 	case string:
@@ -92,9 +90,8 @@ func texts[T string | []byte | []string](contents T) []string {
 	}
 }
 
-// textMatch reports whether view contains parts. present selects the sense
-// of the match: true requires every one of parts to be present and false
-// requires every one to be absent.
+// textMatch reports whether every one of parts is present in view, or, when
+// present is false, absent from it.
 func textMatch(view string, parts []string, present bool) bool {
 	for _, part := range parts {
 		if strings.Contains(view, part) != present {
@@ -106,8 +103,6 @@ func textMatch(view string, parts []string, present bool) bool {
 
 // Wait waits until output contains contents. contents is a string, a []byte
 // sequence, or every string in a []string. It returns the matching view.
-//
-// See also [Harness.Wait], [WaitViewFunc], [WaitNot], and [WaitMatch].
 func Wait[T string | []byte | []string](tb testing.TB, view Viewable, contents T, opts ...Option) string {
 	tb.Helper()
 	cfg := collectOptions(tb, append(opts, withReason("Wait(%q)", contents))...)
@@ -123,8 +118,6 @@ func Wait[T string | []byte | []string](tb testing.TB, view Viewable, contents T
 
 // WaitNot waits until output contains none of contents. contents is a string,
 // a []byte sequence, or any string in a []string. It returns the matching view.
-//
-// See also [Harness.WaitNot], [Wait], and [WaitNotMatch].
 func WaitNot[T string | []byte | []string](tb testing.TB, view Viewable, contents T, opts ...Option) string {
 	tb.Helper()
 	cfg := collectOptions(tb, append(opts, withReason("WaitNot(%q)", contents))...)
@@ -136,8 +129,8 @@ func WaitNot[T string | []byte | []string](tb testing.TB, view Viewable, content
 	}, nil, cfg, w)
 }
 
-// compilePattern compiles pattern, failing the test, and the wait w, if
-// any, when it is not a valid regular expression.
+// compilePattern compiles pattern, failing the test (and w) when it is
+// invalid.
 func compilePattern(tb testing.TB, pattern string, w *waitRecord) *regexp.Regexp {
 	tb.Helper()
 	re, err := regexp.Compile(pattern)
@@ -151,8 +144,6 @@ func compilePattern(tb testing.TB, pattern string, w *waitRecord) *regexp.Regexp
 // WaitMatch waits until the latest view output matches the regular expression
 // pattern. pattern is compiled with [regexp.Compile]; a compile error fails the
 // test immediately.
-//
-// See also [Harness.WaitMatch], [AssertMatch], [WaitNotMatch], and [RequireMatch].
 func WaitMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) string {
 	tb.Helper()
 	cfg := collectOptions(tb, append(opts, withReason("WaitMatch(%q)", pattern))...)
@@ -167,9 +158,6 @@ func WaitMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) st
 // WaitNotMatch waits until the latest view output does not match the regular
 // expression pattern. pattern is compiled with [regexp.Compile]; a compile
 // error fails the test immediately.
-//
-// See also [Harness.WaitNotMatch], [WaitMatch], [AssertNotMatch], and
-// [RequireNotMatch].
 func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option) string {
 	tb.Helper()
 	cfg := collectOptions(tb, append(opts, withReason("WaitNotMatch(%q)", pattern))...)
@@ -181,12 +169,10 @@ func WaitNotMatch(tb testing.TB, model Viewable, pattern string, opts ...Option)
 	}, nil, cfg, w)
 }
 
-// WaitSettle waits until the rendered view string has not changed for the
-// configured settle timeout. The model must implement [Viewable]; each check calls
-// View() and compares the string to the previous sample.
+// WaitSettle waits until view's output has not changed for the settle
+// timeout ([WithSettle]), checking every [WithCheck] interval.
 //
-// See also [Harness.WaitSettle], [Harness.WaitSettleMessages],
-// [WithSettle], [WithCheck], and [WithTimeout].
+// See also [WaitSettleMessages].
 func WaitSettle(tb testing.TB, view Viewable, opts ...Option) {
 	tb.Helper()
 
@@ -245,10 +231,8 @@ func renderedView(view Viewable, stripANSI bool) string {
 }
 
 // Assert reports an error unless content appears in output. content is a
-// string or every string in a []string. It returns whether the output matched
-// and allows the test to continue. Each missing substring is reported separately.
-//
-// See also [Harness.Assert], [Require], [AssertNot], and [Wait].
+// string or every string in a []string. It returns whether the output matched.
+// Each missing substring is reported separately.
 func Assert[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) bool {
 	tb.Helper()
 
@@ -270,8 +254,6 @@ func Assert[T string | []string](tb testing.TB, view Viewable, content T, opts .
 
 // Require fails the test immediately unless content appears in output.
 // content is a string or every string in a []string.
-//
-// See also [Harness.Require], [Assert], and [Wait].
 func Require[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) {
 	tb.Helper()
 
@@ -281,10 +263,8 @@ func Require[T string | []string](tb testing.TB, view Viewable, content T, opts 
 }
 
 // AssertNot reports an error if content appears in output. content is a string
-// or any string in a []string. It returns whether the output matched and allows
-// the test to continue. Each present substring is reported separately.
-//
-// See also [Harness.AssertNot], [Assert], [RequireNot], and [WaitNot].
+// or any string in a []string. It returns whether none appeared and allows the
+// test to continue. Each present substring is reported separately.
 func AssertNot[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) bool {
 	tb.Helper()
 
@@ -304,8 +284,6 @@ func AssertNot[T string | []string](tb testing.TB, view Viewable, content T, opt
 
 // RequireNot fails the test immediately if content appears in output.
 // content is a string or any string in a []string.
-//
-// See also [Harness.RequireNot], [AssertNot], and [Require].
 func RequireNot[T string | []string](tb testing.TB, view Viewable, content T, opts ...Option) {
 	tb.Helper()
 
@@ -315,11 +293,8 @@ func RequireNot[T string | []string](tb testing.TB, view Viewable, content T, op
 }
 
 // AssertMatch reports an error unless output matches the regular expression
-// pattern. pattern is compiled with [regexp.Compile]; a compile error fails
-// the test immediately.
-// It returns whether the output matched and allows the test to continue.
-//
-// See also [Harness.AssertMatch], [WaitMatch], [AssertNotMatch], and [RequireMatch].
+// pattern. It returns whether the output matched and allows the test to
+// continue. An invalid pattern fails the test immediately.
 func AssertMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re := compilePattern(tb, pattern, nil)
@@ -337,8 +312,6 @@ func AssertMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) b
 
 // RequireMatch fails the test immediately unless output matches the regular
 // expression pattern.
-//
-// See also [Harness.RequireMatch], [AssertMatch], [RequireNotMatch], and [WaitMatch].
 func RequireMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) {
 	tb.Helper()
 
@@ -348,12 +321,8 @@ func RequireMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) 
 }
 
 // AssertNotMatch reports an error if output matches the regular expression
-// pattern. pattern is compiled with [regexp.Compile]; a compile error fails
-// the test immediately.
-// It returns whether the output matched and allows the test to continue.
-//
-// See also [Harness.AssertNotMatch], [AssertMatch], [WaitNotMatch], and
-// [RequireNotMatch].
+// pattern. It returns whether the output did not match and allows the test to
+// continue. An invalid pattern fails the test immediately.
 func AssertNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) bool {
 	tb.Helper()
 	re := compilePattern(tb, pattern, nil)
@@ -369,8 +338,6 @@ func AssertNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option
 
 // RequireNotMatch fails the test immediately if output matches the regular
 // expression pattern.
-//
-// See also [Harness.RequireNotMatch], [AssertNotMatch], and [RequireMatch].
 func RequireNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Option) {
 	tb.Helper()
 
@@ -379,13 +346,9 @@ func RequireNotMatch(tb testing.TB, view Viewable, pattern string, opts ...Optio
 	}
 }
 
-// AssertHeight reports an error unless output has n rows. Note that this behaves
-// differently to [charm.land/lipgloss/v2.Height] which always assumes a minimum
-// height of 1.
-// It returns whether the output matched and allows the test to continue.
-//
-// See also [Harness.AssertHeight], [AssertDimensions], [AssertWidth], [Dimensions],
-// and [RequireHeight].
+// AssertHeight reports an error unless output has n rows. Unlike
+// [charm.land/lipgloss/v2.Height], empty output has a height of 0. It returns
+// whether the output matched.
 func AssertHeight(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
@@ -403,8 +366,6 @@ func AssertHeight(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 }
 
 // RequireHeight fails the test immediately unless output has n rows.
-//
-// See also [Harness.RequireHeight], [AssertHeight], and [RequireDimensions].
 func RequireHeight(tb testing.TB, view Viewable, n int, opts ...Option) {
 	tb.Helper()
 
@@ -414,10 +375,7 @@ func RequireHeight(tb testing.TB, view Viewable, n int, opts ...Option) {
 }
 
 // AssertWidth reports an error unless output has n columns. It returns whether
-// the output matched and allows the test to continue.
-//
-// See also [Harness.AssertWidth], [AssertDimensions], [Dimensions], [AssertHeight],
-// and [RequireWidth].
+// the output matched.
 func AssertWidth(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 	tb.Helper()
 
@@ -435,8 +393,6 @@ func AssertWidth(tb testing.TB, view Viewable, n int, opts ...Option) bool {
 }
 
 // RequireWidth fails the test immediately unless output has n columns.
-//
-// See also [Harness.RequireWidth], [AssertWidth], and [RequireDimensions].
 func RequireWidth(tb testing.TB, view Viewable, n int, opts ...Option) {
 	tb.Helper()
 
@@ -446,9 +402,7 @@ func RequireWidth(tb testing.TB, view Viewable, n int, opts ...Option) {
 }
 
 // AssertDimensions reports an error unless output has specified dimensions.
-//
-// See also [Harness.AssertDimensions], [AssertWidth], [AssertHeight], [Dimensions],
-// [RequireDimensions], and [WithANSI].
+// It returns whether the output matched.
 func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) bool {
 	tb.Helper()
 
@@ -466,9 +420,6 @@ func AssertDimensions(tb testing.TB, view Viewable, width, height int, opts ...O
 }
 
 // RequireDimensions fails the test immediately unless output has specified dimensions.
-//
-// See also [Harness.RequireDimensions], [AssertDimensions], [RequireHeight],
-// [RequireWidth], and [Harness.AssertSnapshot].
 func RequireDimensions(tb testing.TB, view Viewable, width, height int, opts ...Option) {
 	tb.Helper()
 
@@ -478,9 +429,6 @@ func RequireDimensions(tb testing.TB, view Viewable, width, height int, opts ...
 }
 
 // Dimensions returns the width and height of the output.
-//
-// See also [AssertDimensions], [AssertWidth], [AssertHeight], and
-// [Harness.AssertDimensions].
 func Dimensions(tb testing.TB, out string, opts ...Option) (w, h int) {
 	cfg := collectOptions(tb, opts...)
 	if cfg.stripANSI {
@@ -499,8 +447,6 @@ type MessageCollector interface {
 
 // AssertHasMessage asserts that at least one message with the same concrete type
 // as T has been observed.
-//
-// See also [Harness.AssertHasMessage] and [RequireHasMessage].
 func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) bool {
 	tb.Helper()
 	cfg := collectOptions(tb, opts...)
@@ -521,8 +467,6 @@ func AssertHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...O
 
 // RequireHasMessage requires that at least one message with the same concrete type
 // as T has been observed.
-//
-// See also [Harness.RequireHasMessage] and [AssertHasMessage].
 func RequireHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()
 
@@ -531,11 +475,8 @@ func RequireHasMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...
 	}
 }
 
-// WaitLiveMessage waits until a NEW message (only messages received since this
-// function was invoked) with the same concrete type as T has been observed,
-// then returns the first match.
-//
-// See also [Harness.WaitLiveMessage] and [WaitMessage].
+// WaitLiveMessage waits until a message with the same concrete type as T is
+// received after the call, then returns it.
 func WaitLiveMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 	var zero T
@@ -544,35 +485,28 @@ func WaitLiveMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Op
 
 // WaitMessage waits until at least one message with the same concrete type
 // as T has been observed, then returns the first match.
-//
-// See also [Harness.WaitMessage] and [WaitMessageWhere].
 func WaitMessage[T uv.Event](tb testing.TB, log MessageCollector, opts ...Option) T {
 	tb.Helper()
 	var zero T
 	return waitMessage[T](tb, log, false, nil, append(opts, withReason("WaitMessage[%T]", zero))...)
 }
 
-// WaitLiveMessageWhere waits until "fn" returns true for a NEW message (only messages
-// received since this function was invoked).
-//
-// See also [Harness.WaitLiveMessageWhere] and [WaitMessageWhere].
+// WaitLiveMessageWhere waits until fn returns true for a message received
+// after the call, then returns it.
 func WaitLiveMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
 	tb.Helper()
 	return waitMessage(tb, log, true, fn, opts...)
 }
 
-// WaitMessageWhere waits until "fn" returns true for a message (across all
-// received messages).
-//
-// See also [Harness.WaitMessageWhere] and [WaitLiveMessageWhere].
+// WaitMessageWhere waits until fn returns true for any received message,
+// past or future, then returns it.
 func WaitMessageWhere(tb testing.TB, log MessageCollector, fn func(uv.Event) (ok bool), opts ...Option) uv.Event {
 	tb.Helper()
 	return waitMessage(tb, log, false, fn, opts...)
 }
 
-// waitMessage waits until fn returns true for a message of type T, or until
-// there is one, for a nil fn, and returns it. With live, only messages
-// received since the call count.
+// waitMessage waits for a message of type T for which fn, if not nil,
+// returns true. With live, only messages received after the call count.
 func waitMessage[T uv.Event](tb testing.TB, log MessageCollector, live bool, fn func(T) bool, opts ...Option) T {
 	tb.Helper()
 
@@ -607,10 +541,10 @@ func waitMessage[T uv.Event](tb testing.TB, log MessageCollector, live bool, fn 
 }
 
 // WaitSettleMessages waits until no messages have been observed for the
-// configured settle timeout.
+// settle timeout ([WithSettle]). Types from [WithSettleIgnoreMsgs] do not
+// count.
 //
-// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettle],
-// [WithCheck], and [WithTimeout].
+// See also [WaitSettle].
 func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 	tb.Helper()
 
@@ -647,9 +581,8 @@ func WaitSettleMessages(tb testing.TB, log MessageCollector, opts ...Option) {
 
 		delay := cfg.checkInterval - time.Since(*last.Load())
 		if delay < 0 {
-			// checkInterval is typically much smaller than settleTimeout; when the last
-			// message is not recent, (checkInterval - sinceLast) goes negative. Using
-			// that with time.After spins the loop and can starve the program under -race.
+			// A negative delay would spin the loop and can starve the program
+			// under -race.
 			delay = cfg.checkInterval
 		}
 
@@ -681,8 +614,6 @@ func IgnoreMessagesReflect(tb testing.TB, messages iter.Seq[uv.Event], ignore ..
 
 // FilterMessagesType filters an iterator of messages to only include messages
 // with the same concrete type as T.
-//
-// See also [Harness.FilterMessagesType].
 func FilterMessagesType[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event]) iter.Seq[T] {
 	tb.Helper()
 	var zero T
@@ -702,9 +633,7 @@ func FilterMessagesType[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event]) 
 }
 
 // FilterMessagesFunc filters an iterator of messages to only include messages
-// that return true from the provided "fn" function.
-//
-// See also [Harness.FilterMessagesFunc].
+// of type T for which fn returns true.
 func FilterMessagesFunc[T uv.Event](tb testing.TB, messages iter.Seq[uv.Event], fn func(T) bool) iter.Seq[T] {
 	tb.Helper()
 	return func(yield func(T) bool) {

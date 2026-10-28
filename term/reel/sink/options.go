@@ -17,8 +17,7 @@ const (
 	MaxQuality = 100
 
 	// MaxFrameRate is the highest frame rate a recording can play at: GIF
-	// delays are stored in centiseconds, so cannot represent more than 100
-	// FPS.
+	// delays are whole centiseconds, so 100 FPS.
 	MaxFrameRate = 100
 
 	// LoopForever is the default [WithLoopCount]: viewers repeat the GIF until
@@ -27,32 +26,27 @@ const (
 	// LoopOnce plays a GIF a single time and does not repeat.
 	LoopOnce = -1
 
-	// maxGIFLoopCount is the largest loop count image/gif can store. Larger
-	// values wrap when encoded as a uint16.
+	// maxGIFLoopCount is the largest loop count GIF can store (uint16).
 	maxGIFLoopCount = 65535
 )
 
-// OptimizeFlags selects post-process and capture optimizations. Each
-// [WithOptimize] call replaces the full flag set; [OptimizeNone] resets to zero.
-//
-// When [WithOptimize] is omitted, export defaults to [OptimizeAll]. PNG reads
-// only [OptimizeColorQuantization].
+// OptimizeFlags selects optimizations for [WithOptimize]. PNG reads only
+// [OptimizeColorQuantization].
 type OptimizeFlags uint
 
 const (
 	OptimizeNone OptimizeFlags = 0
-	// OptimizeFrames deduplicates byte-identical GIF frames during capture,
-	// merging their delays. GIF only; ignored on PNG.
+	// OptimizeFrames merges a GIF frame identical to the previous one into it,
+	// adding its delay.
 	OptimizeFrames OptimizeFlags = 1 << iota
-	// OptimizeDirtyRects runs disposal/sub-rect optimization at GIF finalize.
-	// GIF only; ignored on PNG.
+	// OptimizeDirtyRects writes GIF frames as the sub-rect that changed, with
+	// disposal methods.
 	OptimizeDirtyRects
-	// OptimizeColorQuantization compacts each GIF palette at finalize to the
-	// colors its frames use, or encodes PNG as an indexed paletted image.
+	// OptimizeColorQuantization compacts each GIF palette to the colors its
+	// frames use, and encodes PNG as an indexed paletted image.
 	OptimizeColorQuantization
 
-	// OptimizeAll enables every optimization flag above. On PNG export, only
-	// color quantization runs.
+	// OptimizeAll enables every optimization, and is the default.
 	OptimizeAll = OptimizeFrames | OptimizeDirtyRects | OptimizeColorQuantization
 )
 
@@ -60,39 +54,29 @@ func (f OptimizeFlags) has(flag OptimizeFlags) bool {
 	return f&flag != 0
 }
 
-// Option configures an encoder or a PNG export. Each validates
-// the options it reads and ignores the rest, so one option list can be shared
-// between them.
+// Option configures a sink or a PNG export. Each validates the options it
+// reads and ignores the rest, so one option list can be shared between them.
 type Option func(*options)
 
 type options struct {
-	// optimize selects capture and finalize optimizations.
 	optimize OptimizeFlags
-	// background is the opaque compositing color for semi-transparent pixels,
-	// or nil when unset.
+	// background is nil when unset.
 	background color.Color
-	// maxFrames caps stored palettized frames during GIF capture; 0 is unlimited.
+	// maxFrames and maxBytes are 0 for no limit.
 	maxFrames int
-	// maxBytes caps pixel storage of retained frames during GIF capture; 0 is
-	// unlimited.
-	maxBytes int64
-	// loopCount is copied into GIF output. [LoopForever] (0) loops forever,
-	// [LoopOnce] (-1) plays once, and n > 0 plays n+1 times. PNG ignores it.
+	maxBytes  int64
 	loopCount int
-	// quality is the video encode quality in [0, MaxQuality] when qualitySet
-	// is true; otherwise each video format uses its own default.
+	// quality is only meaningful when qualitySet; otherwise each video format
+	// uses its own default.
 	quality    int
 	qualitySet bool
-	// fullChroma encodes MP4 and WebM as 4:4:4 instead of 4:2:0.
 	fullChroma bool
-	// ffmpeg is the ffmpeg binary name or path; empty looks up "ffmpeg" on
-	// PATH.
+	// ffmpeg is empty to look up "ffmpeg" on PATH.
 	ffmpeg string
 }
 
-// collectOptions applies opts. Each output then checks only the options it
-// reads ([gifOptions], [videoOptions]; PNG reads nothing it could reject),
-// which is what lets one option list be shared between them.
+// collectOptions applies opts without validating them: each output checks
+// only the options it reads ([gifOptions], [videoOptions]).
 func collectOptions(opts []Option) options {
 	cfg := options{optimize: OptimizeAll}
 	for _, opt := range opts {
@@ -127,61 +111,51 @@ func (o options) validateLoopCount() error {
 	return nil
 }
 
-// WithOptimize sets optimization flags, replacing any prior [WithOptimize]
-// call. Pass [OptimizeNone] to disable all optimizations.
-//
-// When omitted, export defaults to [OptimizeAll]. Pass [OptimizeNone] for full
-// RGBA PNG with alpha preserved.
+// WithOptimize sets the optimization flags, replacing any earlier
+// [WithOptimize]. The default is [OptimizeAll]; [OptimizeNone] disables all
+// optimizations, which for PNG means full RGBA with alpha preserved.
 func WithOptimize(flags OptimizeFlags) Option {
 	return func(cfg *options) {
 		cfg.optimize = flags
 	}
 }
 
-// WithBackground sets an opaque compositing color for semi-transparent pixels.
-// [GIFEncoder] fills fully transparent pixels with it before palettization. A
-// [VideoEncoder] composites every frame onto it and uses it for padding; without it, MP4 and WebM composite onto
-// black and WebP keeps transparency. A nil c leaves it unset.
+// WithBackground sets an opaque background color, ignoring c's alpha.
+// [GIFEncoder] fills fully transparent pixels with it. [VideoEncoder]
+// composites every frame onto it and pads with it; without it, MP4 and WebM
+// use black and WebP keeps transparency. A nil c leaves it unset. PNG ignores
+// it.
 func WithBackground(c color.Color) Option {
 	return func(cfg *options) {
 		cfg.background = c
 	}
 }
 
-// WithLoopCount sets how many times an animation repeats, matching
-// image/gif's GIF.LoopCount field.
-//
-// [LoopForever] (0), the default, loops forever. [LoopOnce] (-1) plays the
-// animation once and does not repeat. A count n in [1, 65535] plays the
-// animation n+1 times. Values outside [-1, 65535] are rejected. GIF and
-// animated WebP use it; MP4 and WebM have no loop count and ignore it.
+// WithLoopCount sets how many times a GIF or WebP animation repeats, like
+// image/gif's GIF.LoopCount: [LoopForever] (0, the default), [LoopOnce] (-1),
+// or n in [1, 65535] to play n+1 times. Other values are rejected. MP4 and
+// WebM ignore it.
 func WithLoopCount(n int) Option {
 	return func(cfg *options) {
 		cfg.loopCount = n
 	}
 }
 
-// WithMaxFrames keeps only the last n palettized frames in memory during GIF
-// capture. When [OptimizeFrames] is enabled, duplicate consecutive frames merged
-// during dedup do not consume cap slots. Oldest frames are dropped without
-// carrying their delays forward. n <= 0 disables the cap (same as omitting this
-// option), which is the default. Combine with [WithMaxBytes], whichever limit
-// is reached first drops frames. GIF only.
+// WithMaxFrames keeps only the last n frames of a GIF recording, counted after
+// [OptimizeFrames] merges duplicates. The oldest frames are dropped along with
+// their delays. n <= 0, the default, is no limit. With [WithMaxBytes],
+// whichever limit is reached first drops frames. GIF only.
 func WithMaxFrames(n int) Option {
 	return func(cfg *options) {
 		cfg.maxFrames = max(0, n)
 	}
 }
 
-// WithMaxBytes limits the pixel memory held by retained GIF frames to about n
-// bytes, dropping the oldest frames (without carrying their delays forward)
-// once the total goes over. Frames are stored as the region that changed since
-// the previous one, so a small change costs little and a full repaint costs a
-// whole frame (one byte per pixel). The newest frame is always kept, even if
-// it alone is larger than n, and the buffers used to diff frames are not
-// counted. Finalizing temporarily needs up to about as much memory again. n <=
-// 0 disables the limit (same as omitting this option), which is the default.
-// GIF only.
+// WithMaxBytes limits the pixel memory held by GIF frames to about n bytes,
+// dropping the oldest frames along with their delays. A frame costs one byte
+// per pixel of the region that changed since the previous one. The newest
+// frame is always kept, even if larger than n, and Close temporarily needs up
+// to about as much memory again. n <= 0, the default, is no limit. GIF only.
 func WithMaxBytes(n int64) Option {
 	return func(cfg *options) {
 		cfg.maxBytes = max(0, n)
@@ -190,13 +164,11 @@ func WithMaxBytes(n int64) Option {
 
 // WithQuality sets how closely [VideoEncoder] output matches the frames, from 0
 // (smallest file) to [MaxQuality] (lossless where the format supports it).
-// Without it, each format uses its own default, which is already visually
-// close for terminal content. MP4 maps q to libx264 CRF 51..0 (default CRF 18)
-// and WebM to libvpx-vp9 CRF 63..0 (default CRF 30, lossless at
-// [MaxQuality]). WebP is lossless by default and at [MaxQuality], which for
-// terminal frames is smaller than lossy at any quality worth using; a lower q
-// selects lossy WebP at that quality. Values outside [0, [MaxQuality]] are
-// rejected. PNG and GIF ignore it.
+// MP4 maps q to libx264 CRF 51..0 (default CRF 18) and WebM to libvpx-vp9 CRF
+// 63..0 (default CRF 30, lossless at [MaxQuality]). WebP is lossless by
+// default and at [MaxQuality], which for terminal frames is smaller than lossy
+// at any useful quality; a lower q selects lossy WebP at that quality. Values
+// outside [0, [MaxQuality]] are rejected. PNG and GIF ignore it.
 func WithQuality(q int) Option {
 	return func(cfg *options) {
 		cfg.quality = q
@@ -204,11 +176,9 @@ func WithQuality(q int) Option {
 	}
 }
 
-// WithFullChroma encodes MP4 and WebM as 4:4:4, keeping the full color
-// resolution of thin colored text instead of halving it (4:2:0, the default).
-// Most desktop players handle it; many browsers and phones do not play 4:4:4
-// H.264, while VP9 4:4:4 (profile 1) plays in Chrome and Firefox. WebP, PNG,
-// and GIF ignore it.
+// WithFullChroma encodes MP4 and WebM as 4:4:4 instead of 4:2:0, keeping thin
+// colored text sharp. Many browsers and phones do not play 4:4:4 H.264; VP9
+// 4:4:4 plays in Chrome and Firefox. Other formats ignore it.
 func WithFullChroma(enabled bool) Option {
 	return func(cfg *options) {
 		cfg.fullChroma = enabled
@@ -216,8 +186,7 @@ func WithFullChroma(enabled bool) Option {
 }
 
 // WithFFmpeg sets the ffmpeg binary [VideoEncoder] runs: a path, or a name
-// looked up on PATH. The default is "ffmpeg" on PATH (with the platform's
-// executable extension, such as ffmpeg.exe on Windows). PNG and GIF ignore it.
+// looked up on PATH. The default is "ffmpeg" on PATH. PNG and GIF ignore it.
 func WithFFmpeg(path string) Option {
 	return func(cfg *options) {
 		cfg.ffmpeg = path

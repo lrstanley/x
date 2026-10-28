@@ -16,50 +16,41 @@ import (
 	"github.com/lrstanley/x/term/reel/internal/pty"
 )
 
-// exitQuiet is how long the output of a process that has exited may go
-// quiet before [Process.Wait] stops reading it. The output of a pty ends on
-// its own once every process holding the terminal has closed it, but a
-// process the program left running in the background may hold it open, and
-// ConPTY's output only ends when it is closed.
+// exitQuiet is how long an exited process's output may go quiet before
+// [Process.Wait] stops reading it. Waiting for EOF alone is not enough: a
+// background child may hold the pty open, and ConPTY output only ends when
+// it is closed.
 const exitQuiet = 100 * time.Millisecond
 
 // Process is a command [Exec] runs on a [Session].
 type Process struct {
 	done chan struct{}
-	// status and err are the result, set before done is closed.
+	// status and err are set before done is closed.
 	status int
 	err    error
 }
 
-// Exec starts cmd on a pseudo-terminal the size of the session's terminal,
-// and runs it as the session's program: what it writes to the terminal is
-// written to the session with [Session.Write], recording it, and what the
-// session sends it, and the terminal's replies to its queries, are read with
-// [Session.Read] and written to it. [Session.Resize] resizes the
-// pseudo-terminal too, which tells the program, as SIGWINCH does on Unix.
-// While the process runs, nothing else should read the session, and no
-// other process can be run on it.
+// Exec starts cmd on a pseudo-terminal the size of the session's terminal
+// and runs it as the session's program: its output is written to the
+// session (and recorded), and the session's input and the terminal's query
+// replies are written to it. [Session.Resize] also resizes the
+// pseudo-terminal. While the process runs, nothing else should read the
+// session, and no other process can be run on it.
 //
-// Exec sets the environment cmd runs with: cmd.Env, or the host's when it
-// is nil, with TERM set to "xterm-ghostty" when its terminfo entry is
-// installed and to "xterm-256color" otherwise, and COLORTERM set to
-// "truecolor". A TERM or COLORTERM in cmd.Env is kept, but the host's are
-// not, since they describe the host's terminal rather than the session's.
-// The entry is looked for as ncurses looks, in the environment cmd runs
-// with: in $TERMINFO, ~/.terminfo, each directory in $TERMINFO_DIRS,
-// /etc/terminfo, /lib/terminfo, /usr/share/terminfo, and /usr/lib/terminfo,
-// under both its first letter and that letter in hex ("x" and "78"). A
-// hashed terminfo database is not read.
+// The environment is cmd.Env, or the host's when nil. TERM is set to
+// "xterm-ghostty" if its terminfo entry is installed (searched as ncurses
+// does, excluding hashed databases) and "xterm-256color" otherwise, and
+// COLORTERM to "truecolor". TERM and COLORTERM from cmd.Env are kept; the
+// host's are replaced, since they describe the host's terminal.
 //
-// cmd's Stdin, Stdout, and Stderr must be nil, since the pseudo-terminal is
-// all three. On Unix, cmd runs in a session of its own, with the
-// pseudo-terminal as its controlling terminal; Exec sets
-// cmd.SysProcAttr.Setsid and Setctty. On Windows it runs on a ConPTY, and
+// cmd's Stdin, Stdout, and Stderr must be nil. On Unix, cmd runs in a new
+// session with the pseudo-terminal as its controlling terminal (Exec sets
+// cmd.SysProcAttr.Setsid and Setctty). On Windows it runs on a ConPTY;
 // elsewhere Exec returns an error wrapping [errors.ErrUnsupported].
 //
-// Canceling ctx kills the process, and on Unix every process in its process
-// group. Closing the session hangs up on it: on Unix its terminal hangs up,
-// which sends it SIGHUP, and on Windows the ConPTY closes, which ends it.
+// Canceling ctx kills the process (on Unix, its whole process group).
+// Closing the session hangs up on it: SIGHUP on Unix, ConPTY close on
+// Windows.
 func Exec(ctx context.Context, s *Session, cmd *exec.Cmd) (*Process, error) {
 	switch {
 	case cmd.Stdin != nil || cmd.Stdout != nil || cmd.Stderr != nil:
@@ -82,24 +73,21 @@ func Exec(ctx context.Context, s *Session, cmd *exec.Cmd) (*Process, error) {
 	return p, nil
 }
 
-// Wait waits for the process to exit and for its output to be written to
-// the session, and returns its exit status. The exit is appended to the
-// session's timeline as an [Exit] event with the status, after the output,
-// unless the session was closed first. On Unix, a process ended by a signal
-// has the status 128 plus the signal's number, as shells report it: 137 for
-// SIGKILL, 129 for SIGHUP.
+// Wait waits for the process to exit and its output to reach the session,
+// and returns its exit status. An [Exit] event is appended after the output
+// unless the session was closed first. On Unix, a process killed by a
+// signal has status 128+signal, as shells report it (137 for SIGKILL).
 //
-// The error is ctx's when ctx was canceled before the process exited, or
-// one from waiting for it; an exit status other than zero is not an error.
-// Wait may be called more than once, and from more than one goroutine, and
-// returns the same result each time.
+// The error is ctx's if it was canceled before the process exited, or one
+// from waiting on it; a nonzero exit status is not an error. Wait is safe
+// to call repeatedly and concurrently, and always returns the same result.
 func (p *Process) Wait() (int, error) {
 	<-p.done
 	return p.status, p.err
 }
 
-// startProcess starts cmd on a new pty the size of the terminal, which
-// [Session.Resize] resizes from then on.
+// startProcess starts cmd on a new pty the size of the terminal, and
+// registers it for [Session.Resize].
 func (s *Session) startProcess(cmd *exec.Cmd) (*pty.PTY, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -121,23 +109,20 @@ func (s *Session) startProcess(cmd *exec.Cmd) (*pty.PTY, error) {
 }
 
 // run copies the process's output and input until it exits, then records
-// its exit.
+// the exit.
 func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty.PTY) {
 	defer close(p.done)
 
-	// hangup stops the copies: Session.Resize stops resizing the pty, and
-	// the pty closes, which ends the reads and writes blocked on it.
+	// hangup detaches the pty from Session.Resize and closes it, unblocking
+	// the copies.
 	hangup := sync.OnceFunc(func() {
 		s.mu.Lock()
 		s.pty = nil
 		s.mu.Unlock()
-		// The process has exited or is being hung up on, so nothing is left
-		// to report about the pty.
 		_ = pt.Close()
 	})
 
-	// reads counts the reads of output, so the drain below can tell when
-	// it has gone quiet.
+	// reads lets drain tell when the output has gone quiet.
 	var reads atomic.Uint64
 	outDone, inDone := make(chan struct{}), make(chan struct{})
 	inCtx, stopInput := context.WithCancel(ctx)
@@ -201,16 +186,16 @@ func (p *Process) run(ctx context.Context, s *Session, cmd *exec.Cmd, pt *pty.PT
 	case !errors.As(werr, &exitErr):
 		p.err = werr
 	}
-	// Another process can run once the exit is recorded, after this one's
-	// output. Nothing is appended once the session has closed.
+	// Clearing running with the Exit event lets the next process start only
+	// after this one's exit is recorded. No-op once the session has closed.
 	_ = s.change(func() (Event, error) {
 		s.running = false
 		return Exit{Status: p.status}, nil
 	})
 }
 
-// drain waits for the output of a process that has exited to end, to go
-// quiet for exitQuiet, or for ctx to be done.
+// drain waits until an exited process's output ends, goes quiet for
+// exitQuiet, or ctx is done.
 func drain(ctx context.Context, outDone <-chan struct{}, reads *atomic.Uint64) {
 	timer := time.NewTimer(exitQuiet)
 	defer timer.Stop()

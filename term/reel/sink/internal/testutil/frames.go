@@ -20,9 +20,8 @@ const (
 	TerminalHeight = 864
 )
 
-// TerminalFrame returns an NRGBA frame sized like render.MustNew(20pt)
-// rendering an 80×24 terminal screen, with a gradient fill that exercises the
-// palette builder.
+// TerminalFrame returns a [TerminalWidth]×[TerminalHeight] frame with a
+// stepped gradient, shifted by offset.
 func TerminalFrame(offset int) *image.NRGBA {
 	w, h := TerminalWidth, TerminalHeight
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
@@ -138,9 +137,8 @@ func DistinctColors(n int) []color.NRGBA {
 	return out
 }
 
-// GrayPalette returns 255 distinct grays, then a zero-alpha color in slot 255,
-// the slot package palette reserves for transparency, for tests that build
-// paletted frames by hand.
+// GrayPalette returns 255 distinct grays, then a zero-alpha color in the
+// transparent slot, 255.
 func GrayPalette() color.Palette {
 	pal := make(color.Palette, 256)
 	for i := range 255 {

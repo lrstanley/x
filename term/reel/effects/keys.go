@@ -22,7 +22,7 @@ import (
 
 const (
 	// keysFadeLevels is how many steps the key overlay fades out in. Each step
-	// is a frame, and a fade defeats duplicate frame merging, so keep it low.
+	// is a frame that defeats duplicate frame merging, so keep it low.
 	keysFadeLevels = 3
 	// keysMaxChips is how many keys the overlay shows at once, newest last.
 	// Repeats of one key share a chip.
@@ -59,15 +59,13 @@ var keyGlyphs = map[string]string{
 // out over its final third. Paste and mouse input are not shown. A shown of
 // zero or less is no overlay.
 //
-// The keys of one input event that type text, with enter and tab among them,
-// are one chip, so typing "hi\n" shows "hi⏎". Only the input in the
-// timeline's window is shown.
+// The text typed by one input event, with enter and tab, is one chip, so
+// typing "hi\n" shows "hi⏎". Only the input in the timeline's window is
+// shown.
 //
-// The overlay splits frames on the delay grid wherever it changes, which
-// adds a few frames per burst of keys. Frames without a terminal, such as
-// cards, are left alone. A [RedactInputs] listed before Keys hides typed
-// text from it, and a [Hide] listed before it the keys pressed in what it
-// cuts.
+// The overlay adds a few frames per burst of keys. A [RedactInputs] listed
+// before Keys hides typed text from it, and a [Hide] listed before it the
+// keys pressed in what it cuts.
 func Keys(shown time.Duration) reel.Effect {
 	return keys{shown: shown}
 }
@@ -93,8 +91,7 @@ func (e keys) Start(ctx *reel.Context) (reel.Stage, error) {
 
 // keyPress is a key pressed, as the overlay shows it.
 type keyPress struct {
-	// at is the offset into the timeline.
-	at time.Duration
+	at time.Duration // Offset into the timeline.
 	// label is the label of a key, and typed is nil for one. A run of typed
 	// text has its characters in typed instead, with the glyphs of enter
 	// and tab, and a • for each that [RedactInputs] hides.
@@ -120,19 +117,16 @@ type keysStage struct {
 	from time.Duration
 
 	presses []keyPress
-	// read is the number of events of the timeline read into presses, which
-	// grows while a [reel.Record] runs.
+	// read is the number of events of the timeline read into presses.
 	read int
 	// mask hides typed text, for [RedactInputs], or is nil.
 	mask *typedMask
 	// cuts are those of each [Hide] before Keys, whose keys it leaves out.
 	cuts []*cuts
-	// start is the first press a frame can show: the ones before it ended
-	// a burst that is gone.
+	// start is the first press a frame can show.
 	start int
 
-	// chips is the last chip row drawn and what it was drawn for, reused
-	// while a burst spans several frames.
+	// chips is the last chip row drawn and what it was drawn for.
 	chips    *image.NRGBA
 	chipsFor chipsKey
 }
@@ -156,7 +150,7 @@ func (k *keysStage) run(f reel.Frame, emit func(reel.Frame)) {
 
 // readPresses adds the presses of the inputs appended to the timeline since
 // it last read, and moves start past those before the window, which are
-// read only for the mask, so it can hide text typed on in the window.
+// read only so the mask sees text that goes on into the window.
 func (k *keysStage) readPresses() {
 	for ev := range k.ctx.Timeline.EventsFrom(k.read) {
 		k.read++
@@ -169,10 +163,9 @@ func (k *keysStage) readPresses() {
 	}
 }
 
-// addPresses appends the presses of the strokes of in to presses, as the
-// overlay shows them: one per key, and one per run of typed text (see
-// [Keys]). Paste and mouse are left out. mask, which may be nil, is given
-// the typed text, and hides what it matches.
+// addPresses appends the presses of in to presses: one per key, and one per
+// run of typed text (see [Keys]). mask, which may be nil, hides what it
+// matches of the typed text.
 func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
 	// run is the index of the press of the typed text being added to, or
 	// -1.
@@ -222,9 +215,9 @@ func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
 	return presses
 }
 
-// modifierKeys are the keys whose press only holds a modifier, which the
-// kitty keyboard protocol can report, and the overlay leaves out: the
-// modifiers show with the keys they modify.
+// modifierKeys are the lone modifier presses the kitty keyboard protocol can
+// report, which the overlay leaves out: modifiers show with the keys they
+// modify.
 var modifierKeys = map[string]bool{
 	"leftshift": true, "rightshift": true,
 	"leftctrl": true, "rightctrl": true,
@@ -235,8 +228,8 @@ var modifierKeys = map[string]bool{
 	"isolevel3shift": true, "isolevel5shift": true,
 }
 
-// modifierKey reports whether name, as in [vt.Stroke.Key], is the press
-// of a modifier on its own.
+// modifierKey reports whether name, as in [vt.Stroke.Key], is a lone
+// modifier press.
 func modifierKey(name string) bool {
 	return modifierKeys[name[strings.LastIndexByte(name, '+')+1:]]
 }
@@ -254,9 +247,8 @@ func keyLabel(name string) string {
 	return mods + key
 }
 
-// typedLabel is the label of typed text: the text, or ␣ for each character
-// when it is only spaces, which would show an empty chip, cut to
-// keysMaxText.
+// typedLabel is the label of typed text, cut to keysMaxText. Text of only
+// spaces shows a ␣ for each, rather than an empty chip.
 func typedLabel(text string) string {
 	if strings.TrimFunc(text, unicode.IsSpace) == "" {
 		text = strings.Repeat(keyGlyphs["space"], utf8.RuneCountInString(text))
@@ -292,10 +284,9 @@ func (k *keysStage) timeline(f reel.Frame) keyTimeline {
 	return t
 }
 
-// skipGone moves start past the bursts gone by offset at, which no frame
-// from there on shows: those whose last key disappeared a step before at,
-// with a gap of more than shown and a step to the next key, so the next
-// burst's keys can not join them on the delay grid either.
+// skipGone moves start past the bursts no frame from offset at on shows.
+// A burst is only gone once the gap to the next key is more than shown and
+// a step, so the next burst can not join it on the delay grid.
 func (k *keysStage) skipGone(at time.Duration) {
 	gone := time.Duration(float64(k.shown+k.ctx.Step) * k.ctx.Speed)
 	for i := k.start + 1; i < len(k.presses) && k.presses[i-1].at+gone <= at; i++ {
@@ -392,8 +383,8 @@ func (k *keysStage) frames(t keyTimeline, f reel.Frame, emit func(reel.Frame)) {
 	}
 }
 
-// chipRow returns the chips for labels on the terminal of src, drawing them
-// only when they differ from the last row drawn.
+// chipRow returns the chips for labels on the terminal of src, reusing the
+// last row drawn when it is the same.
 func (k *keysStage) chipRow(src *reel.CellFrame, labels []string) *image.NRGBA {
 	b := src.Screen.Bounds()
 	key := chipsKey{labels: strings.Join(labels, "\x00"), cols: b.Dx(), rows: b.Dy(), focused: src.State.Focused}
@@ -423,7 +414,7 @@ func chipGroups(labels []string) []string {
 }
 
 // keyChips draws labels as a row of chips (see [chipGroups]) on a
-// transparent background. It returns nil when there is nothing to draw.
+// transparent background, or returns nil when there is nothing to draw.
 func keyChips(cards *CardRenderer, src *reel.CellFrame, labels []string) *image.NRGBA {
 	var chips []*image.NRGBA
 	var w, h int

@@ -21,8 +21,8 @@ import (
 // it fits the region to the grid.
 const zoomMargin = 1
 
-// ZoomOption configures [Zoom]: [Scale], [Anchor], and the [Timing] options
-// every region effect takes.
+// ZoomOption configures [Zoom]: [Scale], [Anchor], and the [Timing]
+// options.
 type ZoomOption interface {
 	applyZoom(z *zoom)
 }
@@ -33,19 +33,19 @@ func (o zoomOption) applyZoom(z *zoom) { o(z) }
 
 // Scale sets how many times larger [Zoom] draws its region than the
 // terminal does. Without it, the zoom fits the region, with a cell of margin
-// on every side, to the terminal's grid, as large as it fits, and never
-// smaller than the terminal draws it. A factor below 1, or one that is not
-// finite, is an error from Start.
+// on every side, to the terminal's grid, as large as fits but never smaller
+// than the terminal draws it. A factor below 1, or one that is not finite,
+// is an error from Start.
 func Scale(factor float64) ZoomOption {
 	return zoomOption(func(z *zoom) { z.scale, z.scaleSet = factor, true })
 }
 
 // Anchor sets where [Zoom] places its region in the grid: the point at
 // fraction (x, y) of the region's width and height, from its top left, is
-// drawn at the same fraction of the grid's. (0, 0) puts the region's top
-// left corner in the grid's, (1, 1) its bottom right corner in the grid's,
-// and the default, (0.5, 0.5), centers it. A zoom never shows past the edges
-// of the terminal, so a region near one is drawn nearer it than its anchor
+// drawn at the same fraction of the grid's: (0, 0) puts the region's top
+// left corner at the grid's, (1, 1) its bottom right at the grid's, and the
+// default, (0.5, 0.5), centers it. A zoom never shows past the edges of
+// the terminal, so a region near one is drawn nearer it than its anchor
 // asks. A fraction outside 0 to 1 is an error from Start.
 func Anchor(x, y float64) ZoomOption {
 	return zoomOption(func(z *zoom) { z.ax, z.ay = x, y })
@@ -59,38 +59,23 @@ func (o Timing) applyZoom(z *zoom) {
 
 // Zoom returns an effect that zooms in on the cells of region: the
 // terminal's grid shows the region larger (see [Scale]), placed by
-// [Anchor]. The window chrome, padding, and everything else around the grid
-// is kept as the frame has it, so the image keeps its size. [Between] limits
-// the zoom to a window of the timeline, and [Ease], [EaseIn], and [EaseOut]
-// ease it in and out over frames on the delay grid, with the part of the
-// screen shown moving smoothly between the whole grid and the zoom.
+// [Anchor]. Everything around the grid, such as window chrome, is kept as
+// the frame has it, so the image keeps its size. It takes the [Timing]
+// options; easing moves the part of the screen shown smoothly between the
+// whole grid and the zoom.
 //
-// The zoom is drawn in cell space when the recording's rasterizer is a
-// [render.Renderer]: the cells it shows are drawn again by a renderer of
-// its own, with the recording's options at the zoom's scale, without window
-// chrome, so the text stays sharp. With another [reel.Rasterizer], the
-// frame's image is cropped and scaled up with a Catmull-Rom filter. Frames
-// on the way in and out are scaled from the frame as drawn, with the sharp
-// zoom drawn over the part it covers, so they play on their own GIF palette
-// ([reel.Frame.Isolated]). A zoom that holds still keeps the recording's
-// palette.
+// When the recording's rasterizer is a [render.Renderer], the zoomed cells
+// are drawn again at the zoom's scale with [reel.Profile.Render] options, so
+// the text stays sharp; a [reel.Profile.Rasterizer] of the caller's own
+// should be built with those options. With another [reel.Rasterizer], the
+// frame's image is scaled up.
 //
-// The region is matched once a zoom starts: on the first terminal frame it
-// covers cells of, at the start of the window or on the way in. The zoom
-// then holds that part of the screen, wherever the region's text moves or
-// whether it is still shown, until it has eased out, so it never jumps or
-// drifts while it is held. A region that covers no cells until later in the
-// window zooms in at once when it does. Frames without a terminal, such as
-// cards, are left alone, and a terminal resized during the zoom is matched
-// again.
+// A zoom holds the part of the screen its region matched when it started,
+// wherever the text moves.
 //
-// The renderer is built from [reel.Context.Render], [reel.Profile.Render],
-// so a [reel.Profile.Rasterizer] that is a renderer of the caller's own
-// should be built with those options. In this path the zoomed grid is drawn
-// from the cells, over whatever effects before Zoom drew on it, so list Zoom
-// before effects that draw on the frame, such as [Highlight], and before
-// those whose overlays should keep their size and place, such as [Keys] and
-// [Pause]. A nil region is an error from Start.
+// Sharp zooms are drawn from the cells, over whatever effects before Zoom
+// drew; see the package documentation for where to list it. A nil region
+// is an error from Start.
 func Zoom(region Region, opts ...ZoomOption) reel.Effect {
 	z := zoom{region: region, ax: 0.5, ay: 0.5}
 	for _, opt := range opts {
@@ -160,8 +145,7 @@ type zoomStage struct {
 	// cells draws the zoom's cells at the scale cellsScale.
 	cells      *render.Renderer
 	cellsScale float64
-	// err is the errors building and closing the cell renderers, returned
-	// when the recording ends.
+	// err is returned when the recording ends.
 	err error
 
 	// target is the zoom being shown, or nil.
@@ -192,7 +176,7 @@ func (s *zoomStage) run(f reel.Frame, emit func(reel.Frame)) {
 		emit(f)
 		return
 	}
-	// The sharp cells and the held image are drawn once for every piece.
+	// The sharp cells and the held image are drawn once for all pieces.
 	var cells, held *image.NRGBA
 	if t.sharp {
 		cells = s.drawCells(t, f.Cells)
@@ -265,9 +249,8 @@ type zoomTarget struct {
 type zoomAxis struct{ k, off float64 }
 
 // at returns the zoom l of the way from none to a, along an axis of the
-// grid size pixels long: the span of the frame's grid it shows moves from
-// the whole of it to the span a shows, linearly, so the zoom never shows
-// past the grid's edges on the way.
+// grid size pixels long. The span shown moves linearly, so the zoom never
+// shows past the grid's edges on the way.
 func (a zoomAxis) at(l, size float64) zoomAxis {
 	from := l * (-a.off / a.k)
 	to := (1-l)*size + l*(size-a.off)/a.k
@@ -361,9 +344,8 @@ func cellSpan(off, cell float64, size, n int) (c0, c1 int) {
 }
 
 // drawCells draws the cells of t's crop of cf with the cell renderer. The
-// crop is copied into a buffer and an image kept between frames, so the
-// renderer, which compares the cells with those it drew last, repaints only
-// the rows that changed. The image is reused by the next call.
+// buffer and image are kept between frames, so the renderer repaints only
+// the rows that changed; the image is reused by the next call.
 func (s *zoomStage) drawCells(t *zoomTarget, cf *reel.CellFrame) *image.NRGBA {
 	c := t.crop
 	if s.buf == nil || s.buf.Bounds().Size() != c.Size() {

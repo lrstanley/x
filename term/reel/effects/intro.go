@@ -12,15 +12,10 @@ import (
 )
 
 // Intro returns an effect that shows a card of lines for d before the first
-// frame (see [CardRenderer.Card]), sized like the first frame. Without lines,
-// the card is the recording's title ([reel.Context.Title]) in bold, and a
-// recording without a title gets no card, so one profile can introduce the
-// recordings that have titles. A d of zero or less is no card either. The
-// speed does not scale d.
-//
-// The card is palettized on its own GIF palette ([reel.Frame.Isolated]), and
-// has no terminal ([reel.Frame.Cells] is nil), so effects after it, such as
-// [Keys], leave it alone.
+// frame (see [CardRenderer.Card]). Without lines, the card is the
+// recording's title ([reel.Context.Title]) in bold, and a recording without
+// a title gets no card. A d of zero or less is no card. The speed does not
+// scale d.
 func Intro(d time.Duration, lines ...Line) reel.Effect {
 	return intro{d: d, lines: lines}
 }

@@ -13,9 +13,10 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// WaitFinished waits for the [tea.Program] to finish.
+// WaitFinished waits for the [tea.Program] to finish. It fails the test if
+// the program returned an error other than [tea.ErrProgramKilled].
 //
-// See also [Harness.FinalModel] and [Harness.WaitSettleMessages].
+// See also [Harness.FinalModel].
 func (h *Harness) WaitFinished(opts ...Option) {
 	h.tb.Helper()
 	meta := WaitMeta{Kind: WaitKindFinished}
@@ -26,8 +27,7 @@ func (h *Harness) WaitFinished(opts ...Option) {
 	h.waitFinished(cfg, w)
 }
 
-// waitFinished waits for the program to finish, with cfg, and sets how the
-// wait ended on w, if any.
+// waitFinished waits for the program to finish, setting the outcome on w.
 func (h *Harness) waitFinished(cfg options, w *waitRecord) {
 	h.tb.Helper()
 
@@ -56,13 +56,12 @@ func (h *Harness) waitFinished(cfg options, w *waitRecord) {
 	}
 }
 
-// Sleep lets the program run for d without waiting on anything in particular,
-// such as to hold on a screen while a recording plays it, or to let an
-// animation run. It returns early, failing the test, if the context set with
-// [WithContext] is canceled.
+// Sleep lets the program run for d, such as to hold on a screen in a
+// recording or let an animation run. It fails the test if the context is
+// canceled first.
 //
-// Prefer a wait for the screen the test expects, such as [Harness.Wait], when
-// there is one: a wait does not depend on how fast the program runs.
+// Prefer waiting for the expected screen, such as with [Harness.Wait], which
+// does not depend on how fast the program runs.
 func (h *Harness) Sleep(d time.Duration, opts ...Option) *Harness {
 	h.tb.Helper()
 	meta := WaitMeta{Kind: WaitKindSleep}
@@ -83,12 +82,10 @@ func (h *Harness) Sleep(d time.Duration, opts ...Option) *Harness {
 	return h
 }
 
-// WaitSettle waits until the rendered view string from [Harness.View] has not
-// changed for the configured settle timeout. It polls this harness's
-// [Harness.View] and compares each result to the previous sample.
+// WaitSettle waits until [Harness.View] has not changed for the settle
+// timeout ([WithSettle]).
 //
-// See also [Harness.WaitSettleMessages], [WaitSettle], [WithSettle],
-// [WithCheck], and [WithTimeout].
+// See also [Harness.WaitSettleMessages].
 func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindSettle})()
@@ -98,8 +95,6 @@ func (h *Harness) WaitSettle(opts ...Option) *Harness {
 
 // WaitFunc waits until condition returns true for the latest view output.
 // T is the view type passed to condition: string or []byte.
-//
-// See also [WaitViewFunc], [Harness.Wait], [Harness.WaitNot], and [Harness.WaitMatch].
 func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindFunc})()
@@ -109,8 +104,6 @@ func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opt
 
 // Wait waits until view output contains contents. contents is a string, a
 // []byte sequence, or every string in a []string.
-//
-// See also [Wait], [Harness.WaitFunc], [Harness.WaitNot], and [Harness.WaitMatch].
 func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindText})()
@@ -120,8 +113,6 @@ func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option)
 
 // WaitNot waits until view output contains none of contents. contents is a
 // string, a []byte sequence, or any string in a []string.
-//
-// See also [WaitNot], [Harness.Wait], and [Harness.WaitNotMatch].
 func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindNotText})()
@@ -129,10 +120,8 @@ func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Opti
 	return h
 }
 
-// WaitMatch waits until the latest view output matches the regular expression pattern.
-//
-// See also [WaitMatch], [Harness.WaitNotMatch], [Harness.AssertMatch], and
-// [Harness.RequireMatch].
+// WaitMatch waits until the latest view output matches the regular expression
+// pattern. An invalid pattern fails the test immediately.
 func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMatch})()
@@ -141,10 +130,7 @@ func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 }
 
 // WaitNotMatch waits until the latest view output does not match the regular
-// expression pattern.
-//
-// See also [WaitNotMatch], [Harness.WaitMatch], [Harness.AssertNotMatch], and
-// [Harness.RequireNotMatch].
+// expression pattern. An invalid pattern fails the test immediately.
 func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindNotMatch})()
@@ -153,9 +139,7 @@ func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 }
 
 // Assert reports an error unless content appears in view output. content is a
-// string or every string in a []string. It allows the test to continue.
-//
-// See also [Assert], [Harness.Require], and [Harness.Wait].
+// string or every string in a []string.
 func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindContains})()
@@ -165,8 +149,6 @@ func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harnes
 
 // Require fails the test immediately unless content appears in view output.
 // content is a string or every string in a []string.
-//
-// See also [Require], [Harness.Assert], and [Harness.Wait].
 func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindContains, Required: true})()
@@ -175,9 +157,7 @@ func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harne
 }
 
 // AssertNot reports an error if content appears in view output. content is a
-// string or any string in a []string. It allows the test to continue.
-//
-// See also [AssertNot], [Harness.Assert], and [Harness.WaitNot].
+// string or any string in a []string.
 func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotContains})()
@@ -187,8 +167,6 @@ func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Har
 
 // RequireNot fails the test immediately if content appears in view output.
 // content is a string or any string in a []string.
-//
-// See also [RequireNot], [Harness.Require], and [Harness.WaitNot].
 func (h *Harness) RequireNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotContains, Required: true})()
@@ -198,9 +176,6 @@ func (h *Harness) RequireNot[T string | []string](content T, opts ...Option) *Ha
 
 // AssertMatch reports an error unless view output matches the regular expression
 // pattern.
-//
-// See also [AssertMatch], [Harness.RequireMatch], [Harness.WaitMatch],
-// [Harness.AssertNotMatch], [Harness.RequireNotMatch], and [Harness.WaitNotMatch].
 func (h *Harness) AssertMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindMatch})()
@@ -210,9 +185,6 @@ func (h *Harness) AssertMatch(pattern string, opts ...Option) *Harness {
 
 // RequireMatch fails the test immediately unless view output matches the regular
 // expression pattern.
-//
-// See also [RequireMatch], [Harness.AssertMatch], [Harness.RequireNotMatch], and
-// [Harness.WaitMatch].
 func (h *Harness) RequireMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindMatch, Required: true})()
@@ -222,9 +194,6 @@ func (h *Harness) RequireMatch(pattern string, opts ...Option) *Harness {
 
 // AssertNotMatch reports an error if view output matches the regular expression
 // pattern.
-//
-// See also [AssertNotMatch], [Harness.RequireNotMatch], [Harness.AssertMatch],
-// [Harness.RequireMatch], and [Harness.WaitNotMatch].
 func (h *Harness) AssertNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotMatch})()
@@ -234,9 +203,6 @@ func (h *Harness) AssertNotMatch(pattern string, opts ...Option) *Harness {
 
 // RequireNotMatch fails the test immediately if view output matches the regular
 // expression pattern.
-//
-// See also [RequireNotMatch], [Harness.AssertNotMatch], [Harness.AssertMatch],
-// [Harness.RequireMatch], and [Harness.WaitNotMatch].
 func (h *Harness) RequireNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotMatch, Required: true})()
@@ -246,9 +212,6 @@ func (h *Harness) RequireNotMatch(pattern string, opts ...Option) *Harness {
 
 // AssertHeight reports an error unless view output has height rows. It allows
 // the test to continue.
-//
-// See also [AssertHeight], [Harness.RequireHeight], [Harness.AssertDimensions],
-// [Harness.AssertWidth], [AssertDimensions], and [Dimensions].
 func (h *Harness) AssertHeight(height int, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHeight})()
@@ -257,9 +220,6 @@ func (h *Harness) AssertHeight(height int, opts ...Option) *Harness {
 }
 
 // RequireHeight fails the test immediately unless view output has height rows.
-//
-// See also [RequireHeight], [Harness.AssertHeight], [Harness.RequireDimensions],
-// and [AssertDimensions].
 func (h *Harness) RequireHeight(height int, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHeight, Required: true})()
@@ -269,9 +229,6 @@ func (h *Harness) RequireHeight(height int, opts ...Option) *Harness {
 
 // AssertWidth reports an error unless view output has width columns. It allows
 // the test to continue.
-//
-// See also [AssertWidth], [Harness.RequireWidth], [Harness.AssertDimensions],
-// [Harness.AssertHeight], [AssertDimensions], and [Dimensions].
 func (h *Harness) AssertWidth(width int, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindWidth})()
@@ -280,9 +237,6 @@ func (h *Harness) AssertWidth(width int, opts ...Option) *Harness {
 }
 
 // RequireWidth fails the test immediately unless view output has width columns.
-//
-// See also [RequireWidth], [Harness.AssertWidth], [Harness.RequireDimensions],
-// and [AssertDimensions].
 func (h *Harness) RequireWidth(width int, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindWidth, Required: true})()
@@ -291,10 +245,9 @@ func (h *Harness) RequireWidth(width int, opts ...Option) *Harness {
 }
 
 // AssertDimensions reports an error unless view output has width columns and height
-// rows. It allows the test to continue.
+// rows.
 //
-// See also [AssertDimensions], [Harness.RequireDimensions], [Harness.AssertWidth],
-// [Harness.AssertHeight], [Harness.RequireSnapshot], and [Dimensions].
+// See also [Harness.Dimensions].
 func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindDimensions})()
@@ -304,9 +257,6 @@ func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 
 // RequireDimensions fails the test immediately unless view output has width
 // columns and height rows.
-//
-// See also [RequireDimensions], [Harness.AssertDimensions], [Harness.RequireHeight],
-// [Harness.RequireWidth], and [Harness.RequireSnapshot].
 func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindDimensions, Required: true})()
@@ -314,11 +264,10 @@ func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness 
 	return h
 }
 
-// WaitSettleMessages waits until no messages have been observed for the
-// configured settle timeout.
+// WaitSettleMessages waits until the model has received no messages for the
+// settle timeout ([WithSettle]), ignoring types from [WithSettleIgnoreMsgs].
 //
-// See also [WaitSettleMessages], [Harness.WaitSettle], [WaitSettle],
-// [WithSettle], [WithCheck], and [WithTimeout].
+// See also [Harness.WaitSettle].
 func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindSettleMessages})()
@@ -328,8 +277,6 @@ func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 
 // WaitMessage waits until at least one message with concrete type T has been
 // observed, then returns the first match.
-//
-// See also [WaitMessage], [Harness.WaitMessageWhere], and [Harness.WaitLiveMessage].
 func (h *Harness) WaitMessage[T uv.Event](opts ...Option) T {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage})()
@@ -338,8 +285,6 @@ func (h *Harness) WaitMessage[T uv.Event](opts ...Option) T {
 
 // WaitLiveMessage waits until a new message with concrete type T arrives after
 // this call, then returns the first match.
-//
-// See also [WaitLiveMessage], [Harness.WaitMessage], and [Harness.WaitLiveMessageWhere].
 func (h *Harness) WaitLiveMessage[T uv.Event](opts ...Option) T {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage, Live: true})()
@@ -348,8 +293,6 @@ func (h *Harness) WaitLiveMessage[T uv.Event](opts ...Option) T {
 
 // WaitMessageWhere waits until fn returns true for a message of type T across
 // history and later messages. T is inferred from fn.
-//
-// See also [WaitMessageWhere] and [Harness.WaitLiveMessageWhere].
 func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage})()
@@ -358,8 +301,6 @@ func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) 
 
 // WaitLiveMessageWhere waits until fn returns true for a message of type T
 // received after this call. T is inferred from fn.
-//
-// See also [WaitLiveMessageWhere] and [Harness.WaitMessageWhere].
 func (h *Harness) WaitLiveMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage, Live: true})()
@@ -367,8 +308,6 @@ func (h *Harness) WaitLiveMessageWhere[T uv.Event](fn func(T) bool, opts ...Opti
 }
 
 // AssertHasMessage reports an error unless history contains a message of type T.
-//
-// See also [AssertHasMessage] and [Harness.RequireHasMessage].
 func (h *Harness) AssertHasMessage[T uv.Event](opts ...Option) bool {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHasMessage})()
@@ -377,8 +316,6 @@ func (h *Harness) AssertHasMessage[T uv.Event](opts ...Option) bool {
 
 // RequireHasMessage fails the test immediately unless history contains a message
 // of type T.
-//
-// See also [RequireHasMessage] and [Harness.AssertHasMessage].
 func (h *Harness) RequireHasMessage[T uv.Event](opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHasMessage, Required: true})()
@@ -387,16 +324,12 @@ func (h *Harness) RequireHasMessage[T uv.Event](opts ...Option) *Harness {
 }
 
 // FilterMessagesType yields history messages whose concrete type is T.
-//
-// See also [FilterMessagesType] and [Harness.FilterMessagesFunc].
 func (h *Harness) FilterMessagesType[T uv.Event]() iter.Seq[T] {
 	h.tb.Helper()
 	return FilterMessagesType[T](h.tb, h.MessageHistory())
 }
 
 // FilterMessagesFunc yields history messages of type T for which fn returns true.
-//
-// See also [FilterMessagesFunc] and [Harness.FilterMessagesType].
 func (h *Harness) FilterMessagesFunc[T uv.Event](fn func(T) bool) iter.Seq[T] {
 	h.tb.Helper()
 	return FilterMessagesFunc[T](h.tb, h.MessageHistory(), fn)

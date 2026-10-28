@@ -21,21 +21,19 @@ type observedType struct {
 	lastReceived  time.Time
 }
 
-// typeObserver is a type observer that records the types of values received,
-// when they were last received, and how many times they were received.
+// typeObserver counts the types of values it observes, and when each was
+// first and last seen, for failure messages.
 type typeObserver[T any] struct {
 	mu    sync.RWMutex
 	types map[string]*observedType
 }
 
-// newTypeObserver returns a new [typeObserver].
 func newTypeObserver[T any]() *typeObserver[T] {
 	return &typeObserver[T]{
 		types: make(map[string]*observedType),
 	}
 }
 
-// observe records the types of the provided values.
 func (o *typeObserver[T]) observe(v ...T) *typeObserver[T] {
 	o.mu.Lock()
 	defer o.mu.Unlock()

@@ -14,26 +14,22 @@ type Recording struct {
 	stop chan struct{}
 	done chan struct{}
 	once sync.Once
-	// err is the result, set before done is closed.
+	// err is set before done is closed.
 	err error
 }
 
-// Record writes the outputs of p from s while it runs. It tails the
-// session's timeline, replaying each event into a terminal of its own as it
-// is appended, through the same pipeline as [Export], so the frames are
-// drawn and encoded while the program runs rather than all at the end.
-// [Recording.Stop] ends it on the events appended so far, and writes the
-// outputs [Export] would write from the timeline at that point, asciicast
-// files included.
+// Record writes the outputs of p from s while it runs, replaying each event
+// as it is appended through the same pipeline as [Export], so frames are
+// drawn and encoded live rather than at the end. [Recording.Stop] ends it
+// on the events appended so far and writes what [Export] would for the
+// timeline at that point.
 //
-// Paths are expanded when Record starts, so {duration}, which is only known
-// at the end, is an error, and {timestamp} is when the timeline started, or
-// now when nothing has been appended yet. A still whose mark never comes
-// writes nothing, and Stop reports it as a [NoMarkError]; the
-// other outputs are still written. Effects are started with [Context.Live]
-// set, so those that look for marks find them as they are appended, and
-// report those that never come the same way. The asciicast files leave out
-// the descriptions of the effects whose marks never came.
+// Paths are expanded when Record starts, so {duration} is an error, and
+// {timestamp} is when the timeline started (or now, if it is empty). A
+// still whose mark never comes is not written, and Stop reports it as a
+// [NoMarkError]; other outputs are still written. Effects run with
+// [Context.Live] set. Asciicast outputs leave out descriptions of effects
+// whose marks never came.
 //
 // Canceling ctx abandons the recording: its outputs are discarded, and Stop
 // returns ctx's error.
@@ -56,7 +52,8 @@ func Record(ctx context.Context, s *Session, p Profile) (*Recording, error) {
 }
 
 // Stop ends the recording on the events appended so far, writes its
-// outputs, and returns the first error. Later calls return the same result.
+// outputs, and returns the first error. It is safe to call repeatedly, and
+// always returns the same result.
 func (r *Recording) Stop() error {
 	r.once.Do(func() { close(r.stop) })
 	<-r.done
@@ -85,8 +82,7 @@ func (r *Recording) run(ctx context.Context, tl *Timeline, rec *recorder) error 
 			}
 		}
 		if stopping {
-			// A ctx canceled before Stop wins, though the select may
-			// have seen both.
+			// Cancellation wins even if the select picked stop.
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -100,7 +96,7 @@ func (r *Recording) run(ctx context.Context, tl *Timeline, rec *recorder) error 
 		select {
 		case <-updated:
 		case <-r.stop:
-			// One more pass, for the events appended until now.
+			// One more pass for events appended until now.
 			stopping = true
 		case <-ctx.Done():
 			return ctx.Err()

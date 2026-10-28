@@ -10,9 +10,8 @@ import (
 	"image/gif"
 )
 
-// Same reports whether a and b are the same palette slice. Equal
-// indices under two palettes are different pictures, so dedup and disposal
-// treat a different slice as a different palette even when the colors match.
+// Same reports whether a and b are the same palette slice, which dedup and
+// disposal require even when the colors of two slices match.
 func Same(a, b color.Palette) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return len(a) == len(b)
@@ -26,8 +25,7 @@ type Group struct {
 	Frames  []*image.Paletted
 }
 
-// Groups splits frames by palette identity. Frames that share a slice
-// stay in one group even when another palette sits between them.
+// Groups splits frames by palette slice ([Same]), in order of first use.
 func Groups(frames []*image.Paletted) []Group {
 	var groups []Group
 	for _, frame := range frames {
@@ -49,18 +47,15 @@ func Groups(frames []*image.Paletted) []Group {
 	return groups
 }
 
-// Compact compacts the palette frames share to only the entries they use,
-// keeping their order, and moves the transparent slot to the end when a frame
-// uses it, so a palette with few colors gets a smaller table. GIF's LZW output
-// does not depend on which index a color has, only on how many bits the table
-// needs, so reordering by frequency would gain nothing. Frames are updated in
-// place with remapped indices and the new palette.
+// Compact rewrites frames, which share a palette, in place onto a new palette
+// of only the entries they use, in order, with the transparent slot moved to
+// the end if used. It returns the new palette. Reordering by frequency would
+// gain nothing: GIF's LZW output depends only on the table's bit width.
 func Compact(frames []*image.Paletted) color.Palette {
 	oldPal := frames[0].Palette
 	var used [256]bool
-	// top is the highest index each frame uses. Indices below the first one
-	// compaction moves keep their place, so a frame entirely below it (often
-	// a keyframe, which an adaptive palette fills from 0 up) is not rewritten.
+	// top is the highest index each frame uses. A frame entirely below the
+	// first index that moves is not rewritten.
 	top := make([]int, len(frames))
 	for i, frame := range frames {
 		var seen [256]bool
@@ -103,9 +98,8 @@ func Compact(frames []*image.Paletted) color.Palette {
 	return newPal
 }
 
-// CompactGIF compacts each palette to the colors its frames use. The shared
-// palette is compacted over the frames that use it and stays the global
-// color table.
+// CompactGIF compacts each palette of out with [Compact], keeping the global
+// color table pointing at the compacted global palette.
 func CompactGIF(out *gif.GIF) {
 	global, _ := out.Config.ColorModel.(color.Palette)
 	for _, g := range Groups(out.Image) {
@@ -117,8 +111,8 @@ func CompactGIF(out *gif.GIF) {
 }
 
 // transparentMarkerColor fills the transparent slot of every palette this
-// package builds. GIF writers give a frame's transparent index to its
-// palette's zero-alpha color.
+// package builds. image/gif makes a palette's zero-alpha color the frame's
+// transparent index.
 func transparentMarkerColor() color.Color {
 	return color.RGBA{A: 0}
 }

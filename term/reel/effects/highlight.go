@@ -17,16 +17,14 @@ import (
 	"github.com/lrstanley/x/term/reel"
 )
 
-// highlightDim is how much [Highlight] darkens the rest of the frame unless
-// [DimOthers] says otherwise.
+// highlightDim is the default of [DimOthers].
 const highlightDim = 0.5
 
-// outlineColor is the default color of an [Outline], a warm yellow, xterm
-// 221.
+// outlineColor is the default color of an [Outline], xterm 221.
 var outlineColor = color.NRGBA{R: 0xff, G: 0xd7, B: 0x5f, A: 0xff}
 
 // HighlightOption configures [Highlight]: [DimOthers], [Outline],
-// [Padding], and the [Timing] options every region effect takes.
+// [Padding], and the [Timing] options.
 type HighlightOption interface {
 	applyHighlight(h *highlight)
 }
@@ -36,19 +34,17 @@ type highlightOption func(*highlight)
 func (o highlightOption) applyHighlight(h *highlight) { o(h) }
 
 // DimOthers sets how much [Highlight] darkens everything outside its
-// region, window chrome and margins included: each color is moved toward
-// black by factor, from 0, which leaves it alone, to 1, which makes it
-// black. The default is 0.5, half as bright. A factor outside 0 to 1 is an
-// error from Start.
+// region, window chrome and margins included, from 0, unchanged, to 1,
+// black. The default is 0.5. A factor outside 0 to 1 is an error from
+// Start.
 func DimOthers(factor float64) HighlightOption {
 	return highlightOption(func(h *highlight) { h.dim = factor })
 }
 
 // Outline draws a border px pixels wide around each rectangle of cells the
-// [Highlight] region covers, outside it and its [Padding], so it hides none
-// of the region. A nil c is a warm yellow. A px of zero scales with the
-// font: an eighth of a cell's height, at least 1. A px below zero is an
-// error from Start.
+// [Highlight] region covers, outside its [Padding]. A nil c is a warm
+// yellow. A px of zero is an eighth of a cell's height, at least 1. A px
+// below zero is an error from Start.
 func Outline(c color.Color, px int) HighlightOption {
 	return highlightOption(func(h *highlight) {
 		h.outline, h.outlinePx = outlineColor, px
@@ -59,13 +55,11 @@ func Outline(c color.Color, px int) HighlightOption {
 }
 
 // Padding sets how many pixels around each rectangle of cells the
-// [Highlight] region covers it keeps with the region, on every side: they
-// are left undimmed, over neighboring cells too, and the [Outline] is drawn
-// outside them. A px of zero keeps none, so the outline sits against the
-// cells. The default scales with the font: a third of a cell's width, at
-// least 1. Near the edges of the image, the padding shrinks so the outline
-// still fits, but never into the cells. A px below zero is an error from
-// Start.
+// [Highlight] region covers are left undimmed, on every side, with the
+// [Outline] drawn outside them. Zero means no padding, so the outline sits
+// against the cells. The default is a third of a cell's width, at least 1.
+// Near the edges of the image, the padding shrinks so the outline still
+// fits, but never into the cells. A px below zero is an error from Start.
 func Padding(px int) HighlightOption {
 	return highlightOption(func(h *highlight) { h.pad, h.padSet = px, true })
 }
@@ -73,21 +67,11 @@ func Padding(px int) HighlightOption {
 // Highlight returns an effect that draws attention to the cells of region:
 // it darkens all of the frame but the region and its [Padding] (see
 // [DimOthers]), and can draw an [Outline] around them. The region is matched
-// on each terminal frame, from its cells, so a [Text] region follows its
-// text as it moves. A frame the region covers no cells of is left alone, as
-// are frames without a terminal, such as cards. [Between] limits the
-// highlight to a window of the timeline, and [Ease], [EaseIn], and [EaseOut]
-// fade it in and out.
+// on each terminal frame, so a [Text] region follows its text. It takes the
+// [Timing] options and works with any [reel.Rasterizer]. See the package
+// documentation for where to list it.
 //
-// The cells are mapped to pixels with the layout of the recording's
-// rasterizer, so it works with any [reel.Rasterizer]. The highlight is drawn
-// on copies of the frames. Dimmed frames are palettized on their own GIF
-// palette ([reel.Frame.Isolated]), so their darker colors leave the
-// recording's palette alone. List Highlight before effects whose overlays
-// should stay bright, such as [Keys] and [Pause].
-//
-// A nil region is an error from Start. A highlight that neither dims nor
-// outlines leaves the recording alone.
+// A nil region is an error from Start.
 func Highlight(region Region, opts ...HighlightOption) reel.Effect {
 	h := highlight{region: region, dim: highlightDim}
 	for _, opt := range opts {
@@ -187,9 +171,8 @@ func (s *highlightStage) run(f reel.Frame, emit func(reel.Frame)) {
 }
 
 // draw returns a copy of src with the highlight at strength level drawn
-// over rects, the region's cells with their padding: the rest dimmed, the
-// outlines drawn around rects, and then rects as src has them, so neither
-// covers them.
+// around rects, the region's cells with their padding, which are left as
+// src has them.
 func (s *highlightStage) draw(src *image.NRGBA, rects []image.Rectangle, level float64) *image.NRGBA {
 	img := cloneNRGBA(src)
 	if s.dim > 0 {
@@ -208,8 +191,8 @@ func (s *highlightStage) draw(src *image.NRGBA, rects []image.Rectangle, level f
 	return img
 }
 
-// dimNRGBA scales the color channels of every pixel of img by keep, from 0
-// to 1, leaving alpha alone.
+// dimNRGBA scales the color channels of every pixel of img by keep, leaving
+// alpha alone.
 func dimNRGBA(img *image.NRGBA, keep float64) {
 	var scale [256]uint8
 	for i := range scale {
@@ -224,8 +207,7 @@ func dimNRGBA(img *image.NRGBA, keep float64) {
 	}
 }
 
-// drawOutline draws a border px wide around r, outside it, in src, clipped
-// to img.
+// drawOutline draws a border px wide around the outside of r, in src.
 func drawOutline(img *image.NRGBA, r image.Rectangle, px int, src *image.Uniform) {
 	o := r.Inset(-px)
 	for _, side := range []image.Rectangle{

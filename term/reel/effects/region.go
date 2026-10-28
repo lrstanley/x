@@ -20,10 +20,6 @@ import (
 // Region selects cells of a terminal frame, for the effects that work on
 // part of the screen, such as [Highlight]. Each terminal frame is matched on
 // its own, so a region that matches text follows it as it moves.
-//
-// The package's regions are [Cells], [Row], and [Rows], which select fixed
-// cells, [Text], [Regexp], and [Env], which find text on each frame, and
-// [Any], which joins others. A region of a caller's own implements Rects.
 type Region interface {
 	// Rects returns the cells the region covers on the terminal of f, as
 	// rectangles of cell coordinates, where (0, 0) is the top left cell.
@@ -48,35 +44,29 @@ func Rows(y0, y1 int) Region {
 	return rowsRegion{y0, y1}
 }
 
-// Text returns a region of the cells that show s, wherever it appears on a
-// frame, every time it appears. Text is searched line by line, where a line
-// is a row and the rows it soft-wrapped over, as a terminal wraps text
-// written past the last column ([vt.Buffer.Wrapped]), so s matches
-// across the end of a row it wrapped past, but never across a line break,
-// and an s that holds a newline matches nothing. Text a program lays out
-// over rows itself, moving the cursor or breaking lines, as full-screen
-// programs do, is on separate lines. Blank cells read as spaces. An empty s
-// matches nothing. See [Regexp] for how a match maps to cells.
+// Text returns a region of the cells that show s, every time it appears on
+// a frame. Text is searched line by line, where a line is a row and the
+// rows it soft-wrapped over ([vt.Buffer.Wrapped]), so s matches across a
+// soft wrap but never across a line break. Text a program lays out over
+// rows itself, as full-screen programs do, is on separate lines. Blank
+// cells read as spaces. An empty s, or one that holds a newline, matches
+// nothing. See [Regexp] for how a match maps to cells.
 func Text(s string) Region { return textRegion(s) }
 
-// Regexp returns a region of the cells re matches, wherever and as often as
-// it matches on a frame. re is matched against the text of each line on its
-// own, as [Text] reads lines, so a match never spans a line break, and ^ and
-// $ match at the ends of a line. Empty matches select nothing.
+// Regexp returns a region of the cells re matches, every time it matches on
+// a frame. re is matched against each line on its own, as [Text] reads
+// lines, so ^ and $ match at the ends of a line. Empty matches select
+// nothing.
 //
-// A match covers every cell it holds any byte of, so a match of part of a
-// character, or of one rune of a grapheme cluster such as a letter with an
-// accent, covers its whole cell, and a match of a wide character, such as
-// a CJK character or an emoji, covers both of its columns. A match that runs
-// over a wrapped row covers its cells on each row.
+// A match covers every cell it holds any byte of: part of a grapheme
+// cluster covers its whole cell, and a wide character covers both of its
+// columns.
 func Regexp(re *regexp.Regexp) Region { return regexpRegion{re} }
 
 // Env returns a region of the cells that show the values of the
-// environment variables names, as they are when the region is matched,
-// wherever they appear, as [Text] matches them, across wrapped rows too. A
-// value with several lines matches each of them on its own. A variable that
-// is unset, or a value or line that is only whitespace, matches nothing, so
-// an empty variable never selects every cell.
+// environment variables names, read when the region is matched, as [Text]
+// matches them. Each line of a value matches on its own. An unset variable,
+// or a line that is only whitespace, matches nothing.
 func Env(names ...string) Region { return envRegion(slices.Clone(names)) }
 
 // Any returns a region of the cells any of regions covers. Nil regions
@@ -150,7 +140,7 @@ func (r anyRegion) Rects(f *reel.CellFrame) []image.Rectangle {
 }
 
 // findText returns the cells of every match of each of needles in the lines
-// of f. Empty needles and needles with a newline match nothing.
+// of f (see [textNeedles]).
 func findText(f *reel.CellFrame, needles []string) []image.Rectangle {
 	needles = textNeedles(needles)
 	if len(needles) == 0 {
@@ -181,8 +171,7 @@ func textNeedles(needles []string) []string {
 }
 
 // screenLine is the text of one line of a screen: a row, and the rows below
-// it that it soft-wrapped over, with where each cell's text starts in it
-// and the cell's place.
+// it that it soft-wrapped over.
 type screenLine struct {
 	text string
 	// starts is the offset into text of each cell's text, in order, and
@@ -195,11 +184,8 @@ type screenLine struct {
 type lineCell struct{ x0, x1, y int }
 
 // screenLines returns an iterator over the lines of f's screen, top to
-// bottom. A row continues the line of the row above when that row is
-// soft-wrapped ([vt.Buffer.Wrapped]). A cell is its grapheme cluster, or
-// a space when blank, and spacer columns add nothing: those a wide cell
-// covers, and the one left at the end of a row when a wide character
-// wrapped to the next.
+// bottom. A cell is its grapheme cluster, or a space when blank, and spacer
+// columns add nothing.
 //
 // The line yielded is only valid until the next: its slices are reused.
 func screenLines(f *reel.CellFrame) iter.Seq[screenLine] {
@@ -255,8 +241,7 @@ func (l screenLine) cellOf(i int) int {
 }
 
 // appendMatch appends the cells of the bytes from i up to j of the line's
-// text to rects, a rectangle for each row they are on. An empty match
-// appends nothing.
+// text to rects, a rectangle for each row they are on.
 func (l screenLine) appendMatch(rects []image.Rectangle, i, j int) []image.Rectangle {
 	if j <= i {
 		return rects
@@ -274,10 +259,8 @@ func (l screenLine) appendMatch(rects []image.Rectangle, i, j int) []image.Recta
 	return rects
 }
 
-// regionCells returns the cells region covers on f, clipped to the screen,
-// and widened to the whole of each wide character it covers part of, as
-// rectangles: one for each run of cells on a row, or for runs on rows below
-// one another that start and end on the same columns.
+// regionCells returns the cells region covers on f, as [coveredCells] finds
+// them, as rectangles (see [cellRuns]).
 func regionCells(region Region, f *reel.CellFrame) []image.Rectangle {
 	covered := coveredCells(f, region.Rects(f))
 	if covered == nil {
@@ -384,10 +367,8 @@ func cellRuns(covered []bool, w, h int) []image.Rectangle {
 	return out
 }
 
-// regionPixels finds the pixels of a region on terminal frames, for an
-// effect that draws on them, with the layout of the recording's rasterizer
-// for each frame's size. Frames of one terminal share its screen, which is
-// matched once.
+// regionPixels finds the pixels of a region on terminal frames, matching
+// each screen once.
 type regionPixels struct {
 	region Region
 	rast   reel.Rasterizer

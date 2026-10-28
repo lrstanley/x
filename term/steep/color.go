@@ -12,7 +12,7 @@ import (
 )
 
 // ColorProfile is the color support the harness terminal advertises to the
-// program. See [WithColor].
+// program (see [WithColor]).
 type ColorProfile int
 
 const (
@@ -47,8 +47,7 @@ func (p ColorProfile) String() string {
 // term256 is the TERM the harness terminal reports by default.
 const term256 = "TERM=xterm-256color"
 
-// colorEnvKeys are the variables color detection reads, which [WithColor]
-// replaces.
+// colorEnvKeys are the color detection variables [WithColor] replaces.
 var colorEnvKeys = []string{"TERM", "COLORTERM", "NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE"}
 
 // env returns env with the color variables replaced by those that advertise p.
@@ -69,9 +68,8 @@ func (p ColorProfile) env(env []string) []string {
 	return append(out, term256)
 }
 
-// teaProfile is p as Bubble Tea's color profile, which detection would arrive
-// at from [ColorProfile.env], set explicitly so it does not depend on the host's
-// terminfo database.
+// teaProfile is p as Bubble Tea's color profile, set explicitly so it does
+// not depend on the host's terminfo database.
 func (p ColorProfile) teaProfile() colorprofile.Profile {
 	switch p {
 	case ColorASCII:
@@ -86,14 +84,12 @@ func (p ColorProfile) teaProfile() colorprofile.Profile {
 }
 
 // WithColor sets the color support the harness terminal advertises to the
-// program, through the variables color detection reads (TERM, COLORTERM, and
-// NO_COLOR) and [tea.WithColorProfile]. Without it the terminal reports
-// [ColorANSI256], so Bubble Tea downsamples 24-bit colors to the nearest of
-// 256. Use [ColorTrueColor] for gradients and blends that need every color.
+// program, through TERM, COLORTERM, and NO_COLOR and [tea.WithColorProfile].
+// Without it the terminal reports [ColorANSI256], so Bubble Tea downsamples
+// 24-bit colors; use [ColorTrueColor] for gradients and blends.
 //
-// It is applied after [WithEnvVars], whatever the order. A
-// [tea.WithColorProfile] passed through [WithProgramOptions] still wins over
-// it.
+// It overrides the color variables of [WithEnvVars], whatever the order. A
+// [tea.WithColorProfile] passed through [WithProgramOptions] wins over it.
 func WithColor(p ColorProfile) Option {
 	return func(cfg *options) {
 		cfg.color = p

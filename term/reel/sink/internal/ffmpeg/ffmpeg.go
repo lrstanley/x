@@ -2,11 +2,9 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package ffmpeg runs ffmpeg for sink's video encoders: it probes a binary
-// for its version and encoders ([Probe]), and runs an encode ([Start]) that
-// reads frames on stdin as a stream of uncompressed Matroska ([MKV]). Its
-// errors reach sink's callers as they are, so they start with "sink: " as
-// sink's own do.
+// Package ffmpeg probes ffmpeg binaries ([Probe]) and runs encodes ([Start])
+// that read uncompressed Matroska ([MKV]) on stdin. Its errors reach sink's
+// callers unwrapped, so they start with "sink: ".
 package ffmpeg
 
 import (
@@ -24,17 +22,15 @@ import (
 	"time"
 )
 
-// probeTimeout bounds each probe run, so a wedged binary fails setup
-// instead of hanging it.
+// probeTimeout bounds each probe run, so a wedged binary fails setup.
 const probeTimeout = 30 * time.Second
 
-// stderrLimit is how much of ffmpeg's stderr an encode error keeps: the
-// end, where ffmpeg reports why it stopped.
+// stderrLimit is how much of the end of ffmpeg's stderr an encode error
+// keeps.
 const stderrLimit = 16 << 10
 
 // Info is what probing one ffmpeg binary found.
 type Info struct {
-	// Path is the binary's path.
 	Path     string
 	encoders map[string]bool
 	// fpsMode reports -fps_mode support (ffmpeg 5.1 and later). Older builds
@@ -42,15 +38,13 @@ type Info struct {
 	fpsMode bool
 }
 
-// cachedProbe is the result of probing one binary, once.
 type cachedProbe struct {
 	once sync.Once
 	info *Info
 	err  error
 }
 
-// probes caches probes by resolved binary path, so every recording in a
-// process probes a binary once.
+// probes caches probes by resolved binary path.
 var (
 	probesMu sync.Mutex
 	probes   = map[string]*cachedProbe{}
@@ -59,8 +53,8 @@ var (
 // HasEncoder reports whether the binary has the video encoder name.
 func (i *Info) HasEncoder(name string) bool { return i.encoders[name] }
 
-// PassthroughArgs keeps every frame at its own timestamp. Without them,
-// ffmpeg resamples MP4 to a constant rate by repeating and dropping frames.
+// PassthroughArgs keeps every frame at its own timestamp, instead of ffmpeg
+// resampling MP4 to a constant rate.
 func (i *Info) PassthroughArgs() []string {
 	if i.fpsMode {
 		return []string{"-fps_mode", "passthrough"}
@@ -113,9 +107,9 @@ func run(path string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// parseEncoders reads the video encoder names from "ffmpeg -encoders".
-// Each entry follows a "------" separator as "<flags> <name> <description>",
-// where flags start with V for video.
+// parseEncoders reads the video encoder names from "ffmpeg -encoders": lines
+// after a "------" separator, as "<flags> <name> <description>", where video
+// flags start with V.
 func parseEncoders(out []byte) map[string]bool {
 	encoders := make(map[string]bool)
 	listed := false
@@ -133,9 +127,8 @@ func parseEncoders(out []byte) map[string]bool {
 	return encoders
 }
 
-// hasFPSMode reports whether "ffmpeg -version" output is from 5.1 or
-// later. Builds whose version is not a release number (git snapshots such as
-// "N-113000-g..." or "2024-01-01-git-...") are assumed to be recent.
+// hasFPSMode reports whether "ffmpeg -version" output is from 5.1 or later.
+// Versions that are not a release number (git snapshots) are assumed recent.
 func hasFPSMode(version []byte) bool {
 	line, _, _ := bytes.Cut(version, []byte("\n"))
 	fields := strings.Fields(string(line))
@@ -158,10 +151,9 @@ func hasFPSMode(version []byte) bool {
 // Job is one running encode: ffmpeg reads a stream on stdin and writes
 // the output file itself.
 type Job struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stderr *tailBuffer
-	// waitOnce runs cmd.Wait once, and waitErr holds its result.
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	stderr   *tailBuffer
 	waitOnce sync.Once
 	waitErr  error
 }
@@ -193,10 +185,9 @@ func (j *Job) wait() error {
 	return j.waitErr
 }
 
-// End closes ffmpeg's input, so it flushes the encode, and waits for it.
-// cause is why the caller is ending early, such as a failed write; ffmpeg's
-// own exit error wins over it, since a write usually fails because ffmpeg
-// exited.
+// End closes ffmpeg's input and waits for the encode to finish. cause is why
+// the caller is ending early, such as a failed write; ffmpeg's exit error wins
+// over it, since a write usually fails because ffmpeg exited.
 func (j *Job) End(cause error) error {
 	if err := j.stdin.Close(); cause == nil && !errors.Is(err, os.ErrClosed) {
 		cause = err
@@ -229,8 +220,8 @@ func stderrSuffix(stderr []byte) string {
 	return "\nffmpeg output:\n" + string(stderr)
 }
 
-// tailBuffer keeps the last limit bytes written to it. os/exec copies stderr
-// from its own goroutine, so it is locked.
+// tailBuffer keeps the last limit bytes written to it. It is locked, as
+// os/exec writes stderr from its own goroutine.
 type tailBuffer struct {
 	mu    sync.Mutex
 	limit int

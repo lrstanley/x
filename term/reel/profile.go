@@ -16,77 +16,77 @@ import (
 )
 
 // Profile configures how [Export] and [Record] turn a [Timeline] into files.
-// The zero value of every field but Outputs is a usable default. A profile
-// holds no state of its own, so one can be shared by recordings that run in
-// parallel.
+// Every field but Outputs has a usable zero value. A profile holds no state,
+// so it can be shared by parallel recordings.
 type Profile struct {
-	// Outputs are the files to write, which must not be empty.
+	// Outputs are the files to write; it must not be empty.
 	Outputs []File
-	// Render configures the renderer the frames are drawn with. A palette
-	// set with [render.WithPalette] replaces the timeline's
-	// [Header.Palette].
+	// Render configures the renderer. A [render.WithPalette] palette
+	// replaces the timeline's [Header.Palette].
 	Render []render.Option
-	// Fit, when set, fits the frames within this many pixels wide (X) and
-	// tall (Y), by choosing the render scale, so text stays sharp rather than
-	// the image being resized. It is the largest scale at which the image of
-	// the timeline's [Header] size fits (see [render.FitScale]), so one
-	// direction may be smaller, and [render.WithScale] in Render is an error.
-	// An X or Y of 0 sets no limit in that direction. A [Resize] to a larger
-	// terminal still grows the frames. It is an error with a Rasterizer,
-	// which draws its own size.
+	// Fit, if set, fits frames within X by Y pixels by choosing the render
+	// scale (see [render.FitScale]), so text stays sharp rather than the
+	// image being resized; one direction may come out smaller. An X or Y of 0
+	// sets no limit in that direction. A [Resize] to a larger terminal still
+	// grows the frames. [render.WithScale] in Render, or a Rasterizer, is an
+	// error.
 	Fit image.Point
-	// Rasterizer, when set, draws the frames instead of a renderer built
-	// from Render. It is not closed, and is drawn with from one goroutine
-	// per recording.
+	// Rasterizer, if set, draws frames instead of a renderer built from
+	// Render. It is not closed, and each recording uses it from one
+	// goroutine.
 	Rasterizer Rasterizer
 	// Encode configures every frame output (see the sink package).
 	Encode []sink.Option
-	// Effects change the frames between the rasterizer and the frame
-	// outputs, in order. A [Concealer] must come before every effect that
-	// is not one. Asciicast outputs record those that describe themselves
-	// (see [Describer]).
+	// Effects transform frames in order. See [Concealer] for ordering rules
+	// and [Describer] for how asciicast outputs record them.
 	Effects []Effect
-	// FPS sets the delay grid: every frame plays for a whole number of
-	// steps of 10ms × max(1, 100/FPS), the delays GIF can store. Zero is
-	// 20, and it must be at most [sink.MaxFrameRate]. Frames are not drawn
-	// at a fixed rate: each change the terminal shows is a frame, which
-	// ends on the step nearest its end in the timeline, so a recording
-	// plays as long as its timeline from the first frame, to within a step.
-	// Of changes that fall on one step, only the newest is shown.
+	// FPS sets the delay grid: frames play whole steps of
+	// 10ms × max(1, 100/FPS), the delays GIF can store. Zero means 20; it
+	// must be at most [sink.MaxFrameRate]. Frames are not drawn at a fixed
+	// rate: each visible change is a frame ending on the step nearest its
+	// timeline end, and of changes on one step only the newest is shown.
 	FPS int
-	// Speed scales playback: 2 plays twice as fast. Zero is 1.
+	// Speed scales playback: 2 plays twice as fast. Zero means 1.
 	Speed float64
-	// Title names the recording, for effects such as a title card, and for
-	// asciicast outputs. Without it, the timeline's [Header.Title] is used.
+	// Title names the recording, for effects such as a title card and for
+	// asciicast outputs. Defaults to the timeline's [Header.Title].
 	Title string
-	// Meta is anything a caller's effects need, passed along in
-	// [Context.Meta]. reel never reads it.
+	// Meta is passed to effects in [Context.Meta]; reel never reads it.
 	Meta any
 	// Vars are extra path variables (see [Export]), by name without braces.
 	Vars map[string]string
 }
 
-// File is one output a [Profile] writes. It is not called Output, which is
-// the event of what a program wrote.
+// File is one output a [Profile] writes.
+//
+// An asciicast (".cast") output is the timeline itself, written with
+// [Timeline.WriteCast], with [Profile.Title] and the drawn palette in its
+// header. It bypasses the effects, so it cannot be combined with a
+// [Concealer] or [Cutter]. Instead, it records each [Describer] effect's description,
+// in profile order, as an [Annotation] at the start of the file. These
+// replace the timeline's existing annotations of [EffectKind] and of the
+// described kinds, so re-exporting a file with its own effects does not
+// duplicate them. Effects that are not Describers, or whose Describe
+// returns an error wrapping [errors.ErrUnsupported], are left out. Before
+// anything is written, it is an error for Describe to fail otherwise or
+// for a description to fail [AnnotationSchema]; see [MarkChecker] for
+// effects that name marks.
 type File struct {
-	// Path is where the file is written, which may hold variables (see
-	// [Export]). Its extension picks the format: ".cast" for an asciicast
-	// file of the timeline, with the profile's effects as annotations (see
-	// Export), and otherwise one [sink.File] writes, such as ".gif" or
-	// ".mp4". Missing directories are created.
+	// Path is where the file is written; it may contain variables (see
+	// [Export]). The extension picks the format: ".cast" for asciicast,
+	// otherwise any format [sink.File] supports, such as ".gif" or ".mp4".
+	// Missing directories are created.
 	Path string
 	// Options are added to [Profile.Encode] for this output.
 	Options []sink.Option
-	// Marks, when set, makes the output a still of the terminal at each of
-	// these [Mark] labels instead of a recording, one file per label, whose
-	// Path must hold {mark}. A label that repeats is shown at its first mark
-	// in the timeline's window, and one that is not there writes nothing,
-	// and is reported as a [NoMarkError] once the other outputs are
-	// written. Stills run through the [Concealer] and
-	// [StillEffect] effects, and no other.
+	// Marks, if set, makes the output one still per [Mark] label instead of
+	// a recording; Path must contain {mark}. A repeated label uses its first
+	// mark in the window. A missing one writes nothing, and is reported as a
+	// [NoMarkError] once the other outputs are written. Stills run through
+	// only [Concealer] and [StillEffect] effects.
 	Marks []string
-	// Cast is the asciicast version a ".cast" Path is written as. Zero is
-	// [CastV2]. It is an error on other paths.
+	// Cast is the asciicast version for a ".cast" Path; zero means
+	// [CastV2]. Setting it on other paths is an error.
 	Cast CastVersion
 }
 
@@ -99,10 +99,8 @@ func Files(paths ...string) []File {
 	return out
 }
 
-// Merge returns p with every field that o sets, such as defaults overridden
-// by a test's own profile. A field of o that is not its zero value replaces
-// p's, slices included: a set slice replaces p's rather than adding to it.
-// Vars merge by name, with o's value winning.
+// Merge returns p with every non-zero field of o replacing p's. Slices are
+// replaced, not appended to. Vars merge by name, with o winning.
 func (p Profile) Merge(o Profile) Profile {
 	if o.Outputs != nil {
 		p.Outputs = o.Outputs
@@ -147,13 +145,13 @@ func (p Profile) Merge(o Profile) Profile {
 
 const defaultFPS = 20
 
-// settings are a profile's timing, with its defaults applied.
+// settings are a profile's timing with defaults applied.
 type settings struct {
 	step  time.Duration
 	speed float64
 }
 
-// settings checks p's timing, and returns it with defaults applied.
+// settings validates p's timing and applies defaults.
 func (p Profile) settings() (settings, error) {
 	var s settings
 	fps := p.FPS

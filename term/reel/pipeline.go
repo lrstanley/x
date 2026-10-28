@@ -12,28 +12,25 @@ import (
 	"github.com/lrstanley/x/term/reel/sink"
 )
 
-// sweepStep is the shortest time between the frames drawn to keep moving
-// indicators (see [Animator]) moving while the screen holds still. 20 fps
-// keeps them smooth without adding many frames, whatever [Profile.FPS] is.
+// sweepStep is the minimum spacing of frames drawn to animate [Animator]
+// indicators while the screen holds still, independent of [Profile.FPS]:
+// 20 fps is smooth without adding many frames.
 const sweepStep = 50 * time.Millisecond
 
 // maxFreeImages bounds the images a pipeline keeps for reuse.
 const maxFreeImages = 3
 
-// pipeline turns the frames of a replay into images, runs them through the
-// [Effect] stages, and writes them to out. It holds back the newest frame
-// until the next one (or finish) says how long it was on screen, and each
-// stage holds back one frame so it can tell its stage which frame is last
-// once the stages before it have finished. It runs on one goroutine.
+// pipeline draws a replay's frames, runs them through the [Effect] stages,
+// and writes them to out, on one goroutine. It holds back the newest frame
+// until the next one (or finish) fixes its duration, and each stage holds
+// back one frame so it can be told which is last.
 //
-// Frames play on the delay grid: each frame's end, its offset from the first
-// frame scaled by the speed, is rounded to a whole step, and its delay is
-// the time from the end of the one before. Rounding the ends rather than
-// each delay carries the error forward, so a recording plays as long as its
-// timeline from the first frame, scaled, to within half a step, or a step
-// when the last frame takes its minimum of one. A frame whose end rounds to
-// its start is not shown: the frame after it, the newest state, starts at
-// the same step instead.
+// Frame ends (scaled offsets from the first frame) are rounded to the step
+// grid, and delays are differences of ends. Rounding ends rather than
+// delays keeps the error from accumulating, so total length matches the
+// scaled timeline to within half a step (a step if the last frame is
+// stretched to its minimum). A frame whose end rounds to its start is
+// dropped in favor of the newer one.
 type pipeline struct {
 	rast Rasterizer
 	// anim is rast as an [Animator], or nil.
@@ -43,25 +40,25 @@ type pipeline struct {
 	sweep time.Duration
 
 	newest Frame
-	// origin is the offset of the first frame, which the grid counts from,
-	// and shown is the end of the frames sent on so far, on the grid.
+	// origin is the first frame's offset, where the grid starts; shown is
+	// the grid end of the frames sent on so far.
 	origin  time.Duration
 	started bool
 	shown   time.Duration
 
 	stages []stageState
 	out    sink.Sink
-	// written counts the frames written to out, and err is the first error
-	// writing one. Frames are dropped after it.
+	// written counts frames written to out; err is the first write error,
+	// after which frames are dropped.
 	written int
 	err     error
-	// free holds images written to out, for reuse. Only frames that no
-	// stage could have kept are reused.
+	// free holds images for reuse. Only images no stage could have kept are
+	// put here.
 	free []*image.NRGBA
 }
 
-// stageState is one [Stage], with the frame waiting to learn whether it is
-// last.
+// stageState is a [Stage] and the frame it holds back until it is known
+// whether it is last.
 type stageState struct {
 	run     Stage
 	held    Frame
@@ -78,8 +75,8 @@ func newPipeline(rast Rasterizer, s settings, stages []Stage, out sink.Sink) *pi
 	return p
 }
 
-// record draws cf as the newest frame, and sends the previous one on with
-// the time it was on screen. It returns the first error writing a frame.
+// record draws cf as the newest frame and sends the previous one on. It
+// returns the first write error.
 func (p *pipeline) record(cf CellFrame) error {
 	b := cf.Screen.Bounds()
 	img := p.newImage(p.rast.Layout(b.Dx(), b.Dy()).Image)
@@ -92,9 +89,9 @@ func (p *pipeline) record(cf CellFrame) error {
 	return p.err
 }
 
-// finish ends the newest frame at end, then runs each stage's held frame as
-// its last, in order, so every stage has received all of its input before
-// its own last frame is decided. It returns the first error writing a frame.
+// finish ends the newest frame at end, then flushes each stage's held frame
+// as its last, in stage order so each stage has all its input first. It
+// returns the first write error.
 func (p *pipeline) finish(end time.Duration) error {
 	p.release(end, true)
 	for i := range p.stages {
@@ -107,9 +104,9 @@ func (p *pipeline) finish(end time.Duration) error {
 	return p.err
 }
 
-// release sends the newest frame on, ending at offset until on the grid,
-// or drops it when that is the step it starts on. The last frame plays for
-// at least one step.
+// release sends the newest frame on, ending at until on the grid, or drops
+// it if that is the step it starts on. The last frame plays at least one
+// step.
 func (p *pipeline) release(until time.Duration, last bool) {
 	f := p.newest
 	if f.Image == nil {
@@ -122,7 +119,7 @@ func (p *pipeline) release(until time.Duration, last bool) {
 		end = max(end, p.shown+p.step)
 	}
 	if end <= p.shown {
-		// The next frame replaces it. No stage has seen its image.
+		// No stage has seen the image, so it can be reused.
 		p.reuse(f.Image)
 		return
 	}
@@ -134,13 +131,11 @@ func (p *pipeline) release(until time.Duration, last bool) {
 	p.sweepHold(f)
 }
 
-// sweepHold sends on f, a frame held while its indicators move with the
-// timeline, which holding one image would freeze. It plays it as frames
-// p.sweep apart instead, each a copy of f with the indicators
-// repainted as of the timeline time it stands for. A step that would look
-// like the one before extends it instead of being drawn. The last frame takes
-// the remainder. f's own image may be reused once it is written, so the
-// copies come from a clone.
+// sweepHold sends on f, a long-held frame with animated indicators, as
+// frames p.sweep apart, each repainted for its time. Steps that would look
+// unchanged extend the previous frame instead, and the last takes the
+// remainder. Copies come from a clone because f's image may be reused once
+// written.
 func (p *pipeline) sweepHold(f Frame) {
 	step := p.sweep
 	base := p.newImage(f.Image.Rect)
@@ -200,9 +195,8 @@ func (p *pipeline) run(i int, f Frame, last bool) {
 	s.run(f, func(out Frame) { p.push(i+1, out) })
 }
 
-// write sends f to out, its delay rounded to whole steps, at least one. The
-// pipeline's own frames are on the grid already; frames an effect made may
-// not be.
+// write sends f to out with its delay rounded to whole steps, at least one,
+// since effect-made frames may be off the grid.
 func (p *pipeline) write(f Frame) {
 	if p.err != nil {
 		return
@@ -215,13 +209,13 @@ func (p *pipeline) write(f Frame) {
 	})
 	p.written++
 	if len(p.stages) == 0 {
-		// Without stages nothing else holds the image.
+		// Without stages, nothing else holds the image.
 		p.reuse(f.Image)
 	}
 }
 
-// newImage returns an image covering r, reusing a written one when one is
-// large enough. Its pixels are stale: the caller must paint every one.
+// newImage returns an image covering r, reusing a free one if large
+// enough. Its pixels are stale: the caller must paint every one.
 func (p *pipeline) newImage(r image.Rectangle) *image.NRGBA {
 	n := r.Dx() * r.Dy() * 4
 	for i, img := range p.free {

@@ -21,22 +21,19 @@ import (
 	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
-// GIFEncoder is an [Encoder] that writes an animated GIF. It keeps every frame
-// palettized in memory, deduplicating and diffing them as they arrive, and
-// encodes the GIF on [GIFEncoder.Close]: the global palette, disposal, and
-// palette compaction passes need the whole recording.
+// GIFEncoder is a [Sink] that writes an animated GIF. It keeps the frames
+// palettized in memory and encodes the GIF on [GIFEncoder.Close], as the
+// palette and disposal passes need the whole recording.
 //
 // It reads [WithOptimize], [WithBackground], [WithLoopCount], [WithMaxFrames],
 // and [WithMaxBytes]. Other options are ignored.
 type GIFEncoder struct {
 	opts options
 	rec  *gifRecording
-	// w receives the GIF on Close. file, when set, is the temporary file
-	// behind w, which Close moves into place.
+	// file, when set, is the temporary file behind w.
 	w    io.Writer
 	file *pendingFile
-	// err is the first frame error; once set, frames are rejected and Close
-	// writes nothing.
+	// err is the first frame error; once set, Close writes nothing.
 	err  error
 	done bool
 }
@@ -56,8 +53,7 @@ func NewGIF(w io.Writer, opts ...Option) (*GIFEncoder, error) {
 }
 
 // CreateGIF returns an encoder that writes the GIF to path. It is written to a
-// temporary file beside path, which [GIFEncoder.Close] renames into place, so
-// a failed or discarded recording leaves an existing file alone.
+// temporary file beside path, which [GIFEncoder.Close] renames into place.
 func CreateGIF(path string, opts ...Option) (*GIFEncoder, error) {
 	cfg, err := gifOptions(opts)
 	if err != nil {
@@ -85,8 +81,7 @@ func newGIFEncoder(w io.Writer, cfg options) *GIFEncoder {
 }
 
 // WriteFrame palettizes f and adds it to the recording. f.Delay is rounded to
-// whole centiseconds (at least one) when the GIF is encoded; a frame identical
-// to the previous one only adds its delay to it.
+// whole centiseconds, at least one.
 func (e *GIFEncoder) WriteFrame(f Frame) error {
 	switch {
 	case e.done:
@@ -130,11 +125,9 @@ func (e *GIFEncoder) Discard() error {
 	return nil
 }
 
-// encodeGIF runs the disposal and palette compaction passes over rec and
-// writes the GIF to w.
 func encodeGIF(w io.Writer, rec *gifRecording, opts options) error {
-	// Frames on any other palette carry a local color table, so the global
-	// one goes to the palette the most captured frames use.
+	// The palette most captured frames use is the global color table; frames
+	// on any other carry a local one.
 	global := busiestPalette(rec.images)
 	if opts.optimize.has(OptimizeDirtyRects) {
 		optimizeDisposals(rec)
@@ -168,47 +161,34 @@ func optimizeDisposals(rec *gifRecording) {
 	rec.last, rec.spare = nil, nil
 }
 
-// gifRecording accumulates palettized frames and duration delays during capture.
-// Centisecond conversion happens at finalize via [quantizeDelays].
+// gifRecording holds the palettized frames of a GIF capture.
 type gifRecording struct {
-	// loopCount is the GIF loop count copied to the encoded output.
 	loopCount int
 	// size is the canvas size, which the newest frame sets.
-	size image.Point
-	// images are palettized frames accumulated during capture.
+	size   image.Point
 	images []*image.Paletted
-	// delays are per-frame durations accumulated before centisecond conversion.
 	delays []time.Duration
-	// bytes is the pixel storage held by images. It is what maxBytes limits, and
-	// counts neither last nor spare.
+	// bytes is the pixel storage held by images, not counting last or spare.
 	bytes int64
-	// maxFrames and maxBytes cap len(images) and bytes during capture; 0 is
-	// unlimited for each.
+	// maxFrames and maxBytes limit len(images) and bytes; 0 is no limit.
 	maxFrames int
 	maxBytes  int64
-	// disposal is per-frame disposal metadata; set by [optimizeDisposals].
+	// disposal is set by [optimizeDisposals].
 	disposal []byte
 	// last is the newest full frame and spare a recycled capture buffer. When
-	// last is set, images[deltaAt] is the full base of the current segment and
-	// later images are bbox crops of what changed since the previous frame
-	// (see [appendRecordingFrame]). Images before deltaAt are full frames.
+	// last is set, the recording is in delta mode: images[deltaAt] is the full
+	// base of the current segment, later images are crops of what changed
+	// since the frame before, and earlier images are full frames.
 	last, spare *image.Paletted
-	// deltaAt is the index of the current delta base when last is set. It stays
-	// 0 for a recording that never changes palette, which stores one segment
-	// from the first frame.
-	deltaAt int
-	// adaptive is the shared palette, grown from captured colors. It is
-	// created with the first frame that uses it.
+	deltaAt     int
+	// adaptive is the shared palette, and isolated the palette of the current
+	// run of [Frame.Isolated] frames (nil outside one).
 	adaptive *palette.Adaptive
-	// isolated is the palette of the current run of [Frame.Isolated] frames.
-	// It is nil while the newest frame uses the shared palette, and it never
-	// adds colors to adaptive.
 	isolated *palette.Adaptive
 }
 
-// fullFrames returns every recorded frame as a full image. Delta recordings
-// rebuild the current segment from its base; earlier images are already full.
-// Recordings outside delta mode return rec.images itself.
+// fullFrames returns every recorded frame as a full image, which is
+// rec.images itself outside delta mode.
 func (rec *gifRecording) fullFrames() []*image.Paletted {
 	if rec.last == nil {
 		return rec.images
@@ -227,8 +207,8 @@ func (rec *gifRecording) fullFrames() []*image.Paletted {
 	return full
 }
 
-// endDeltaSegment materializes the current delta segment into full frames and
-// leaves delta mode. A new segment starts when the next frame is stored as a base.
+// endDeltaSegment rebuilds the current delta segment as full frames and
+// leaves delta mode.
 func (rec *gifRecording) endDeltaSegment() {
 	if rec.last == nil {
 		return
@@ -251,9 +231,8 @@ func (rec *gifRecording) activePalette() color.Palette {
 	return nil
 }
 
-// capturePalette returns the palette builder for this frame. Isolated frames
-// use a palette of their own, sized with no reserve, and a run of them reuses
-// one builder.
+// capturePalette returns the palette builder for the next frame. A run of
+// isolated frames shares one builder, with no reserve.
 func (rec *gifRecording) capturePalette(isolated bool) *palette.Adaptive {
 	if !isolated {
 		rec.isolated = nil
@@ -268,18 +247,15 @@ func (rec *gifRecording) capturePalette(isolated bool) *palette.Adaptive {
 	return rec.isolated
 }
 
-// truncateRecording drops the oldest stored frames until the recording fits
-// rec.maxFrames and rec.maxBytes (either may be 0 for no limit). The newest
-// frame is always kept, so a single frame larger than the byte limit stays.
-// Delta frames are folded into the segment base so that base stays full.
+// truncateRecording drops the oldest frames until the recording fits
+// rec.maxFrames and rec.maxBytes, always keeping the newest. The base of a
+// delta segment is never dropped: the deltas after it that are dropped are
+// folded into it instead, so it stays a full frame.
 func truncateRecording(rec *gifRecording) {
 	n := len(rec.images)
 	if n < 2 || (rec.maxFrames <= 0 && rec.maxBytes <= 0) {
 		return
 	}
-	// The base of a delta segment is never dropped; it absorbs the deltas after
-	// it. Full frames before that base are the oldest and drop first. The
-	// newest frame is always kept.
 	excess, freed := 0, int64(0)
 	for excess < n-1 {
 		overFrames := rec.maxFrames > 0 && n-excess > rec.maxFrames
@@ -318,13 +294,11 @@ func truncateRecording(rec *gifRecording) {
 	rec.bytes -= freed
 }
 
-// push stores img as the newest frame.
 func (rec *gifRecording) push(img *image.Paletted) {
 	rec.images = append(rec.images, img)
 	rec.bytes += int64(len(img.Pix))
 }
 
-// recount recomputes rec.bytes from rec.images.
 func (rec *gifRecording) recount() {
 	rec.bytes = 0
 	for _, img := range rec.images {
@@ -332,10 +306,9 @@ func (rec *gifRecording) recount() {
 	}
 }
 
-// appendRecordingFrame palettizes frame into owned output storage, optionally
-// deduplicates identical consecutive frames, and appends to rec. An isolated
-// frame is mapped through its own adaptive palette and does not add colors to
-// the shared one. A run of isolated frames shares that palette.
+// appendRecordingFrame palettizes frame into storage rec owns and appends it,
+// merging it into the previous frame when identical and [OptimizeFrames] is
+// set.
 func appendRecordingFrame(
 	rec *gifRecording,
 	optimize OptimizeFlags,
@@ -366,9 +339,8 @@ func appendRecordingFrame(
 	}
 	adaptive.Palettize(pm, frame) // replaces pm.Palette if adaptive rolls over
 
-	// A palette change closes the open segment and this frame starts a new one,
-	// so later diffs never compare indices across palettes. A canvas size change
-	// closes the segment and does not start another: deltas cannot span canvases.
+	// Indices on different palettes cannot be diffed, so a palette change
+	// starts a new segment. A canvas size change ends delta mode for good.
 	startSegment := len(rec.images) == 0
 	if prev := rec.activePalette(); prev != nil && !palette.Same(prev, pm.Palette) {
 		rec.endDeltaSegment()
@@ -378,10 +350,8 @@ func appendRecordingFrame(
 		rec.endDeltaSegment()
 		startSegment = false
 	}
-	// With dedupe and dirty-rect optimization both on, only the first frame of
-	// a segment is stored in full; later frames keep the bbox that changed,
-	// and a frame with no changes only adds its delay. pm is recycled for the
-	// next capture.
+	// With dedup and dirty rects both on, only a segment's first frame is
+	// stored in full and later frames keep the bbox that changed.
 	if optimize.has(OptimizeFrames) && optimize.has(OptimizeDirtyRects) && (rec.last != nil || startSegment) {
 		if rec.last == nil {
 			rec.deltaAt = len(rec.images)
@@ -416,8 +386,7 @@ func appendRecordingFrame(
 	return nil
 }
 
-// asNRGBA returns img as *image.NRGBA. The render package returns NRGBA; foreign
-// types are converted once at the capture boundary via draw.Draw.
+// asNRGBA returns img as *image.NRGBA, converting it unless it is one.
 func asNRGBA(img image.Image) *image.NRGBA {
 	if nrgba, ok := img.(*image.NRGBA); ok {
 		return nrgba
@@ -440,8 +409,8 @@ func busiestPalette(frames []*image.Paletted) color.Palette {
 	return best.Palette
 }
 
-// buildGIF converts a finalized recording into a gif.GIF with its delays in
-// centiseconds and global as its global color table.
+// buildGIF converts rec into a gif.GIF with global as its global color
+// table.
 func buildGIF(rec *gifRecording, global color.Palette) *gif.GIF {
 	images, delays, disposals := splitLongDelays(rec.images, quantizeDelays(rec.delays), rec.disposal)
 	return &gif.GIF{
@@ -456,10 +425,8 @@ func buildGIF(rec *gifRecording, global color.Palette) *gif.GIF {
 // maxGIFCentiseconds is the largest delay GIF can store in one frame.
 const maxGIFCentiseconds = 65535
 
-// quantizeDelays rounds each delay to whole centiseconds, at least one. The
-// frames of a reel export are on its delay grid already, so this only rounds
-// delays from other callers. Values above
-// [maxGIFCentiseconds] are split into continuation frames by [splitLongDelays].
+// quantizeDelays rounds each delay to whole centiseconds, at least one.
+// Values above [maxGIFCentiseconds] are left for [splitLongDelays].
 func quantizeDelays(delays []time.Duration) []int {
 	cs := make([]int, len(delays))
 	for i, d := range delays {
@@ -468,11 +435,10 @@ func quantizeDelays(delays []time.Duration) []int {
 	return cs
 }
 
-// splitLongDelays breaks delays longer than one GIF frame into a chain.
-// DisposalNone holds keep the canvas with a 1×1 transparent continuation, so
-// a static recording longer than ~655s does not lose time. Other disposal
-// methods stay on their original frame and are clamped; extending them would
-// fire disposal before the hold finishes.
+// splitLongDelays splits a DisposalNone frame whose delay is longer than GIF
+// can store into the frame plus 1×1 transparent continuations. Other disposal
+// methods are clamped instead, since a continuation would fire the disposal
+// before the hold finishes.
 func splitLongDelays(images []*image.Paletted, delays []int, disposals []byte) (outImages []*image.Paletted, outDelays []int, outDisposals []byte) {
 	extra := 0
 	for _, d := range delays {
@@ -519,23 +485,22 @@ func splitLongDelays(images []*image.Paletted, delays []int, disposals []byte) (
 	return outImages, outDelays, outDisposals
 }
 
-// holdFrame is a 1×1 transparent patch on src's own palette. With DisposalNone
-// it adds delay without changing the canvas.
+// holdFrame is a 1×1 transparent patch on src's palette, which adds delay
+// without changing the canvas.
 func holdFrame(src *image.Paletted) *image.Paletted {
 	p := image.NewPaletted(image.Rect(0, 0, 1, 1), src.Palette)
 	p.Pix[0] = palette.TransparentIndex
 	return p
 }
 
-// opaqueNRGBA converts c to NRGBA with its alpha dropped, for use as a
-// background.
+// opaqueNRGBA converts c to NRGBA with its alpha dropped.
 func opaqueNRGBA(c color.Color) color.NRGBA {
 	r, g, b, _ := c.RGBA()
 	return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 0xff} //nolint:gosec // RGBA contract.
 }
 
-// compositeBackgroundNRGBA returns an NRGBA copy of src with fully transparent
-// pixels replaced by bg. src must be NRGBA; use [asNRGBA] at API boundaries.
+// compositeBackgroundNRGBA returns a copy of src with fully transparent pixels
+// replaced by bg.
 func compositeBackgroundNRGBA(src *image.NRGBA, bg color.Color) *image.NRGBA {
 	b := src.Bounds()
 	dst := image.NewNRGBA(b)

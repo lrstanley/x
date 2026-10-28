@@ -14,141 +14,126 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// CellFrame is the terminal as a recording shows it at one point: its screen
-// and state, at an offset into the [Timeline].
+// CellFrame is the terminal's screen and state at an offset into the
+// [Timeline].
 type CellFrame struct {
-	// Screen is a copy of the terminal's screen, which nothing changes.
+	// Screen is an immutable copy of the terminal's screen.
 	Screen *vt.Buffer
 	// State is the terminal's state, with Focused set from the timeline.
 	State vt.State
-	// At is the offset into the timeline the terminal looked like this.
-	At time.Duration
+	At    time.Duration
 }
 
 // Frame is one frame of a recording on its way from the [Rasterizer],
 // through the [Effect] stages, to the sinks.
 type Frame struct {
 	// Image is the frame's pixels. Neighboring frames may share it, so treat
-	// it as read-only: draw an overlay on a copy, never in place.
+	// it as read-only: draw overlays on a copy.
 	Image *image.NRGBA
-	// Cells is the terminal the frame was drawn from. It is nil for frames
-	// an effect inserted, such as a card.
+	// Cells is the terminal the frame was drawn from, or nil for frames an
+	// effect inserted, such as a card.
 	Cells *CellFrame
-	// At is the offset into the timeline the frame shows. A held frame the
-	// replay redraws to keep its indicators moving is at the offset each
-	// redraw stands for. Frames an effect inserts may leave it zero. A
-	// frame starts playing on the delay grid step nearest At, so At plus
-	// Delay, unscaled, may be up to half a step off the next frame's At,
-	// except for a paused frame (see Paused).
+	// At is the timeline offset the frame shows; inserted frames may leave
+	// it zero. Frames start on the [Context.Step] grid step nearest At, so
+	// At+Delay (unscaled) may be up to half a step off the next frame's At,
+	// except after a Paused frame.
 	At time.Duration
-	// Delay is how long the frame plays. For a terminal frame it is
-	// timeline time scaled by [Profile.Speed], a whole number of steps of
-	// [Context.Step]. The sinks are given it rounded to whole steps, at
-	// least one.
+	// Delay is how long the frame plays. For terminal frames it is timeline
+	// time scaled by [Profile.Speed], in whole steps. Sinks receive it
+	// rounded to whole steps, at least one.
 	Delay time.Duration
-	// Paused is set on a frame an effect inserted to pause playback, such
-	// as at a mark: it shows the timeline at At for its whole Delay, which
-	// the speed does not scale, so the frame after it starts at At too.
-	// Effects that change with the timeline draw a paused frame as of At,
-	// and do not split it. Effects that copy a frame keep it.
+	// Paused marks a frame an effect inserted to pause playback, such as at
+	// a mark: it shows the timeline at At for its whole Delay, unscaled by
+	// speed, so the next frame also starts at At. Time-varying effects draw
+	// a paused frame as of At and must not split it; effects that copy a
+	// frame keep the flag.
 	Paused bool
-	// First and Last are set for the first and last frame a stage is given.
-	// A recording of one frame sets both. The pipeline sets them on the way
-	// into each stage, so an effect need not.
+	// First and Last mark the first and last frame a stage is given (both
+	// for a one-frame recording). The pipeline sets them for each stage.
 	First, Last bool
-	// Isolated palettizes the frame on its own GIF palette (see
-	// [sink.Frame.Isolated]), as cards should, and terminal frames an
-	// effect recolors, such as by dimming them. Terminal frames as drawn
-	// leave it false.
+	// Isolated gives the frame its own GIF palette (see
+	// [sink.Frame.Isolated]). Set it on cards and on recolored terminal
+	// frames, such as dimmed ones.
 	Isolated bool
 }
 
-// Rasterizer draws a terminal screen into an image. [render.Renderer] is
-// one.
+// Rasterizer draws a terminal screen into an image. [render.Renderer]
+// implements it.
 type Rasterizer interface {
-	// Layout returns the layout of an image of a cols by rows screen.
+	// Layout returns the image layout for a cols by rows screen.
 	Layout(cols, rows int) render.Layout
-	// Draw draws scr with st, as of offset at into the timeline, into dst at
-	// dst.Rect.Min, overwriting the [render.Layout.Image] of scr's size.
+	// Draw draws scr with st as of timeline offset at into dst at
+	// dst.Rect.Min, overwriting the [render.Layout.Image] area for scr's
+	// size.
 	Draw(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration)
-	// Close releases the rasterizer's resources.
 	Close() error
 }
 
-// Animator is implemented by a [Rasterizer] whose images move with the
-// timeline while the terminal holds still, such as an indeterminate progress
-// bar. A frame held on screen while they move is played as several frames,
-// each repainted as of the time it stands for. [render.Renderer] is one.
+// Animator is implemented by a [Rasterizer] whose output changes over time
+// while the terminal holds still, such as an indeterminate progress bar.
+// A held frame is then played as several frames, each repainted for its
+// time. [render.Renderer] implements it.
 type Animator interface {
-	// Animates reports whether images drawn with st move with the timeline.
+	// Animates reports whether images drawn with st change over time.
 	Animates(st vt.State) bool
-	// Changes reports whether an image drawn with st may look different at
-	// offset to than at from.
+	// Changes reports whether an image drawn with st may differ between
+	// offsets from and to.
 	Changes(st vt.State, from, to time.Duration) bool
-	// Repaint redraws the parts of dst, an image of scr with st, that move
-	// with the timeline, as of offset at.
+	// Repaint redraws the time-varying parts of dst, an image of scr with
+	// st, as of offset at.
 	Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration)
 }
 
-// Effect changes the frames of a recording between the [Rasterizer] and the
-// sinks, such as an overlay of the keys pressed or a title card. Each export
-// calls Start once, or for a [StillEffect], once more for the stills, so an
-// effect shared by recordings that run in parallel must keep its
-// per-recording state in the [Stage] it returns, and close what it opens
-// for one with [Context.OnClose]. The effects package has some.
+// Effect transforms a recording's frames between the [Rasterizer] and the
+// sinks, such as a key overlay or a title card. Each export calls Start
+// once (and once more for stills if it is a [StillEffect]), so an effect
+// shared by parallel recordings must keep per-recording state in its
+// [Stage] and release resources with [Context.OnClose].
 //
-// An effect that wraps another, such as to log it, should have an
-// Unwrap() Effect method that returns it, so a [Concealer], [Cutter], or
-// [StillEffect] it wraps is still found, as [errors.As] finds an error. A
-// [Describer] is not: the wrapper describes itself, or is not described.
+// A wrapping effect should have an Unwrap() Effect method so a wrapped
+// [Concealer], [Cutter], or [StillEffect] is still found, as with
+// [errors.As]. This does not apply to [Describer]: the wrapper must describe
+// itself or is not described.
 type Effect interface {
 	// Start returns the stage that runs the effect for one recording, or nil
 	// to leave the recording alone.
 	Start(ctx *Context) (Stage, error)
 }
 
-// EffectKind is the kind of the [Annotation] the effects package describes
-// its effects with (see [Describer]). [AnnotationSchema] describes its
-// fields.
+// EffectKind is the [Annotation] kind the effects package describes its
+// effects with.
 const EffectKind = "reel.effect"
 
 // Describer is implemented by an [Effect] that can describe itself as an
-// [Annotation], so an asciicast output records the effects of the profile
-// it was written with, and an export of the file can apply them again.
-// [Export] writes the description of each effect of a [Profile] that is a
-// Describer to every asciicast output (see Export). The effects package
-// describes its effects with annotations of kind [EffectKind], and reads
-// them back.
+// [Annotation], so asciicast outputs of [Export] and [Record] record it and
+// a later export of the file can apply it again.
 type Describer interface {
 	Effect
-	// Describe returns the annotation that describes the effect, which
-	// [AnnotationSchema] must allow. An error wrapping
-	// [errors.ErrUnsupported] leaves the effect out, such as one built on a
-	// value of a caller's own that has no description.
+	// Describe returns the effect's annotation, which [AnnotationSchema]
+	// must allow. An error wrapping [errors.ErrUnsupported] leaves the
+	// effect out, such as for one with no serializable form.
 	Describe() (Annotation, error)
 }
 
-// MarkChecker is implemented by a [Describer] whose effect looks for marks,
-// such as to run between two of them, so an asciicast output does not hold
-// a description that names marks the file lacks, which an export of the
-// file could not apply. [Export] and [Record] leave the description out of
-// their asciicast outputs (see Export and Record).
+// MarkChecker is implemented by a [Describer] that depends on marks, so an
+// asciicast output never holds a description naming marks the file lacks:
+// [Export] and [Record] leave such a description out.
 type MarkChecker interface {
 	Describer
-	// CheckMarks returns a [NoMarkError] for each mark the
-	// effect looks for that tl's window does not have, as the effect would
-	// look for it, or nil.
+	// CheckMarks returns a [NoMarkError] for each mark the effect needs that
+	// tl's window lacks, or nil.
 	CheckMarks(tl *Timeline) error
 }
 
 // Concealer is implemented by an [Effect] that hides part of what a
-// recording shows, such as a secret. It can only hide what passes through
-// it, so in a profile with an effect whose Conceals reports true, every
-// such effect must come before every effect that does not, and no output
-// may skip the effects, as an asciicast file of the timeline does. [Export]
-// and [Record] return an error for either before they write anything: one
-// wrapping [ErrRawOutput] for an output that skips the effects. A
-// Concealer runs on stills too, as a [StillEffect] does.
+// recording shows, such as a secret. If any effect in a profile Conceals:
+//
+//   - every such effect must be listed before every effect that does not;
+//   - no output may bypass the effects, as asciicast outputs do;
+//   - it also runs on the stills of [File.Marks], like a [StillEffect].
+//
+// [Export] and [Record] fail before writing anything if the first two do
+// not hold, wrapping [ErrRawOutput] for a bypassing output.
 type Concealer interface {
 	Effect
 	// Conceals reports whether the effect hides anything.
@@ -170,17 +155,12 @@ type Cutter interface {
 }
 
 // StillEffect is implemented by an [Effect] that also runs on the stills
-// of [File.Marks], which run through these effects and the [Concealer]
-// effects alone, in the profile's order. They are started once more, for
-// the stills, on a [Context] of their own, and each still is
-// given to the first as a recording of its one frame, with [Frame.First]
-// and [Frame.Last] set, a [Context.Step] long. It is given once the
-// timeline is known past that step, which in a live recording may be after
-// later stills are drawn. The first frame the last emits for it is the
-// still, so such an effect must emit each frame it is given before it
-// returns; emitting nothing for a still is an error. The errors these
-// effects report on close for missing marks are left to the
-// recording's own stages, when there are any.
+// of [File.Marks]. Stills run through only these and [Concealer] effects,
+// in profile order, started separately on their own [Context]. Each still
+// is given as a one-frame recording ([Frame.First] and [Frame.Last] set,
+// one [Context.Step] long). The first frame the last effect emits is the
+// still, so a stage must emit before it returns; emitting nothing is an
+// error.
 type StillEffect interface {
 	Effect
 	// Stills reports whether the effect runs on stills.
@@ -188,66 +168,55 @@ type StillEffect interface {
 }
 
 // ErrRawOutput is wrapped by the error [Export] and [Record] return for a
-// profile with a [Concealer] or [Cutter] and an output that skips the
-// effects, such as an asciicast file, which would show what it hides or
-// play what it cuts.
+// profile with a [Concealer] or [Cutter] and an output that bypasses
+// effects, such as asciicast.
 var ErrRawOutput = errors.New("reel: output skips the effects")
 
-// Stage receives each frame of a recording in order, and emits the frames to
-// record in its place: the frame unchanged to keep it, nothing to drop it, a
-// changed copy to overlay or retime it, or several to insert cards or expand
-// it. Each emitted frame moves on as soon as it is emitted. Frames without an
-// Image are dropped. A stage runs on one goroutine, and is given its first
-// and last frame with [Frame.First] and [Frame.Last] set.
+// Stage receives each frame of a recording in order and emits frames in its
+// place: the frame itself to keep it, nothing to drop it, a changed copy,
+// or several to insert or expand. Emitted frames move on immediately, and
+// frames without an Image are dropped. A stage runs on one goroutine.
 type Stage func(f Frame, emit func(Frame))
 
 // Context describes a recording to the [Effect] stages it runs.
 type Context struct {
 	// Timeline is the timeline being recorded. For [Record] it holds the
-	// session's events the recording has replayed so far, and grows while
-	// it runs; once the recording stops, it holds every event the recording
-	// covers, and none appended after.
+	// events replayed so far and grows while recording; once stopped, it
+	// holds exactly the events the recording covers.
 	Timeline *Timeline
-	// Live is set when Timeline grows while the recording runs, as for
-	// [Record]: an event an effect looks for, such as a [Mark], may be
-	// appended after Start, though always before a stage is given the frame
-	// that plays at its offset. An effect then looks for it as frames
-	// arrive, and reports one that never came with a function it registered
-	// with [Context.OnClose], which runs once Timeline is complete, so it
-	// can look once more for those appended after the last frame. Without
-	// Live, the timeline is complete at Start, and a mark it lacks was never
-	// reached, which an effect reports the same way.
+	// Live is set when Timeline grows while recording, as for [Record]. An
+	// event an effect looks for, such as a [Mark], may then be appended
+	// after Start, though always before the frame at its offset reaches a
+	// stage. An effect that needs such an event should report a missing one
+	// from a [Context.OnClose] function, which runs once Timeline is
+	// complete. Without Live, Timeline is complete at Start, and a mark it
+	// lacks is reported the same way.
 	Live bool
-	// Rasterizer draws the terminal frames, and Layout is its layout for
-	// the timeline's starting size.
+	// Rasterizer draws the terminal frames; Layout is its layout for the
+	// timeline's starting size.
 	Rasterizer Rasterizer
 	Layout     render.Layout
-	// Render is the options the terminal frames are drawn with, the
-	// timeline's palette included, so an effect can draw a matching image
-	// with a renderer of its own.
+	// Render is the options terminal frames are drawn with, including the
+	// timeline's palette, so effects can draw matching images.
 	Render []render.Option
-	// Step is the delay grid: every frame plays for a whole number of steps.
-	// An effect that expands one frame into several should split it on
-	// multiples of Step.
+	// Step is the delay grid: every frame plays a whole number of steps, so
+	// effects that expand a frame should split it on multiples of Step.
 	Step time.Duration
-	// Speed is the playback speed, [Profile.Speed].
+	// Speed is [Profile.Speed].
 	Speed float64
-	// Title is [Profile.Title], or the timeline's title without one.
+	// Title is [Profile.Title], or the timeline's title if unset.
 	Title string
-	// Meta is [Profile.Meta], which reel passes along without reading.
+	// Meta is [Profile.Meta], passed through unread.
 	Meta any
 
-	// closers are the functions [Context.OnClose] registered.
 	closers []func() error
-	// values are those [Context.SetValue] stored.
-	values map[any]any
+	values  map[any]any
 }
 
-// SetValue stores v under key for the rest of the recording, for the
-// effects started after the one that stores it, and the stages of all of
-// them, to read with [Context.Value], such as a change one effect makes to
-// what another draws. As with [context.WithValue], key should be of an
-// unexported type of the package that stores it, so packages never collide.
+// SetValue stores v under key for the rest of the recording, readable with
+// [Context.Value] by effects started later and by all stages. As with
+// [context.WithValue], key should be an unexported type to avoid
+// collisions.
 func (c *Context) SetValue(key, v any) {
 	if c.values == nil {
 		c.values = make(map[any]any)
@@ -260,17 +229,15 @@ func (c *Context) Value(key any) any {
 	return c.values[key]
 }
 
-// OnClose registers fn to run once the recording ends, whether its files are
-// written or discarded, such as to close a renderer an effect's stage built.
-// It is for an effect's Start and its stage to call. The functions run after
-// the last frame, newest first, and when the files are written, their errors
-// are returned with the recording's.
+// OnClose registers fn to run after the last frame, whether the files are
+// written or discarded. Functions run newest first; when the files are
+// written, their errors are returned with the recording's. Call it from
+// Start or a stage.
 func (c *Context) OnClose(fn func() error) {
 	c.closers = append(c.closers, fn)
 }
 
-// close runs the functions registered with [Context.OnClose], newest first,
-// once.
+// close runs the [Context.OnClose] functions, newest first, once.
 func (c *Context) close() error {
 	var errs []error
 	for i := len(c.closers) - 1; i >= 0; i-- {
@@ -280,6 +247,5 @@ func (c *Context) close() error {
 	return errors.Join(errs...)
 }
 
-// Sink writes the frames of a recording into one output, see the sink
-// package.
+// Sink writes a recording's frames to one output; see the sink package.
 type Sink = sink.Sink

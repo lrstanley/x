@@ -21,92 +21,70 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// CastMediaType is the media type of the files [Timeline.WriteTo] writes,
-// which take the extension ".cast".
+// CastMediaType is the media type of asciicast files (extension ".cast").
 const CastMediaType = "application/x-asciicast"
 
-// CastVersion is a version of the asciicast format, the newline-delimited
-// JSON that asciinema records and plays, which [Timeline.WriteCast] writes.
+// CastVersion is an asciicast format version for [Timeline.WriteCast].
 type CastVersion int
 
-// Asciicast versions. Both hold every event and header field of a
-// timeline, so a file of either reads back the same timeline.
+// Asciicast versions. Both round-trip every event and header field of a
+// timeline.
 const (
-	// CastV2 is asciicast v2, which [Timeline.WriteTo] writes, and every
-	// asciinema player plays, the asciinema 2 command line included.
+	// CastV2 is asciicast v2, the default, which every asciinema player
+	// plays.
 	CastV2 CastVersion = 2
-	// CastV3 is asciicast v3, which asciinema 3 records. Players older than
-	// asciinema 3 and asciinema-player 3.10 can not play it. It holds the
-	// terminal type in its own field, the exit event as asciicast's own,
-	// and times as the interval since the event before.
+	// CastV3 is asciicast v3. Players older than asciinema 3 and
+	// asciinema-player 3.10 cannot play it.
 	CastV3 CastVersion = 3
 )
 
-// castTermType is the terminal type files name, since the terminal is
-// libghostty-vt.
+// castTermType is the terminal type written to headers (the emulator is
+// libghostty-vt).
 const castTermType = "xterm-ghostty"
 
 var _ io.WriterTo = (*Timeline)(nil)
 
-// WriteTo writes the timeline to w as asciicast v2, the format every
-// asciinema player plays, and returns the number of bytes written. It is
-// [Timeline.WriteCast] with [CastV2], where the format is described.
+// WriteTo is [Timeline.WriteCast] with [CastV2].
 func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 	return t.WriteCast(w, CastV2)
 }
 
-// WriteCast writes the timeline to w as asciicast version v, and returns the
-// number of bytes written. [ReadTimeline] reads it back. The file holds the
-// events appended before the call.
+// WriteCast writes the events appended so far to w as asciicast version v,
+// and returns the number of bytes written. [ReadTimeline] reads it back.
 //
-// A timeline returned by [Timeline.Between] is written as its window, so any
-// player shows only the cut. The events before the window are replayed into
-// a fresh terminal and replaced by one output event at the start, which
-// redraws what they left on it (see [vt.Terminal.Redraw] for what that
-// covers), followed by a theme and a focus event for the host colors and
-// focus they left, when they changed them. The header has the size they
-// left. Times count from the window's start, and the header's timestamp is
-// when the window started.
+// A timeline from [Timeline.Between] is written as just its window: the
+// events before it are replaced by one output event that redraws the screen
+// at the window's start (see [vt.Terminal.Redraw]), plus theme and focus
+// events if they changed the host colors or focus. The header has the size
+// at the window's start, and times and the header timestamp count from it.
+// Only the visible screen is redrawn, so a cut that starts on the alternate
+// screen and later leaves it shows a blank primary screen; [Export] of the
+// cut is unaffected.
 //
-// The redraw holds only the screen shown at the window's start. A cut that
-// starts on the alternate screen, such as inside a full-screen program, and
-// later leaves it, shows a blank primary screen from then on, where the
-// source showed what was there before the program started. [Export] of the
-// cut replays every event, so its frames are unaffected.
+// Times are written exactly in whole milliseconds; v3 intervals sum to the
+// absolute times, so long recordings do not drift.
 //
-// Event times are whole milliseconds (see [Timeline]), written exactly. In
-// v3, where each is written as the interval since the one before, the
-// intervals add up to the times, so a long recording does not drift.
+// [Output] and [Input] bytes are written as JSON strings. A UTF-8 character
+// split across two events of the same kind is moved whole into the later
+// one, so bytes read back match bytes written. Invalid UTF-8 (such as X10
+// mouse reports past column 94) is written as U+FFFD, as asciinema does.
 //
-// [Output] and [Input] bytes are written as JSON strings, which hold UTF-8.
-// A character split between two events of the same kind, as a program's
-// writes often split them, is moved whole into the later event, so the bytes
-// read back are the bytes written. An event left with no bytes is written
-// empty, which replays as it was. Bytes that are not UTF-8, such as an X10
-// mouse report past column 94, are written as U+FFFD, as asciinema writes
-// them.
+// The header holds the size, title, and first event's time. Its colors,
+// including the 16-color palette (nil entries filled with reel's defaults)
+// and cursor color, are written only when [Header.Theme] has Fg and Bg set.
+// [Header.SkipPristine] is written as reel's own "skip_pristine" field.
 //
-// The header has the size, the title, the time of the first event, and the
-// header colors with asciicast's 16 color palette: [Header.Palette], with
-// the colors reel draws with by default for its nil entries, and reel's own
-// cursor color. The colors are left out unless Fg and Bg are set. It has
-// reel's own "skip_pristine": true when [Header.SkipPristine] is set.
-// Events are asciicast's output ("o"), input ("i"), resize ("r", as
-// "COLSxROWS"), and marker ("m"), and exit ("x"), which is asciicast's own in
-// v3, and reel's in v2, and four more of reel's own: focus ("f", as "1" or
-// "0"), scroll ("s", as the rows the viewport is scrolled up from the
-// bottom), theme ("t", as "fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", leaving out
-// the colors that are nil), and [Annotation] ("R"). Other readers ignore the
-// header fields and events that are reel's own, as the asciicast format
-// asks of them.
+// Events use asciicast's codes: output "o", input "i", resize "r"
+// ("COLSxROWS"), marker "m", and exit "x" (standard in v3, reel's own in v2).
+// Reel adds focus "f" ("1" or "0"), scroll "s" (the rows the viewport is
+// scrolled up from the bottom), theme "t"
+// ("fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", omitting nil colors), and
+// [Annotation] "R". Other readers ignore reel's own fields and events.
 //
-// [Output] is the bytes the program wrote for a terminal of the size it had,
-// and programs move the cursor by that size, as bash's readline does to
-// redraw a line that wraps. A player that writes them to the terminal it runs
-// in, such as asciinema's play command, shows them as recorded only when that
-// terminal has the same size: in a wider one, such a redraw overwrites the
-// lines above it. asciinema-player sizes its terminal from the header and the
-// resize events, so it is unaffected.
+// Output is laid out for the terminal size at the time it was written. A
+// player that writes it to its own terminal, such as "asciinema play", only
+// shows it correctly at the same size; asciinema-player sizes its terminal
+// from the file, so it is unaffected.
 func (t *Timeline) WriteCast(w io.Writer, v CastVersion) (int64, error) {
 	if v != CastV3 && v != CastV2 {
 		return 0, fmt.Errorf("reel: unknown asciicast version %d", v)
@@ -133,10 +111,9 @@ func (t *Timeline) WriteCast(w io.Writer, v CastVersion) (int64, error) {
 	return cw.n, err
 }
 
-// cut returns the window of t as a timeline of its own, which starts at the
-// window's start: the events before the window are replaced by an output
-// event that redraws the terminal they leave, and the host colors and focus
-// they leave, at offset zero.
+// cut returns t's window as a standalone timeline, with the events before
+// it collapsed into a redraw (and theme/focus events) at offset zero, as
+// [Timeline.WriteCast] describes.
 func (t *Timeline) cut() (*Timeline, error) {
 	events := t.snapshot()
 	h, start := t.header, t.started()
@@ -184,8 +161,8 @@ func (t *Timeline) cut() (*Timeline, error) {
 	return &Timeline{header: h, start: start, events: out, from: -1}, nil
 }
 
-// castHeaderOf returns the header line for a timeline with header h whose
-// first event was appended at start.
+// castHeaderOf returns the asciicast header for h, whose first event was at
+// start.
 func castHeaderOf(h Header, start time.Time, v CastVersion) asciicast.Header {
 	ch := asciicast.Header{
 		Version: int(v), Cols: h.Cols, Rows: h.Rows, Term: castTermType,
@@ -197,8 +174,8 @@ func castHeaderOf(h Header, start time.Time, v CastVersion) asciicast.Header {
 	return ch
 }
 
-// castPalette returns p with the colors indexed colors are drawn with by
-// default for its nil entries.
+// castPalette returns p with nil entries replaced by the default indexed
+// colors.
 func castPalette(p [16]color.Color) [16]color.Color {
 	for i, c := range p {
 		if c == nil {
@@ -210,8 +187,8 @@ func castPalette(p [16]color.Color) [16]color.Color {
 
 // writeCastEvents writes one line per event.
 func writeCastEvents(aw *asciicast.Writer, events []Event) error {
-	// No event comes after the last Output and Input to finish a character
-	// split at their end.
+	// The last Output and Input keep any trailing partial character, since
+	// no later event can complete it.
 	lastOutput, lastInput := -1, -1
 	for i, ev := range events {
 		switch ev.(type) {
@@ -221,7 +198,6 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 			lastInput = i
 		}
 	}
-	// Split characters carried into the next Output and Input.
 	var outputTail, inputTail []byte
 
 	for i, ev := range events {
@@ -249,8 +225,7 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 		case Exit:
 			code, data = "x", strconv.Itoa(ev.Status)
 		case Annotation:
-			// Every way an annotation enters a timeline checks it against
-			// the schema, so it is only encoded here.
+			// Already validated when it entered the timeline.
 			b, err := ev.encode()
 			if err != nil {
 				return err
@@ -276,27 +251,22 @@ func (cw *countWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// ReadTimeline reads a timeline written by [Timeline.WriteTo], or any
-// asciicast v3 or v2 file, such as one asciinema recorded. The timeline does
+// ReadTimeline reads an asciicast v2 or v3 file, such as one written by
+// [Timeline.WriteCast] or recorded by asciinema. The returned timeline does
 // not grow.
 //
-// Lines starting with "#" after the header are comments, and blank lines are
-// skipped. Header fields and event codes reel does not use are ignored. The
-// header's palette is read into [Header.Palette], and reel's "skip_pristine"
-// into [Header.SkipPristine]. Reel's own events are read from either
-// version. Times in a v2 file are from the start rather
-// than from the event before; a time before the previous event's is raised
-// to it. Each event's time from the start is rounded to the millisecond, as
-// a [Timeline] keeps it, so intervals finer than that, as asciinema writes
-// them, do not drift. A marker with no label reads as a [Mark] with an empty
+// Comment ("#") and blank lines, and unknown header fields and event codes,
+// are skipped. Event times are rounded to the millisecond from the start, so
+// finer intervals do not drift, and a time earlier than the previous event's
+// is raised to it. A marker with no label reads as a [Mark] with an empty
 // Label, which [Timeline.Between] cannot cut at.
 //
-// An asciicast v1 file, a header without a terminal size or with a malformed
-// field reel reads, a line that is not a JSON array of time, code, and data,
-// and an event reel reads whose data is malformed, such as a resize that is
-// not "COLSxROWS", or an annotation that [AnnotationSchema] does not allow,
-// are errors, which name the line. Sizes are at most 65535,
-// and times at most a year.
+// Errors name the offending line. It is an error for the file to be
+// asciicast v1, to have a header without a size or with a malformed known
+// field, to have a line that is not a [time, code, data] array, or to have
+// a known event with malformed data (including annotations
+// [AnnotationSchema] rejects). Sizes are limited to 65535 and times to one
+// year.
 func ReadTimeline(r io.Reader) (*Timeline, error) {
 	cr, err := asciicast.NewReader(r, castCodes...)
 	if err != nil {
@@ -325,7 +295,7 @@ func ReadTimeline(r io.Reader) (*Timeline, error) {
 	}
 }
 
-// castCodes are the event codes reel reads, which castDecoders parse.
+// castCodes are the event codes reel reads.
 var castCodes = slices.Collect(maps.Keys(castDecoders))
 
 // castDecoders parse the data of the event codes reel reads.

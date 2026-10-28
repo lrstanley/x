@@ -28,10 +28,8 @@ func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
 	return append([]snapshot.Option{snapshot.WithANSI(false)}, out...)
 }
 
-// AssertSnapshot compares the current terminal screen buffer against a snapshot
-// file. It allows the test to continue.
-//
-// See also [Harness.RequireSnapshot].
+// AssertSnapshot compares [Harness.View] against a snapshot file. It allows
+// the test to continue.
 func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	meta := CaptureMeta{Kind: CaptureKindText}
@@ -42,10 +40,8 @@ func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	return h
 }
 
-// RequireSnapshot compares the current terminal screen buffer against a snapshot
-// file. It fails the test immediately if the snapshot does not match.
-//
-// See also [Harness.AssertSnapshot].
+// RequireSnapshot compares [Harness.View] against a snapshot file. It fails
+// the test immediately if the snapshot does not match.
 func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	meta := CaptureMeta{Kind: CaptureKindText, Required: true}
@@ -59,10 +55,8 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	return h
 }
 
-// AssertJSON compares the current terminal screen buffer in JSON format against a
-// previously captured snapshot. It allows the test to continue.
-//
-// See also [Harness.AssertSnapshot].
+// AssertJSON compares the screen's cells and the terminal's state, as JSON,
+// against a snapshot file. It allows the test to continue.
 func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	meta := CaptureMeta{Kind: CaptureKindJSON}
@@ -73,11 +67,8 @@ func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	return h
 }
 
-// RequireJSON compares the current terminal screen buffer in JSON format against a
-// previously captured snapshot. It fails the test immediately if the snapshot does
-// not match.
-//
-// See also [Harness.AssertJSON].
+// RequireJSON is [Harness.AssertJSON], but fails the test immediately if the
+// snapshot does not match.
 func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	meta := CaptureMeta{Kind: CaptureKindJSON, Required: true}
@@ -91,18 +82,14 @@ func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	return h
 }
 
-// withResult returns opts, in a new slice, with [snapshot.WithResult] of res
-// added, for the comparison's record.
+// withResult returns opts plus [snapshot.WithResult] of res, in a new slice.
 func withResult(res *snapshot.Result, opts []snapshot.Option) []snapshot.Option {
 	return append(slices.Clip(opts), snapshot.WithResult(res))
 }
 
-// ImageInto renders the current terminal screen buffer into dst, at
-// dst.Rect.Min. dst must be at least as large as the image [Harness.Image]
-// returns for the same options. Pixels written to dst are caller-owned and
-// safe to retain after the call returns.
-//
-// See also [Harness.Image].
+// ImageInto renders the screen into dst, at dst.Rect.Min. dst must be at
+// least as large as the image [Harness.Image] returns. Unlike that image,
+// dst is the caller's, safe to keep after the call.
 func (h *Harness) ImageInto(dst *image.NRGBA) {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: CaptureKindImage})()
@@ -118,15 +105,11 @@ func (h *Harness) drawImageInto(dst *image.NRGBA) {
 	h.imageRenderer.Draw(dst, scr, st, timelineAt(h, time.Now()))
 }
 
-// Image renders the current terminal screen buffer as an image, with the
-// Render options of the recording profile (see [WithRecording]).
+// Image renders the screen as an image, with the Render options of the
+// recording profile (see [WithRecording]).
 //
-// The returned [image.Image] is owned by the harness and invalidated by the
-// next [Harness.Image] call. Do not mutate it and do not retain it across
-// [Harness.Image] calls; encode or copy immediately, or use
-// [Harness.ImageInto] when pixels must outlive the draw.
-//
-// See also [Harness.ImageInto].
+// The image is reused by the next call, so do not mutate or retain it; copy
+// it, or use [Harness.ImageInto].
 func (h *Harness) Image() image.Image {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: CaptureKindImage})()
@@ -146,9 +129,9 @@ func (h *Harness) drawImage() image.Image {
 	return h.image
 }
 
-// imageViewport returns the viewport to draw with st: the retained clone when
-// its generation still matches st, or a new clone via Screen otherwise, so a
-// generation change is never drawn from the previous grid.
+// imageViewport returns the retained screen clone while its generation
+// matches st, or a new clone, so a generation change is never drawn from the
+// previous grid.
 func (h *Harness) imageViewport(st vt.State) *vt.Buffer {
 	h.imageMu.Lock()
 	if scr := h.imageScreen; st.Generation != 0 && scr != nil && scr.Generation() == st.Generation {
@@ -170,14 +153,11 @@ func (h *Harness) dropImageScreen() {
 	h.imageMu.Unlock()
 }
 
-// timelineAt is the offset of t from the harness start, which frames are
-// drawn as of.
+// timelineAt is the offset of t from the harness start.
 func timelineAt(h *Harness, t time.Time) time.Duration {
 	return t.Sub(h.start)
 }
 
-// screenSnapshot captures the session's screen and terminal state for JSON
-// snapshots.
 func screenSnapshot(tb testing.TB, s *reel.Session) *snapshot.ScreenSnapshot {
 	tb.Helper()
 	term := s.Terminal()

@@ -17,95 +17,94 @@
 // # Hooks
 //
 // Harness actions invoke [Hook] callbacks from [WithHooks] before and after
-// the action body. Hook errors fail the test immediately. Each action is also
-// marked in the session's timeline once it is done, labeled with its event
-// and count, such as "input-2" or "wait-1", and each failure the harness
-// reports as it reports it, as "failure-1" and so on (see [Harness.Mark]).
-// Inputs, waits, assertions, and captures pass hooks an [InputMeta],
-// [WaitMeta], [AssertMeta], or [CaptureMeta], whose kinds ([InputKind],
-// [WaitKind], [AssertKind], and [CaptureKind]) and fields are those of the
-// annotation the harness records for the action (see below).
+// the action body. Hook errors fail the test immediately. Once an action is
+// done, it is marked in the timeline with its event and count, such as
+// "input-2" or "wait-1", and each failure the harness reports is marked as
+// "failure-1" and so on (see [Harness.Mark]).
 //
 // # Recording and export
 //
 // A harness runs its program in a [reel.Session], whose [reel.Timeline]
-// records every byte the program wrote and everything the test did to the
-// terminal, at a cost of a copy of the bytes. Recordings are made from the
-// timeline, so a test never sleeps or slows down to be recorded. [WithSlow]
-// is only for programs that need real time between actions, and
+// records everything the program wrote and the test did. Recordings are made
+// from the timeline, so a test never slows down to be recorded; [WithSlow] is
+// only for programs that need real time between actions, and
 // [WithTypingDelay] for recordings that should show text being typed.
 //
-// The timeline also records what the test did and found, so tools can print,
-// debug, and draw a run from its ".cast" file, as [reel.Annotation] events,
-// which a replay ignores, and which reel's annotation.schema.json describes:
-// the harness's configuration ("steep.start"), the program's start
-// ("steep.ready") and end ("steep.exit"), each input with its keys, text, and
-// mouse cells ("steep.input"), changes to the terminal and actions on the
-// program that no other event records ("steep.terminal" and
-// "steep.program"), the start and end of each wait, with what it waited for,
-// how it ended, and where on the screen it found its text
-// ("steep.wait.start" and "steep.wait.end"), each assertion and snapshot
-// comparison and whether it passed ("steep.assert" and "steep.snapshot"),
-// each failure the harness reported ("steep.failure"), and the test's result,
-// with the stack of a panic ("steep.result"). The result is recorded just
-// before the mark [Harness.Close] places, which recordings end at, so they
-// hold it, but not what comes after: the end of a program Close stops, or a
-// failure to stop it. The session records the program's queries and the
-// terminal's replies (see [reel.QueryKind]). Text longer than 4 KiB, such as
-// a long paste or diff, is cut, and its annotation marked truncated.
-// [WithRecordMessages], or STEEP_RECORD_MESSAGES=1, also records each message
-// the model receives ("steep.message"), which is off by default, since a
-// program that ticks or animates receives many.
+// The timeline also holds [reel.Annotation] events, described by reel's
+// annotation.schema.json, of what the test did and found: its configuration
+// ("steep.start"), the program's start and end ("steep.ready",
+// "steep.exit"), inputs ("steep.input"), terminal changes and program
+// actions ("steep.terminal", "steep.program"), waits ("steep.wait.start",
+// "steep.wait.end"), assertions and snapshot comparisons ("steep.assert",
+// "steep.snapshot"), failures ("steep.failure"), and the result
+// ("steep.result"). Text fields over 4 KiB are cut and marked truncated.
+// Messages the model receives ("steep.message") are only recorded with
+// [WithRecordMessages].
 //
 // By default nothing is written: the timeline stays in memory, for
-// [Harness.Timeline], since a failing test already prints the screen as
-// text, and artifacts written into a package directory may not be ignored
-// by version control. An export policy turns exporting on:
-// [WithExportOnFailure] exports when the test failed, and [WithExportAlways]
-// whatever the result. Either exports once, at [Harness.Close], which runs as
-// a cleanup of the test, so a test that fails, calls FailNow, or panics still
-// exports. A test killed by "go test -timeout" writes nothing.
+// [Harness.Timeline]. [WithExportOnFailure] exports when the test failed, and
+// [WithExportAlways] whether it passed or failed. Either exports once, at
+// [Harness.Close], which runs as a test cleanup, so a test that fails, calls
+// FailNow, or panics still exports. A test killed by "go test -timeout"
+// writes nothing.
 //
-// [WithRecording] sets what an export writes as a [reel.Profile]: its
-// outputs (GIF, MP4, WebM, WebP, PNG, and asciicast), renderer, encoder
-// options, effects, and timing. Without outputs it writes
-// "{name}_{status}.gif" and "{name}_{status}.cast", where {name} is the
-// test's name and {status} "passed" or "failed", under [WithArtifacts], or
-// [testing.TB.ArtifactDir], which is only kept when tests run with
-// "go test -artifacts". [WithStills] adds a PNG or text snapshot at each mark
+// [WithRecording] sets what an export writes as a [reel.Profile]. Without
+// outputs it writes "{name}_{status}.gif" and "{name}_{status}.cast" under
+// [WithArtifacts], or [testing.TB.ArtifactDir], which is only kept with
+// "go test -artifacts". [WithStills] adds a PNG or text snapshot at the marks
 // of the hook events it names.
 //
-// Effects run in the order the profile lists them. steep adds two to those in
-// the effects package: [Logo], an animated intro, and [Outro], a PASS or FAIL
-// card with the failures the harness reported, from the [Result] each export
-// passes them. For a failed test, Outro holds the last frame for at least
-// 3s, so the screen it failed on can be read, and [effects.Pause] before it
-// pauses there with a badge, ahead of the FAIL card:
+// steep adds two effects to those in the effects package: [Logo], an
+// animated intro, and [Outro], a PASS or FAIL card. Effects run in the order
+// the profile lists them, so [effects.Pause] before Outro pauses on the screen
+// the test failed on:
 //
 //	steep.WithRecording(reel.Profile{
 //		Effects: []reel.Effect{
 //			steep.Logo(2 * time.Second),
-//			effects.Keys(time.Second),
 //			effects.Pause(),
+//			effects.Keys(time.Second),
 //			steep.Outro(2 * time.Second),
 //		},
 //	}),
 //	steep.WithExportOnFailure(),
 //
-// The ".cast" output is the recording itself: [reel.ReadTimeline] and
-// [reel.Export] with the same profile and [Result] write the same files
-// again, byte for byte, but for the exceptions
-// [reel.Timeline] lists. So a profile with [effects.Redact] or
-// [effects.RedactInputs] must set outputs without ".cast". Stills run
-// through them, and no other effect.
+// The ".cast" output is the timeline itself, from which [reel.ReadTimeline]
+// and [reel.Export] can write the other outputs again. A profile with
+// [effects.Redact] or [effects.RedactInputs] must therefore set outputs
+// without ".cast" (see [reel.ErrRawOutput]).
 //
-// Environment variables override these options unless [WithIgnoreEnv] is
-// set: STEEP_EXPORT_MODE (on, failure, or off) sets the policy,
-// STEEP_EXPORT_TYPE the outputs and stills, STEEP_EXPORT_DIR the artifacts
-// directory, and STEEP_EXPORT_FPS, STEEP_EXPORT_SPEED, STEEP_EXPORT_QUALITY,
-// STEEP_EXPORT_MAX_FRAMES, STEEP_EXPORT_MAX_BYTES, STEEP_EXPORT_OPTIMIZE,
-// STEEP_RENDERER_SCALE, and STEEP_RENDERER_FONT_FAMILY patch the profile (see
-// [WithRecording]), so any test can be recorded without changing it:
+// # Environment
+//
+// These variables override the options set in code unless [WithIgnoreEnv]
+// is set, so any test can be recorded or tuned without changing it.
+// Unparsable values are ignored.
+//
+//   - STEEP_TIMEOUT, STEEP_CHECK, STEEP_SETTLE, STEEP_SLOW,
+//     STEEP_TYPING_DELAY: durations for [WithTimeout], [WithCheck],
+//     [WithSettle], [WithSlow], and [WithTypingDelay].
+//   - STEEP_LOG: true or 1 adds the hook of [WithLog].
+//   - STEEP_RECORD_MESSAGES: a boolean for [WithRecordMessages].
+//   - STEEP_SNAPSHOT_DIR: the default snapshot directory
+//     ([snapshot.WithDir]); a directory passed to a snapshot call still wins.
+//   - STEEP_EXPORT_MODE: on (or always, true, 1) for [WithExportAlways],
+//     failure (or on-failure) for [WithExportOnFailure], off (or false, 0)
+//     for neither.
+//   - STEEP_EXPORT_DIR: the directory of [WithArtifacts].
+//   - STEEP_EXPORT_TYPE: replaces the outputs and stills with a
+//     comma-separated list: gif, mp4, webm, webp, and cast write
+//     "{name}_{status}.<type>"; png and snapshot write [StillPNG] and
+//     [StillSnapshot] stills at the default [WithStills] events; all is gif,
+//     cast, png, and snapshot. Unknown names are ignored.
+//   - STEEP_EXPORT_FPS, STEEP_EXPORT_SPEED: replace [reel.Profile.FPS] and
+//     [reel.Profile.Speed].
+//   - STEEP_EXPORT_QUALITY (0 to 100), STEEP_EXPORT_MAX_FRAMES,
+//     STEEP_EXPORT_MAX_BYTES, STEEP_EXPORT_OPTIMIZE (comma-separated none,
+//     frames, dirty, quantize, or all): appended to [reel.Profile.Encode].
+//   - STEEP_RENDERER_SCALE, STEEP_RENDERER_FONT_FAMILY: appended to
+//     [reel.Profile.Render].
+//
+// For example:
 //
 //	STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -artifacts ./...
 package steep

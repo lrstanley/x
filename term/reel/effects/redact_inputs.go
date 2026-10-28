@@ -13,8 +13,8 @@ import (
 	"github.com/lrstanley/x/term/reel"
 )
 
-// typedRedactionKey is the [reel.Context] value [RedactInputs] stores the
-// []typedRedaction of every RedactInputs started so far under, for [Keys].
+// typedRedactionKey is the [reel.Context] value key of the
+// []typedRedaction of every [RedactInputs] started so far, for [Keys].
 type typedRedactionKey struct{}
 
 // typedRedaction is the region of a [RedactInputs], with its matching.
@@ -25,32 +25,25 @@ type typedRedaction struct {
 
 // RedactInputs returns an effect that hides the text region matches from
 // the typed text [Keys] shows, as a • for each character, so a password
-// typed with "hunter2\n" shows as "•••••••⏎". It changes no frame: it only
-// tells the Keys after it what to hide, so list it before them, with
-// [Redact], before every other effect (see [reel.Concealer]). Like Redact,
-// it makes asciicast outputs an error, since the timeline holds the bytes
-// typed.
+// typed with "hunter2\n" shows as "•••••••⏎". It changes no frame and only
+// affects the Keys listed after it; an effect of a caller's own that reads
+// the timeline's input still sees what was typed. It is a
+// [reel.Concealer].
 //
-// region is a [Text], [Regexp], or [Env] region, or [Any] of them: it is
-// matched against the text typed since the last key that is not text, such
-// as an arrow key, across input events, so text typed a key at a time is
-// matched as a whole. Backspace takes back the character before it, and
-// enter and tab end the text. A [Text] or [Env] region also hides where
-// only the start or end of its text shows, as [Redact] does, so a secret
-// typed a key at a time is hidden from its third character on, even
-// on the frames before the rest is typed. [MinPartial] sets how many
-// characters, three by default, as it does for Redact. Text hidden once
-// stays hidden; [reel.Export] reads every input before the first frame, so
-// it hides the first characters too, where a live [reel.Record] may show
-// them until the third is typed. Regions that find no text, such as
-// [Cells], and a nil region, are errors from Start.
+// region is a [Text], [Regexp], or [Env] region, or [Any] of them. Regions
+// that find no text, such as [Cells], and a nil region, are errors from
+// Start. It is matched against the text typed since the last key that is
+// not text, such as an arrow key, across input events. Backspace takes back
+// a character, and enter and tab end the text. A [Text] or [Env] region
+// also hides a partly typed secret once [MinPartial] characters of it are
+// typed. [reel.Export] reads every input before the
+// first frame, so it hides those first characters too, where a live
+// [reel.Record] shows them until enough are typed.
 //
-// The text is matched as [vt.DecodeInput] decodes it, so a keyboard
-// mode that reports keys without the text they type, such as the kitty
-// keyboard protocol asked to report every key as an escape code without
-// its text, can decode a shifted symbol as its key, which no longer
-// matches. Only Keys reads it: an effect of a caller's own that reads the
-// timeline's input sees what was typed.
+// The text is matched as [vt.DecodeInput] decodes it, so under a keyboard
+// mode that reports keys without their text, such as some kitty keyboard
+// protocol modes, a shifted symbol can decode as its key and no longer
+// match.
 func RedactInputs(region Region, opts ...Matching) reel.Effect {
 	r := redactInputs{region: region, matching: defaultMatching}
 	for _, opt := range opts {

@@ -16,9 +16,8 @@ import (
 	"github.com/lrstanley/x/term/reel/sink/internal/palette"
 )
 
-// PNG writes img to path using opts. By default [OptimizeAll] applies (indexed
-// paletted PNG via the internal palette). Pass [WithOptimize]([OptimizeNone])
-// to encode full RGBA with alpha preserved.
+// PNG writes img to path. By default it is an indexed paletted PNG; pass
+// [WithOptimize]([OptimizeNone]) for full RGBA with alpha preserved.
 func PNG(img image.Image, path string, opts ...Option) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -28,12 +27,12 @@ func PNG(img image.Image, path string, opts ...Option) error {
 	return encodePNG(img, f, collectOptions(opts))
 }
 
-// WritePNG encodes img to w. See [PNG] for format behavior and option notes.
+// WritePNG encodes img to w like [PNG].
 func WritePNG(img image.Image, w io.Writer, opts ...Option) error {
 	return encodePNG(img, w, collectOptions(opts))
 }
 
-// MustPNG is a convenience wrapper around [PNG] that panics on error.
+// MustPNG is like [PNG] but panics on error.
 func MustPNG(img image.Image, path string, opts ...Option) {
 	if err := PNG(img, path, opts...); err != nil {
 		panic(err)
@@ -51,8 +50,7 @@ func encodePNG(img image.Image, w io.Writer, cfg options) error {
 	return png.Encode(w, img)
 }
 
-// pngSink keeps a copy of the last frame, which Close encodes as a PNG to w,
-// or to file when it writes one.
+// pngSink keeps a copy of the last frame, which Close encodes to w.
 type pngSink struct {
 	opts options
 	w    io.Writer
@@ -61,8 +59,6 @@ type pngSink struct {
 	done bool
 }
 
-// createPNGSink returns a pngSink writing to a temporary file beside path,
-// renamed into place on Close.
 func createPNGSink(path string, opts []Option) (*pngSink, error) {
 	file, err := createPending(path)
 	if err != nil {
@@ -92,7 +88,6 @@ func (s *pngSink) WriteFrame(f Frame) error {
 	return nil
 }
 
-// Close writes the last frame. With no frames written, it writes nothing.
 func (s *pngSink) Close() error {
 	if s.done {
 		return nil

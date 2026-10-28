@@ -20,13 +20,12 @@ import (
 // castExt is the extension of asciicast outputs.
 const castExt = ".cast"
 
-// outputs are a profile's outputs, with their paths expanded, for one
-// recording.
+// outputs are a profile's outputs, with paths expanded, for one recording.
 type outputs struct {
 	casts []castOutput
 	// files are the recordings and the per-mark stills.
 	files []fileOutput
-	// sink writes to every recording once they are open.
+	// sink tees to every recording once open.
 	sink sink.Sink
 }
 
@@ -38,8 +37,7 @@ type castOutput struct {
 type fileOutput struct {
 	path string
 	opts []sink.Option
-	// still is set for the still of the first mark labeled mark, and
-	// written once it has its frame.
+	// still is set for the still of the first mark labeled mark.
 	still   bool
 	mark    string
 	written bool
@@ -109,9 +107,8 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 	return o, nil
 }
 
-// checkEffects checks that every [Concealer] among effects comes before
-// every other effect, and when there is one, or a [Cutter], that no output
-// skips the effects.
+// checkEffects enforces the ordering and output rules of [Concealer] and
+// [Cutter].
 func (o *outputs) checkEffects(effects []Effect) error {
 	n := 0
 	for n < len(effects) && conceals(effects[n]) {
@@ -140,8 +137,8 @@ func cuts(e Effect) bool {
 	return ok && c.Cuts()
 }
 
-// effectAs returns the first effect in e's chain of Unwrap methods,
-// e included, that is a T.
+// effectAs returns the first effect in e's Unwrap chain (e included) that is
+// a T.
 func effectAs[T Effect](e Effect) (T, bool) {
 	for e != nil {
 		if t, ok := e.(T); ok {
@@ -157,8 +154,8 @@ func effectAs[T Effect](e Effect) (T, bool) {
 	return zero, false
 }
 
-// stillEffects returns the effects that run on stills: each [Concealer]
-// that conceals and [StillEffect] that runs on stills, in order.
+// stillEffects returns, in order, the effects that run on stills: active
+// concealers and [StillEffect]s whose Stills reports true.
 func stillEffects(effects []Effect) []Effect {
 	var out []Effect
 	for _, e := range effects {
@@ -169,8 +166,8 @@ func stillEffects(effects []Effect) []Effect {
 	return out
 }
 
-// hasRecording reports whether any output records frames, rather than
-// stills.
+// hasRecording reports whether any output is a recording rather than a
+// still.
 func (o *outputs) hasRecording() bool {
 	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return !f.still })
 }
@@ -180,7 +177,7 @@ func (o *outputs) hasStills() bool {
 	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return f.still })
 }
 
-// open creates every recording and still, and is discarded when one fails.
+// open creates every recording and still. On error, the caller discards o.
 func (o *outputs) open() error {
 	var recordings []sink.Sink
 	for i := range o.files {
@@ -239,11 +236,10 @@ func (o *outputs) discard() {
 	}
 }
 
-// writeCasts writes tl, with header h, to every asciicast output, with
-// effects, the descriptions of the profile's effects, at its start, in place
-// of its annotations of [EffectKind] and of the kinds effects have. A cut is
-// replayed once for all of them. Each is written to a temporary file beside
-// it, renamed into place once complete.
+// writeCasts writes tl with header h to every asciicast output, with the
+// effect descriptions at the start replacing tl's annotations of
+// [EffectKind] and of the described kinds. Each file is written to a
+// temporary file and renamed into place.
 func (o *outputs) writeCasts(tl *Timeline, h Header, effects []Annotation) error {
 	if len(o.casts) == 0 {
 		return nil

@@ -2,13 +2,13 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package palette maps frames to palettes of at most 256 colors for GIF and
-// PNG, built from the colors a recording uses ([Adaptive]). It also compacts
-// palettes to the colors their frames use ([Compact]).
+// Package palette builds GIF and PNG palettes from the colors a recording
+// uses ([Adaptive]), and compacts them to the colors their frames use
+// ([Compact]).
 //
-// Index 255, [TransparentIndex], is reserved for transparency: fully
-// transparent pixels map to it, and opaque pixels never do. The palettes it
-// builds fill that slot with a zero-alpha marker.
+// [TransparentIndex] is reserved for transparency: only fully transparent
+// pixels map to it, and every palette built here holds a zero-alpha color
+// there.
 package palette
 
 import (
@@ -17,8 +17,7 @@ import (
 	"sync"
 )
 
-// TransparentIndex is the palette index reserved for transparency during
-// GIF capture and optimization.
+// TransparentIndex is the palette index reserved for transparency.
 const TransparentIndex uint8 = 255
 
 const (
@@ -27,9 +26,7 @@ const (
 	palettizeParallelRowsPerWorker  = 64
 )
 
-// rgbaPixels is the pixel layout *image.NRGBA and *image.RGBA share: four
-// bytes per pixel, R, G, B, A. RGBA's color channels are premultiplied by
-// alpha.
+// rgbaPixels is the pixel layout *image.NRGBA and *image.RGBA share.
 type rgbaPixels struct {
 	pix           []uint8
 	stride        int
@@ -37,7 +34,6 @@ type rgbaPixels struct {
 	premultiplied bool
 }
 
-// palettizeSpanCount returns how many row spans area is split into.
 func palettizeSpanCount(area image.Rectangle) int {
 	workers := palettizeWorkerCount(area)
 	if workers <= 1 {
@@ -49,8 +45,7 @@ func palettizeSpanCount(area image.Rectangle) int {
 }
 
 // writeSpans maps area of src into dst through the cache (see
-// [Adaptive.writeSpan]), splitting large frames across goroutines started for
-// the call, which end before it returns, the last span on the caller's own.
+// [Adaptive.writeSpan]), splitting large frames across goroutines.
 func (p *Adaptive) writeSpans(dst *image.Paletted, src rgbaPixels, area image.Rectangle) {
 	spans := palettizeSpanCount(area)
 	p.resetSpans(spans)

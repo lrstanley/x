@@ -17,10 +17,9 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-// RedactOption configures [Redact]: how it hides cells, with [Block],
-// [Blur], or [Replace], [Between], a [Timing] option, and [MinPartial], a
-// [Matching] option. [Ease], [EaseIn], and [EaseOut] are an error from
-// Start.
+// RedactOption configures [Redact]: [Block], [Blur], or [Replace], and
+// [Between] and [MinPartial]. [Ease], [EaseIn], and [EaseOut] are an error
+// from Start.
 type RedactOption interface {
 	applyRedact(r *redact)
 }
@@ -36,7 +35,7 @@ func (o Timing) applyRedact(r *redact) {
 }
 
 // redactBlurred is the text a cell [Blur] hides shows before it is
-// blurred: it blurs into the look of blurred text.
+// blurred.
 const redactBlurred = "x"
 
 // redactMode is how [Redact] hides a cell.
@@ -48,84 +47,59 @@ const (
 	redactReplace
 )
 
-// Block hides each cell [Redact] covers as a blank cell in the background
-// the cell is drawn with: its text, colors but the background, underline,
-// and attributes are dropped, but for reverse video, whose background is
-// the text color, so the cells look like the blank part of their row. It is
-// the default.
+// Block hides each cell [Redact] covers as a blank cell in the cell's
+// background color (its text color, for reverse video), so the cells look
+// like the blank part of their row. It is the default.
 func Block() RedactOption {
 	return redactOption(func(r *redact) { r.mode = redactBlock })
 }
 
-// Blur hides each cell [Redact] covers as a blurred shape of text: the cell
-// shows an x in its own colors, as with [Replace]('x'), and the pixels of
-// the cells are then blurred, so the frame looks like it holds blurred
-// text. What the cells held is never drawn, so no amount of sharpening
-// brings it back. Effects after Redact that draw cells of their own, such
-// as [Zoom], draw the x's unblurred. Frames with blurred cells are
-// palettized on their own GIF palette ([reel.Frame.Isolated]).
+// Blur hides each cell [Redact] covers as blurred text: the cell is drawn as
+// with [Replace]('x'), then blurred. What the cells held is never drawn, so
+// no amount of sharpening brings it back. Effects after Redact that draw
+// cells of their own, such as [Zoom], draw the x's unblurred.
 func Blur() RedactOption {
 	return redactOption(func(r *redact) { r.mode = redactBlur })
 }
 
 // Replace hides each cell [Redact] covers as the character c, in the cell's
 // own colors and attributes, so "hunter2" shows as "•••••••" with
-// Replace('•'). A wide character, which covers two cells, shows c twice. c
-// must be a printable character one cell wide, or Start returns an error.
+// Replace('•'). A wide character shows c twice. c must be a printable
+// character one cell wide, or Start returns an error.
 func Replace(c rune) RedactOption {
 	return redactOption(func(r *redact) { r.mode, r.mask = redactReplace, c })
 }
 
 // Redact returns an effect that hides the cells of region, such as a
-// secret, from every frame it passes on: it edits a copy of each terminal
-// frame's cells, hiding those of the region with [Block], the default,
-// [Blur], or [Replace], and draws the frame again from them with the
-// recording's rasterizer, in place of the frame drawn before the effects.
-// The frames it passes on hold the edited cells in [reel.Frame.Cells], so
-// the effects after it, such as [Zoom], which draws cells of its own, never
-// see what it hid. A frame the region covers no cells of is left alone, as
-// are frames without a terminal, such as cards.
+// secret, from every frame it passes on, with [Block], the default, [Blur],
+// or [Replace]. It redraws each frame from the edited cells and passes them
+// on in [reel.Frame.Cells], so the effects after it never see what it hid.
 //
-// [Text] and [Env] regions also hide their text where only part of it
-// shows: its first three characters or more where it is cut off, at the end
-// of a line, at the cursor, or before a character that is not a letter or
-// digit, as a secret shows while it is typed into a prompt that echoes it,
-// or cut off by the edge of a box; and its last three characters or more at
-// the start of a line, or after a character that is not a letter or digit,
-// as the rest of a secret soft-wrapped over rows shows once its first row
-// scrolls away. A text of three characters or fewer is only hidden whole.
-// [MinPartial] sets how many characters, three by default.
-// They, and [Regexp] regions, also hide their text in the terminal's title
-// and the program status (OSC 7501) the frame is drawn with, as a • for
-// each character, and in [reel.Context.Title], which the effects after
-// Redact read, such as [Intro]. [Cells], [Row], and [Rows] regions hide
+// [Text] and [Env] regions also hide a secret that only partly shows, such
+// as while it is typed (see [MinPartial]). They and [Regexp] regions also
+// hide their text in the terminal's title and program status (OSC 7501), as
+// a • for each character, and in [reel.Context.Title], which effects after
+// Redact, such as [Intro], read. [Cells], [Row], and [Rows] regions hide
 // cells only.
 //
-// Redact is a [reel.Concealer]: list it, and [RedactInputs], before every
-// other effect, such as [Keys], [Highlight], or [Intro]. What the effects
-// after it draw themselves, such as a card of a caller's own, is not
-// redacted. A redacted recording can not be saved as asciicast. A still of
+// Redact is a [reel.Concealer]. What the effects after it draw themselves,
+// such as a card of a caller's own, is not redacted. A still of
 // [reel.File.Marks] is redacted as a frame of the recording that starts at
 // its mark would be.
 //
-// Redact can only hide what it finds, in the text as the program wrote it.
-// Text a program lays out over lines itself, by moving the cursor, as
-// full-screen programs do, rather than soft-wrapped by the terminal, is
-// not matched across them (see [Text]), nor is a middle part of a secret
-// cut off on both sides, such as by a field that scrolls, nor one a program
-// spells with characters that draw as nothing, such as zero-width spaces.
-// The first two characters of a secret typed into a prompt show before it
-// is matched (as many as [MinPartial] allows). Hide the cells of such
-// prompts with [Cells] or [Row] where that matters.
+// Redact can only hide what it finds in the text as the program wrote it.
+// It does not match across lines a program lays out itself, by moving the
+// cursor (see [Text]), a middle part of a secret cut off on both sides, or
+// a secret spelled with characters that draw as nothing, such as zero-width
+// spaces. The first characters of a secret typed into a prompt show until
+// [MinPartial] of them are typed. Hide such cells with [Cells] or [Row]
+// where that matters.
 //
-// [Between] limits Redact to a window of the timeline. A step of the delay
-// grid that shows any of the window is redacted whole, as is the rest of a
-// live recording ([reel.Record]) once its from mark is appended. An export
-// ([reel.Export]) of a timeline without the from mark, such as of a test
-// that failed before it, is redacted whole, since where the secret starts
-// is not known; without the to mark, it is redacted to the end. [Ease],
-// [EaseIn], and [EaseOut] are an error from Start, since easing would show
-// part of what is hidden. A nil region is an error from Start.
+// [Between] limits Redact to a window of the timeline; every step of the
+// delay grid that shows any of the window is redacted whole. An export of a
+// timeline without the from mark, such as of a test that failed before it,
+// is redacted whole, since where the secret starts is not known; without the
+// to mark, it is redacted to the end. A nil region is an error from Start.
 func Redact(region Region, opts ...RedactOption) reel.Effect {
 	r := redact{region: region, matching: defaultMatching}
 	for _, opt := range opts {
@@ -177,9 +151,8 @@ type redactStage struct {
 	size   image.Point
 
 	// src and srcState are the terminal hidden last, which frames of one
-	// terminal share, such as those a held frame is played as, and
-	// hidden is it as hidden, or nil when the region covers nothing of
-	// it. covered is the cells hidden, or nil.
+	// terminal share, hidden is it as hidden, or nil when the region covers
+	// nothing of it, and covered is the cells hidden, or nil.
 	src      *vt.Buffer
 	srcState vt.State
 	hidden   *reel.CellFrame
@@ -235,9 +208,8 @@ func (s *redactStage) hide(f reel.Frame) (*reel.CellFrame, *image.NRGBA) {
 }
 
 // hideCells returns cf with what the region covers hidden, and the cells
-// it hid, or nil when it covers nothing. The screen is copied only when
-// cells are hidden, under a new generation, so no renderer takes it for
-// the one it drew.
+// it hid, or nil when it covers nothing. An edited screen gets a new
+// generation, so no renderer takes it for the one it drew.
 func (s *redactStage) hideCells(cf *reel.CellFrame) (hidden *reel.CellFrame, covered []bool) {
 	sec := secretsOf(s.region, s.matching)
 	covered = coveredCells(cf, sec.rects(cf))
@@ -257,9 +229,8 @@ func (s *redactStage) hideCells(cf *reel.CellFrame) (hidden *reel.CellFrame, cov
 	return &reel.CellFrame{Screen: scr, State: st, At: cf.At}, covered
 }
 
-// edit hides the cells of scr that covered holds, a grid of its size. A
-// cell of a wide character is hidden as a cell of its own, in the style
-// of the character.
+// edit hides the cells of scr that covered holds, a grid of its size. Each
+// cell of a wide character is hidden on its own, in the character's style.
 func (s *redactStage) edit(scr *vt.Buffer, covered []bool) {
 	b := scr.Bounds()
 	w := b.Dx()
@@ -305,9 +276,8 @@ func (s *redactStage) blur(img *image.NRGBA, scr *vt.Buffer, covered []bool) {
 	}
 }
 
-// blurNRGBA blurs the pixels of img in r, three passes of a box blur radius
-// pixels each way, along each axis, which is close to a Gaussian blur. The
-// box is clamped to r.
+// blurNRGBA blurs the pixels of img in r with three box blur passes along
+// each axis, which is close to a Gaussian blur. The box is clamped to r.
 func blurNRGBA(img *image.NRGBA, r image.Rectangle, radius int) {
 	if r.Empty() {
 		return

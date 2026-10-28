@@ -18,9 +18,8 @@ const (
 	varMark      = "mark"
 )
 
-// pathVars returns extra with the {timestamp} of a recording that starts at
-// start, or now when it is zero. {duration} is the caller's to set, since
-// only an export knows it up front.
+// pathVars returns extra plus {timestamp} for start (or now, if zero).
+// {duration} is left for the caller, since only Export knows it up front.
 func pathVars(extra map[string]string, start time.Time) (map[string]string, error) {
 	for _, name := range []string{varDuration, varTimestamp, varMark} {
 		if _, ok := extra[name]; ok {
@@ -38,8 +37,8 @@ func pathVars(extra map[string]string, start time.Time) (map[string]string, erro
 	return vars, nil
 }
 
-// expandPath replaces each {name} in path with vars[name]. A name that is
-// not in vars is an error.
+// expandPath replaces each {name} in path with vars[name]; unknown names
+// are an error.
 func expandPath(path string, vars map[string]string) (string, error) {
 	var b strings.Builder
 	for rest := path; rest != ""; {

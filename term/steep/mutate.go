@@ -32,15 +32,13 @@ type mutatableModel interface {
 	mutate(mutateRequest) error
 }
 
-// Mutate applies fn to the current underlying model from within the [tea.Program]'s
-// Update handling. This should be used sparingly, and only when necessary to test
-// a specific scenario that is otherwise not possible or would pollute your
-// model with unnecessary state.
+// Mutate applies fn to the model on the program's goroutine, as part of its
+// Update handling. Use it sparingly, for scenarios that are otherwise
+// impossible to set up or would pollute the model with test-only state.
 //
-// Prefer not to use Mutate. It will error if the Harness is not a [tea.Program].
-//
-// fn should use the same model type originally passed to [NewHarness] or
-// [NewComponentHarness], such as func(Model) Model or func(*Model) *Model.
+// fn must take and return the model type passed to [NewHarness] or
+// [NewComponentHarness], such as func(Model) Model or func(*Model) *Model,
+// or the test fails.
 func (h *Harness) Mutate[M any](fn func(M) M, opts ...Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookProgram, nil)()
@@ -53,8 +51,7 @@ func (h *Harness) Mutate[M any](fn func(M) M, opts ...Option) *Harness {
 
 	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
 	done := make(chan error, 1)
-	// Sent past [Harness.SendProgram], which would record and hook it as a
-	// message of the test's own.
+	// Not SendProgram, which would record and hook it as a test message.
 	h.program.Send(mutateMsg[M]{fn: fn, done: done})
 
 	timer := time.NewTimer(cfg.timeout)

@@ -13,9 +13,9 @@ import (
 	"github.com/lrstanley/x/term/reel"
 )
 
-// Timing is an option every effect that works on a [Region] takes, such as
-// [Highlight]: [Between] limits it to a window of the timeline, and [Ease],
-// [EaseIn], and [EaseOut] ease it in and out.
+// Timing is an option the effects that work on a [Region] take: [Between]
+// limits the effect to a window of the timeline, and [Ease], [EaseIn], and
+// [EaseOut] ease it in and out.
 type Timing func(*timing)
 
 // timing is when a region effect is on.
@@ -28,48 +28,37 @@ type timing struct {
 
 // Between limits the effect to the part of the timeline from the first mark
 // labeled from to the first mark labeled to after it, as
-// [reel.Timeline.Between] cuts it: an empty from is the start of the
+// [reel.Timeline.Between] cuts it. An empty from is the start of the
 // recording, and an empty to is its end. Without Between, the effect covers
 // the whole recording.
 //
-// A [reel.Record] runs while its timeline grows, so the marks are looked for
-// as they are appended: the window opens when the from mark comes, and
-// closes when the to mark does. For an [reel.Export], they are looked for
-// when the effect starts. A mark the recording never reaches is treated
-// the same way by both: without its from mark the effect never comes on,
-// and without its to mark it stays on to the end. The one exception is an
-// effect that hides what it covers, such as [Redact]: exported without its
-// from mark, it covers the whole recording, since it cannot tell where its
-// window would have started. The mark is reported as a [reel.NoMarkError],
-// from [reel.Recording.Stop] or Export, which still write the outputs. A from mark appended after the effect started was not
-// known in advance, so [EaseIn] eases the effect in after it rather than
-// before, and it is at full strength one ease-in after the mark.
+// Without its from mark the effect never comes on, and without its to mark
+// it stays on to the end, except that an effect that hides what it covers,
+// such as [Redact], covers the whole of an export without its from mark. A
+// missing mark is reported as a [reel.NoMarkError] from [reel.Export] or
+// [reel.Recording.Stop], which still write the outputs. A [reel.Record]
+// looks for the marks as they are appended, so [EaseIn] eases in after a
+// from mark rather than before it.
 func Between(from, to string) Timing {
 	return func(t *timing) { t.from, t.to = from, to }
 }
 
 // Ease eases the effect in over d of playback before the start of its
-// window (see [Between]), and out over d after its end, on the delay grid
-// ([reel.Context.Step]), so the effect is at full strength for the whole
-// window. Easing splits the frames it covers into a frame per step, each a
-// little further along an ease-in-out curve. Zero, the default, switches the
-// effect on and off at once. A d below zero is an error from Start. A window
-// that starts with the recording, or ends with it, has nothing to ease there,
-// and one whose start was not known in advance eases in after it (see
-// [Between]). Ease(d) is [EaseIn](d) and [EaseOut](d), and a later option
-// replaces either.
+// window, and out over d after its end, so it is at full strength for the
+// whole window. Easing adds a frame per step of the delay grid
+// ([reel.Context.Step]) it covers. Zero, the default, switches the effect on
+// and off at once; a d below zero is an error from Start. Ease(d) is
+// [EaseIn](d) and [EaseOut](d), and a later option replaces either.
 func Ease(d time.Duration) Timing {
 	return func(t *timing) { t.easeIn, t.easeOut = d, d }
 }
 
-// EaseIn is [Ease] for the start of the window only: it eases the effect in
-// over d, and leaves how it eases out alone.
+// EaseIn is [Ease] for the start of the window only.
 func EaseIn(d time.Duration) Timing {
 	return func(t *timing) { t.easeIn = d }
 }
 
-// EaseOut is [Ease] for the end of the window only: it eases the effect out
-// over d, and leaves how it eases in alone.
+// EaseOut is [Ease] for the end of the window only.
 func EaseOut(d time.Duration) Timing {
 	return func(t *timing) { t.easeOut = d }
 }
@@ -80,8 +69,7 @@ func (o Timing) applyHighlight(h *highlight) {
 	}
 }
 
-// openFrom and openTo are the offsets of the ends of a window that has
-// none.
+// openFrom and openTo are the offsets of a window's missing ends.
 const (
 	openFrom = time.Duration(math.MinInt64)
 	openTo   = time.Duration(math.MaxInt64)
@@ -105,21 +93,16 @@ type coverage int
 
 const (
 	// easeAfterMark gives each step of the delay grid the strength at its
-	// middle, and eases in after a from mark appended after the effect
-	// started, in a live recording ([reel.Context.Live]), whose easing
-	// cannot play before a mark nobody knew the time of.
+	// middle. A live from mark is not known in advance, so it eases in
+	// after it.
 	easeAfterMark coverage = iota
 	// coverWindow gives every step that shows any of the window full
-	// strength, and starts at full strength on a late from mark, for an
-	// effect that must never leave part of its window uncovered, such as
-	// one that hides secrets. Such an effect cannot ease.
+	// strength, for an effect that hides secrets. It cannot ease.
 	coverWindow
 )
 
-// window is a [timing] resolved for one recording: the offsets into the
-// timeline its effect is on between, with the easings in timeline time, and
-// the recording's delay grid and speed. In a live recording, the
-// marks not yet appended are looked for by [window.update].
+// window is a [timing] resolved for one recording, with offsets and easings
+// in timeline time.
 type window struct {
 	// from is past the from mark by lag, set when the mark was appended
 	// after the effect started, so the effect eases in after the mark.
@@ -128,23 +111,20 @@ type window struct {
 	easeIn, easeOut time.Duration
 	step            time.Duration
 	speed           float64
-	// cover is set to cover every step that shows any of the window.
+	// cover is set for [coverWindow].
 	cover bool
 
-	// from and to label a live window's marks, and wantFrom and wantTo are
-	// set while they are still looked for in tl, of whose events read have
-	// been looked at.
+	// fromLabel and toLabel are a live window's marks, and wantFrom and
+	// wantTo are set while they are still looked for. read counts the
+	// events of tl already looked at.
 	fromLabel, toLabel string
 	wantFrom, wantTo   bool
 	tl                 *reel.Timeline
 	read               int
 }
 
-// start resolves t for the recording of ctx. On a fixed timeline it finds
-// the marks of t, which must be there. On a live one, it finds the marks
-// appended so far, and registers a check with [reel.Context.OnClose] that
-// reports those that never came. cov is how much of the window the effect
-// must cover.
+// start resolves t for the recording of ctx. On a live timeline, marks not
+// yet appended are reported missing at [reel.Context.OnClose].
 func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 	switch {
 	case t.easeIn < 0:
@@ -211,9 +191,8 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 	return w, nil
 }
 
-// between returns the part of tl the window of t runs over, as
-// [reel.Timeline.Between] cuts it, with a [reel.NoMarkError] for a mark tl's
-// window does not have.
+// between returns the part of tl the window of t runs over, with a
+// [reel.NoMarkError] for a mark tl's window lacks.
 func (t timing) between(tl *reel.Timeline) (*reel.Timeline, error) {
 	cut, err := tl.Between(t.from, t.to)
 	if errors.Is(err, reel.ErrNoMark) {
@@ -233,9 +212,7 @@ func (t timing) checkMarks(tl *reel.Timeline) error {
 }
 
 // update looks for the marks of a live window among the events appended
-// since it last looked: the first mark labeled from, and then the first
-// labeled to after it, as [reel.Timeline.Between] finds them. A mark found
-// past the frame given last changes nothing until a frame reaches it.
+// since it last looked, as [reel.Timeline.Between] finds them.
 func (w *window) update() {
 	if !w.wantFrom && !w.wantTo {
 		return
@@ -258,9 +235,9 @@ func (w *window) update() {
 	}
 }
 
-// missing returns a [reel.NoMarkError] for the marks of a live
-// window that the recording never had, or nil. It looks once more, for the
-// marks appended after the last frame.
+// missing returns a [reel.NoMarkError] for each mark of a live window the
+// recording never had, after looking once more for marks appended after the
+// last frame.
 func (w *window) missing() error {
 	w.update()
 	switch {
@@ -272,8 +249,7 @@ func (w *window) missing() error {
 	return nil
 }
 
-// level is the strength of the effect at offset at: 1 in the window, 0 well
-// outside it, and in between on the easing curve.
+// level is the strength of the effect at offset at, from 0 to 1.
 func (w *window) level(at time.Duration) float64 {
 	lv := 1.0
 	if at < w.from {
@@ -295,20 +271,17 @@ func eased(d, ease time.Duration) float64 {
 	return x * x * (3 - 2*x)
 }
 
-// piece is a stretch of a frame, from its start to the start plus delay in
-// playback time, where the effect has one strength.
+// piece is a stretch of a frame, in playback time, where the effect has one
+// strength.
 type piece struct {
 	start, delay time.Duration
 	level        float64
 }
 
-// pieces splits f on the delay grid where the effect's strength changes.
-// Each step has the strength at its middle, or for a window that must be
-// covered, the strength at its point nearest the window, so a step that
-// shows any of the window is at full strength. The last piece takes what is
-// left of f past its last step. A paused frame ([reel.Frame.Paused]) shows
-// one moment, so it is one piece, with the strength at At. In a live
-// recording, the marks appended since the frame before are looked for first.
+// pieces splits f on the delay grid where the effect's strength changes
+// (see [coverage]). The last piece takes what is left of f past its last
+// step. A paused frame ([reel.Frame.Paused]) shows one moment, so it is one
+// piece.
 func (w *window) pieces(f reel.Frame) []piece {
 	w.update()
 	if f.Paused {

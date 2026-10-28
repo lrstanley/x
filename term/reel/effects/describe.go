@@ -31,8 +31,7 @@ const (
 	effectZoom      = "zoom"
 )
 
-// effectDecoders return the effect the data of an annotation describes, by
-// the name of the effect.
+// effectDecoders decode the data of an annotation, by effect name.
 var effectDecoders = map[string]func(data jsontext.Value) (reel.Effect, error){
 	effectKeys:      decodeEffect(keysData.effect),
 	effectIntro:     decodeEffect(introData.effect),
@@ -42,13 +41,11 @@ var effectDecoders = map[string]func(data jsontext.Value) (reel.Effect, error){
 }
 
 // FromAnnotation returns the effect an annotation of kind [reel.EffectKind]
-// describes, as the package's effects describe themselves (see
-// [reel.Describer]), such as one read from an asciicast file an [reel.Export]
-// wrote. The effect works as the one described did, but for what its
-// description leaves out (see the package documentation). An annotation of
-// another kind, of an effect or region this package does not have, or with
-// a field one does not have, is an error, which reading the file is not
-// (see [reel.AnnotationSchema]).
+// describes (see [reel.Describer]). The effect works as the one described
+// did, but for what its description leaves out (see the package
+// documentation). An annotation of another kind, of an unknown effect or
+// region, or with an unknown field, is an error here, though not when
+// reading the file (see [reel.AnnotationSchema]).
 func FromAnnotation(a reel.Annotation) (reel.Effect, error) {
 	if a.Kind != reel.EffectKind {
 		return nil, fmt.Errorf("effects: annotation of kind %q, not %q", a.Kind, reel.EffectKind)
@@ -71,9 +68,7 @@ func FromAnnotation(a reel.Annotation) (reel.Effect, error) {
 }
 
 // FromTimeline returns the effects the annotations of kind
-// [reel.EffectKind] in t describe, in order, as [FromAnnotation] reads them,
-// such as those an [reel.Export] wrote to an asciicast file with the
-// recording, to export it again with the same effects.
+// [reel.EffectKind] in t describe, in order, as [FromAnnotation] reads them.
 func FromTimeline(t *reel.Timeline) ([]reel.Effect, error) {
 	var out []reel.Effect
 	for a := range t.Annotations() {
@@ -96,8 +91,8 @@ type effectData[T any] struct {
 	Data   T      `json:",embed"`
 }
 
-// describe returns the annotation of kind [reel.EffectKind] of effect, with
-// the fields of data, a struct, after its name.
+// describe returns the annotation of effect, with the fields of data, a
+// struct.
 func describe[T any](effect string, data T) (reel.Annotation, error) {
 	a, err := reel.NewAnnotation(reel.EffectKind, effectData[T]{Effect: effect, Data: data})
 	if err != nil {
@@ -107,8 +102,8 @@ func describe[T any](effect string, data T) (reel.Annotation, error) {
 }
 
 // decodeAs unmarshals the JSON object data into a T, and returns what build
-// makes of it. A member T does not have is an error: what build made
-// without it would not be what data describes.
+// makes of it. An unknown member is an error: what build made without it
+// would not be what data describes.
 func decodeAs[T, R any](data jsontext.Value, build func(T) (R, error)) (R, error) {
 	var d T
 	if err := json.Unmarshal(data, &d, json.RejectUnknownMembers(true)); err != nil {
@@ -118,18 +113,16 @@ func decodeAs[T, R any](data jsontext.Value, build func(T) (R, error)) (R, error
 	return build(d)
 }
 
-// decodeEffect returns a function that is decodeAs for the data of an
-// effect's annotation, which names the effect before the fields of a T.
+// decodeEffect returns decodeAs for the data of an effect's annotation.
 func decodeEffect[T any](build func(T) (reel.Effect, error)) func(jsontext.Value) (reel.Effect, error) {
 	return func(data jsontext.Value) (reel.Effect, error) {
 		return decodeAs(data, func(d effectData[T]) (reel.Effect, error) { return build(d.Data) })
 	}
 }
 
-// millis is d in whole milliseconds, rounded, as an annotation holds it.
+// millis is d rounded to whole milliseconds.
 func millis(d time.Duration) int64 { return d.Round(time.Millisecond).Milliseconds() }
 
-// fromMillis is the duration of ms milliseconds.
 func fromMillis(ms int64) time.Duration { return time.Duration(ms) * time.Millisecond }
 
 type keysData struct {
@@ -582,8 +575,8 @@ func decodeRegion(v jsontext.Value) (Region, error) {
 }
 
 // colorData is a color in an annotation: a palette index from 0 to 255 for
-// an indexed color, which the renderer maps through its palette, and
-// otherwise "#rrggbb", or "#rrggbbaa" when it is not opaque.
+// an indexed color, and otherwise "#rrggbb", or "#rrggbbaa" when it is not
+// opaque.
 type colorData struct{ c color.Color }
 
 func (c colorData) IsZero() bool { return c.c == nil }

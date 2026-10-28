@@ -2,10 +2,10 @@
 // this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package broker provides a generic in-memory event broker: publishers push
-// events without waiting for slow subscribers; history is optionally retained up
-// to a max size; subscribers receive only events after registration, or may
-// opt into replay of stored history followed by live delivery.
+// Package broker provides a generic in-memory event broker. Publishers never
+// wait for slow subscribers, which drop events when their buffer is full.
+// History is retained up to a maximum size, and subscribers can replay it
+// before live events.
 package broker
 
 import (
@@ -15,17 +15,14 @@ import (
 	"time"
 )
 
-// entry is one stored event with a monotonic sequence number.
 type entry[T any] struct {
 	seq uint64
 	at  time.Time
 	val T
 }
 
-// Broker accepts published events and fans them out to subscribers. History is
-// stored in receipt order up to MaxHistory (oldest entries are dropped when at
-// capacity). Publish does not run iterator bodies and does not wait for
-// consumers beyond non-blocking sends to each subscriber buffer.
+// Broker fans published events out to subscribers, and keeps history up to
+// [WithMaxHistory], dropping the oldest entries.
 type Broker[T any] struct {
 	opts options
 
@@ -37,7 +34,6 @@ type Broker[T any] struct {
 	nextSubID    uint64
 }
 
-// New returns a Broker with the given optional settings.
 func New[T any](opts ...Option) *Broker[T] {
 	o := resolveOptions(opts)
 	return &Broker[T]{
@@ -47,9 +43,8 @@ func New[T any](opts ...Option) *Broker[T] {
 	}
 }
 
-// Publish records v in history (subject to MaxHistory) and performs non-blocking
-// delivery attempts to each subscriber buffer. Slow subscribers may drop events
-// when their buffer is full.
+// Publish records v in history and sends it to each subscriber without
+// blocking: a subscriber whose buffer is full misses it.
 func (b *Broker[T]) Publish(v T) {
 	b.mu.Lock()
 	b.nextSeq++
@@ -71,14 +66,13 @@ func (b *Broker[T]) Publish(v T) {
 		}
 		select {
 		case s.ch <- e:
-		default:
-			// Subscriber is lagging; drop rather than block publisher path.
+		default: // Buffer full: drop rather than block Publish.
 		}
 	}
 }
 
-// appendHistoryLocked appends e to history, dropping the oldest entry when at
-// MaxHistory. Caller must hold b.mu exclusively; uncapped history when MaxHistory <= 0.
+// appendHistoryLocked appends e to history, dropping the oldest entry when
+// full. Caller must hold b.mu.
 func (b *Broker[T]) appendHistoryLocked(e entry[T]) {
 	if b.opts.maxHistory <= 0 {
 		b.history = append(b.history, e)
@@ -92,10 +86,8 @@ func (b *Broker[T]) appendHistoryLocked(e entry[T]) {
 	b.history = append(b.history, e)
 }
 
-// HistoryWithTime yields stored events oldest-first (as originally published),
-// each with the wall time recorded at Publish. Entries may have been trimmed by
-// MaxHistory. A snapshot is taken before the first yield; concurrent publishes
-// do not change this sequence.
+// HistoryWithTime is [Broker.History], with the time each event was
+// published.
 func (b *Broker[T]) HistoryWithTime() iter.Seq2[time.Time, T] {
 	b.mu.RLock()
 	snap := make([]entry[T], len(b.history))
@@ -111,9 +103,8 @@ func (b *Broker[T]) HistoryWithTime() iter.Seq2[time.Time, T] {
 	}
 }
 
-// History yields stored events oldest-first (as originally published). Entries
-// may have been trimmed by MaxHistory. A snapshot is taken before the first
-// yield; concurrent publishes do not change this sequence.
+// History yields a snapshot of stored events, oldest first, taken when it is
+// called.
 func (b *Broker[T]) History() iter.Seq[T] {
 	b.mu.RLock()
 	snap := make([]entry[T], len(b.history))
@@ -129,18 +120,14 @@ func (b *Broker[T]) History() iter.Seq[T] {
 	}
 }
 
-// LastReceived returns the wall-clock time when the broker last accepted an
-// event via Publish. If Publish has never been called, it returns the zero
-// Time.
+// LastReceived returns when the last event was published, or the zero Time.
 func (b *Broker[T]) LastReceived() time.Time {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.lastReceived
 }
 
-// Subscribe yields values for events published after this call returns (history
-// is not replayed). Registration is synchronous before this returns; see
-// SubscribeReceived for lifecycle details.
+// Subscribe is [Broker.SubscribeReceived] without the times.
 func (b *Broker[T]) Subscribe(ctx context.Context) iter.Seq[T] {
 	b.mu.Lock()
 	liveMin := b.nextSeq + 1
@@ -155,13 +142,9 @@ func (b *Broker[T]) Subscribe(ctx context.Context) iter.Seq[T] {
 	}
 }
 
-// SubscribeReceived yields (received-at timestamp, value) for events published after
-// this call returns (history is not replayed). The subscription is registered
-// synchronously so publishers are safe to call immediately after SubscribeReceived
-// returns. If another goroutine publishes concurrently, call SubscribeReceived (and
-// retain the returned sequence) before starting those publishes.
-// Iteration ends when ctx is cancelled or the consumer stops the range (yield
-// returns false). Cleanup unregisters the subscriber and drains its buffer.
+// SubscribeReceived yields the publish time and value of events published
+// after it returns, even before iteration starts, until ctx is done or the
+// loop stops.
 func (b *Broker[T]) SubscribeReceived(ctx context.Context) iter.Seq2[time.Time, T] {
 	b.mu.Lock()
 	liveMin := b.nextSeq + 1
@@ -174,9 +157,7 @@ func (b *Broker[T]) SubscribeReceived(ctx context.Context) iter.Seq2[time.Time, 
 	}
 }
 
-// SubscribeAll is like Subscribe but first yields all values currently in history
-// (oldest first), then continues with live events. Registration is synchronous
-// before this returns; see SubscribeAllReceived for full semantics.
+// SubscribeAll is [Broker.SubscribeAllReceived] without the times.
 func (b *Broker[T]) SubscribeAll(ctx context.Context) iter.Seq[T] {
 	hCopy, id, st := b.subscribeAllRegister()
 
@@ -200,10 +181,8 @@ func (b *Broker[T]) SubscribeAll(ctx context.Context) iter.Seq[T] {
 	}
 }
 
-// SubscribeAllReceived is like SubscribeReceived but first yields all events currently in
-// history (oldest first), then continues with live events. Order matches
-// Publish order. The live subscription is registered before this call returns;
-// use the same ordering as SubscribeReceived if other goroutines publish concurrently.
+// SubscribeAllReceived is [Broker.SubscribeReceived], but first yields the
+// history, with no gap or duplicate between it and the live events.
 func (b *Broker[T]) SubscribeAllReceived(ctx context.Context) iter.Seq2[time.Time, T] {
 	hCopy, id, st := b.subscribeAllRegister()
 
@@ -225,9 +204,8 @@ func (b *Broker[T]) SubscribeAllReceived(ctx context.Context) iter.Seq2[time.Tim
 	}
 }
 
-// subscribeAllRegister copies the current history and registers a subscriber
-// whose live stream starts immediately after that snapshot. Caller must not
-// hold b.mu.
+// subscribeAllRegister copies the history and registers a subscriber whose
+// live events start right after it.
 func (b *Broker[T]) subscribeAllRegister() (hCopy []entry[T], id uint64, st *subState[T]) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -243,8 +221,8 @@ func (b *Broker[T]) subscribeAllRegister() (hCopy []entry[T], id uint64, st *sub
 	return hCopy, id, st
 }
 
-// registerLocked creates and stores a subscriber starting at fromSeq. Caller
-// must hold b.mu exclusively.
+// registerLocked registers a subscriber starting at fromSeq. Caller must hold
+// b.mu.
 func (b *Broker[T]) registerLocked(fromSeq uint64) (uint64, *subState[T]) {
 	id := b.nextSubID
 	b.nextSubID++
@@ -256,9 +234,9 @@ func (b *Broker[T]) registerLocked(fromSeq uint64) (uint64, *subState[T]) {
 	return id, st
 }
 
-// readLive yields values from st's queue until ctx is done or yield returns
-// false. When ctx ends, the subscriber is unregistered before buffered events
-// are yielded so new publishes do not keep refilling the buffer.
+// readLive yields events from st until ctx is done or yield returns false.
+// When ctx ends, the subscriber is unregistered before its buffer is drained,
+// so publishes cannot keep refilling it.
 func (b *Broker[T]) readLive(ctx context.Context, id uint64, st *subState[T], yield func(time.Time, T) bool) {
 	for {
 		select {
@@ -282,7 +260,6 @@ func (b *Broker[T]) readLive(ctx context.Context, id uint64, st *subState[T], yi
 	}
 }
 
-// yieldBuffered drains st's current queue into yield without blocking.
 func (b *Broker[T]) yieldBuffered(st *subState[T], yield func(time.Time, T) bool) {
 	for {
 		select {
@@ -296,8 +273,7 @@ func (b *Broker[T]) yieldBuffered(st *subState[T], yield func(time.Time, T) bool
 	}
 }
 
-// subCleanup removes the subscription and discards any remaining values in st's
-// channel so publishes do not block on a full buffer for an unregistered sub.
+// subCleanup unregisters the subscriber and discards its buffer.
 func (b *Broker[T]) subCleanup(id uint64, st *subState[T]) {
 	b.unregister(id)
 	for {
@@ -309,7 +285,6 @@ func (b *Broker[T]) subCleanup(id uint64, st *subState[T]) {
 	}
 }
 
-// unregister removes subscriber id from b; it no longer receives publishes.
 func (b *Broker[T]) unregister(id uint64) {
 	b.mu.Lock()
 	delete(b.subs, id)
@@ -321,8 +296,8 @@ type subState[T any] struct {
 	ch      chan entry[T]
 }
 
-// accept reports whether an event with sequence seq should be delivered to this
-// subscriber (live replay uses fromSeq to skip duplicates already yielded from history).
+// accept reports whether seq is new to the subscriber, skipping events it
+// already got from history.
 func (s *subState[T]) accept(seq uint64) bool {
 	return seq >= s.fromSeq
 }

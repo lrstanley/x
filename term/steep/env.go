@@ -72,10 +72,9 @@ func applyEnv(tb testing.TB, cfg *options) {
 	}
 }
 
-// applyExportEnv applies the STEEP_EXPORT_* and STEEP_RENDERER_* variables:
-// the policy, the artifacts directory, and a patch of the recording profile,
-// merged with [reel.Profile.Merge]. Encode and Render options are appended to
-// the profile's, so the environment wins without dropping the rest.
+// applyExportEnv applies the STEEP_EXPORT_* and STEEP_RENDERER_* variables.
+// Encode and Render options are appended to the profile's, so the
+// environment wins without dropping the rest.
 func applyExportEnv(cfg *options) {
 	if v := os.Getenv("STEEP_EXPORT_MODE"); v != "" {
 		if policy, ok := parseExportMode(v); ok {
@@ -118,8 +117,7 @@ func applyExportEnv(cfg *options) {
 		}
 	}
 	if v := os.Getenv("STEEP_EXPORT_QUALITY"); v != "" {
-		// Out of range values are ignored, as the video encoder would reject
-		// them.
+		// The video encoder rejects out of range values.
 		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 && n <= sink.MaxQuality {
 			encode = append(encode, sink.WithQuality(n))
 		}
@@ -157,13 +155,12 @@ func parseExportMode(raw string) (exportPolicy, bool) {
 	return exportOff, false
 }
 
-// exportTypes are the STEEP_EXPORT_TYPE names of recording outputs, in the
-// order they are written.
+// exportTypes are the STEEP_EXPORT_TYPE names of recording outputs.
 var exportTypes = []string{"gif", "mp4", "webm", "webp", "cast"}
 
-// parseExportTypes parses STEEP_EXPORT_TYPE into the outputs and the stills
-// it names. Unknown names are ignored. The outputs are never nil, so with
-// [reel.Profile.Merge] they replace the profile's even when there are none.
+// parseExportTypes parses STEEP_EXPORT_TYPE into outputs and stills. The
+// outputs are never nil, so they replace the profile's in
+// [reel.Profile.Merge] even when empty.
 func parseExportTypes(raw string) ([]reel.File, StillKind) {
 	outputs := []reel.File{}
 	var stills StillKind

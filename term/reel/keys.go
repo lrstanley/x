@@ -55,9 +55,9 @@ var keyMods = map[string]vt.Mods{
 	"super": vt.ModSuper,
 }
 
-// parseKey turns a key name such as "enter", "ctrl+c", "shift+tab", or "a"
-// into a key event. Modifiers come first, joined by "+": ctrl, alt, shift, and
-// super. The key is a name in [keyCodes] or a single character.
+// parseKey parses a key name such as "enter", "ctrl+c", "shift+tab", or "a":
+// "+"-joined modifiers (ctrl, alt, shift, super), then a name in [keyCodes]
+// or a single character.
 func parseKey(name string) (vt.Key, error) {
 	var mods vt.Mods
 	key := name
@@ -93,8 +93,8 @@ func parseKey(name string) (vt.Key, error) {
 	ev := vt.RuneKey(r)
 	ev.Mods |= mods
 	if mods&(vt.ModCtrl|vt.ModSuper) != 0 {
-		// ctrl and super combinations type no text; the encoder works out
-		// what to send from the key.
+		// ctrl and super combinations type no text; the encoder derives the
+		// bytes from the key.
 		ev.Text = ""
 	}
 	return ev, nil

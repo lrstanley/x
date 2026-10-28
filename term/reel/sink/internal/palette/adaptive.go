@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	// adaptiveSlots is the number of opaque palette entries; the last slot is
+	// adaptiveSlots is the number of opaque palette entries, before
 	// TransparentIndex.
 	adaptiveSlots = int(TransparentIndex)
 
@@ -22,21 +22,17 @@ const (
 	// reuses an existing entry instead of claiming a slot (about 2 per channel).
 	adaptiveMatchDist = 12
 
-	// adaptiveSolidCount is the pixel count at which a new color is treated as
-	// a fill or glyph body rather than an antialiasing blend, and gets an exact
-	// entry ahead of median cut.
+	// adaptiveSolidCount is the pixel count at which a new color is solid (a
+	// fill or glyph body) rather than an antialiasing blend.
 	adaptiveSolidCount = 64
 
 	// adaptiveSolidReserve is the number of final slots a recording keeps for
-	// solid colors only, so fills that first appear late stay exact after
-	// blends have used up the rest.
+	// solid colors, so fills that first appear late stay exact.
 	adaptiveSolidReserve = 16
 
-	// adaptiveFlatWidth is the width of a block of identical pixels, two rows
-	// tall, at which a color is also treated as solid, however few pixels it
-	// covers in all. Antialiasing blends come in rows or columns a pixel
-	// wide, so this picks out small flat shapes, such as window buttons,
-	// that adaptiveSolidCount misses.
+	// adaptiveFlatWidth is the width of a two-row block of identical pixels
+	// that also makes a color solid. Blends are a pixel wide, so this catches
+	// small flat shapes (window buttons) that adaptiveSolidCount misses.
 	adaptiveFlatWidth = 3
 
 	// adaptivePoorDist is the squared RGB distance past which a color mapped
@@ -44,38 +40,28 @@ const (
 	adaptivePoorDist = 300
 )
 
-// Adaptive builds a palette from the colors a recording actually
-// uses. A fixed palette such as xterm-256 has no entries between its cube
-// steps, so antialiased glyph edges snap to colors with a different hue.
+// Adaptive builds a palette from the colors a recording uses, so antialiased
+// glyph edges keep their hue (a fixed palette such as xterm-256 snaps them).
 //
-// Entries are only ever appended, and every color keeps the index it was
-// first assigned. Frames palettized earlier stay valid, and identical source
-// frames always produce identical indices, which dedup and disposal
-// optimization rely on.
+// Entries are only appended and keep their index, so earlier frames stay
+// valid and identical source frames produce identical indices, which dedup
+// and disposal optimization rely on.
 type Adaptive struct {
 	pal color.Palette
 	rgb [adaptiveSlots][3]int32
 	n   int
 
-	// reserve keeps a share of free slots for colors that first appear in
-	// later frames. Single images should use every slot.
-	reserve bool
-	// rollover starts a fresh palette when a frame arrives with no room
-	// left for blends and maps poorly onto the entries there are (a theme
-	// change, a gradient sweeping through new hues). See [Adaptive.Palettize].
+	reserve  bool
 	rollover bool
 
-	// cache maps packed RGB to the palette index assigned to it. Spans only
-	// read it while a frame is being written.
-	cache map[uint32]uint8
-	hist  map[uint32]colorUse
-	// spanMisses counts uncached colors per row span of the frame being
-	// written. Each span writes only its own entry.
+	// cache maps packed RGB to its palette index. Spans only read it while a
+	// frame is being written, and each writes only its own spanMisses entry.
+	cache      map[uint32]uint8
+	hist       map[uint32]colorUse
 	spanMisses []map[uint32]colorUse
 }
 
-// colorUse is how a color not yet in the palette is used by a frame: how
-// many pixels it covers, and whether any of them form a flat block.
+// colorUse is how a frame uses a color not yet in the palette.
 type colorUse struct {
 	count int32
 	flat  bool
@@ -92,10 +78,9 @@ func (u colorUse) solid() bool {
 }
 
 // NewAdaptive returns an empty adaptive palette. With reserve, it keeps a
-// share of its slots for solid colors that first appear in later frames,
-// which a palette for a single image should not. With rollover, it starts
-// over when a frame arrives that it has no room for (see
-// [Adaptive.Palettize]).
+// share of its slots for colors that first appear in later frames, which a
+// single image does not need. With rollover, it starts over when a frame no
+// longer fits (see [Adaptive.Palettize]).
 func NewAdaptive(reserve, rollover bool) *Adaptive {
 	p := &Adaptive{
 		reserve:  reserve,
@@ -127,14 +112,13 @@ func (p *Adaptive) blendRoom() int {
 	return adaptiveSlots - p.n
 }
 
-// rolloverPixels is how many pixels of a frame of area may map poorly before
-// a palette with rollover starts over: about one glyph cell's worth, or 0.05%
-// of a large frame.
+// rolloverPixels is how many pixels of area may map poorly before a palette
+// with rollover starts over: about one glyph cell, or 0.05% of a large frame.
 func rolloverPixels(area image.Rectangle) int {
 	return max(adaptiveSolidCount, area.Dx()*area.Dy()/2000)
 }
 
-// Palette returns the palette, which [Adaptive.Palettize] grows, and
+// Palette returns the palette, which [Adaptive.Palettize] grows in place, and
 // replaces when it rolls over.
 func (p *Adaptive) Palette() color.Palette { return p.pal }
 
@@ -144,13 +128,11 @@ func (p *Adaptive) Len() int { return p.n }
 
 // Palettize maps src into dst, first growing the palette with colors src
 // introduces. dst.Palette must be [Adaptive.Palette]. Alpha 0 writes
-// TransparentIndex; other pixels map by their color alone, so a translucent
-// pixel becomes its opaque color.
+// [TransparentIndex]; other pixels map by their color alone, ignoring alpha.
 //
-// With rollover, a palette that has no room left for blends when src arrives
-// starts over if src maps poorly onto it, and dst.Palette is replaced with the
-// new palette. A palette with room left never rolls over, though median cut
-// can leave some of a busy frame's blends far from every entry.
+// With rollover, a palette with no room left for blends starts over if src
+// maps poorly onto it, replacing dst.Palette. A palette with room left never
+// rolls over.
 func (p *Adaptive) Palettize(dst *image.Paletted, src image.Image) {
 	var px rgbaPixels
 	switch s := src.(type) {
@@ -208,12 +190,9 @@ func (p *Adaptive) resetSpans(n int) {
 }
 
 // writeSpan maps rows minY through maxY of area through the cache, counting
-// colors that have no index yet in spanMisses[span]. Those pixels are left
-// for a second pass once the palette has grown.
-//
-// Terminal frames are mostly flat runs, so each run of identical pixel words
-// is looked up and counted once, weighted by its length. Alpha 0 pixels all
-// map to TransparentIndex whatever their color, so they form one run.
+// colors that have no index yet in spanMisses[span] for a second pass once the
+// palette has grown. Each run of identical pixels (alpha 0 pixels match
+// whatever their color) is looked up once, weighted by its length.
 func (p *Adaptive) writeSpan(span int, dst *image.Paletted, px rgbaPixels, area image.Rectangle, minY, maxY int) {
 	width := area.Dx()
 	misses := p.spanMisses[span]
@@ -285,8 +264,8 @@ func flatAbove(above []byte, x, end int, w, mask uint32) bool {
 }
 
 // runEnd returns the end of the run of pixel words in row, starting at pixel x,
-// that equal w once masked. It checks a few words first so short runs stay
-// cheap, then eight pixels at a time.
+// that equal w once masked. Short runs are checked a word at a time, long ones
+// eight pixels at a time.
 func runEnd(row []byte, x int, w, mask uint32) int {
 	le := binary.LittleEndian
 	width := len(row) / 4
@@ -312,9 +291,9 @@ func runEnd(row []byte, x int, w, mask uint32) int {
 	return end
 }
 
-// grow adds palette entries for colors in hist that no entry already covers.
-// Solid colors get exact entries first. Blends are added exactly when they
-// fit, otherwise median cut picks representatives.
+// grow adds palette entries for colors in hist that no entry already covers:
+// solid colors exactly first, then blends exactly if they all fit, otherwise
+// median-cut representatives.
 func (p *Adaptive) grow() {
 	if p.n == adaptiveSlots {
 		return
@@ -402,7 +381,6 @@ func (c histColor) channel(axis int) int32 {
 	return int32(c.key >> (16 - 8*axis) & 0xff) //nolint:gosec // 8-bit channel.
 }
 
-// colorStats accumulates count-weighted channel sums for squared error.
 type colorStats struct {
 	n     float64
 	sum   [3]float64
@@ -429,7 +407,6 @@ func (s colorStats) sub(o colorStats) colorStats {
 	return s
 }
 
-// sse is the count-weighted squared error around the mean.
 func (s colorStats) sse() float64 {
 	if s.n == 0 {
 		return 0
@@ -437,7 +414,6 @@ func (s colorStats) sse() float64 {
 	return s.sumSq - (s.sum[0]*s.sum[0]+s.sum[1]*s.sum[1]+s.sum[2]*s.sum[2])/s.n
 }
 
-// colorBox is a median-cut partition with its count-weighted squared error.
 type colorBox struct {
 	colors []histColor
 	stats  colorStats
@@ -452,11 +428,10 @@ func newColorBox(colors []histColor) colorBox {
 }
 
 // medianCut partitions colors into at most k boxes and returns one
-// representative per box. It always splits the box with the largest weighted
-// error, at the cut along any channel that minimizes the error of the two
-// halves. That isolates solid fills first and spends the remaining entries
-// along antialiasing ramps; a plain weighted-median cut instead lands on the
-// dominant fill and peels one ramp color per split.
+// representative per box. It splits the box with the largest weighted error
+// at the cut, along any channel, that minimizes the error of the halves. That
+// spends entries along antialiasing ramps, where a plain weighted-median cut
+// lands on the dominant fill and peels one ramp color per split.
 func medianCut(colors []histColor, k int) []uint32 {
 	boxes := []colorBox{newColorBox(colors)}
 	for len(boxes) < k {

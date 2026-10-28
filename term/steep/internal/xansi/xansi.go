@@ -15,11 +15,7 @@ import (
 	"github.com/rivo/uniseg"
 )
 
-// All of the casting in this file isn't very performant or elegant, but this
-// package is used only in the scope of tests.
-
-// StripANSI removes ANSI escape sequences and control sequences from input,
-// preserving plain text. T must be string or []byte; other types panic.
+// StripANSI removes ANSI escape and control sequences from input.
 func StripANSI[T string | []byte](input T) T {
 	switch v := any(input).(type) {
 	case string:
@@ -62,8 +58,8 @@ func StripSpinners[T string | []byte](input T) T {
 	}
 }
 
-// StripPrivateUse walks grapheme clusters and replaces any cluster containing a
-// Unicode private-use character with '?'. T must be string or []byte.
+// StripPrivateUse replaces each grapheme cluster containing a Unicode
+// private-use character with '?'.
 func StripPrivateUse[T string | []byte](input T) T {
 	var gr *uniseg.Graphemes
 	switch v := any(input).(type) {
@@ -128,8 +124,8 @@ func NormalizeCRLF[T string | []byte](input T) T {
 	}
 }
 
-// EscapeESC replaces the ASCII ESC byte (0x1b) with the four-character
-// sequence `\x1b` so control bytes appear literally in snapshots and diffs.
+// EscapeESC replaces ESC (0x1b) with the text `\x1b`, for readable snapshots
+// and diffs.
 func EscapeESC[T string | []byte](input T) T {
 	switch v := any(input).(type) {
 	case string:
@@ -141,7 +137,8 @@ func EscapeESC[T string | []byte](input T) T {
 	}
 }
 
-// Dimensions returns the width and height of the output.
+// Dimensions returns the width and height of the output. Empty output is
+// 0 by 0.
 func Dimensions[T string | []byte](out T) (w, h int) {
 	var width, height int
 	switch v := any(out).(type) {

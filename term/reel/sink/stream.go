@@ -62,7 +62,6 @@ func (t tee) WriteFrame(f Frame) error {
 func (t tee) Close() error   { return t.each(Sink.Close) }
 func (t tee) Discard() error { return t.each(Sink.Discard) }
 
-// each calls fn for every sink, and joins the errors.
 func (t tee) each(fn func(Sink) error) error {
 	var err error
 	for _, s := range t {

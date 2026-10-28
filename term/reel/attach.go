@@ -19,7 +19,7 @@ import (
 	"github.com/lrstanley/x/term/reel/internal/scriptlog"
 )
 
-// attachChunk is the most [Attach] reads before writing it to the session.
+// attachChunk is the most [Attach] reads per write to the session.
 const attachChunk = 32 * 1024
 
 // AttachOption configures [Attach].
@@ -35,47 +35,36 @@ func WithTiming(r io.Reader) AttachOption {
 	return func(cfg *attachConfig) { cfg.timing = r }
 }
 
-// Attach writes the bytes read from r to the session, as the output of a
-// program that ran elsewhere, until r ends, which is not an error. Without
-// [WithTiming], each read is written as it arrives, and recorded at that
-// time. ctx is checked between reads; to end a read of r or of the timing
-// file that blocks, close it.
+// Attach writes the bytes read from r to the session as the output of a
+// program that ran elsewhere, until r reaches EOF (not an error). Without
+// [WithTiming], each read is written and recorded as it arrives. ctx is
+// checked between reads; close r (or the timing file) to unblock a read.
 //
-// With [WithTiming], r is a typescript script(1) wrote, and the timing file
-// says when each run of its bytes was written. Attach does not wait for the
-// times to come: it writes as fast as it reads, and records each event at
-// its time in the file, counted from the time the session's clock had
-// reached when Attach started. While it runs, the file's time is the
-// session's clock: anything else appended to the timeline meanwhile, such
-// as a [Session.Mark], is stamped at the time of the last entry Attach read.
-// When it returns, the wall clock carries on from the file's last time.
-// Only one timed Attach can run on a session at once.
+// With [WithTiming], r is a script(1) typescript. Attach writes as fast as
+// it reads, without waiting, and stamps each event at its time in the
+// timing file, offset from the session's clock when Attach started. While
+// it runs, that file time is the session's clock, so anything else appended
+// meanwhile (such as a [Session.Mark]) is stamped at the last entry read;
+// afterwards the clock continues from the file's last time. Only one timed
+// Attach can run on a session at once.
 //
-// util-linux script(1) writes two timing formats, and Attach reads both:
+// Both util-linux timing formats are read:
 //
-//   - The classic format, of "script -t", is a line per run of output:
-//     "DELAY COUNT", the seconds since the run before and the number of
-//     bytes.
-//   - The advanced format, of "script -T" with more than one stream logged,
-//     such as "script --log-io", is a line per entry: "O DELAY COUNT" is a
-//     run of output, "I DELAY COUNT" a run of input, "S DELAY SIGNAL INFO"
-//     a signal, and "H DELAY NAME VALUE" a piece of information about the
-//     recording, each DELAY counting from the entry before.
+//   - Classic ("script -t"): "DELAY COUNT" per run of output.
+//   - Advanced ("script -T", e.g. with --log-io): "O DELAY COUNT" output,
+//     "I DELAY COUNT" input, "S DELAY SIGNAL INFO" signals, and
+//     "H DELAY NAME VALUE" header info.
 //
-// Input is recorded as [Input] events, without being sent anywhere, when
-// the H entries name the same file for the input log and the output log,
-// so its bytes are in r; otherwise it is in a file of its own, which Attach
-// does not read, and is skipped. A SIGWINCH entry, "S DELAY SIGWINCH
-// ROWS=R COLS=C", resizes the session, and the EXIT_CODE information entry
-// is recorded as an [Exit] event. Other signals and information are
-// skipped.
+// DELAY is seconds since the previous entry. Input is recorded as [Input]
+// events (not sent anywhere) only when the H entries name the same file for
+// input and output logs; otherwise it is skipped. SIGWINCH entries resize
+// the session and EXIT_CODE is recorded as an [Exit] event; other signals
+// and info are ignored.
 //
-// The line "Script started on ..." that script(1) writes at the top of a
-// typescript, and that its timing file does not count, is skipped, as are
-// the bytes after the last the timing file counts, such as the "Script
-// done on ..." line at the end. A malformed timing line, or a typescript
-// that ends before the bytes the timing file counts, is an error that
-// names the line.
+// The leading "Script started on ..." line and any bytes past the last
+// counted run (such as "Script done on ...") are skipped. A malformed timing
+// line, or a typescript shorter than the timing file counts, is an error
+// naming the line.
 func Attach(ctx context.Context, s *Session, r io.Reader, opts ...AttachOption) error {
 	var cfg attachConfig
 	for _, opt := range opts {
@@ -156,8 +145,8 @@ type attacher struct {
 	s   *Session
 	r   *bufio.Reader
 	buf []byte
-	// outputLog and inputLog are the files the H entries name, which are
-	// the same when the typescript holds the input too.
+	// outputLog and inputLog are the files the H entries name; they are
+	// equal when the typescript holds the input too.
 	outputLog, inputLog string
 }
 
@@ -203,8 +192,8 @@ func (a *attacher) apply(e scriptlog.Entry) error {
 	return nil
 }
 
-// copy reads n bytes of the typescript and passes them to write, in runs of
-// at most attachChunk bytes.
+// copy reads n bytes of the typescript and passes them to write in chunks
+// of at most attachChunk bytes.
 func (a *attacher) copy(n int64, write func([]byte) error) error {
 	for n > 0 {
 		m, err := io.ReadFull(a.r, a.buf[:min(n, int64(len(a.buf)))])
@@ -221,8 +210,7 @@ func (a *attacher) copy(n int64, write func([]byte) error) error {
 	return nil
 }
 
-// unexpectedEOF returns err, with [io.EOF] made [io.ErrUnexpectedEOF], for
-// a stream that ended before the bytes it was expected to hold.
+// unexpectedEOF maps [io.EOF] to [io.ErrUnexpectedEOF].
 func unexpectedEOF(err error) error {
 	if errors.Is(err, io.EOF) {
 		return io.ErrUnexpectedEOF

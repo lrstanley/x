@@ -18,19 +18,15 @@ import (
 )
 
 // Outro returns an effect that shows a card for d after the last frame of a
-// recording (see [effects.CardRenderer.Card]). With lines, the card shows
-// them. Without, it shows the test's result from the *[Result] in
-// [reel.Context.Meta], which an export from a [Harness] sets: PASS or FAIL
-// and the test name, and for a failure, the summary line of each failure the
-// harness reported, as many as fit, with a count of the rest. A recording
-// whose Meta is not a *Result, such as one exported without a harness, gets
-// no card without lines. A d of zero or less is no card either. The speed
-// does not scale d.
+// recording. With lines, the card shows them. Without, it shows the
+// *[Result] in [reel.Context.Meta], which a [Harness] export sets: PASS or
+// FAIL, the test name, and the first line of as many failures as fit. Without
+// lines or a *Result, or with a d of zero or less, it shows nothing. Playback
+// speed does not scale d.
 //
-// For a failed test, Outro also makes the last frame before the card play
-// for at least 3s, so a viewer has time to read the screen the test failed
-// on. List [effects.Pause] before Outro, so that frame is its badged end
-// pause.
+// For a failed test, the last frame before the card plays for at least 3s, so
+// the failing screen can be read. List [effects.Pause] before Outro to badge
+// that frame.
 func Outro(d time.Duration, lines ...effects.Line) reel.Effect {
 	return outro{d: d, lines: lines}
 }
@@ -68,8 +64,7 @@ func (e outro) Start(ctx *reel.Context) (reel.Stage, error) {
 	}, nil
 }
 
-// failureHold is the least a failed test's last terminal frame plays, before
-// the FAIL card.
+// failureHold is the minimum duration of a failed test's last frame.
 const failureHold = 3 * time.Second
 
 var (
@@ -78,8 +73,7 @@ var (
 	faint     = vt.Style{Attrs: vt.AttrFaint}
 )
 
-// resultLines are the default outro card for a card grid of cols by rows:
-// PASS or FAIL, the test name, and for a failure, what failed.
+// resultLines are the default outro card lines for a cols by rows grid.
 func resultLines(r *Result, cols, rows int) []effects.Line {
 	if !r.Failed {
 		return []effects.Line{{Text: "PASS", Style: passStyle}, {Text: r.Name, Style: faint}}
@@ -88,12 +82,10 @@ func resultLines(r *Result, cols, rows int) []effects.Line {
 	return append(lines, failureLines(r.Failures, cols, rows)...)
 }
 
-// failureLines lists failures for the FAIL card, below its two title lines,
-// on a card grid of cols by rows. Each failure shows only its first line, its
-// summary; the rest is usually a dump of the screen the recording already
-// shows. Summaries are wrapped to the grid's width, cut to the rows left with
-// a count of the rest, and padded to one width so the block is left-aligned
-// when each line is centered.
+// failureLines lists failures for the FAIL card on a cols by rows grid. Only
+// the first line of each is shown; the rest is usually a screen dump the
+// recording already shows. Lines are padded to one width so the block stays
+// left-aligned when each line is centered.
 func failureLines(failures []string, cols, rows int) []effects.Line {
 	// Leave rows for the two title lines, a spacer, and a margin above and below.
 	room := rows - 5
@@ -106,7 +98,7 @@ func failureLines(failures []string, cols, rows int) []effects.Line {
 		wrapped := strings.Split(ansi.Wrap(strings.ReplaceAll(summary, "\t", " "), width, ""), "\n")
 		need := len(msg) + len(wrapped)
 		if shown < len(failures)-1 {
-			need++ // Room to say how many more there are, if the next one does not fit.
+			need++ // Room for "+N more".
 		}
 		if need > room {
 			break
