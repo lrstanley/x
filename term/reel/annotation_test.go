@@ -147,48 +147,56 @@ func TestEffectAnnotationSchema(t *testing.T) {
 	}
 	invalid := map[string]string{
 		"no effect":                `{"kind":"reel.effect"}`,
-		"unknown effect":           `{"kind":"reel.effect","effect":"sparkle"}`,
 		"keys without shown":       `{"kind":"reel.effect","effect":"keys"}`,
-		"keys extra field":         `{"kind":"reel.effect","effect":"keys","shown_ms":1,"fade_ms":1}`,
 		"keys fractional ms":       `{"kind":"reel.effect","effect":"keys","shown_ms":1.5}`,
 		"intro without duration":   `{"kind":"reel.effect","effect":"intro"}`,
 		"line without text":        `{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{}]}`,
 		"palette index":            `{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"fg":256}}]}`,
 		"color name":               `{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"fg":"red"}}]}`,
-		"underline":                `{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"underline":"wavy"}}]}`,
-		"attribute":                `{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"attrs":["loud"]}}]}`,
-		"pause point":              `{"kind":"reel.effect","effect":"pause","points":[{"at":"start","duration_ms":1}]}`,
 		"pause negative":           `{"kind":"reel.effect","effect":"pause","points":[{"at":"end","duration_ms":-1}]}`,
 		"match without pattern":    `{"kind":"reel.effect","effect":"pause","points":[{"at":"match","duration_ms":1}]}`,
 		"end with labels":          `{"kind":"reel.effect","effect":"pause","points":[{"at":"end","duration_ms":1,"labels":["a"]}]}`,
 		"marks with pattern":       `{"kind":"reel.effect","effect":"pause","points":[{"at":"marks","duration_ms":1,"pattern":"a"}]}`,
 		"badge size":               `{"kind":"reel.effect","effect":"pause","badge_size_px":4}`,
 		"badge color index":        `{"kind":"reel.effect","effect":"pause","badge_color":3}`,
-		"badge corner":             `{"kind":"reel.effect","effect":"pause","badge_corner":"middle"}`,
 		"highlight without region": `{"kind":"reel.effect","effect":"highlight"}`,
-		"region type":              `{"kind":"reel.effect","effect":"highlight","region":{"type":"oval"}}`,
 		"region without type":      `{"kind":"reel.effect","effect":"highlight","region":{"text":"x"}}`,
 		"cells without y1":         `{"kind":"reel.effect","effect":"highlight","region":{"type":"cells","x0":0,"y0":0,"x1":1}}`,
-		"text region extra field":  `{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x","pattern":"y"}}`,
-		"env values":               `{"kind":"reel.effect","effect":"highlight","region":{"type":"env","names":["A"],"values":["secret"]}}`,
 		"nested region":            `{"kind":"reel.effect","effect":"highlight","region":{"type":"any","regions":[{"type":"rows","from":0}]}}`,
 		"dim":                      `{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x"},"dim":2}`,
 		"outline color":            `{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x"},"outline":{"color":"#fff"}}`,
-		"timing extra field":       `{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x"},"timing":{"ease_ms":1}}`,
 		"ease negative":            `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":-1}}`,
 		"zoom scale":               `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"scale":0.5}`,
 		"zoom anchor":              `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"anchor":{"x":0.5}}`,
 		"redact eases":             `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":1}}`,
-		"redact mode":              `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"melt"}`,
 		"replace without char":     `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"replace"}`,
 		"replacement two chars":    `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"replace","replacement":"ab"}`,
 		"replacement with block":   `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"replacement":"*"}`,
 		"min partial":              `{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"min_partial":0}`,
-		"redact inputs timing":     `{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"timing":{}}`,
 	}
 	for name, data := range invalid {
 		if err := validateAnnotation(data); !errors.Is(err, ErrInvalidAnnotation) {
 			t.Errorf("%s: validate = %v, want ErrInvalidAnnotation", name, err)
+		}
+	}
+	// Fields and values the schema does not list are allowed, since newer
+	// tools may write them. The effects package refuses to apply them.
+	for _, data := range []string{
+		`{"kind":"reel.effect","effect":"sparkle"}`,
+		`{"kind":"reel.effect","effect":"keys","shown_ms":1,"fade_ms":1}`,
+		`{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"underline":"wavy"}}]}`,
+		`{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"attrs":["loud"]}}]}`,
+		`{"kind":"reel.effect","effect":"pause","points":[{"at":"start","duration_ms":1}]}`,
+		`{"kind":"reel.effect","effect":"pause","badge_corner":"middle"}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"oval"}}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x","pattern":"y"}}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"env","names":["A"],"values":["secret"]}}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x"},"timing":{"ease_ms":1}}`,
+		`{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"melt"}`,
+		`{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"timing":{}}`,
+	} {
+		if err := validateAnnotation(data); err != nil {
+			t.Errorf("%s: %v", data, err)
 		}
 	}
 }

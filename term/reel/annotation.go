@@ -20,7 +20,9 @@ import (
 // AnnotationSchema is the JSON Schema of the data of an [Annotation] in an
 // asciicast file: the JSON object with its kind and fields. It is the file
 // annotation.schema.json in this package's directory, which tools that
-// write annotations of their own can validate against.
+// write annotations of their own can validate against. For the kinds it
+// describes, it checks the fields it lists, and allows fields and values it
+// does not, so a file written by a newer tool reads back whole.
 //
 //go:embed annotation.schema.json
 var AnnotationSchema []byte

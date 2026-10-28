@@ -929,7 +929,7 @@ func TestExportDescribeErrors(t *testing.T) {
 		want   string
 	}{
 		"error":   {describer{err: errEffect}, errEffect, "effect 0 (reel.describer)"},
-		"invalid": {describer{a: Annotation{Kind: EffectKind, Data: jsontext.Value(`{"effect":"sparkle"}`)}}, ErrInvalidAnnotation, "effect 0"},
+		"invalid": {describer{a: Annotation{Kind: EffectKind, Data: jsontext.Value(`{"effect":"keys"}`)}}, ErrInvalidAnnotation, "effect 0"},
 		"kind":    {describer{a: Annotation{Kind: "Bad"}}, ErrInvalidAnnotation, "effect 0"},
 	} {
 		dir := t.TempDir()
@@ -946,6 +946,96 @@ func TestExportDescribeErrors(t *testing.T) {
 	p := Profile{Outputs: Files(filepath.Join(t.TempDir(), "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{describer{err: errEffect}}}
 	if err := Export(t.Context(), buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a")), p); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestExportEffectMarks checks that an asciicast output of a cut is an error
+// for an effect that names a mark outside it, which the file would not
+// have, and that a file of the others exports again with them.
+func TestExportEffectMarks(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 2, Rows: 1},
+		Mark{event: at(0), Label: "a"},
+		outAt(1, "x"),
+		Mark{event: at(2), Label: "b"},
+		outAt(3, "y"),
+		Mark{event: at(4), Label: "c"},
+	)
+	cut, err := tl.Between("b", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		data string
+		ok   bool
+	}{
+		"between":        {`{"effect":"zoom","region":{"type":"rows","from":0,"to":1},"timing":{"between":{"from":"b","to":"c"}}}`, true},
+		"to":             {`{"effect":"zoom","region":{"type":"rows","from":0,"to":1},"timing":{"between":{"to":"c"}}}`, true},
+		"from outside":   {`{"effect":"zoom","region":{"type":"rows","from":0,"to":1},"timing":{"between":{"from":"a","to":"c"}}}`, false},
+		"to before from": {`{"effect":"zoom","region":{"type":"rows","from":0,"to":1},"timing":{"between":{"from":"c","to":"b"}}}`, false},
+		"pause":          {`{"effect":"pause","points":[{"at":"marks","duration_ms":1,"labels":["b","c"]}]}`, true},
+		"pause outside":  {`{"effect":"pause","points":[{"at":"marks","duration_ms":1,"labels":["c","a"]}]}`, false},
+		"pause match":    {`{"effect":"pause","points":[{"at":"match","duration_ms":1,"pattern":"a"}]}`, true},
+	} {
+		effects := []Effect{describer{a: Annotation{Kind: EffectKind, Data: jsontext.Value(tc.data)}}}
+		path := filepath.Join(t.TempDir(), "a.cast")
+		err := Export(t.Context(), cut, Profile{Outputs: Files(path), Effects: effects})
+		if !tc.ok {
+			if !errors.Is(err, ErrNoMark) {
+				t.Errorf("%s: Export = %v, want ErrNoMark", name, err)
+			}
+			if _, err = os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("%s: wrote the file: %v", name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		again := filepath.Join(t.TempDir(), "a.cast")
+		if err = Export(t.Context(), readCast(t, data), Profile{Outputs: Files(again), Effects: effects}); err != nil {
+			t.Errorf("%s: exporting the file again: %v", name, err)
+		}
+	}
+}
+
+// TestRecordEffectMarks checks that the asciicast output of a recording
+// leaves out an effect whose marks never came, which Stop reports.
+func TestRecordEffectMarks(t *testing.T) {
+	t.Parallel()
+	s := openSession(t, 4, 1)
+	path := filepath.Join(t.TempDir(), "a.cast")
+	keys := `{"effect":"keys","shown_ms":1}`
+	rec, err := Record(t.Context(), s, Profile{Outputs: Files(path), Effects: []Effect{
+		describer{a: Annotation{Kind: EffectKind, Data: jsontext.Value(keys)}},
+		describer{a: Annotation{Kind: EffectKind, Data: jsontext.Value(`{"effect":"pause","points":[{"at":"marks","duration_ms":1,"labels":["never"]}]}`)}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Write([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	if err = rec.Stop(); !errors.Is(err, ErrNoMark) || !strings.Contains(err.Error(), `"never"`) {
+		t.Fatalf("Stop = %v, want ErrNoMark for \"never\"", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for a := range readCast(t, data).Annotations() {
+		if a.Kind == EffectKind {
+			got = append(got, string(a.Data))
+		}
+	}
+	if want := []string{keys}; !slices.Equal(got, want) {
+		t.Fatalf("effects = %q, want %q", got, want)
 	}
 }
 

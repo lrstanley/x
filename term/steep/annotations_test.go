@@ -423,6 +423,11 @@ func TestAnnotationSchema(t *testing.T) {
 		kindExit:     {exitNote{}, exitNote{Error: "bad", Killed: true}},
 		kindResult:   {resultNote{Test: "TestX", Failed: true, Panicked: true, Failures: 0, DurationMS: 9, Stack: "panic(...)"}},
 	}
+	// Values and fields a newer steep may write.
+	valid[kindReady] = append(valid[kindReady], readyNote{Outcome: "late"})
+	valid[kindInput] = append(valid[kindInput], map[string]any{"action": "key", "key": "a", "extra": true})
+	valid[kindWaitEnd] = append(valid[kindWaitEnd], waitEndNote{ID: 1, Wait: "func", Outcome: "maybe"})
+	valid[kindSnapshot] = append(valid[kindSnapshot], snapshotNote{Format: "png", Path: "x"})
 	for kind, examples := range valid {
 		for _, v := range examples {
 			if _, err := reel.NewAnnotation(kind, v); err != nil {
@@ -436,16 +441,12 @@ func TestAnnotationSchema(t *testing.T) {
 		v    any
 	}{
 		"start without test":      {kindStart, map[string]any{"cols": 1, "rows": 1, "timeout_ms": 1, "check_ms": 1, "settle_ms": 1, "ansi": true, "export": "off"}},
-		"ready bad outcome":       {kindReady, readyNote{Outcome: "late"}},
 		"input click without at":  {kindInput, inputNote{Action: "click", Button: "left"}},
-		"input unknown field":     {kindInput, map[string]any{"action": "key", "key": "a", "extra": true}},
 		"terminal size no lines":  {kindTerminal, terminalNote{Action: "scrollback_size"}},
 		"program send no type":    {kindProgram, programNote{Action: "send"}},
 		"wait start bad id":       {kindWaitStart, waitNote{Wait: "func"}},
 		"wait text without text":  {kindWaitStart, waitNote{ID: 1, Wait: "text"}},
-		"wait end bad outcome":    {kindWaitEnd, waitEndNote{ID: 1, Wait: "func", Outcome: "maybe"}},
 		"assert dims no actual":   {kindAssert, assertNote{Assert: "height", Expected: &dims{Height: &one}}},
-		"snapshot bad format":     {kindSnapshot, snapshotNote{Format: "png", Path: "x"}},
 		"failure without message": {kindFailure, map[string]any{"text": "x"}},
 		"message without value":   {kindMessage, map[string]any{"type": "x"}},
 		"exit killed false":       {kindExit, map[string]any{"killed": false}},

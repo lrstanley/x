@@ -32,7 +32,8 @@ type Recording struct {
 // writes nothing, and Stop reports it as an error wrapping [ErrNoMark]; the
 // other outputs are still written. Effects are started with [Context.Live]
 // set, so those that look for marks find them as they are appended, and
-// report those that never come the same way.
+// report those that never come the same way. The asciicast files leave out
+// the descriptions of the effects whose marks never came.
 //
 // Canceling ctx abandons the recording: its outputs are discarded, and Stop
 // returns ctx's error.

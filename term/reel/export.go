@@ -66,7 +66,9 @@ import (
 // Describer, or only wraps one, and one whose Describe returns an error
 // wrapping [errors.ErrUnsupported], is left out. Any other error, or a
 // description [AnnotationSchema] does not allow, is an error before
-// anything is written.
+// anything is written, as is one of [EffectKind] that names a mark the
+// timeline's window does not have, wrapping [ErrNoMark], since the file
+// holds the window alone.
 //
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
@@ -104,6 +106,8 @@ func Export(ctx context.Context, tl *Timeline, p Profile) error {
 type recorder struct {
 	s    settings
 	outs *outputs
+	// live is set when the timeline grows while the recorder runs.
+	live bool
 	// castHdr is the header of the asciicast outputs, and castEffects the
 	// descriptions of the effects they record.
 	castHdr     Header
@@ -164,7 +168,7 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if err != nil {
 		return nil, err
 	}
-	r := &recorder{s: s, outs: outs}
+	r := &recorder{s: s, outs: outs, live: live}
 	opts := renderOptions(tl.header, p.Render)
 	title := cmp.Or(p.Title, tl.header.Title)
 	if len(outs.casts) > 0 {
@@ -172,6 +176,14 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 		r.castHdr.Title = title
 		if r.castEffects, err = describeEffects(p.Effects); err != nil {
 			return nil, err
+		}
+		if !live {
+			// Live marks are looked for once the recording stops.
+			for _, a := range r.castEffects {
+				if err = effectMarks(a, tl); err != nil {
+					return nil, err
+				}
+			}
 		}
 		if p.Rasterizer == nil {
 			// The palette the frames are drawn with. A custom rasterizer
@@ -284,6 +296,49 @@ func describeEffects(effects []Effect) ([]Annotation, error) {
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// effectMarks returns an error wrapping [ErrNoMark] for each mark the
+// description a of an effect names that tl's window does not have, as the
+// effect looks for them: the marks its window runs between, and those it
+// pauses at. A file whose effects name marks it does not have could not be
+// exported again with them.
+func effectMarks(a Annotation, tl *Timeline) error {
+	if a.Kind != EffectKind {
+		return nil
+	}
+	var d struct {
+		Timing struct {
+			Between *struct {
+				From string `json:"from"`
+				To   string `json:"to"`
+			} `json:"between"`
+		} `json:"timing"`
+		Points []struct {
+			At     string   `json:"at"`
+			Labels []string `json:"labels"`
+		} `json:"points"`
+	}
+	if err := a.Decode(&d); err != nil {
+		return err
+	}
+	var errs []error
+	if b := d.Timing.Between; b != nil {
+		if _, err := tl.Between(b.From, b.To); err != nil {
+			errs = append(errs, fmt.Errorf("reel: effect between %q and %q: %w", b.From, b.To, err))
+		}
+	}
+	for _, pt := range d.Points {
+		if pt.At != "marks" {
+			continue
+		}
+		for _, label := range pt.Labels {
+			if _, err := tl.Between(label, ""); err != nil {
+				errs = append(errs, fmt.Errorf("reel: effect pausing at marks: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // startEffects starts each effect for a recording, leaving out those that
@@ -480,10 +535,30 @@ func (r *recorder) end(end time.Duration) error {
 
 // commit writes every output, with tl, under the recording's header, to the
 // asciicast ones.
+//
+// A live recording's asciicast outputs leave out the effects whose marks
+// never came, which are an error wrapping [ErrNoMark] when the effects did
+// not run on frames to report them.
 func (r *recorder) commit(tl *Timeline) error {
+	effects := r.castEffects
+	var missing error
+	if r.live && len(effects) > 0 {
+		effects = nil
+		for _, a := range r.castEffects {
+			if err := effectMarks(a, tl); err != nil {
+				missing = errors.Join(missing, err)
+				continue
+			}
+			effects = append(effects, a)
+		}
+		if r.effects != nil {
+			// The effects report the same marks as they close.
+			missing = nil
+		}
+	}
 	// The terminal goes back first: writing a cut replays it.
-	err := errors.Join(r.outs.close(), r.release())
-	return errors.Join(err, r.outs.writeCasts(tl, r.castHdr, r.castEffects))
+	err := errors.Join(r.outs.close(), r.release(), missing)
+	return errors.Join(err, r.outs.writeCasts(tl, r.castHdr, effects))
 }
 
 func (r *recorder) abort() {

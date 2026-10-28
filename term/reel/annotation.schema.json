@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/lrstanley/x/master/term/reel/annotation.schema.json",
   "title": "reel asciicast annotation",
-  "description": "The data of a reel annotation: an asciicast event with code \"R\", whose data is a JSON string holding this object. Other asciicast readers ignore the event. The object names its kind, and holds the fields of that kind. Kinds this schema does not list may hold any fields, so a reader keeps annotations written by newer tools.",
+  "description": "The data of a reel annotation: an asciicast event with code \"R\", whose data is a JSON string holding this object. Other asciicast readers ignore the event. The object names its kind, and holds the fields of that kind. Kinds this schema does not list may hold any fields, so a reader keeps annotations written by newer tools. For the kinds it lists, it checks the fields it knows, and allows others, along with values it does not list (its \"examples\"), which newer tools may write.",
   "type": "object",
   "required": ["kind"],
   "properties": {
@@ -43,7 +43,7 @@
       "properties": {
         "effect": {
           "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, \"zoom\" zooms in on one, \"redact\" hides a region from the frames, and \"redact_inputs\" hides typed text from the keys shown.",
-          "enum": ["keys", "intro", "pause", "highlight", "zoom", "redact", "redact_inputs"]
+          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom", "redact", "redact_inputs"]
         }
       },
       "allOf": [
@@ -59,7 +59,6 @@
     "reel.effect.keys": {
       "description": "The keys effect: an overlay of the keys pressed, in the bottom right corner of the terminal frames.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect", "shown_ms"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -73,7 +72,6 @@
     "reel.effect.intro": {
       "description": "The intro effect: a card of lines of text shown before the first frame.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect", "duration_ms"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -92,7 +90,6 @@
     "reel.effect.line": {
       "description": "A line of text on a card.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["text"],
       "properties": {
         "text": {
@@ -105,26 +102,24 @@
     "reel.effect.style": {
       "description": "How the text of a line is drawn. Left out, the text has the terminal's default colors and no attributes.",
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "fg": {"description": "The text color. Left out, the terminal's default.", "$ref": "#/$defs/reel.effect.color"},
         "bg": {"description": "The background color. Left out, the terminal's default.", "$ref": "#/$defs/reel.effect.color"},
         "underline_color": {"description": "The underline color. Left out, the text color.", "$ref": "#/$defs/reel.effect.color"},
         "underline": {
           "description": "The underline's style. Left out, no underline.",
-          "enum": ["single", "double", "curly", "dotted", "dashed"]
+          "type": "string", "examples": ["single", "double", "curly", "dotted", "dashed"]
         },
         "attrs": {
           "description": "The text attributes, in any order.",
           "type": "array",
-          "items": {"enum": ["bold", "faint", "italic", "blink", "rapid_blink", "reverse", "conceal", "strikethrough"]}
+          "items": {"type": "string", "examples": ["bold", "faint", "italic", "blink", "rapid_blink", "reverse", "conceal", "strikethrough"]}
         }
       }
     },
     "reel.effect.pause": {
       "description": "The pause effect: pauses of playback on a frozen frame, at the end of the recording or at marks, each showing a pause badge, two bars on a translucent disc, in a corner of the terminal's cell grid.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -140,7 +135,7 @@
         },
         "badge_corner": {
           "description": "The corner of the terminal's cell grid the badge is in. Left out, \"top_right\".",
-          "enum": ["top_left", "top_right", "bottom_left", "bottom_right"]
+          "type": "string", "examples": ["top_left", "top_right", "bottom_left", "bottom_right"]
         },
         "badge_size_px": {
           "description": "The badge's diameter in pixels. Left out, or 0, one and a half times the height of a terminal cell, and at least 8.",
@@ -156,12 +151,11 @@
     "reel.effect.pause_point": {
       "description": "Where a pause effect pauses, and for how long.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["at", "duration_ms"],
       "properties": {
         "at": {
           "description": "Where it pauses: \"end\" after the last terminal frame, \"marks\" at each mark with one of the labels, or at every mark without labels, and \"match\" at each mark whose label the pattern matches.",
-          "enum": ["end", "marks", "match"]
+          "type": "string", "examples": ["end", "marks", "match"]
         },
         "duration_ms": {
           "description": "How long the pause lasts, unscaled by the playback speed. Zero is no pause.",
@@ -193,7 +187,6 @@
     "reel.effect.highlight": {
       "description": "The highlight effect: draws attention to the cells of a region by darkening the rest of the frame, and can draw an outline around them.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect", "region"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -209,7 +202,6 @@
         "outline": {
           "description": "A border drawn around each rectangle of cells the region covers, outside it and its padding. Left out, no outline.",
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "color": {"description": "The border's color. Left out, \"#ffd75f\", a warm yellow.", "$ref": "#/$defs/reel.effect.rgb_color"},
             "width_px": {
@@ -229,7 +221,6 @@
     "reel.effect.zoom": {
       "description": "The zoom effect: the terminal's cell grid shows the cells of a region larger.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect", "region"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -244,7 +235,6 @@
         "anchor": {
           "description": "Where the region is placed in the grid: the point at fraction x, y of the region's width and height, from its top left, is drawn at the same fraction of the grid's. Left out, x and y are 0.5, which centers it.",
           "type": "object",
-          "additionalProperties": false,
           "required": ["x", "y"],
           "properties": {
             "x": {"description": "The fraction of the width, from the left.", "type": "number", "minimum": 0, "maximum": 1},
@@ -256,7 +246,6 @@
     "reel.effect.redact": {
       "description": "The redact effect: hides the cells of a region, such as a secret, from every frame, and the text of text, env, and regexp regions from the terminal's title and program status. reel never writes it, since an asciicast file holds what it hides, but reads it back.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect", "region"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -265,14 +254,14 @@
         "timing": {
           "description": "When the effect is on. Left out, for the whole recording. Unlike other effects, it cannot ease, since easing would show part of what it hides.",
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "between": {"$ref": "#/$defs/reel.effect.between"}
-          }
+          },
+          "not": {"anyOf": [{"required": ["ease_in_ms"]}, {"required": ["ease_out_ms"]}]}
         },
         "mode": {
           "description": "How each cell is hidden: \"block\" as a blank cell in its background, \"blur\" as a blurred shape of text, and \"replace\" as the replacement character, in the cell's own colors. Left out, \"block\".",
-          "enum": ["block", "blur", "replace"]
+          "type": "string", "examples": ["block", "blur", "replace"]
         },
         "replacement": {
           "description": "For the \"replace\" mode: the character each cell shows, a printable character one cell wide.",
@@ -289,7 +278,6 @@
     "reel.effect.redact_inputs": {
       "description": "The redact_inputs effect: hides the text a region matches from the typed text the keys effect shows, as a bullet for each character. Its region is a text, regexp, or env region, or any of them. reel never writes it, since an asciicast file holds what it hides, but reads it back.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["effect", "region"],
       "properties": {
         "kind": {"const": "reel.effect"},
@@ -306,7 +294,6 @@
     "reel.effect.timing": {
       "description": "When an effect is on, and how it eases in and out. Left out, it is on for the whole recording, and switches on and off at once.",
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "between": {"$ref": "#/$defs/reel.effect.between"},
         "ease_in_ms": {
@@ -324,7 +311,6 @@
     "reel.effect.between": {
       "description": "The window of the recording an effect is on in: from the first mark labeled from to the first mark labeled to after it. Each label must name a mark in the recording. Left out, the whole recording.",
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "from": {"description": "The label of the mark the window starts at. Left out, the start of the recording.", "type": "string"},
         "to": {"description": "The label of the mark the window ends at. Left out, the end of the recording.", "type": "string"}
@@ -337,7 +323,7 @@
       "properties": {
         "type": {
           "description": "The type of region, which the definition for that type describes.",
-          "enum": ["cells", "rows", "text", "regexp", "env", "any"]
+          "type": "string", "examples": ["cells", "rows", "text", "regexp", "env", "any"]
         }
       },
       "allOf": [
@@ -352,7 +338,6 @@
     "reel.effect.region.cells": {
       "description": "The cells from column x0 and row y0 up to but not including column x1 and row y1, where 0, 0 is the top left cell. The part outside the screen is left out.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["type", "x0", "y0", "x1", "y1"],
       "properties": {
         "type": {"const": "cells"},
@@ -365,7 +350,6 @@
     "reel.effect.region.rows": {
       "description": "Whole rows of the screen, counted from 0 at the top.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["type", "from", "to"],
       "properties": {
         "type": {"const": "rows"},
@@ -376,7 +360,6 @@
     "reel.effect.region.text": {
       "description": "The cells that show some text, wherever and as often as it appears.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["type", "text"],
       "properties": {
         "type": {"const": "text"},
@@ -386,7 +369,6 @@
     "reel.effect.region.regexp": {
       "description": "The cells a regular expression matches, wherever and as often as it matches, against the text of each line on its own, so ^ and $ match at the ends of a line. A match covers every cell it holds any part of.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["type", "pattern"],
       "properties": {
         "type": {"const": "regexp"},
@@ -396,7 +378,6 @@
     "reel.effect.region.env": {
       "description": "The cells that show the values of environment variables, as they are where the recording is exported, matched as text, each line of a value on its own. A variable that is unset, or a value or line that is only whitespace, matches nothing.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["type", "names"],
       "properties": {
         "type": {"const": "env"},
@@ -406,7 +387,6 @@
     "reel.effect.region.any": {
       "description": "The cells any of several regions covers.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["type", "regions"],
       "properties": {
         "type": {"const": "any"},
@@ -428,14 +408,13 @@
     "reel.query": {
       "description": "A query the program wrote to its terminal, such as for its device attributes or its background color, and the terminal's reply, which the program read as input. The file holds the replies nowhere else, since replaying the output makes the terminal reply again. reel writes one for each query, in the order the program wrote them, after the output event that held them, at its offset. A reply to a query reel did not find in that output, such as one split across two writes, is written after them, without a request. A session writes none when it is opened without queries.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "query"],
       "anyOf": [{"required": ["request"]}, {"required": ["reply"]}],
       "properties": {
         "kind": {"const": "reel.query"},
         "query": {
           "description": "What the program asked for: \"enq\" the answerback (ENQ), \"da1\", \"da2\", and \"da3\" the primary, secondary, and tertiary device attributes, \"xtversion\" the terminal's name and version, \"dsr\" a device status, \"cpr\" the cursor position, \"color_scheme\" whether the terminal is dark or light, \"decrqm\" a mode, \"osc_color\" a dynamic or palette color, \"osc52\" the clipboard, \"kitty_keyboard\" the kitty keyboard protocol flags, \"decrqss\" a setting, \"xtgettcap\" terminfo capabilities, \"xtwinops\" the window's size or state, \"decrqcra\" a checksum of a rectangle of cells, and \"unknown\" a reply to no query reel knows.",
-          "enum": ["enq", "da1", "da2", "da3", "xtversion", "dsr", "cpr", "color_scheme", "decrqm", "osc_color", "osc52", "kitty_keyboard", "decrqss", "xtgettcap", "xtwinops", "decrqcra", "unknown"]
+          "type": "string", "examples": ["enq", "da1", "da2", "da3", "xtversion", "dsr", "cpr", "color_scheme", "decrqm", "osc_color", "osc52", "kitty_keyboard", "decrqss", "xtgettcap", "xtwinops", "decrqcra", "unknown"]
         },
         "param": {
           "description": "What the query asked about, where it names one: for \"decrqm\" the mode, with \"?\" before a DEC private mode, such as \"?2026\"; for \"osc_color\" the OSC number, such as \"11\" for the background, or \"4\" for the palette; for \"osc52\" the selection, such as \"c\"; for \"decrqss\" the setting, such as \"m\"; for \"xtgettcap\" the capability names, joined by \";\"; for \"xtwinops\" the operation, such as \"14\"; and for \"dsr\" and \"cpr\" the status asked for, such as \"5\", \"6\", or \"?6\". Left out for other queries.",
@@ -462,7 +441,6 @@
     "steep.cell": {
       "description": "A cell of the terminal's screen, counted from 0, 0 at the top left.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["row", "col"],
       "properties": {
         "row": {"description": "The row, from 0 at the top.", "type": "integer"},
@@ -472,7 +450,6 @@
     "steep.match": {
       "description": "Text found on the screen, as the test saw it: the text of each row, with ANSI sequences stripped when the harness strips them, rows joined by line breaks.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["text", "row", "col"],
       "properties": {
         "text": {"description": "The text found. A match of a regular expression may span rows, joined by a line break.", "type": "string"},
@@ -483,7 +460,6 @@
     "steep.dims": {
       "description": "A width and a height, in cells, either of which is left out when it was not asserted.",
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "width": {"description": "The width, in columns.", "type": "integer"},
         "height": {"description": "The height, in rows.", "type": "integer"}
@@ -492,7 +468,6 @@
     "steep.start": {
       "description": "The start of a test run with steep, a test harness for Bubble Tea programs, with the harness's configuration, after any STEEP_ environment variables applied. steep writes it once, as the first event of the recording, before the program starts.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "test", "cols", "rows", "timeout_ms", "check_ms", "settle_ms", "ansi", "export"],
       "properties": {
         "kind": {"const": "steep.start"},
@@ -506,11 +481,11 @@
         "ansi": {"description": "Whether assertions, waits, and snapshots compare the screen with its ANSI sequences kept. When false they are stripped first.", "type": "boolean"},
         "color": {
           "description": "The color support the terminal advertises to the program. Left out when the test left it as it is, 256 colors.",
-          "enum": ["ascii", "ansi", "ansi256", "truecolor"]
+          "type": "string", "examples": ["ascii", "ansi", "ansi256", "truecolor"]
         },
         "export": {
           "description": "When the harness exports its recording: \"off\" never, \"failure\" when the test fails, and \"always\".",
-          "enum": ["off", "failure", "always"]
+          "type": "string", "examples": ["off", "failure", "always"]
         },
         "messages": {"description": "True when the harness records each message the program's model receives, as steep.message annotations. Left out otherwise.", "const": true}
       }
@@ -518,13 +493,12 @@
     "steep.ready": {
       "description": "The end of the harness's wait for the program to start, which ends when the program's model handles its first message. steep writes it once, after steep.start.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "outcome", "elapsed_ms"],
       "properties": {
         "kind": {"const": "steep.ready"},
         "outcome": {
           "description": "How the wait ended: \"ready\" when the program started, \"timeout\" when it did not start within the timeout, and \"canceled\" when the test's context was canceled first. The test goes on after a timeout or a cancelation.",
-          "enum": ["ready", "timeout", "canceled"]
+          "type": "string", "examples": ["ready", "timeout", "canceled"]
         },
         "elapsed_ms": {"description": "How long the harness had run when the wait ended, in wall-clock time.", "type": "integer", "minimum": 0}
       }
@@ -532,18 +506,17 @@
     "steep.input": {
       "description": "Input the test sent the program through the terminal, before it was sent. The input event that follows holds the bytes the terminal sent, encoded in the program's keyboard and mouse modes, if it sent any: a mouse event the program has not enabled mouse tracking for sends nothing.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "action"],
       "properties": {
         "kind": {"const": "steep.input"},
         "action": {
           "description": "The input: \"type\" text typed as key presses, \"key\" a key press, \"paste\" a paste, \"mouse\" a mouse event, \"click\" a press and release of a mouse button, and \"drag\" a press of a mouse button, motion one cell at a time, and its release.",
-          "enum": ["type", "key", "paste", "mouse", "click", "drag"]
+          "type": "string", "examples": ["type", "key", "paste", "mouse", "click", "drag"]
         },
         "text": {"description": "For \"type\" and \"paste\": the text. Left out when it is empty.", "type": "string"},
         "key": {"description": "For \"key\": the key's name, with its modifiers, such as \"enter\" or \"ctrl+c\".", "type": "string"},
-        "mouse": {"description": "For \"mouse\": the mouse event.", "enum": ["press", "release", "motion"]},
-        "button": {"description": "For \"mouse\", \"click\", and \"drag\": the mouse button, or \"none\" for motion without one.", "enum": ["none", "left", "right", "middle"]},
+        "mouse": {"description": "For \"mouse\": the mouse event.", "type": "string", "examples": ["press", "release", "motion"]},
+        "button": {"description": "For \"mouse\", \"click\", and \"drag\": the mouse button, or \"none\" for motion without one.", "type": "string", "examples": ["none", "left", "right", "middle"]},
         "at": {"description": "For \"mouse\" and \"click\": the cell of the event. For \"drag\": the cell it starts at.", "$ref": "#/$defs/steep.cell"},
         "to": {"description": "For \"drag\": the cell it ends at.", "$ref": "#/$defs/steep.cell"},
         "truncated": {"$ref": "#/$defs/steep.truncated"}
@@ -557,13 +530,12 @@
     "steep.terminal": {
       "description": "A change the test made to the terminal that no other event records. Resizes, focus changes, and colors are their own events.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "action"],
       "properties": {
         "kind": {"const": "steep.terminal"},
         "action": {
           "description": "The change: \"scrollback_size\" set how many lines of history the terminal keeps, \"clear_scrollback\" cleared its history, and \"clipboard\" set the clipboard the terminal answers the program's clipboard reads with.",
-          "enum": ["scrollback_size", "clear_scrollback", "clipboard"]
+          "type": "string", "examples": ["scrollback_size", "clear_scrollback", "clipboard"]
         },
         "lines": {"description": "For \"scrollback_size\": the lines of history kept.", "type": "integer"},
         "text": {"description": "For \"clipboard\": the clipboard's text. Left out when it is empty.", "type": "string"},
@@ -575,13 +547,12 @@
     "steep.program": {
       "description": "An action of the test on the program past its terminal, which the program's output may show the effect of.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "action"],
       "properties": {
         "kind": {"const": "steep.program"},
         "action": {
           "description": "The action: \"send\" sent the program a message, \"quit\" asked it to quit, and \"mutate\" changed its model directly.",
-          "enum": ["send", "quit", "mutate"]
+          "type": "string", "examples": ["send", "quit", "mutate"]
         },
         "type": {"description": "For \"send\": the message's Go type, such as \"tea.KeyPressMsg\". For \"mutate\": the Go type of the model changed.", "type": "string"},
         "value": {"description": "For \"send\": the message's value, as Go's fmt package prints it with %+v.", "type": "string"},
@@ -593,14 +564,13 @@
     "steep.wait.start": {
       "description": "The start of a wait of the test, for what the screen shows, for the program's messages, or for time to pass. The steep.wait.end with the same id ends it, unless the test ended first, such as by a panic.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "id", "wait"],
       "properties": {
         "kind": {"const": "steep.wait.start"},
         "id": {"description": "The wait's number, counted from 1 for each test, which its steep.wait.end has too.", "type": "integer", "minimum": 1},
         "wait": {
           "description": "What the test waits for: \"text\" every one of some text to be on the screen, \"not_text\" none of it to be, \"match\" a regular expression to match the screen, \"not_match\" it not to, \"func\" a condition of the test's own on the screen, \"settle\" the screen to stay unchanged for the settle time, \"settle_messages\" the program's model to receive no message for the settle time, \"message\" the program's model to receive a message of a type, \"finished\" the program to end, and \"sleep\" time to pass.",
-          "enum": ["text", "not_text", "match", "not_match", "func", "settle", "settle_messages", "message", "finished", "sleep"]
+          "type": "string", "examples": ["text", "not_text", "match", "not_match", "func", "settle", "settle_messages", "message", "finished", "sleep"]
         },
         "text": {"description": "For \"text\" and \"not_text\": the text.", "type": "array", "items": {"type": "string"}},
         "pattern": {"description": "For \"match\" and \"not_match\": the regular expression, in Go's RE2 syntax. Left out when it is empty.", "type": "string"},
@@ -619,15 +589,14 @@
     "steep.wait.end": {
       "description": "The end of the wait the steep.wait.start with the same id started. A wait that is not satisfied fails the test, and a steep.failure with the reason comes before it.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "id", "wait", "outcome", "elapsed_ms"],
       "properties": {
         "kind": {"const": "steep.wait.end"},
         "id": {"description": "The wait's number, as its steep.wait.start has it.", "type": "integer", "minimum": 1},
-        "wait": {"description": "What the test waited for, as its steep.wait.start has it.", "enum": ["text", "not_text", "match", "not_match", "func", "settle", "settle_messages", "message", "finished", "sleep"]},
+        "wait": {"description": "What the test waited for, as its steep.wait.start has it.", "type": "string", "examples": ["text", "not_text", "match", "not_match", "func", "settle", "settle_messages", "message", "finished", "sleep"]},
         "outcome": {
           "description": "How the wait ended: \"satisfied\" when what it waited for happened, \"timeout\" when it did not within the timeout, \"canceled\" when the test's context was canceled first, and \"failed\" for another failure, such as an invalid regular expression or a program that ended with an error.",
-          "enum": ["satisfied", "timeout", "canceled", "failed"]
+          "type": "string", "examples": ["satisfied", "timeout", "canceled", "failed"]
         },
         "elapsed_ms": {"description": "How long the wait took, in wall-clock time.", "type": "integer", "minimum": 0},
         "matches": {
@@ -642,13 +611,12 @@
     "steep.assert": {
       "description": "An assertion of the test, on one sample of the screen or on the messages the program's model received, and whether it passed. One that fails fails the test, and a steep.failure with the reason comes before it. A required one that fails stops the test.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "assert", "required", "pass"],
       "properties": {
         "kind": {"const": "steep.assert"},
         "assert": {
           "description": "What was asserted: \"contains\" every one of some text is on the screen, \"not_contains\" none of it is, \"match\" a regular expression matches the screen, \"not_match\" it does not, \"width\", \"height\", and \"dimensions\" the size of the screen's text, and \"has_message\" the program's model received a message of a type.",
-          "enum": ["contains", "not_contains", "match", "not_match", "width", "height", "dimensions", "has_message"]
+          "type": "string", "examples": ["contains", "not_contains", "match", "not_match", "width", "height", "dimensions", "has_message"]
         },
         "required": {"description": "Whether a failure stops the test, as steep's Require methods do, rather than letting it go on, as its Assert methods do.", "type": "boolean"},
         "pass": {"description": "Whether the assertion held.", "type": "boolean"},
@@ -673,13 +641,12 @@
     "steep.snapshot": {
       "description": "A comparison of the screen with a snapshot file, and whether it matched. One that does not match fails the test, and a steep.failure with the reason comes before it. A required one that does not match stops the test.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "format", "path", "required", "pass"],
       "properties": {
         "kind": {"const": "steep.snapshot"},
         "format": {
           "description": "What was compared: \"text\" the screen's text, in a \".snap\" file, and \"json\" the screen's cells and the terminal's state, in a \".json\" file.",
-          "enum": ["text", "json"]
+          "type": "string", "examples": ["text", "json"]
         },
         "path": {"description": "The snapshot file's path, as the test named it, relative to the test's package directory unless absolute.", "type": "string"},
         "required": {"description": "Whether a mismatch stops the test.", "type": "boolean"},
@@ -693,7 +660,6 @@
     "steep.failure": {
       "description": "A failure the harness reported to the test: a failed assertion, wait, or snapshot, an error of a harness action, or a timeout. Failures the test reports itself are not recorded.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "message"],
       "properties": {
         "kind": {"const": "steep.failure"},
@@ -704,7 +670,6 @@
     "steep.message": {
       "description": "A message the program's model received, before it handled it. steep writes these only when the test asks it to, since a program that ticks or animates receives many.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "type", "value"],
       "properties": {
         "kind": {"const": "steep.message"},
@@ -716,7 +681,6 @@
     "steep.exit": {
       "description": "The end of the program. A program that ends while the test runs, such as on a key that quits it, records it in the recording. One the harness stops at the end of the test records it after the recording ends, so the recording does not hold it.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind"],
       "properties": {
         "kind": {"const": "steep.exit"},
@@ -728,7 +692,6 @@
     "steep.result": {
       "description": "The test's result, as of the start of the harness's close, which ends the recording just after it. Failures after that, such as a program that does not stop, are not counted.",
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "test", "failed", "failures", "duration_ms"],
       "properties": {
         "kind": {"const": "steep.result"},

@@ -308,6 +308,13 @@ func TestFromAnnotationErrors(t *testing.T) {
 		"attr":          {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"attrs":["loud"]}}]}`, `unknown attribute "loud"`},
 		"mode":          {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"},"mode":"melt"}`, `unknown mode "melt"`},
 		"replacement":   {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"},"mode":"replace","replacement":"ab"}`, "not one character"},
+		"redact ease":   {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":1}}`, "ease"},
+		// A field a newer reel may write is not applied without.
+		"field":        {reel.EffectKind, `{"effect":"keys","shown_ms":1,"fade_ms":1}`, `"fade_ms"`},
+		"region field": {reel.EffectKind, `{"effect":"zoom","region":{"type":"text","text":"x","pattern":"y"}}`, `"pattern"`},
+		"timing field": {reel.EffectKind, `{"effect":"zoom","region":{"type":"text","text":"x"},"timing":{"ease_ms":1}}`, `"ease_ms"`},
+		"line field":   {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","align":"left"}]}`, `"align"`},
+		"inputs field": {reel.EffectKind, `{"effect":"redact_inputs","region":{"type":"text","text":"x"},"timing":{}}`, `"timing"`},
 	} {
 		a := reel.Annotation{Kind: tc.kind, Data: jsontext.Value(tc.data)}
 		if _, err := FromAnnotation(a); err == nil || !strings.Contains(err.Error(), tc.want) {

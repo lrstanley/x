@@ -39,8 +39,9 @@ const (
 // [reel.Describer]), such as one read from an asciicast file an [reel.Export]
 // wrote. The effect works as the one described did, but for what its
 // description leaves out (see the package documentation). An annotation of
-// another kind, or of an effect or region this package does not have, is an
-// error.
+// another kind, of an effect or region this package does not have, or with
+// a field one does not have, is an error, which reading the file is not
+// (see [reel.AnnotationSchema]).
 func FromAnnotation(a reel.Annotation) (reel.Effect, error) {
 	if a.Kind != reel.EffectKind {
 		return nil, fmt.Errorf("effects: annotation of kind %q, not %q", a.Kind, reel.EffectKind)
@@ -55,19 +56,19 @@ func FromAnnotation(a reel.Annotation) (reel.Effect, error) {
 	var err error
 	switch head.Effect {
 	case effectKeys:
-		e, err = decodeAs(a.Data, keysData.effect)
+		e, err = decodeEffect(a.Data, keysData.effect)
 	case effectIntro:
-		e, err = decodeAs(a.Data, introData.effect)
+		e, err = decodeEffect(a.Data, introData.effect)
 	case effectPause:
-		e, err = decodeAs(a.Data, pauseData.effect)
+		e, err = decodeEffect(a.Data, pauseData.effect)
 	case effectHighlight:
-		e, err = decodeAs(a.Data, highlightData.effect)
+		e, err = decodeEffect(a.Data, highlightData.effect)
 	case effectZoom:
-		e, err = decodeAs(a.Data, zoomData.effect)
+		e, err = decodeEffect(a.Data, zoomData.effect)
 	case effectRedact:
-		e, err = decodeAs(a.Data, redactData.effect)
+		e, err = decodeEffect(a.Data, redactData.effect)
 	case effectRedactInputs:
-		e, err = decodeAs(a.Data, redactInputsData.effect)
+		e, err = decodeEffect(a.Data, redactInputsData.effect)
 	default:
 		return nil, fmt.Errorf("effects: unknown effect %q", head.Effect)
 	}
@@ -111,14 +112,32 @@ func describe(effect string, data any) (reel.Annotation, error) {
 }
 
 // decodeAs unmarshals the JSON object data into a T, and returns what build
-// makes of it.
+// makes of it. A member T does not have is an error: what build made
+// without it would not be what data describes.
 func decodeAs[T, R any](data jsontext.Value, build func(T) (R, error)) (R, error) {
 	var d T
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := json.Unmarshal(data, &d, json.RejectUnknownMembers(true)); err != nil {
 		var zero R
 		return zero, err
 	}
 	return build(d)
+}
+
+// decodeEffect is decodeAs for the data of an effect, which also names the
+// effect.
+func decodeEffect[T, R any](data jsontext.Value, build func(T) (R, error)) (R, error) {
+	var fields map[string]jsontext.Value
+	if err := json.Unmarshal(data, &fields); err != nil {
+		var zero R
+		return zero, err
+	}
+	delete(fields, "effect")
+	data, err := json.Marshal(fields)
+	if err != nil {
+		var zero R
+		return zero, err
+	}
+	return decodeAs(data, build)
 }
 
 // millis is d in whole milliseconds, rounded, as an annotation holds it.
@@ -436,6 +455,9 @@ func (e redact) Describe() (reel.Annotation, error) {
 }
 
 func (d redactData) effect() (reel.Effect, error) {
+	if d.Timing.EaseInMS != 0 || d.Timing.EaseOutMS != 0 {
+		return nil, errors.New("redact cannot ease")
+	}
 	region, err := decodeRegion(d.Region)
 	if err != nil {
 		return nil, err

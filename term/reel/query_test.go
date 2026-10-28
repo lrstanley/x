@@ -188,6 +188,9 @@ func TestQuerySchema(t *testing.T) {
 		Query{Query: "da1", Request: "\x1b[c", Reply: "\x1b[?64c"},
 		Query{Query: "osc_color", Param: "11", Request: "\x1b]11;?\x07"},
 		Query{Query: "unknown", Reply: "\x1b[?1;2x", Truncated: true},
+		// Queries and fields a newer reel may write.
+		map[string]any{"query": "da9", "request": "\x1b[c"},
+		map[string]any{"query": "da1", "request": "\x1b[c", "extra": 1},
 	}
 	for _, v := range valid {
 		if _, err := NewAnnotation(QueryKind, v); err != nil {
@@ -196,9 +199,7 @@ func TestQuerySchema(t *testing.T) {
 	}
 	for name, v := range map[string]any{
 		"no query":       map[string]any{"request": "\x1b[c"},
-		"bad query":      map[string]any{"query": "da9", "request": "\x1b[c"},
 		"neither":        map[string]any{"query": "da1"},
-		"unknown field":  map[string]any{"query": "da1", "request": "\x1b[c", "extra": 1},
 		"truncated off":  map[string]any{"query": "da1", "request": "\x1b[c", "truncated": false},
 		"request number": map[string]any{"query": "da1", "request": 1},
 	} {
