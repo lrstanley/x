@@ -60,6 +60,17 @@ const (
 	StillSnapshot
 )
 
+// failurePrefix starts the label of the mark of each failure the harness
+// reports, followed by its number, counted from 1.
+const failurePrefix = "failure-"
+
+// isFailureMark reports whether label is that of the mark of a failure:
+// failurePrefix and a number, in digits alone.
+func isFailureMark(label string) bool {
+	n, ok := strings.CutPrefix(label, failurePrefix)
+	return ok && n != "" && strings.Trim(n, "0123456789") == ""
+}
+
 // Path variables steep adds to [reel.Profile.Vars].
 const (
 	varName   = "name"
@@ -82,9 +93,10 @@ type Result struct {
 	Failed bool
 	// Failures are the failure messages the harness reported, oldest first:
 	// failed assertions, waits, and snapshots, and harness errors such as
-	// timeouts, followed by "test panicked" for a test that panicked.
-	// Failures a test reports itself, through its own [testing.TB], are not
-	// included.
+	// timeouts, followed by "test panicked" for a test that panicked. The
+	// harness marked the nth "failure-n" (see [Harness.Mark]), all but
+	// "test panicked". Failures a test reports itself, through its own
+	// [testing.TB], are not included.
 	Failures []string
 	// Duration is how long the harness ran, from [NewHarness] to
 	// [Harness.Close].
@@ -115,6 +127,14 @@ var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookWait, 
 // At export, [reel.Context.Meta] is the test's *[Result], replacing the
 // profile's, which [Outro] reads to show PASS or FAIL, and for a failed test,
 // to hold the screen it failed on for at least 3s before the card.
+//
+// A mark the profile's effects or stills look for that the test never
+// placed does not stop the export: the outputs are written as if the test
+// never got to it (see [reel.Export]). For a failed test, which may have
+// stopped before it, that is logged. For a passing test, it is a test
+// error, but for the marks of failures, which a passing test has none of,
+// so a profile can pause on "failure-1" (see [Harness.Mark]) whatever the
+// result.
 //
 // The recording is the [reel.Timeline] of the session up to the start of
 // [Harness.Close], so a program's repaint as it exits is left out.
@@ -241,7 +261,12 @@ type hookMark struct {
 // in an asciicast file and cut at. While an export policy is on, an input,
 // terminal, or program action is marked once the program has painted its
 // response (see [WithSettle]). [Harness.Close] places its mark as it starts,
-// where the recording ends. Use other labels for marks of a test's own.
+// where the recording ends.
+//
+// The harness also marks each failure it reports, as it reports it, labeled
+// "failure-1", "failure-2", and so on, numbered as in [Result.Failures],
+// such as for [effects.PauseAtMarks] to pause on the first failure of a test
+// that went on past it. Use other labels for marks of a test's own.
 func (h *Harness) Mark(label string) *Harness {
 	h.tb.Helper()
 	h.check(h.session.Mark(label))
@@ -284,7 +309,10 @@ func (h *Harness) markEvent(event HookEvent) string {
 
 // exportRecording exports the recording up to the mark labeled end, as the
 // policy says. A skipped test that did not fail exports nothing. It reports
-// a failure to export as a test error.
+// a failure to export as a test error, but for a mark the profile looks for
+// that the recording lacks, which reel writes the outputs without: a failed
+// test may have stopped before it, so it is logged, and a passing test has
+// no failure marks.
 func (h *Harness) exportRecording(end string) {
 	h.tb.Helper()
 	if h.cfg.policy == exportOff {
@@ -294,8 +322,17 @@ func (h *Harness) exportRecording(end string) {
 	if !failed && (h.cfg.policy == exportOnFailure || h.tb.Skipped()) {
 		return
 	}
-	if err := h.writeRecording(end, failed, panicked); err != nil {
+	missing, err := reel.MissingMarks(h.writeRecording(end, failed, panicked))
+	if err != nil {
 		h.tb.Errorf("steep: export: %v", err)
+	}
+	for _, label := range missing {
+		switch {
+		case failed:
+			h.tb.Logf("steep: export: the recording has no mark %q", label)
+		case !isFailureMark(label):
+			h.tb.Errorf("steep: export: the recording looks for a mark %q, which the test never placed", label)
+		}
 	}
 }
 
@@ -371,7 +408,9 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 func (h *Harness) exportTimeline(end string, p reel.Profile) error {
 	tl, err := h.session.Timeline().Between("", end)
 	if err != nil {
-		return err
+		// Without its end, nothing is written, so this is no mark the
+		// outputs can do without (see [reel.MissingMarks]).
+		return fmt.Errorf("the end of the recording: %v", err) //nolint:errorlint // Not a missing mark to export without.
 	}
 	// The test's context is canceled by the time cleanups run.
 	return reel.Export(context.Background(), tl, p)

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -471,11 +472,13 @@ type failureNote struct {
 func (*failureNote) kind() string { return kindFailure }
 func (n *failureNote) clip()      { n.Message = reel.ClipText(n.Message, &n.Truncated) }
 
-// noteFailure records a failure the harness reported.
-func (h *Harness) noteFailure(msg string) {
-	// A failure to record a failure is not reported, which would record
-	// another.
+// noteFailure records the nth failure the harness reported, and marks it
+// (see [Harness.Mark]).
+func (h *Harness) noteFailure(n int, msg string) {
+	// A failure to record or mark a failure is not reported, which would
+	// record another.
 	_ = h.record(&failureNote{Message: msg})
+	_ = h.session.Mark(failurePrefix + strconv.Itoa(n))
 }
 
 // messageNote is a "steep.message" annotation: a message the program's

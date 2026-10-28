@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -434,6 +435,91 @@ func TestExportError(t *testing.T) {
 	h.Close()
 	if errs := ftb.errors(); len(errs) != 1 || !strings.Contains(errs[0], "steep: export:") {
 		t.Fatalf("errors = %q, want the export's", errs)
+	}
+}
+
+// TestFailureMarks checks that each failure the harness reports is marked,
+// numbered as in [Result.Failures], just after its "steep.failure"
+// annotation.
+func TestFailureMarks(t *testing.T) {
+	t.Parallel()
+	ftb := &fakeTB{TB: t}
+	h := NewHarness(ftb, rootTestModel{}, WithIgnoreEnv(true), WithTimeout(50*time.Millisecond))
+	h.Assert("missing").Type("a")
+	runFailing(func() { h.Wait("gone") })
+	h.Close()
+
+	var got []string
+	for ev := range h.Timeline().Events() {
+		switch ev := ev.(type) {
+		case reel.Mark:
+			got = append(got, "@"+ev.Label)
+		case reel.Annotation:
+			if ev.Kind == kindFailure {
+				got = append(got, ev.Kind)
+			}
+		}
+	}
+	want := []string{
+		"@ready-1", kindFailure, "@failure-1", "@assert-1", "@input-1",
+		kindFailure, "@failure-2", "@wait-1", "@close-1",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("events:\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestExportUnplacedMarks checks that a profile that looks for a mark the
+// test never placed still exports: a failed test may have stopped before
+// it, and a passing test has no failure marks. Any other mark a passing
+// test lacks is an error, as it names no mark the test places.
+func TestExportUnplacedMarks(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		fail  bool
+		label string
+		err   bool
+	}{
+		{"failed", true, "later", false},
+		{"passed failure mark", false, "failure-1", false},
+		{"passed", false, "typo", true},
+		{"passed failure-like", false, "failure-x", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			ftb := &fakeTB{TB: t}
+			h := NewHarness(ftb, rootTestModel{}, exportOptions(dir,
+				WithRecording(reel.Profile{
+					Outputs: reel.Files("rec.gif"),
+					Effects: []reel.Effect{effects.Pause(effects.PauseAtMarks(time.Second, tc.label))},
+				}),
+				WithExportAlways(),
+			)...)
+			h.Wait("text=")
+			if tc.fail {
+				h.Assert("missing")
+			}
+			h.Close()
+
+			var exportErrs []string
+			for _, e := range ftb.errors() {
+				if strings.Contains(e, "steep: export:") {
+					exportErrs = append(exportErrs, e)
+				}
+			}
+			want := 0
+			if tc.err {
+				want = 1
+			}
+			if len(exportErrs) != want || tc.err && !strings.Contains(exportErrs[0], strconv.Quote(tc.label)) {
+				t.Errorf("export errors = %q, want %d for %q", exportErrs, want, tc.label)
+			}
+			if got := dirNames(t, dir); !slices.Equal(got, []string{"rec.gif"}) {
+				t.Errorf("files = %q, want rec.gif", got)
+			}
+		})
 	}
 }
 
