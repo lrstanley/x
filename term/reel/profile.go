@@ -73,7 +73,7 @@ type File struct {
 	// [StillEffect] effects, and no other.
 	Marks []string
 	// Cast is the asciicast version a ".cast" Path is written as. Zero is
-	// [CastV3]. It is an error on other paths.
+	// [CastV2]. It is an error on other paths.
 	Cast CastVersion
 }
 

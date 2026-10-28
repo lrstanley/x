@@ -6,6 +6,7 @@ package reel
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"image/color"
@@ -145,6 +146,7 @@ func TestCastFormat(t *testing.T) {
 		Focus{event: at(1600)},
 		Theme{event: at(1700), Colors: Colors{Fg: castFg, Cursor: castCursor}},
 		Exit{event: at(12_345), Status: 3},
+		Annotation{event: at(12_400), Kind: "test.note", Data: jsontext.Value(`{"n":1}`)},
 	} {
 		tl.appendAt(ev, ev.At())
 	}
@@ -161,25 +163,30 @@ func TestCastFormat(t *testing.T) {
 [0.100,"f","0"]
 [0.100,"t","fg=#d0d0d0,cursor=#ff8000"]
 [10.645,"x","3"]
+[0.055,"R","{\"kind\":\"test.note\",\"n\":1}"]
 `
 	if got := string(writeCast(t, tl, CastV3)); got != v3 {
 		t.Fatalf("v3:\n%s\nwant:\n%s", got, v3)
 	}
-	var buf bytes.Buffer
-	if _, err := tl.WriteTo(&buf); err != nil || buf.String() != v3 {
-		t.Fatalf("WriteTo = %v:\n%s", err, buf.String())
-	}
 
-	// v2 has absolute times, and no focus, theme, or exit events.
+	// v2 has absolute times, and the same events and header fields.
 	v2 := `{"version":2,"width":20,"height":4,"timestamp":1700000000,"title":"t",` +
-		`"env":{"TERM":"xterm-ghostty"},"theme":{"fg":"#d0d0d0","bg":"#212121","palette":"` + palette + `"}}
+		`"env":{"TERM":"xterm-ghostty"},"theme":{"fg":"#d0d0d0","bg":"#212121","palette":"` + palette + `","cursor":"#ff8000"}}
 [0.000,"o","a<b>"]
 [1.001,"i","\r"]
 [1.001,"r","30x5"]
 [1.500,"m","m"]
+[1.600,"f","0"]
+[1.700,"t","fg=#d0d0d0,cursor=#ff8000"]
+[12.345,"x","3"]
+[12.400,"R","{\"kind\":\"test.note\",\"n\":1}"]
 `
 	if got := string(writeCast(t, tl, CastV2)); got != v2 {
 		t.Fatalf("v2:\n%s\nwant:\n%s", got, v2)
+	}
+	var buf bytes.Buffer
+	if _, err := tl.WriteTo(&buf); err != nil || buf.String() != v2 {
+		t.Fatalf("WriteTo = %v:\n%s", err, buf.String())
 	}
 
 	if _, err := tl.WriteCast(&buf, 1); err == nil {
@@ -203,7 +210,7 @@ func TestCastNoTheme(t *testing.T) {
 	}
 }
 
-func TestCastV2RoundTrip(t *testing.T) {
+func TestCastVersionsRoundTrip(t *testing.T) {
 	t.Parallel()
 	tl := newTimeline(Header{
 		Cols: 80, Rows: 24, Title: "v2",
@@ -218,21 +225,26 @@ func TestCastV2RoundTrip(t *testing.T) {
 		Resize{event: at(1234), Cols: 100, Rows: 30},
 		Mark{event: at(5000), Label: "end"},
 		Exit{event: at(5001)},
+		Annotation{event: at(5002), Kind: "test.note"},
 	} {
 		tl.appendAt(ev, ev.At())
 	}
-	got := readCast(t, writeCast(t, tl, CastV2))
-	// v2 has no slot for the cursor color, and reel writes its own header
-	// fields only in v3.
-	if want := withDefaultPalette(Header{Cols: 80, Rows: 24, Title: "v2", Theme: Colors{Fg: castFg, Bg: castBg}}); got.Header() != want {
-		t.Fatalf("Header = %+v, want %+v", got.Header(), want)
+	for _, v := range []CastVersion{CastV2, CastV3} {
+		got := readCast(t, writeCast(t, tl, v))
+		if want := withDefaultPalette(tl.Header()); got.Header() != want {
+			t.Fatalf("v%d Header = %+v, want %+v", v, got.Header(), want)
+		}
+		assertEvents(t, got,
+			`0 output "hi"`,
+			`3 focus false`,
+			`7 input "q"`,
+			fmt.Sprintf("8 theme %v <nil> <nil>", castFg),
+			`1234 resize 100x30`,
+			`5000 mark end`,
+			`5001 exit 0`,
+			`5002 annotation test.note `,
+		)
 	}
-	assertEvents(t, got,
-		`0 output "hi"`,
-		`7 input "q"`,
-		`1234 resize 100x30`,
-		`5000 mark end`,
-	)
 }
 
 func TestCastIntervalsDoNotDrift(t *testing.T) {

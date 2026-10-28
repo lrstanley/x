@@ -14,7 +14,7 @@
 // a timeline by replaying it, so recording costs a copy of the bytes and
 // nothing more while the program runs. [Mark] events name points in a
 // timeline, and [Timeline.Between] cuts the part between two of them. A
-// timeline is saved as an asciicast v3 file (".cast", [CastMediaType]) with
+// timeline is saved as an asciicast v2 file (".cast", [CastMediaType]) with
 // [Timeline.WriteTo], which asciinema plays, and read back, or read from a
 // file asciinema recorded, with [ReadTimeline].
 //

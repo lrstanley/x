@@ -86,7 +86,7 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 				return nil, err
 			}
 			if isCast {
-				o.casts = append(o.casts, castOutput{path: path, version: cmp.Or(out.Cast, CastV3)})
+				o.casts = append(o.casts, castOutput{path: path, version: cmp.Or(out.Cast, CastV2)})
 			} else {
 				o.files = append(o.files, fileOutput{path: path, opts: opts})
 			}

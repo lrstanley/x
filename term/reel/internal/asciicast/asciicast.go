@@ -44,13 +44,12 @@ type Header struct {
 	// Theme is the colors the terminal starts with, or nil for none.
 	Theme *Theme
 	// SkipPristine is reel's own "skip_pristine", which other readers
-	// ignore. Only v3 holds it.
+	// ignore.
 	SkipPristine bool
 }
 
 // Theme is the colors a terminal starts with. Fg and Bg are set. Cursor is
-// reel's own, which v3 readers ignore and v2 has no place for, and may be
-// nil.
+// reel's own, which other readers ignore, and may be nil.
 type Theme struct {
 	Colors
 	// Palette is the 16 ANSI colors, the 8 normal colors and then their

@@ -22,9 +22,8 @@ type Writer struct {
 }
 
 // NewWriter writes h to w as a header line, and returns a Writer of the
-// event lines after it. Version is 2 or 3. In v2, the header leaves out
-// the theme's Cursor and SkipPristine, which it has no place for. A theme's
-// Fg, Bg, and palette colors must not be nil.
+// event lines after it. Version is 2 or 3. A theme's Fg, Bg, and palette
+// colors must not be nil.
 func NewWriter(w io.Writer, h Header) (*Writer, error) {
 	if h.Version != 2 && h.Version != 3 {
 		return nil, fmt.Errorf("unsupported asciicast version %d", h.Version)
@@ -44,12 +43,16 @@ func headerOf(h Header) castHeader {
 	if !h.Timestamp.IsZero() {
 		hl.Timestamp = h.Timestamp.Unix()
 	}
+	hl.SkipPristine = h.SkipPristine
 	var th *castTheme
 	if h.Theme != nil {
 		th = &castTheme{
 			Fg:      formatColor(h.Theme.Fg),
 			Bg:      formatColor(h.Theme.Bg),
 			Palette: formatPalette(h.Theme.Palette),
+		}
+		if h.Theme.Cursor != nil {
+			th.Cursor = formatColor(h.Theme.Cursor)
 		}
 	}
 	if h.Version == 2 {
@@ -60,11 +63,7 @@ func headerOf(h Header) castHeader {
 		hl.Theme = th
 		return hl
 	}
-	if th != nil && h.Theme.Cursor != nil {
-		th.Cursor = formatColor(h.Theme.Cursor)
-	}
 	hl.Term = &castTerm{Cols: h.Cols, Rows: h.Rows, Type: h.Term, Theme: th}
-	hl.SkipPristine = h.SkipPristine
 	return hl
 }
 

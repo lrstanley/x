@@ -117,7 +117,7 @@ type Colors struct {
 }
 
 // Event is one entry in a [Timeline]: [Output], [Input], [Resize], [Mark],
-// [Focus], [Theme], or [Exit]. The set is closed.
+// [Focus], [Theme], [Exit], or [Annotation]. The set is closed.
 type Event interface {
 	// At is the event's offset from the first event in its timeline.
 	At() time.Duration
@@ -194,6 +194,8 @@ func (e Mark) stamp(at time.Duration) Event   { e.at = at; return e }
 func (e Focus) stamp(at time.Duration) Event  { e.at = at; return e }
 func (e Theme) stamp(at time.Duration) Event  { e.at = at; return e }
 func (e Exit) stamp(at time.Duration) Event   { e.at = at; return e }
+
+func (e Annotation) stamp(at time.Duration) Event { e.at = at; return e }
 
 // append adds ev at the wall clock's offset from the first event appended
 // this way, or while the timeline is paced, at the offset of the pace.
@@ -384,6 +386,12 @@ func (t *Timeline) EventsFrom(i int) iter.Seq[Event] {
 // Inputs returns an iterator over the [Input] events, oldest first.
 func (t *Timeline) Inputs() iter.Seq[Input] {
 	return eventsOf[Input](t)
+}
+
+// Annotations returns an iterator over the [Annotation] events, oldest
+// first.
+func (t *Timeline) Annotations() iter.Seq[Annotation] {
+	return eventsOf[Annotation](t)
 }
 
 // Marks returns an iterator over the [Mark] events, oldest first.

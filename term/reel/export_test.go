@@ -375,7 +375,7 @@ func TestExportOutputs(t *testing.T) {
 			{Path: filepath.Join(dir, "{name}-{duration}-{timestamp}.gif")},
 			{Path: filepath.Join(dir, "sub", "{name}.png")},
 			{Path: filepath.Join(dir, "{name}.cast")},
-			{Path: filepath.Join(dir, "{name}.v2.cast"), Cast: CastV2},
+			{Path: filepath.Join(dir, "{name}.v3.cast"), Cast: CastV3},
 			{Path: filepath.Join(dir, "still-{mark}.png"), Marks: []string{"shot"}},
 		},
 		Vars: map[string]string{"name": "demo"},
@@ -383,12 +383,12 @@ func TestExportOutputs(t *testing.T) {
 	if err := Export(t.Context(), tl, p); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"demo-1.5s-20261025T123045.gif", "sub/demo.png", "demo.cast", "demo.v2.cast", "still-shot.png"} {
+	for _, name := range []string{"demo-1.5s-20261025T123045.gif", "sub/demo.png", "demo.cast", "demo.v3.cast", "still-shot.png"} {
 		if fi, err := os.Stat(filepath.Join(dir, name)); err != nil || fi.Size() == 0 {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	for name, version := range map[string]int{"demo.cast": 3, "demo.v2.cast": 2} {
+	for name, version := range map[string]int{"demo.cast": 2, "demo.v3.cast": 3} {
 		data, _ := os.ReadFile(filepath.Join(dir, name))
 		got, err := ReadTimeline(bytes.NewReader(data))
 		if err != nil {

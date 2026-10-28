@@ -46,6 +46,8 @@ func describe(events []Event) []string {
 			out[i] = fmt.Sprintf("%d theme %v %v %v", ms, ev.Fg, ev.Bg, ev.Cursor)
 		case Exit:
 			out[i] = fmt.Sprintf("%d exit %d", ms, ev.Status)
+		case Annotation:
+			out[i] = fmt.Sprintf("%d annotation %s %s", ms, ev.Kind, string(ev.Data))
 		}
 	}
 	return out

@@ -83,10 +83,11 @@ func TestWriter(t *testing.T) {
 [1.001,"i","\r"]
 [0.499,"m","m"]
 `,
-		// v2 has offsets rather than intervals, and no place for the cursor
-		// color or skip_pristine.
+		// v2 has offsets rather than intervals, and the same fields of reel's
+		// own.
 		2: `{"version":2,"width":2,"height":1,"timestamp":1700000000,"title":"t",` +
-			`"env":{"TERM":"xterm-test"},"theme":{"fg":"#d0d0d0","bg":"#212121","palette":"` + palette + `"}}
+			`"env":{"TERM":"xterm-test"},"theme":{"fg":"#d0d0d0","bg":"#212121","palette":"` + palette + `",` +
+			`"cursor":"#ffffff"},"skip_pristine":true}
 [0.000,"o","a<b>"]
 [1.001,"i","\r"]
 [1.500,"m","m"]

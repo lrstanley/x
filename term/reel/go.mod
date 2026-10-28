@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/xpty v0.1.4
+	github.com/google/jsonschema-go v0.4.3
 	golang.org/x/image v0.47.0
 	golang.org/x/text v0.43.0
 )

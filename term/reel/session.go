@@ -319,6 +319,16 @@ func (s *Session) Mark(label string) error {
 	return s.change(func() (Event, error) { return Mark{Label: label}, nil })
 }
 
+// Annotate appends a, an [Annotation] of something the terminal does not
+// show, such as what a test did. It returns an error wrapping
+// [ErrInvalidAnnotation] when [AnnotationSchema] does not allow it.
+func (s *Session) Annotate(a Annotation) error {
+	if _, err := a.marshal(); err != nil {
+		return err
+	}
+	return s.change(func() (Event, error) { return a, nil })
+}
+
 // SetForeground sets the terminal's foreground color. Nil clears it back to
 // the default set with [Session.SetDefaultForeground]. It appends a [Theme]
 // event.

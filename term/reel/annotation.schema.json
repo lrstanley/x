@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/lrstanley/x/master/term/reel/annotation.schema.json",
+  "title": "reel asciicast annotation",
+  "description": "The data of a reel annotation: an asciicast event with code \"R\", whose data is a JSON string holding this object. Other asciicast readers ignore the event. The object names its kind, and holds the fields of that kind. Kinds this schema does not list may hold any fields, so a reader keeps annotations written by newer tools.",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": {
+      "description": "What the annotation records, as dot-separated lower case words, the first naming the tool that defines the kind, such as \"reel.effect\".",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    }
+  }
+}
