@@ -91,6 +91,10 @@ type Terminal struct {
 	// replies is the pty response stream drained by Read. The VT-write
 	// callback appends to it and must not block.
 	replies *replyBuf
+	// capture is set while [Terminal.WriteReplies] runs, which the VT-write
+	// callback then also appends each reply to, as captured.
+	capture  bool
+	captured []byte
 
 	// title is the last OSC 0 or OSC 2 window title.
 	title string
@@ -196,6 +200,25 @@ type Terminal struct {
 func (t *Terminal) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.writeOutputLocked(p)
+}
+
+// WriteReplies is [Terminal.Write], which also returns the replies the
+// emulator wrote while it parsed p, such as its answers to queries in p, in
+// the order it wrote them. They are queued for [Terminal.Read] all the same.
+// A query split across two writes is answered by the second.
+func (t *Terminal) WriteReplies(p []byte) ([]byte, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.capture = true
+	_, err := t.writeOutputLocked(p)
+	replies := t.captured
+	t.capture, t.captured = false, nil
+	return replies, err
+}
+
+// writeOutputLocked is [Terminal.Write] with t.mu held.
+func (t *Terminal) writeOutputLocked(p []byte) (int, error) {
 	if t.idle {
 		return 0, errors.New("vt: terminal is closed")
 	}

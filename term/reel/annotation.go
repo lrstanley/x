@@ -49,12 +49,14 @@ type Annotation struct {
 }
 
 // NewAnnotation returns an annotation of kind with the fields of v, which
-// must marshal to a JSON object without a "kind" member, or be nil. The
-// annotation must be valid as [AnnotationSchema] describes its kind.
+// must marshal to a JSON object without a "kind" member, or be nil. Strings
+// that are not UTF-8 are written with U+FFFD in place of their invalid
+// bytes. The annotation must be valid as [AnnotationSchema] describes its
+// kind.
 func NewAnnotation(kind string, v any) (Annotation, error) {
 	a := Annotation{Kind: kind}
 	if v != nil {
-		data, err := json.Marshal(v, json.Deterministic(true))
+		data, err := json.Marshal(v, json.Deterministic(true), jsontext.AllowInvalidUTF8(true))
 		if err != nil {
 			return a, fmt.Errorf("reel: annotation %q: %w", kind, err)
 		}

@@ -7,7 +7,9 @@ package reel
 import (
 	"bytes"
 	"context"
+	"encoding/json/jsontext"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -798,6 +800,154 @@ type concealerEffect struct{ stage effectFunc }
 func (e concealerEffect) Start(ctx *Context) (Stage, error) { return e.stage.Start(ctx) }
 
 func (concealerEffect) Conceals() bool { return true }
+
+// describer is a [Describer] that describes itself as a, or fails with err,
+// and changes no frame.
+type describer struct {
+	a   Annotation
+	err error
+}
+
+func (describer) Start(*Context) (Stage, error) { return nil, nil } //nolint:nilnil // It changes no frame.
+
+func (d describer) Describe() (Annotation, error) { return d.a, d.err }
+
+// castEvents returns the events of the asciicast file at path, one string
+// each.
+func castEvents(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for ev := range readCast(t, data).Events() {
+		switch ev := ev.(type) {
+		case Annotation:
+			out = append(out, fmt.Sprintf("%v R %s %s", ev.At(), ev.Kind, ev.Data))
+		case Output:
+			out = append(out, fmt.Sprintf("%v o %q", ev.At(), ev.Data))
+		case Mark:
+			out = append(out, fmt.Sprintf("%v m %s", ev.At(), ev.Label))
+		default:
+			out = append(out, fmt.Sprintf("%v %T", ev.At(), ev))
+		}
+	}
+	return out
+}
+
+// TestExportDescribesEffects checks that an asciicast output holds the
+// descriptions of the profile's effects, at its start, in place of the
+// timeline's annotations of their kinds and of [EffectKind], leaving out the
+// effects that do not describe themselves.
+func TestExportDescribesEffects(t *testing.T) {
+	t.Parallel()
+	note := func(atMS int, kind, data string) Annotation {
+		return Annotation{event: at(atMS), Kind: kind, Data: jsontext.Value(data)}
+	}
+	tl := buildTimeline(Header{Cols: 4, Rows: 1},
+		outAt(0, "a"),
+		note(5, EffectKind, `{"effect":"keys","shown_ms":9}`),
+		note(6, "test.fx", `{"n":1}`),
+		note(7, "test.note", `{"n":1}`),
+		Mark{event: at(8), Label: "m"},
+		outAt(10, "b"),
+	)
+	effects := []Effect{
+		describer{a: note(0, EffectKind, `{"effect":"keys","shown_ms":1}`)},
+		describer{err: fmt.Errorf("a region of its own: %w", errors.ErrUnsupported)},
+		failEffect{},
+		wrapped{describer{a: note(0, "test.wrapped", "")}},
+		describer{a: note(0, "test.fx", `{"n":2}`)},
+	}
+	want := []string{
+		`0s R reel.effect {"effect":"keys","shown_ms":1}`,
+		`0s R test.fx {"n":2}`,
+		`0s o "a"`,
+		`7ms R test.note {"n":1}`,
+		`8ms m m`,
+		`10ms o "b"`,
+	}
+	for _, v := range []CastVersion{CastV2, CastV3} {
+		dir := t.TempDir()
+		p := Profile{Outputs: []File{{Path: filepath.Join(dir, "a.cast"), Cast: v}}, Effects: effects}
+		if err := Export(t.Context(), tl, p); err != nil {
+			t.Fatal(err)
+		}
+		if got := castEvents(t, p.Outputs[0].Path); !slices.Equal(got, want) {
+			t.Fatalf("v%d events:\n%s\nwant:\n%s", v, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+		// Exported again with the same effects, the file is the same.
+		first, err := os.ReadFile(p.Outputs[0].Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		again := readCast(t, first)
+		p.Outputs[0].Path = filepath.Join(dir, "b.cast")
+		if err = Export(t.Context(), again, p); err != nil {
+			t.Fatal(err)
+		}
+		second, err := os.ReadFile(p.Outputs[0].Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Fatalf("v%d: exported again:\n%s\nwant:\n%s", v, second, first)
+		}
+	}
+
+	// A cut starts with the descriptions too.
+	cut, err := tl.Between("m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "cut.cast")
+	if err = Export(t.Context(), cut, Profile{Outputs: Files(path), Effects: effects}); err != nil {
+		t.Fatal(err)
+	}
+	got := castEvents(t, path)
+	if len(got) != 5 || !slices.Equal(got[:2], want[:2]) || got[3] != "0s m m" || got[4] != `2ms o "b"` {
+		t.Fatalf("cut events:\n%s", strings.Join(got, "\n"))
+	}
+
+	// Without effects that describe themselves, the timeline's effects are
+	// left out.
+	path = filepath.Join(t.TempDir(), "none.cast")
+	if err = Export(t.Context(), tl, Profile{Outputs: Files(path)}); err != nil {
+		t.Fatal(err)
+	}
+	if got = castEvents(t, path); !slices.Equal(got, []string{`0s o "a"`, `6ms R test.fx {"n":1}`, `7ms R test.note {"n":1}`, `8ms m m`, `10ms o "b"`}) {
+		t.Fatalf("events without effects:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func TestExportDescribeErrors(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		effect Effect
+		is     error
+		want   string
+	}{
+		"error":   {describer{err: errEffect}, errEffect, "effect 0 (reel.describer)"},
+		"invalid": {describer{a: Annotation{Kind: EffectKind, Data: jsontext.Value(`{"effect":"sparkle"}`)}}, ErrInvalidAnnotation, "effect 0"},
+		"kind":    {describer{a: Annotation{Kind: "Bad"}}, ErrInvalidAnnotation, "effect 0"},
+	} {
+		dir := t.TempDir()
+		p := Profile{Outputs: Files(filepath.Join(dir, "a.cast"), filepath.Join(dir, "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{tc.effect}}
+		err := Export(t.Context(), buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a")), p)
+		if !errors.Is(err, tc.is) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Export = %v, want an error containing %q", name, err, tc.want)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("%s: wrote %d files", name, len(entries))
+		}
+	}
+	// Without an asciicast output, the effects are not described.
+	p := Profile{Outputs: Files(filepath.Join(t.TempDir(), "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{describer{err: errEffect}}}
+	if err := Export(t.Context(), buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a")), p); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // TestContextValues checks that a value one effect stores is read by the
 // effects started after it.

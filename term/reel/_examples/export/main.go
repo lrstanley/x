@@ -7,6 +7,11 @@
 // ffmpeg can encode one, an asciicast file, and a still of the terminal at a
 // mark. The recordings open on a title card, show the keys typed, and end
 // on a pause badge.
+//
+// The asciicast file records those effects with the session. Pass --cast to
+// export an asciicast file instead, such as the one written before: its
+// recordings get the effects the file holds, and look the same as those of
+// the session it was written from.
 package main
 
 import (
@@ -26,13 +31,20 @@ import (
 
 // Flags are the command's flags.
 type Flags struct {
-	Dir string `name:"dir" type:"path" default:"." help:"Directory to write the files to."`
+	Dir  string `name:"dir" type:"path" default:"." help:"Directory to write the files to."`
+	Cast string `name:"cast" type:"existingfile" help:"Asciicast file to export, with the effects it holds, instead of recording the session."`
 }
 
 func main() {
 	cli := clix.NewWithDefaults[Flags]()
 	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
-		files, err := run(ctx, cli.Flags.Dir)
+		var files []string
+		var err error
+		if cli.Flags.Cast != "" {
+			files, err = runCast(ctx, cli.Flags.Dir, cli.Flags.Cast)
+		} else {
+			files, err = run(ctx, cli.Flags.Dir)
+		}
 		if err != nil {
 			return err
 		}
@@ -84,26 +96,61 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		}
 	}
 
-	files := []string{
-		filepath.Join(dir, "demo.gif"),
-		filepath.Join(dir, "demo.cast"),
-	}
-	if sink.CheckVideo(sink.FormatMP4) == nil {
-		files = append(files, filepath.Join(dir, "demo.mp4"))
-	} else {
-		fmt.Fprintln(os.Stderr, "skipping demo.mp4: ffmpeg cannot encode MP4 here")
-	}
+	files := recordings(dir, "demo")
 	outputs := append(reel.Files(files...), reel.File{
 		Path:  filepath.Join(dir, "demo-{mark}.png"),
 		Marks: []string{"built"},
 	})
-	err = reel.Export(ctx, s.Timeline(), reel.Profile{
-		Outputs: outputs,
-		Render:  []render.Option{render.WithWindowChrome(true)},
-		Effects: []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.Pause()},
-	})
-	if err != nil {
+	fx := []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.Pause()}
+	if err = reel.Export(ctx, s.Timeline(), profile(outputs, fx)); err != nil {
 		return nil, err
 	}
 	return append(files, filepath.Join(dir, "demo-built.png")), nil
+}
+
+// runCast exports the asciicast file at path into dir, with the effects it
+// holds, returning the paths written.
+func runCast(ctx context.Context, dir, path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	tl, err := reel.ReadTimeline(f)
+	if err != nil {
+		return nil, err
+	}
+	fx, err := effects.FromTimeline(tl)
+	if err != nil {
+		return nil, err
+	}
+	files := recordings(dir, "cast")
+	if err = reel.Export(ctx, tl, profile(reel.Files(files...), fx)); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// recordings returns the paths of the recordings named name in dir: a GIF,
+// an asciicast file, and an MP4 when ffmpeg can encode one.
+func recordings(dir, name string) []string {
+	files := []string{
+		filepath.Join(dir, name+".gif"),
+		filepath.Join(dir, name+".cast"),
+	}
+	if sink.CheckVideo(sink.FormatMP4) == nil {
+		files = append(files, filepath.Join(dir, name+".mp4"))
+	} else {
+		fmt.Fprintf(os.Stderr, "skipping %s.mp4: ffmpeg cannot encode MP4 here\n", name)
+	}
+	return files
+}
+
+// profile is the profile both exports use, with outputs and fx.
+func profile(outputs []reel.File, fx []reel.Effect) reel.Profile {
+	return reel.Profile{
+		Outputs: outputs,
+		Render:  []render.Option{render.WithWindowChrome(true)},
+		Effects: fx,
+	}
 }

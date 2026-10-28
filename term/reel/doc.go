@@ -37,12 +37,19 @@
 // timeline with [Timeline.Updated], and writes the files Export would. An
 // effect that hides secrets is a [Concealer], which runs before every other
 // effect, and on stills too, which skip the others but for a [StillEffect],
-// and makes asciicast outputs, the timeline as recorded, an error.
+// and makes asciicast outputs, the timeline as recorded, an error. An
+// asciicast output records the effects that describe themselves
+// ([Describer]) as [Annotation] events, which the effects package reads
+// back, so an export of the file can apply them again.
 //
 // Input is recorded as the exact bytes the terminal sent the program, encoded
 // in whatever keyboard and mouse modes the program had set.
 // [vt.DecodeInput] decodes them back into key names, typed text, pastes, and
-// mouse events.
+// mouse events. The terminal's replies to the program's queries, such as for
+// its device attributes or colors, are not input events, since replaying the
+// output makes the terminal reply again, but each query and its reply is
+// recorded as a [QueryKind] annotation, so a recording shows both
+// directions.
 //
 // The module is split into packages that can be used on their own:
 //

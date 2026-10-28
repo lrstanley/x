@@ -36,9 +36,12 @@ var _ io.ReadWriter = (*Session)(nil)
 //
 // Every change made through the session is appended to the timeline in the
 // order the terminal saw it, so replaying the timeline into a fresh terminal
-// reproduces it. Replies to the program's queries are not recorded, because
-// replaying its output produces them again. Changes made through
-// [Session.Terminal] are not recorded. Methods are safe for concurrent use.
+// reproduces it. The terminal's replies to the program's queries are not
+// recorded as input, because replaying its output produces them again, but
+// each query and its reply are recorded as a [QueryKind] annotation after
+// the output that held the query, unless the session was opened
+// [WithoutQueries]. Changes made through [Session.Terminal] are not
+// recorded. Methods are safe for concurrent use.
 type Session struct {
 	term     *vt.Terminal
 	timeline *Timeline
@@ -56,6 +59,8 @@ type Session struct {
 	// by mu.
 	pty     *pty.PTY
 	running bool
+	// queries is whether Write records the program's queries.
+	queries bool
 }
 
 // SessionOption configures [Open].
@@ -66,6 +71,7 @@ type sessionConfig struct {
 	vtOpts       []vt.Option
 	title        string
 	skipPristine bool
+	noQueries    bool
 }
 
 // WithRuntime opens the session's terminal from rt instead of the package's
@@ -99,6 +105,15 @@ func WithSkipPristine() SessionOption {
 	return func(cfg *sessionConfig) { cfg.skipPristine = true }
 }
 
+// WithoutQueries stops the session recording a [QueryKind] annotation for
+// each query the program writes, such as to keep the replies out of a
+// recording: a reply to a clipboard read holds the clipboard's text. A
+// query costs one small annotation, and programs write a few, mostly as they
+// start, so they are recorded by default.
+func WithoutQueries() SessionOption {
+	return func(cfg *sessionConfig) { cfg.noQueries = true }
+}
+
 // Open starts a session on a terminal of cols by rows cells. It blocks until
 // the terminal's pool has room or ctx is canceled. The session starts
 // focused. Close it to return the terminal to the pool.
@@ -118,7 +133,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		theme.Cursor = c
 	}
 	h := Header{Cols: cols, Rows: rows, Theme: theme, Title: cfg.title, SkipPristine: cfg.skipPristine}
-	s := &Session{term: term, timeline: newTimeline(h)}
+	s := &Session{term: term, timeline: newTimeline(h), queries: !cfg.noQueries}
 	s.focused.Store(true)
 	return s, nil
 }
@@ -144,17 +159,32 @@ func (s *Session) State() vt.State {
 }
 
 // Write feeds program output to the terminal, after appending it to the
-// timeline as an [Output] event. It never returns a short write.
+// timeline as an [Output] event, followed by a [QueryKind] annotation for
+// each query it holds. It never returns a short write.
 func (s *Session) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed.Load() {
 		return 0, ErrClosed
 	}
-	if len(p) > 0 {
-		s.timeline.append(Output{Data: bytes.Clone(p)})
+	if len(p) == 0 {
+		return s.term.Write(p)
 	}
-	return s.term.Write(p)
+	s.timeline.append(Output{Data: bytes.Clone(p)})
+	if !s.queries {
+		return s.term.Write(p)
+	}
+	replies, err := s.term.WriteReplies(p)
+	if err != nil {
+		return 0, err
+	}
+	for _, q := range queries(p, replies) {
+		// A query always makes a valid annotation.
+		if a, err := NewAnnotation(QueryKind, q); err == nil {
+			s.timeline.append(a)
+		}
+	}
+	return len(p), nil
 }
 
 // Read reads the program's input: what the session sent it, and the
@@ -326,6 +356,7 @@ func (s *Session) Annotate(a Annotation) error {
 	if _, err := a.marshal(); err != nil {
 		return err
 	}
+	a.Data = bytes.Clone(a.Data)
 	return s.change(func() (Event, error) { return a, nil })
 }
 

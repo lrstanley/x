@@ -56,6 +56,18 @@ import (
 // [ErrRawOutput]. A still of [File.Marks] runs through the Concealer and
 // [StillEffect] effects alone (see StillEffect).
 //
+// An asciicast output records the profile's effects instead: the
+// description of each effect that is a [Describer], in the profile's
+// order, as [Annotation] events at the start of the file, before the
+// timeline's events. They replace the timeline's annotations of
+// [EffectKind] and of the kinds the descriptions have, so the file holds
+// the effects of the profile it was written with, and a file exported again
+// with the effects read from it holds each once. An effect that is not a
+// Describer, or only wraps one, and one whose Describe returns an error
+// wrapping [errors.ErrUnsupported], is left out. Any other error, or a
+// description [AnnotationSchema] does not allow, is an error before
+// anything is written.
+//
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
 	tl = tl.fixed(tl.header, -1)
@@ -90,9 +102,12 @@ func Export(ctx context.Context, tl *Timeline, p Profile) error {
 // recorder writes a profile's outputs from the events of a timeline it is
 // given one at a time. Once created, it must be committed or aborted.
 type recorder struct {
-	s       settings
-	outs    *outputs
-	castHdr Header
+	s    settings
+	outs *outputs
+	// castHdr is the header of the asciicast outputs, and castEffects the
+	// descriptions of the effects they record.
+	castHdr     Header
+	castEffects []Annotation
 	// rast draws the frames, and closeRast closes it when the recorder
 	// built it.
 	rast      Rasterizer
@@ -155,6 +170,9 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if len(outs.casts) > 0 {
 		r.castHdr = tl.header
 		r.castHdr.Title = title
+		if r.castEffects, err = describeEffects(p.Effects); err != nil {
+			return nil, err
+		}
 		if p.Rasterizer == nil {
 			// The palette the frames are drawn with. A custom rasterizer
 			// keeps the timeline's.
@@ -241,6 +259,31 @@ func withoutNoMark(err error) error {
 		errs = j.Unwrap()
 	}
 	return errors.Join(slices.DeleteFunc(slices.Clone(errs), func(e error) bool { return errors.Is(e, ErrNoMark) })...)
+}
+
+// describeEffects returns the description of each effect that is a
+// [Describer], checked against [AnnotationSchema], leaving out those whose
+// Describe returns an error wrapping [errors.ErrUnsupported].
+func describeEffects(effects []Effect) ([]Annotation, error) {
+	var out []Annotation
+	for i, e := range effects {
+		d, ok := e.(Describer)
+		if !ok {
+			continue
+		}
+		a, err := d.Describe()
+		if err == nil {
+			_, err = a.marshal()
+		}
+		switch {
+		case errors.Is(err, errors.ErrUnsupported):
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("reel: effect %d (%T): %w", i, e, err)
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // startEffects starts each effect for a recording, leaving out those that
@@ -440,7 +483,7 @@ func (r *recorder) end(end time.Duration) error {
 func (r *recorder) commit(tl *Timeline) error {
 	// The terminal goes back first: writing a cut replays it.
 	err := errors.Join(r.outs.close(), r.release())
-	return errors.Join(err, r.outs.writeCasts(tl, r.castHdr))
+	return errors.Join(err, r.outs.writeCasts(tl, r.castHdr, r.castEffects))
 }
 
 func (r *recorder) abort() {

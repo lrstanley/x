@@ -245,10 +245,12 @@ func (o *outputs) discard() {
 	}
 }
 
-// writeCasts writes tl, with header h, to every asciicast output. A cut is
+// writeCasts writes tl, with header h, to every asciicast output, with
+// effects, the descriptions of the profile's effects, at its start, in place
+// of its annotations of [EffectKind] and of the kinds effects have. A cut is
 // replayed once for all of them. Each is written to a temporary file beside
 // it, renamed into place once complete.
-func (o *outputs) writeCasts(tl *Timeline, h Header) error {
+func (o *outputs) writeCasts(tl *Timeline, h Header, effects []Annotation) error {
 	if len(o.casts) == 0 {
 		return nil
 	}
@@ -259,6 +261,18 @@ func (o *outputs) writeCasts(tl *Timeline, h Header) error {
 			return err
 		}
 	}
+	kinds := map[string]bool{EffectKind: true}
+	events := make([]Event, 0, len(effects)+tl.Len())
+	for _, a := range effects {
+		kinds[a.Kind] = true
+		events = append(events, a.stamp(0))
+	}
+	for _, ev := range tl.snapshot() {
+		if a, ok := ev.(Annotation); !ok || !kinds[a.Kind] {
+			events = append(events, ev)
+		}
+	}
+	tl = &Timeline{header: tl.header, start: tl.started(), events: events, from: -1}
 	for _, c := range o.casts {
 		if err := writeCastFile(c.path, tl, c.version); err != nil {
 			return fmt.Errorf("reel: output %q: %w", c.path, err)

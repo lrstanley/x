@@ -99,11 +99,33 @@ type Animator interface {
 //
 // An effect that wraps another, such as to log it, should have an
 // Unwrap() Effect method that returns it, so a [Concealer] or
-// [StillEffect] it wraps is still found, as [errors.As] finds an error.
+// [StillEffect] it wraps is still found, as [errors.As] finds an error. A
+// [Describer] is not: the wrapper describes itself, or is not described.
 type Effect interface {
 	// Start returns the stage that runs the effect for one recording, or nil
 	// to leave the recording alone.
 	Start(ctx *Context) (Stage, error)
+}
+
+// EffectKind is the kind of the [Annotation] the effects package describes
+// its effects with (see [Describer]). [AnnotationSchema] describes its
+// fields.
+const EffectKind = "reel.effect"
+
+// Describer is implemented by an [Effect] that can describe itself as an
+// [Annotation], so an asciicast output records the effects of the profile
+// it was written with, and an export of the file can apply them again.
+// [Export] writes the description of each effect of a [Profile] that is a
+// Describer to every asciicast output (see Export). The effects package
+// describes its effects with annotations of kind [EffectKind], and reads
+// them back.
+type Describer interface {
+	Effect
+	// Describe returns the annotation that describes the effect, which
+	// [AnnotationSchema] must allow. An error wrapping
+	// [errors.ErrUnsupported] leaves the effect out, such as one built on a
+	// value of a caller's own that has no description.
+	Describe() (Annotation, error)
 }
 
 // Concealer is implemented by an [Effect] that hides part of what a

@@ -33,7 +33,8 @@ type Profile struct {
 	Encode []sink.Option
 	// Effects change the frames between the rasterizer and the frame
 	// outputs, in order. A [Concealer] must come before every effect that
-	// is not one.
+	// is not one. Asciicast outputs record those that describe themselves
+	// (see [Describer]).
 	Effects []Effect
 	// FPS sets the delay grid: every frame plays for a whole number of
 	// steps of 10ms × max(1, 100/FPS), the delays GIF can store. Zero is
@@ -60,8 +61,9 @@ type Profile struct {
 type File struct {
 	// Path is where the file is written, which may hold variables (see
 	// [Export]). Its extension picks the format: ".cast" for an asciicast
-	// file of the timeline, and otherwise one [sink.File] writes, such as
-	// ".gif" or ".mp4". Missing directories are created.
+	// file of the timeline, with the profile's effects as annotations (see
+	// Export), and otherwise one [sink.File] writes, such as ".gif" or
+	// ".mp4". Missing directories are created.
 	Path string
 	// Options are added to [Profile.Encode] for this output.
 	Options []sink.Option

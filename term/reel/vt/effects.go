@@ -67,12 +67,17 @@ func (t *Terminal) installCallbacks() error {
 
 // onWritePty is GhosttyTerminalWritePtyFn. data/n is the reply the
 // emulator wants written to the pty. The bytes are copied onto
-// [Terminal.Read] before the callback returns.
+// [Terminal.Read] before the callback returns, and while
+// [Terminal.WriteReplies] runs, onto what it returns.
 func (t *Terminal) onWritePty(_, _ int32, data, n int32) {
 	if n <= 0 || data == 0 || t.replies == nil {
 		return
 	}
-	t.replies.Write(append([]byte(nil), t.mod.Slice(data, int(n))...))
+	reply := append([]byte(nil), t.mod.Slice(data, int(n))...)
+	if t.capture {
+		t.captured = append(t.captured, reply...)
+	}
+	t.replies.Write(reply)
 }
 
 func (t *Terminal) onBell(_, _ int32) {

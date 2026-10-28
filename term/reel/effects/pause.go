@@ -79,7 +79,7 @@ func PauseAtMatch(d time.Duration, re *regexp.Regexp) PauseOption {
 	if re != nil {
 		match = re.MatchString
 	}
-	return func(p *pause) { p.points = append(p.points, pausePoint{d: d, match: match}) }
+	return func(p *pause) { p.points = append(p.points, pausePoint{d: d, match: match, re: re}) }
 }
 
 // WithBadgeCorner puts the badge in corner c of the terminal's cell grid,
@@ -167,12 +167,13 @@ type pause struct {
 
 // pausePoint is where [Pause] pauses, and for how long: at the end, or at
 // the marks whose labels match reports true for. labels are those it names,
-// which must be in the timeline.
+// which must be in the timeline, and re is the regexp of [PauseAtMatch].
 type pausePoint struct {
 	d      time.Duration
 	end    bool
 	match  func(label string) bool
 	labels []string
+	re     *regexp.Regexp
 }
 
 func (e pause) Start(ctx *reel.Context) (reel.Stage, error) {
