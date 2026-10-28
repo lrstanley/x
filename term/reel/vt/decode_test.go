@@ -11,6 +11,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
 
@@ -80,6 +81,8 @@ func TestDecodeEvents(t *testing.T) {
 		{"grapheme", "👍🏽", []any{Key{Text: "👍🏽"}}},
 		{"invalid utf-8", "\xff\x80a", []any{text('a', 0)}},
 		{"invalid utf-8 in a grapheme", "ꧣ\xea", []any{Key{Text: "ꧣ"}}},
+		{"cut-off utf-8 before text", "\xeab\xf0c", []any{text('b', 0), text('c', 0)}},
+		{"cut-off utf-8 in a grapheme", "ꧣ\xeab", []any{Key{Text: "ꧣ"}, text('b', 0)}},
 		{"controls", "\x00\x01\x08\t\n\r\x1d\x1f\x7f", []any{
 			key("SPACE", ModCtrl), key("A", ModCtrl), key("H", ModCtrl), key("TAB", 0),
 			key("J", ModCtrl), key("ENTER", 0), text(']', ModCtrl), text('_', ModCtrl), key("BACKSPACE", 0),
@@ -253,12 +256,25 @@ func FuzzDecodeInput(f *testing.F) {
 		"\x1b\x1b[A\x1b[2$\x1b]11;rgb:0/0/0\a\x9bB\x8fA\xff",
 		"\x1b[" + strings.Repeat("1;", 40) + "u",
 		"aé👍🏽\u0301\xc2\x85\xff\x1bb\x1b[97;;233:769u e\u0301",
+		"ꧣ\xeab\xf0c",
 	} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// The fast path for text decodes it as decoding each key does.
 		if got, want := DecodeInput(data), slowDecodeInput(data); !slices.Equal(got, want) {
+			t.Fatalf("DecodeInput(%q) =\n\t%#v\nwant\n\t%#v", data, got, want)
+		}
+		// Without control bytes, input is text, which loses only the bytes
+		// that are not UTF-8.
+		if slices.ContainsFunc(data, func(c byte) bool { return c < ' ' || c >= ansi.DEL && c <= 0x9f }) {
+			return
+		}
+		var want []Stroke
+		if text := strings.ToValidUTF8(string(data), ""); text != "" {
+			want = []Stroke{{Kind: StrokeText, Text: text}}
+		}
+		if got := DecodeInput(data); !slices.Equal(got, want) {
 			t.Fatalf("DecodeInput(%q) =\n\t%#v\nwant\n\t%#v", data, got, want)
 		}
 	})

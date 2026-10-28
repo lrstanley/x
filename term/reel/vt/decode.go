@@ -209,9 +209,13 @@ func decodeSeq(b []byte) (int, inputEvent) {
 	}
 	r, size := utf8.DecodeRune(seq)
 	switch {
-	case r == utf8.RuneError && size <= 1:
-		// A C1 control or string, or a byte that does not start UTF-8.
+	case r == utf8.RuneError && size <= 1 && seq[0] >= 0x80 && seq[0] <= 0x9f:
+		// A C1 control or string.
 		return n, inputEvent{}
+	case r == utf8.RuneError && size <= 1:
+		// A byte that does not start UTF-8. Grapheme clustering can take the
+		// bytes after it too, so they are decoded on their own.
+		return 1, inputEvent{}
 	case size == len(seq):
 		return n, keyEvent(RuneKey(r))
 	case utf8.Valid(seq):
