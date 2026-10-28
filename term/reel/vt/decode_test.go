@@ -9,9 +9,60 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
+
+// paste is a decoded paste, as [decodeAll] returns it.
+type paste string
+
+// decodeAll decodes data event by event, without [DecodeInput]'s fast path
+// for text, into each event's [Key], [MouseEvent], or [paste].
+func decodeAll(data []byte) []any {
+	var out []any
+	for b := data; len(b) > 0; {
+		n, ev := decodeEvent(b)
+		b = b[n:]
+		switch ev.kind {
+		case eventNone:
+		case eventKey:
+			out = append(out, ev.key)
+		case eventMouse:
+			out = append(out, ev.mouse)
+		case eventPaste:
+			out = append(out, paste(ev.paste))
+		}
+	}
+	return out
+}
+
+// slowDecodeInput is [DecodeInput] built on [decodeAll], which decodes text
+// one key at a time.
+func slowDecodeInput(data []byte) []Stroke {
+	var out []Stroke
+	for _, ev := range decodeAll(data) {
+		var s Stroke
+		switch ev := ev.(type) {
+		case Key:
+			if ev.Text != "" && ev.Mods&^ModShift == 0 {
+				if n := len(out); n > 0 && out[n-1].Kind == StrokeText {
+					out[n-1].Text += ev.Text
+					continue
+				}
+				s = Stroke{Kind: StrokeText, Text: ev.Text}
+			} else {
+				s = Stroke{Kind: StrokeKey, Key: ev.String()}
+			}
+		case MouseEvent:
+			s = Stroke{Kind: StrokeMouse, Mouse: ev}
+		case paste:
+			s = Stroke{Kind: StrokePaste, Text: string(ev)}
+		}
+		out = append(out, s)
+	}
+	return out
+}
 
 func TestDecodeEvents(t *testing.T) {
 	t.Parallel()
@@ -23,78 +74,82 @@ func TestDecodeEvents(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
-		want []inputEvent
+		want []any
 	}{
-		{"text", "aA é", []inputEvent{text('a', 0), text('A', 0), text(' ', 0), Key{Text: "é"}}},
-		{"grapheme", "👍🏽", []inputEvent{Key{Text: "👍🏽"}}},
-		{"invalid utf-8", "\xff\x80a", []inputEvent{text('a', 0)}},
-		{"controls", "\x00\x01\x08\t\n\r\x1d\x1f\x7f", []inputEvent{
+		{"text", "aA é", []any{text('a', 0), text('A', 0), text(' ', 0), Key{Text: "é"}}},
+		{"grapheme", "👍🏽", []any{Key{Text: "👍🏽"}}},
+		{"invalid utf-8", "\xff\x80a", []any{text('a', 0)}},
+		{"invalid utf-8 in a grapheme", "ꧣ\xea", []any{Key{Text: "ꧣ"}}},
+		{"controls", "\x00\x01\x08\t\n\r\x1d\x1f\x7f", []any{
 			key("SPACE", ModCtrl), key("A", ModCtrl), key("H", ModCtrl), key("TAB", 0),
 			key("J", ModCtrl), key("ENTER", 0), text(']', ModCtrl), text('_', ModCtrl), key("BACKSPACE", 0),
 		}},
-		{"escape", "\x1b", []inputEvent{key("ESCAPE", 0)}},
-		{"alt escape", "\x1b\x1b", []inputEvent{key("ESCAPE", ModAlt)}},
-		{"alt text", "\x1ba\x1bA\x1b\r\x1b\x7f", []inputEvent{
+		{"escape", "\x1b", []any{key("ESCAPE", 0)}},
+		{"alt escape", "\x1b\x1b", []any{key("ESCAPE", ModAlt)}},
+		{"alt text", "\x1ba\x1bA\x1b\r\x1b\x7f", []any{
 			text('a', ModAlt), text('A', ModAlt), key("ENTER", ModAlt), key("BACKSPACE", ModAlt),
 		}},
-		{"alt introducer", "\x1b[", []inputEvent{text('[', ModAlt)}},
-		{"alt ss3 introducer", "\x1bO", []inputEvent{text('O', ModAlt)}},
-		{"alt csi key", "\x1b\x1b[A", []inputEvent{key("ARROW_UP", ModAlt)}},
-		{"csi keys", "\x1b[A\x1b[1;5A\x1b[1;3D\x1b[1;9B\x1b[Z\x1b[H\x1b[F\x1b[E", []inputEvent{
+		{"alt introducer", "\x1b[", []any{text('[', ModAlt)}},
+		{"alt ss3 introducer", "\x1bO", []any{text('O', ModAlt)}},
+		{"alt csi key", "\x1b\x1b[A", []any{key("ARROW_UP", ModAlt)}},
+		{"csi keys", "\x1b[A\x1b[1;5A\x1b[1;3D\x1b[1;9B\x1b[Z\x1b[H\x1b[F\x1b[E", []any{
 			key("ARROW_UP", 0), key("ARROW_UP", ModCtrl), key("ARROW_LEFT", ModAlt), key("ARROW_DOWN", ModSuper),
 			key("TAB", ModShift), key("HOME", 0), key("END", 0), key("NUMPAD_BEGIN", 0),
 		}},
-		{"tilde keys", "\x1b[3~\x1b[5;2~\x1b[15~\x1b[24~\x1b[34~\x1b[1~\x1b[4~", []inputEvent{
+		{"tilde keys", "\x1b[3~\x1b[5;2~\x1b[15~\x1b[24~\x1b[34~\x1b[1~\x1b[4~", []any{
 			key("DELETE", 0), key("PAGE_UP", ModShift), key("F5", 0), key("F12", 0), key("F20", 0),
 			key("HOME", 0), key("END", 0),
 		}},
-		{"f3 and cursor reports", "\x1b[R\x1b[12;40R\x1b[1;5R", []inputEvent{key("F3", 0)}},
-		{"ss3 keys", "\x1bOA\x1bOP\x1bO5P\x1bOM\x1bOp\x1bOk", []inputEvent{
+		{"f3 and cursor reports", "\x1b[R\x1b[12;40R\x1b[1;5R", []any{key("F3", 0)}},
+		{"ss3 keys", "\x1bOA\x1bOP\x1bO5P\x1bOM\x1bOp\x1bOk", []any{
 			key("ARROW_UP", 0), key("F1", 0), key("F1", ModCtrl), key("ENTER", 0), text('0', 0), text('+', 0),
 		}},
-		{"8-bit introducers", "\x9bB\x8fA", []inputEvent{key("ARROW_DOWN", 0), key("ARROW_UP", 0)}},
-		{"urxvt keys", "\x1b[a\x1bOa\x1b[2$\x1b[3^\x1b[5@", []inputEvent{
+		{"8-bit introducers", "\x9bB\x8fA", []any{key("ARROW_DOWN", 0), key("ARROW_UP", 0)}},
+		{"urxvt keys", "\x1b[a\x1bOa\x1b[2$\x1b[3^\x1b[5@", []any{
 			key("ARROW_UP", ModShift), key("ARROW_UP", ModCtrl), key("INSERT", ModShift),
 			key("DELETE", ModCtrl), key("PAGE_UP", ModCtrl|ModShift),
 		}},
-		{"modify other keys", "\x1b[27;5;105~\x1b[27;2;65~\x1b[27;5;13~", []inputEvent{
+		{"modify other keys", "\x1b[27;5;105~\x1b[27;2;65~\x1b[27;5;13~", []any{
 			key("I", ModCtrl), text('A', 0), key("ENTER", ModCtrl),
 		}},
-		{"kitty keys", "\x1b[99;5u\x1b[97;;97u\x1b[97:65;2;65u\x1b[97;6u\x1b[13u\x1b[127;3u\x1b[233u", []inputEvent{
+		{"kitty keys", "\x1b[99;5u\x1b[97;;97u\x1b[97:65;2;65u\x1b[97;6u\x1b[13u\x1b[127;3u\x1b[233u", []any{
 			key("C", ModCtrl), text('a', 0), text('A', 0), key("A", ModCtrl|ModShift), key("ENTER", 0),
 			key("BACKSPACE", ModAlt),
 			Key{Text: "é"},
 		}},
-		{"kitty functional keys", "\x1b[57441;2u\x1b[57399u\x1b[57414u\x1b[57376u\x1b[57427~", []inputEvent{
+		{"kitty functional keys", "\x1b[57441;2u\x1b[57399u\x1b[57414u\x1b[57376u\x1b[57427~", []any{
 			key("SHIFT_LEFT", ModShift), text('0', 0), key("ENTER", 0), key("F13", 0), key("NUMPAD_BEGIN", 0),
 		}},
-		{"kitty events", "\x1b[97;1:3u\x1b[97;1:2u\x1b[1;5:3A\x1b[97;129u", []inputEvent{text('a', 0), text('a', 0)}},
+		{"kitty events", "\x1b[97;1:3u\x1b[97;1:2u\x1b[1;5:3A\x1b[97;129u", []any{text('a', 0), text('a', 0)}},
 		{"kitty unknown keys", "\x1b[57390u\x1b[57445u", nil},
-		{"kitty shifted non-us letter", "\x1b[233;2u", []inputEvent{Key{Text: "É", Mods: ModShift}}},
-		{"kitty no-break space", "\x1b[160u", []inputEvent{Key{Text: "\u00a0"}}},
-		{"high function keys", "\x1b[42~\x1b[46;5~", []inputEvent{key("F21", 0), key("F25", ModCtrl)}},
-		{"urxvt shift then text", "\x1b[2$xy", []inputEvent{key("INSERT", ModShift), text('x', 0), text('y', 0)}},
-		{"replacement character", "\ufffd", []inputEvent{Key{Text: "\ufffd"}}},
-		{"sgr mouse", "\x1b[<0;4;3M\x1b[<0;4;3m\x1b[<1;4;3M\x1b[<2;4;3M\x1b[<32;4;3M\x1b[<35;4;3M\x1b[<64;4;3M\x1b[<65;4;3m\x1b[<128;4;3M", []inputEvent{
+		{"kitty shifted non-us letter", "\x1b[233;2u", []any{Key{Text: "É", Mods: ModShift}}},
+		{"kitty no-break space", "\x1b[160u", []any{Key{Text: "\u00a0"}}},
+		{"high function keys", "\x1b[42~\x1b[46;5~", []any{key("F21", 0), key("F25", ModCtrl)}},
+		{"urxvt shift then text", "\x1b[2$xy", []any{key("INSERT", ModShift), text('x', 0), text('y', 0)}},
+		{"replacement character", "\ufffd", []any{Key{Text: "\ufffd"}}},
+		{"sgr mouse", "\x1b[<0;4;3M\x1b[<0;4;3m\x1b[<1;4;3M\x1b[<2;4;3M\x1b[<32;4;3M\x1b[<35;4;3M\x1b[<64;4;3M\x1b[<65;4;3m\x1b[<128;4;3M", []any{
 			mouse(MousePress, MouseLeft), mouse(MouseRelease, MouseLeft), mouse(MousePress, MouseMiddle),
 			mouse(MousePress, MouseRight), mouse(MouseMotion, MouseLeft), mouse(MouseMotion, MouseUnknown),
 			mouse(MousePress, MouseWheelUp), mouse(MousePress, MouseWheelDown), mouse(MousePress, MouseBackward),
 		}},
-		{"x10 mouse", "\x1b[M $#\x1b[M#$#", []inputEvent{mouse(MousePress, MouseLeft), mouse(MouseRelease, MouseUnknown)}},
+		{"x10 mouse", "\x1b[M $#\x1b[M#$#", []any{mouse(MousePress, MouseLeft), mouse(MouseRelease, MouseUnknown)}},
 		{"x10 mouse cut off", "\x1b[M ", nil},
-		{"urxvt mouse", "\x1b[32;4;3M", []inputEvent{mouse(MousePress, MouseLeft)}},
-		{"paste", "\x1b[200~hi\nthere\x1b[201~x", []inputEvent{paste("hi\nthere"), text('x', 0)}},
-		{"paste cut off", "\x1b[200~part", []inputEvent{paste("part")}},
+		{"urxvt mouse", "\x1b[32;4;3M", []any{mouse(MousePress, MouseLeft)}},
+		{"paste", "\x1b[200~hi\nthere\x1b[201~x", []any{paste("hi\nthere"), text('x', 0)}},
+		{"paste cut off", "\x1b[200~part", []any{paste("part")}},
 		{"skipped", "\x1b[I\x1b[O\x1b]11;rgb:0/0/0\a\x1bP>|ghostty\x1b\\\x1b[?62;22c\x1b_Gi=1;OK\x1b\\\x1b[?1u", nil},
 		{"many params", "\x1b[" + strings.Repeat(";", 100) + "u\x1b[" + strings.Repeat("9", 100) + "u", nil},
-		{"kitty release then text", "\x1b[97;1:3ub", []inputEvent{text('b', 0)}},
+		{"kitty release then text", "\x1b[97;1:3ub", []any{text('b', 0)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := slices.Collect(decodeEvents([]byte(tt.in)))
+			got := decodeAll([]byte(tt.in))
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("decodeEvents(%q) =\n\t%#v\nwant\n\t%#v", tt.in, got, tt.want)
+				t.Errorf("decodeAll(%q) =\n\t%#v\nwant\n\t%#v", tt.in, got, tt.want)
+			}
+			if got, want := DecodeInput([]byte(tt.in)), slowDecodeInput([]byte(tt.in)); !slices.Equal(got, want) {
+				t.Errorf("DecodeInput(%q) =\n\t%#v\nwant\n\t%#v", tt.in, got, want)
 			}
 		})
 	}
@@ -129,7 +184,7 @@ func TestDecodeInputInvertsEncodeKey(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				got := slices.Collect(decodeEvents(data))
+				got := decodeAll(data)
 				if len(got) != 1 || got[0] != key {
 					t.Errorf("%q encodes to %q, which decodes to %#v, want %#v", name, data, got, key)
 				}
@@ -164,7 +219,7 @@ func TestDecodeInputInvertsKittyKeys(t *testing.T) {
 			if len(data) == 0 {
 				continue // A key the encoder has no encoding for, such as mute.
 			}
-			if got := slices.Collect(decodeEvents(data)); len(got) != 1 || got[0] != key {
+			if got := decodeAll(data); len(got) != 1 || got[0] != key {
 				t.Errorf("%q encodes to %q, which decodes to %#v, want %#v", mods+name, data, got, key)
 			}
 		}
@@ -177,9 +232,11 @@ func TestDecodeTablesUseGhosttyKeys(t *testing.T) {
 	codes := slices.Collect(maps.Keys(keyNames))
 	codes = slices.AppendSeq(codes, maps.Values(tildeKeys))
 	codes = slices.AppendSeq(codes, maps.Keys(usKeys))
-	for _, table := range []map[byte]Key{csiKeys, ss3Keys} {
+	for _, table := range [][utf8.RuneSelf]Key{csiKeys, ss3Keys, asciiKeys} {
 		for _, key := range table {
-			codes = append(codes, key.Code)
+			if key.Code != "" {
+				codes = append(codes, key.Code)
+			}
 		}
 	}
 	for _, key := range kittyCodes {
@@ -195,14 +252,33 @@ func FuzzDecodeInput(f *testing.F) {
 		"a\x1b[1;5A\x1bOP\x1b[97:65;2;65u\x1b[<0;4;3M\x1b[M $#\x1b[200~x\x1b[201~",
 		"\x1b\x1b[A\x1b[2$\x1b]11;rgb:0/0/0\a\x9bB\x8fA\xff",
 		"\x1b[" + strings.Repeat("1;", 40) + "u",
+		"aé👍🏽\u0301\xc2\x85\xff\x1bb\x1b[97;;233:769u e\u0301",
 	} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		for _, s := range DecodeInput(data) {
-			if s.Kind == 0 {
-				t.Fatalf("stroke with no kind: %#v", s)
-			}
+		// The fast path for text decodes it as decoding each key does.
+		if got, want := DecodeInput(data), slowDecodeInput(data); !slices.Equal(got, want) {
+			t.Fatalf("DecodeInput(%q) =\n\t%#v\nwant\n\t%#v", data, got, want)
 		}
 	})
+}
+
+func BenchmarkDecodeInput(b *testing.B) {
+	for _, bench := range []struct{ name, unit string }{
+		{"text", "hello world "},
+		{"utf-8", "👍🏽 é ü 日本 "},
+		{"legacy keys", "\x1b[A\x1b[1;5C\x1bOP\x1b[3~\r\x7f\x1bx"},
+		{"kitty keys", "\x1b[97;5u\x1b[13u\x1b[57441;2u\x1b[97:65;2;65u"},
+		{"mouse", "\x1b[<0;40;12M\x1b[<32;41;12M\x1b[<0;41;12m"},
+	} {
+		data := []byte(strings.Repeat(bench.unit, 64<<10/len(bench.unit)))
+		b.Run(bench.name, func(b *testing.B) {
+			b.SetBytes(int64(len(data)))
+			b.ReportAllocs()
+			for b.Loop() {
+				DecodeInput(data)
+			}
+		})
+	}
 }

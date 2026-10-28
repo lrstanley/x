@@ -111,15 +111,22 @@ var usKeys = func() map[string][2]rune {
 	return keys
 }()
 
-// usRunes maps each character in [usKeys] to the key that types it and
-// whether shift is held.
-var usRunes = func() map[rune]Key {
-	runes := make(map[rune]Key, 2*len(usKeys))
-	for code, chars := range usKeys {
-		runes[chars[1]] = Key{Code: code, Mods: ModShift}
-		runes[chars[0]] = Key{Code: code}
+// asciiKeys holds [RuneKey] for each ASCII character: the key in [usKeys]
+// that types it, with shift held for a shifted character.
+var asciiKeys = func() (keys [utf8.RuneSelf]Key) {
+	const chars = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f" +
+		"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f" +
+		" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f"
+	for i := range keys {
+		// Slicing a constant shares its bytes, so decoding text does not
+		// allocate a string per character.
+		keys[i].Text = chars[i : i+1]
 	}
-	return runes
+	for code, shifted := range usKeys {
+		keys[shifted[1]].Code, keys[shifted[1]].Mods = code, ModShift
+		keys[shifted[0]].Code, keys[shifted[0]].Mods = code, 0
+	}
+	return keys
 }()
 
 // RuneKey returns the key press that types r on a US layout: the key, with
@@ -127,9 +134,10 @@ var usRunes = func() map[rune]Key {
 // types, such as "é" or a control character, has no code, so the encoder
 // sends its text as is.
 func RuneKey(r rune) Key {
-	key := usRunes[r]
-	key.Text = string(r)
-	return key
+	if r >= 0 && r < utf8.RuneSelf {
+		return asciiKeys[r]
+	}
+	return Key{Text: string(r)}
 }
 
 // runeKey is the press of the key that types r, with mods held. Shift turns
@@ -137,7 +145,7 @@ func RuneKey(r rune) Key {
 // key on a US layout types.
 func runeKey(r rune, mods Mods) Key {
 	if mods&ModShift != 0 {
-		if chars, ok := usKeys[usRunes[r].Code]; ok {
+		if chars, ok := usKeys[RuneKey(r).Code]; ok {
 			r = chars[1]
 		} else {
 			r = unicode.ToUpper(r)
@@ -232,15 +240,19 @@ func (k Key) String() string {
 		case !us:
 			name = strings.ToLower(k.Code)
 		case unicode.IsLetter(chars[0]):
-			name = string(chars[0])
+			name = RuneKey(chars[0]).Text
 		case mods&ModShift != 0:
-			name = string(chars[1])
+			name = RuneKey(chars[1]).Text
 			mods &^= ModShift
 		default:
-			name = string(chars[0])
+			name = RuneKey(chars[0]).Text
 		}
 	}
+	if mods == 0 {
+		return name
+	}
 	var sb strings.Builder
+	sb.Grow(len("ctrl+alt+shift+super+") + len(name))
 	for _, m := range modNames {
 		if mods&m.mod != 0 {
 			sb.WriteString(m.name)
