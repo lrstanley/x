@@ -206,7 +206,6 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 			Render:     opts,
 			Step:       r.s.step,
 			Speed:      r.s.speed,
-			Hold:       r.s.hold,
 			Title:      title,
 			Meta:       p.Meta,
 		}
@@ -214,9 +213,7 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 	if r.outs.hasStills() {
 		r.replay.mark = r.still
 		if fx := stillEffects(p.Effects); len(fx) > 0 {
-			// A still plays for no longer than its step.
 			ctx := newContext()
-			ctx.Hold = 0
 			r.stills = &stillChain{ctx: ctx, span: time.Duration(float64(r.s.step) * r.s.speed)}
 			if r.stills.stages, err = startEffects(fx, ctx); err != nil {
 				return err

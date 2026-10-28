@@ -90,7 +90,7 @@ func (o Timing) applyZoom(z *zoom) {
 // from the cells, over whatever effects before Zoom drew on it, so list Zoom
 // before effects that draw on the frame, such as [Highlight], and before
 // those whose overlays should keep their size and place, such as [Keys] and
-// [PauseBadge]. A nil region is an error from Start.
+// [Pause]. A nil region is an error from Start.
 func Zoom(region Region, opts ...ZoomOption) reel.Effect {
 	z := zoom{region: region, ax: 0.5, ay: 0.5}
 	for _, opt := range opts {

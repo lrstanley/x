@@ -64,7 +64,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 			),
 			// After the zoom, so the keys keep their size and place.
 			effects.Keys(time.Second),
-			effects.PauseBadge(),
+			effects.Pause(),
 		},
 	})
 	if err != nil {

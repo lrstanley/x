@@ -56,7 +56,7 @@
 //     and animated WebP.
 //   - effects has [Effect] values: an overlay of the keys pressed, a title
 //     card before the first frame, drawn with a card renderer that effects
-//     of a caller's own can use too, a pause badge on the held last frame,
+//     of a caller's own can use too, pauses at the end or at marks,
 //     a highlight of cells, and a zoom on them, drawn sharp, found by
 //     position or by the text they show, between two marks, and redaction
 //     of secrets, from the screen and from the keys shown.

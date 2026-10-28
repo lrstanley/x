@@ -6,13 +6,17 @@ package effects
 
 import (
 	"bytes"
+	"cmp"
+	"errors"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/gif"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,35 +43,64 @@ func redraw(f reel.Frame) *image.NRGBA {
 	return img
 }
 
-// TestPauseBadge checks that the badge is drawn on a copy of the last
-// frame, in its corner, and that the frames before it are left alone.
-func TestPauseBadge(t *testing.T) {
+// pauseFrames runs frames through a stage of e, started on a context with a
+// timeline of events at speed, and returns what it emits.
+func pauseFrames(t *testing.T, e reel.Effect, speed float64, in []reel.Frame, events ...event) []reel.Frame {
+	t.Helper()
+	ctx := &reel.Context{
+		Timeline:   buildTimeline(t, 40, 10, "", events...),
+		Rasterizer: testutil.Rasterizer{},
+		Layout:     testutil.Rasterizer{}.Layout(40, 10),
+		Step:       10 * ms,
+		Speed:      speed,
+	}
+	stage, err := e.Start(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []reel.Frame
+	for i, f := range in {
+		f.First, f.Last = i == 0, i == len(in)-1
+		stage(f, func(f reel.Frame) { out = append(out, f) })
+	}
+	return out
+}
+
+// TestPause checks that by default the last frame is followed by a badged
+// copy of it, paused for a second, and the frames before are left alone.
+func TestPause(t *testing.T) {
 	t.Parallel()
 	var in []reel.Frame
 	out := exportFrames(t, badgeTimeline(t), reel.Profile{
-		Effects: []reel.Effect{recordFrames{&in}, PauseBadge(WithBadgeSize(8))},
+		Effects: []reel.Effect{recordFrames{&in}, Pause(WithBadgeSize(8))},
 	})
-	if len(in) < 2 || len(out) != len(in) {
-		t.Fatalf("%d frames in, %d out, want the same frames", len(in), len(out))
+	if len(in) < 2 || len(out) != len(in)+1 {
+		t.Fatalf("%d frames in, %d out, want a pause after them", len(in), len(out))
 	}
-	for i, f := range out[:len(out)-1] {
-		if f.Image != in[i].Image || f.Delay != in[i].Delay {
+	for i, f := range out[:len(in)] {
+		if f.Image != in[i].Image || f.Delay != in[i].Delay || f.Paused {
 			t.Errorf("frame %d changed", i)
 		}
 	}
-	last, src := out[len(out)-1], in[len(in)-1]
-	if last.Image == src.Image || last.Delay != src.Delay {
-		t.Fatal("the last frame was not redrawn on a copy")
+	paused, src := out[len(out)-1], in[len(in)-1]
+	if !paused.Paused || paused.Delay != time.Second || paused.Cells != src.Cells {
+		t.Fatalf("pause = %+v, want a paused second of the last frame", paused)
+	}
+	if want := src.At + src.Delay; paused.At != want {
+		t.Errorf("pause at %v, want the end of the last frame, %v", paused.At, want)
+	}
+	if paused.Image == src.Image {
+		t.Fatal("the pause was not drawn on a copy")
 	}
 	plain := redraw(src)
 	if !bytes.Equal(src.Image.Pix, plain.Pix) {
 		t.Error("the badge was drawn on the last frame's own image")
 	}
 	var changed bool
-	b := last.Image.Bounds()
+	b := paused.Image.Bounds()
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
-			same := last.Image.NRGBAAt(x, y) == plain.NRGBAAt(x, y)
+			same := paused.Image.NRGBAAt(x, y) == plain.NRGBAAt(x, y)
 			if inBadge := image.Pt(x, y).In(badgeRect); !inBadge && !same {
 				t.Errorf("pixel (%d, %d) outside the badge changed", x, y)
 			} else if inBadge && !same {
@@ -77,6 +110,268 @@ func TestPauseBadge(t *testing.T) {
 	}
 	if !changed {
 		t.Errorf("no pixel in %v changed", badgeRect)
+	}
+}
+
+// TestPauseNone checks that without Pause the last frame plays for a single
+// step, with nothing after it.
+func TestPauseNone(t *testing.T) {
+	t.Parallel()
+	out := exportFrames(t, badgeTimeline(t), reel.Profile{FPS: 100})
+	if last := out[len(out)-1]; last.Paused || last.Delay != 200*ms {
+		t.Errorf("last frame = %v paused %v, want 200ms to the end mark", last.Delay, last.Paused)
+	}
+}
+
+// TestPauseCard checks that the end pause follows the last terminal frame,
+// before a card that ends the recording, whichever is listed first, and
+// that the card gets no badge.
+func TestPauseCard(t *testing.T) {
+	t.Parallel()
+	want := image.NewNRGBA(image.Rect(0, 0, 40, 10))
+	draw.Draw(want, want.Rect, image.NewUniform(outroColor), image.Point{}, draw.Src)
+	for _, tc := range []struct {
+		name    string
+		effects []reel.Effect
+	}{
+		{"card first", []reel.Effect{outroEffect{}, Pause(WithBadgeSize(8))}},
+		{"pause first", []reel.Effect{Pause(WithBadgeSize(8)), outroEffect{}}},
+	} {
+		out := exportFrames(t, badgeTimeline(t), reel.Profile{Effects: tc.effects})
+		n := len(out)
+		if n < 3 || !out[n-2].Paused || out[n-2].Cells == nil {
+			t.Fatalf("%s: frame before the card is not the pause", tc.name)
+		}
+		card := out[n-1]
+		if card.Cells != nil || card.Paused || !bytes.Equal(card.Image.Pix, want.Pix) {
+			t.Errorf("%s: the card changed", tc.name)
+		}
+	}
+}
+
+// TestPauseMerge checks that the GIF still merges the frames that look
+// the same before the pause.
+func TestPauseMerge(t *testing.T) {
+	t.Parallel()
+	tl := badgeTimeline(t)
+	for _, tc := range []struct {
+		name    string
+		effects []reel.Effect
+		delays  []int
+	}{
+		{"none", nil, []int{40}},
+		{"pause", []reel.Effect{Pause(WithBadgeSize(8))}, []int{40, 100}},
+		{"no badge", []reel.Effect{Pause(WithoutBadge())}, []int{140}},
+	} {
+		path := filepath.Join(t.TempDir(), "out.gif")
+		err := reel.Export(t.Context(), tl, reel.Profile{
+			Outputs:    reel.Files(path),
+			Rasterizer: blankRasterizer{},
+			Effects:    tc.effects,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := gif.DecodeAll(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(g.Delay, tc.delays) {
+			t.Errorf("%s: GIF delays %v, want %v", tc.name, g.Delay, tc.delays)
+		}
+	}
+}
+
+// wantFrame is a frame [TestPauseMarks] expects: its offset, delay, and
+// whether it is paused.
+type wantFrame struct {
+	at, delay time.Duration
+	paused    bool
+}
+
+func framesOf(out []reel.Frame) []wantFrame {
+	got := make([]wantFrame, len(out))
+	for i, f := range out {
+		got[i] = wantFrame{f.At, f.Delay, f.Paused}
+	}
+	return got
+}
+
+// TestPauseMarks checks the pause points at marks: each splits the frame
+// that shows its mark on the delay grid, pauses that share a step play as
+// one, for the longest, and the end pause follows the last frame.
+func TestPauseMarks(t *testing.T) {
+	t.Parallel()
+	in := []reel.Frame{
+		{At: 0, Delay: 300 * ms},
+		{At: 300 * ms, Delay: 200 * ms},
+	}
+	events := []event{
+		output(0, "a"), mark(100, "one"), mark(104, "two"), mark(300, "three"),
+		mark(420, "x1"), mark(500, "end"),
+	}
+	for _, tc := range []struct {
+		name  string
+		opts  []PauseOption
+		speed float64
+		want  []wantFrame
+	}{
+		{
+			name: "named and longest",
+			opts: []PauseOption{PauseAtMarks(200*ms, "one", "two"), PauseAtMarks(500*ms, "two")},
+			want: []wantFrame{
+				{0, 100 * ms, false},
+				{100 * ms, 500 * ms, true},
+				{100 * ms, 200 * ms, false},
+				{300 * ms, 200 * ms, false},
+			},
+		},
+		{
+			name: "every mark and end",
+			opts: []PauseOption{PauseAtMarks(50 * ms), PauseAtEnd(time.Second)},
+			want: []wantFrame{
+				{0, 100 * ms, false},
+				{100 * ms, 50 * ms, true},
+				{100 * ms, 200 * ms, false},
+				{300 * ms, 50 * ms, true},
+				{300 * ms, 120 * ms, false},
+				{420 * ms, 50 * ms, true},
+				{420 * ms, 80 * ms, false},
+				{500 * ms, time.Second, true},
+			},
+		},
+		{
+			name: "match",
+			opts: []PauseOption{PauseAtMatch(70*ms, regexp.MustCompile(`^x`))},
+			want: []wantFrame{
+				{0, 300 * ms, false},
+				{300 * ms, 120 * ms, false},
+				{420 * ms, 70 * ms, true},
+				{420 * ms, 80 * ms, false},
+			},
+		},
+		{
+			// The speed scales the timeline, but not the pauses.
+			name:  "speed",
+			opts:  []PauseOption{PauseAtMarks(200*ms, "one")},
+			speed: 2,
+			want: []wantFrame{
+				{0, 50 * ms, false},
+				{100 * ms, 200 * ms, true},
+				{100 * ms, 250 * ms, false},
+				{300 * ms, 200 * ms, false},
+			},
+		},
+	} {
+		frames := slices.Clone(in)
+		for i := range frames {
+			frames[i].Image = image.NewNRGBA(image.Rect(0, 0, 40, 10))
+			frames[i].Cells = cellsOf(40, 10, "")
+		}
+		speed := cmp.Or(tc.speed, 1)
+		out := pauseFrames(t, Pause(append(tc.opts, WithoutBadge())...), speed, frames, events...)
+		if got := framesOf(out); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: frames\n%v\nwant\n%v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestPauseShared checks that the pauses of one frame share a badged copy
+// of its image.
+func TestPauseShared(t *testing.T) {
+	t.Parallel()
+	f := reel.Frame{Image: image.NewNRGBA(image.Rect(0, 0, 40, 10)), Cells: cellsOf(40, 10, ""), Delay: 300 * ms}
+	out := pauseFrames(t, Pause(PauseAtMarks(100*ms), PauseAtEnd(time.Second), WithBadgeSize(8)), 1, []reel.Frame{f},
+		output(0, "a"), mark(100, "a"), mark(200, "b"))
+	var badged []*image.NRGBA
+	for _, f := range out {
+		if f.Paused {
+			badged = append(badged, f.Image)
+		} else if f.Image != out[0].Image {
+			t.Error("a frame between pauses got the badge")
+		}
+	}
+	if len(badged) != 3 || badged[0] == f.Image || badged[1] != badged[0] || badged[2] != badged[0] {
+		t.Errorf("%d pauses, want 3 sharing one badged copy", len(badged))
+	}
+}
+
+// TestPauseKeys checks that [Keys] listed after Pause leaves a paused frame
+// whole, with the keys as they were when it started, and with Keys before
+// it, the pause copies the overlay of the frame it pauses.
+func TestPauseKeys(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 40, 10, "", output(0, "a"), input(300, "x"), output(300, "x"), mark(350, "here"), mark(500, "end"))
+	for _, tc := range []struct {
+		name    string
+		effects []reel.Effect
+	}{
+		{"keys after", []reel.Effect{Pause(PauseAtMarks(time.Second, "here"), PauseAtEnd(time.Second)), Keys(time.Second)}},
+		{"keys before", []reel.Effect{Keys(time.Second), Pause(PauseAtMarks(time.Second, "here"), PauseAtEnd(time.Second))}},
+	} {
+		out := exportFrames(t, tl, reel.Profile{Effects: tc.effects})
+		var pauses []reel.Frame
+		for _, f := range out {
+			if f.Paused {
+				pauses = append(pauses, f)
+			}
+		}
+		if len(pauses) != 2 || pauses[0].Delay != time.Second || pauses[1].Delay != time.Second {
+			t.Fatalf("%s: %d pauses, want two of a second", tc.name, len(pauses))
+		}
+		if pauses[0].At != 350*ms {
+			t.Errorf("%s: pause at %v, want 350ms", tc.name, pauses[0].At)
+		}
+		if bytes.Equal(pauses[0].Image.Pix, redraw(pauses[0]).Pix) {
+			t.Errorf("%s: the pause at the mark has no overlay or badge", tc.name)
+		}
+		if total := totalDelay(out); total != 2500*ms {
+			t.Errorf("%s: plays for %v, want the timeline and both pauses, 2.5s", tc.name, total)
+		}
+	}
+}
+
+// TestPauseNoMark checks that a named mark missing from the timeline is an
+// error from Start, and that matching every mark or a regexp is not.
+func TestPauseNoMark(t *testing.T) {
+	t.Parallel()
+	tl := badgeTimeline(t)
+	p := reel.Profile{Outputs: reel.Files(filepath.Join(t.TempDir(), "out.gif")), Rasterizer: testutil.Rasterizer{}}
+	p.Effects = []reel.Effect{Pause(PauseAtMarks(time.Second, "end", "nope"))}
+	if err := reel.Export(t.Context(), tl, p); !errors.Is(err, reel.ErrNoMark) || !strings.Contains(err.Error(), `"nope"`) {
+		t.Errorf("Export = %v, want ErrNoMark for nope", err)
+	}
+	p.Effects = []reel.Effect{Pause(PauseAtMarks(time.Second), PauseAtMatch(time.Second, regexp.MustCompile("nope")))}
+	if err := reel.Export(t.Context(), tl, p); err != nil {
+		t.Errorf("Export = %v", err)
+	}
+}
+
+// TestPauseStart checks the options Start rejects.
+func TestPauseStart(t *testing.T) {
+	t.Parallel()
+	ctx := &reel.Context{
+		Timeline:   badgeTimeline(t),
+		Rasterizer: testutil.Rasterizer{},
+		Layout:     testutil.Rasterizer{}.Layout(40, 10),
+	}
+	for i, opt := range []PauseOption{
+		WithBadgeSize(-1), WithBadgeSize(7), WithBadgeCorner(BottomRight + 1), WithBadgeCorner(-1),
+		PauseAtEnd(-1), PauseAtMarks(-ms), PauseAtMatch(time.Second, nil),
+	} {
+		if _, err := Pause(opt).Start(ctx); err == nil {
+			t.Errorf("Start with bad option %d = nil error", i)
+		}
+	}
+	if _, err := Pause(WithBadgeSize(8), WithBadgeColor(nil)).Start(ctx); err != nil {
+		t.Errorf("Start with size 8 = %v", err)
+	}
+	if _, err := Pause(WithoutBadge(), WithBadgeSize(1)).Start(ctx); err != nil {
+		t.Errorf("Start without a badge = %v", err)
 	}
 }
 
@@ -96,83 +391,6 @@ func (outroEffect) Start(*reel.Context) (reel.Stage, error) {
 	}, nil
 }
 
-// TestPauseBadgeCard checks that a card that ends the recording never gets
-// the badge: listed after the badge, the card follows the badged terminal
-// frame, and listed before it, no frame is badged.
-func TestPauseBadgeCard(t *testing.T) {
-	t.Parallel()
-	badge := PauseBadge(WithBadgeSize(8))
-
-	var in []reel.Frame
-	out := exportFrames(t, badgeTimeline(t), reel.Profile{
-		Effects: []reel.Effect{outroEffect{}, recordFrames{&in}, badge},
-	})
-	if len(out) != len(in) || in[len(in)-1].Cells != nil {
-		t.Fatalf("%d frames in, %d out, want the same frames ending on the card", len(in), len(out))
-	}
-	for i, f := range out {
-		if badged := f.Image != in[i].Image; badged != in[i].Hold {
-			t.Errorf("badge before the card: frame %d badged = %v, want %v", i, badged, in[i].Hold)
-		}
-	}
-
-	in = nil
-	out = exportFrames(t, badgeTimeline(t), reel.Profile{
-		Effects: []reel.Effect{recordFrames{&in}, badge, outroEffect{}},
-	})
-	if len(out) != len(in)+1 {
-		t.Fatalf("%d frames in, %d out, want a card after them", len(in), len(out))
-	}
-	if held := out[len(in)-1]; held.Image == in[len(in)-1].Image {
-		t.Error("badge after the card: the held terminal frame has no badge")
-	}
-	want := image.NewNRGBA(in[0].Image.Rect)
-	draw.Draw(want, want.Rect, image.NewUniform(outroColor), image.Point{}, draw.Src)
-	if card := out[len(out)-1]; card.Cells != nil || !bytes.Equal(card.Image.Pix, want.Pix) {
-		t.Error("badge after the card: the card changed")
-	}
-}
-
-// TestPauseBadgeMerge checks that the GIF still merges the frames that look
-// the same before the badged one.
-func TestPauseBadgeMerge(t *testing.T) {
-	t.Parallel()
-	tl := badgeTimeline(t)
-	for _, tc := range []struct {
-		name    string
-		effects []reel.Effect
-		delays  []int
-	}{
-		{"none", nil, []int{140}},
-		{"badge", []reel.Effect{PauseBadge(WithBadgeSize(8))}, []int{40, 100}},
-	} {
-		var in []reel.Frame
-		path := filepath.Join(t.TempDir(), "out.gif")
-		err := reel.Export(t.Context(), tl, reel.Profile{
-			Outputs:    reel.Files(path),
-			Rasterizer: blankRasterizer{},
-			Effects:    append([]reel.Effect{recordFrames{&in}}, tc.effects...),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(in) != 4 {
-			t.Fatalf("%s: %d terminal frames, want 4, the hold apart", tc.name, len(in))
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		g, err := gif.DecodeAll(bytes.NewReader(data))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !slices.Equal(g.Delay, tc.delays) {
-			t.Errorf("%s: GIF delays %v, want %v", tc.name, g.Delay, tc.delays)
-		}
-	}
-}
-
 // blankRasterizer is the fake rasterizer drawing every cell as if empty, so
 // every frame of a terminal of one size looks alike.
 type blankRasterizer struct{ testutil.Rasterizer }
@@ -183,9 +401,9 @@ func (blankRasterizer) Draw(dst *image.NRGBA, _ vt.Screen, _ vt.State, _ time.Du
 	}
 }
 
-// TestPauseBadgeGlyph checks the glyph's colors: bars of the color on a
+// TestPauseGlyph checks the glyph's colors: bars of the color on a
 // disc that contrasts with it, and nothing outside the disc.
-func TestPauseBadgeGlyph(t *testing.T) {
+func TestPauseGlyph(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		fg, disc color.NRGBA
@@ -221,20 +439,6 @@ func closeColor(a, b color.NRGBA) bool {
 	return near(a.R, b.R) && near(a.G, b.G) && near(a.B, b.B) && near(a.A, b.A)
 }
 
-// TestPauseBadgeStart checks the options Start rejects.
-func TestPauseBadgeStart(t *testing.T) {
-	t.Parallel()
-	ctx := &reel.Context{Rasterizer: testutil.Rasterizer{}, Layout: testutil.Rasterizer{}.Layout(40, 10)}
-	for i, opt := range []BadgeOption{WithBadgeSize(-1), WithBadgeSize(7), WithBadgeCorner(BottomRight + 1), WithBadgeCorner(-1)} {
-		if _, err := PauseBadge(opt).Start(ctx); err == nil {
-			t.Errorf("Start with bad option %d = nil error", i)
-		}
-	}
-	if _, err := PauseBadge(WithBadgeSize(8), WithBadgeColor(nil)).Start(ctx); err != nil {
-		t.Errorf("Start with size 8 = %v", err)
-	}
-}
-
 func TestBadgeAt(t *testing.T) {
 	t.Parallel()
 	grid := image.Rect(5, 10, 105, 60)
@@ -250,76 +454,114 @@ func TestBadgeAt(t *testing.T) {
 	}
 }
 
-// TestPauseBadgePieces checks that when the last frame comes in pieces of
-// one terminal, the badge covers the final pieces that play for the hold,
-// pieces that share an image share its badged copy, and the pieces of a
-// terminal that is not last are left alone.
-func TestPauseBadgePieces(t *testing.T) {
+// TestPauseRecord checks that a live recording pauses at the marks it
+// gets as an export of its timeline does, and that a named mark it never
+// gets is an error from Stop, which still writes the recording.
+func TestPauseRecord(t *testing.T) {
 	t.Parallel()
-	ctx := &reel.Context{
-		Rasterizer: testutil.Rasterizer{},
-		Layout:     testutil.Rasterizer{}.Layout(40, 10),
-		Hold:       time.Second,
+	dir := t.TempDir()
+	profile := func(name string, labels ...string) reel.Profile {
+		return reel.Profile{
+			Outputs:    reel.Files(filepath.Join(dir, name+".gif")),
+			Rasterizer: testutil.Rasterizer{},
+			Effects:    []reel.Effect{Pause(PauseAtMarks(300*ms, labels...), PauseAtEnd(time.Second))},
+		}
 	}
-	stage, err := PauseBadge(WithBadgeSize(8)).Start(ctx)
+	s, err := reel.Open(t.Context(), 20, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, b := cellsOf(40, 10, ""), cellsOf(40, 10, "")
-	img := func() *image.NRGBA { return image.NewNRGBA(ctx.Layout.Image) }
-	shared := img()
-	in := []reel.Frame{
-		{Image: img(), Cells: a, Delay: 400 * ms, First: true},
-		{Image: img(), Cells: a, Delay: 900 * ms},
-		{Image: img(), Cells: b, Delay: 300 * ms},
-		{Image: shared, Cells: b, Delay: 500 * ms, Hold: true},
-		{Image: shared, Cells: b, Delay: 400 * ms, Hold: true},
-		{Image: img(), Cells: b, Delay: 300 * ms, Hold: true, Last: true},
+	defer s.Close()
+	rec, err := reel.Record(t.Context(), s, profile("record"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	var out []reel.Frame
-	for _, f := range in {
-		stage(f, func(f reel.Frame) { out = append(out, f) })
+	missing, err := reel.Record(t.Context(), s, profile("missing", "never"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(out) != len(in) {
-		t.Fatalf("%d frames out, want %d", len(out), len(in))
-	}
-	// The last 300+400+500ms cover the hold of 1s.
-	wantBadge := []bool{false, false, false, true, true, true}
-	for i, f := range out {
-		if f.Delay != in[i].Delay || f.Cells != in[i].Cells {
-			t.Errorf("frame %d reordered or retimed", i)
+	for _, step := range []func() error{
+		func() error { _, werr := s.Write([]byte("a")); return werr },
+		func() error { return s.Mark("one") },
+		func() error { _, werr := s.Write([]byte("b")); return werr },
+		func() error { return s.Mark("two") },
+		func() error { _, werr := s.Write([]byte("c")); return werr },
+	} {
+		if err = step(); err != nil {
+			t.Fatal(err)
 		}
-		if badged := f.Image != in[i].Image; badged != wantBadge[i] {
-			t.Errorf("frame %d badged = %v, want %v", i, badged, wantBadge[i])
-		}
+		time.Sleep(60 * ms)
 	}
-	if out[3].Image != out[4].Image {
-		t.Error("pieces of one image got two badged copies")
+	if err = rec.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err = missing.Stop(); !errors.Is(err, reel.ErrNoMark) {
+		t.Errorf("Stop = %v, want ErrNoMark", err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, "missing.gif")); err != nil {
+		t.Error(err)
+	}
+	if err = reel.Export(t.Context(), s.Timeline(), profile("export")); err != nil {
+		t.Fatal(err)
+	}
+	recorded, rerr := os.ReadFile(filepath.Join(dir, "record.gif"))
+	exported, eerr := os.ReadFile(filepath.Join(dir, "export.gif"))
+	if rerr != nil || eerr != nil || !bytes.Equal(recorded, exported) {
+		t.Errorf("recorded and exported GIFs differ (%v, %v)", rerr, eerr)
+	}
+	g, err := gif.DecodeAll(bytes.NewReader(exported))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	for _, d := range g.Delay {
+		total += d
+	}
+	// Two pauses at the marks and one at the end, past the 180ms or so the
+	// session took.
+	if total < 160 {
+		t.Errorf("GIF plays %dcs, want the pauses, 1.6s, and more", total)
 	}
 }
 
-// TestPauseBadgeKeys checks that with [Keys] before it, which splits the
-// last frame while keys fade, the badge still covers the hold.
-func TestPauseBadgeKeys(t *testing.T) {
+// TestPauseNextFrame checks that a mark past the start of the next frame,
+// though within the delay of the one before on the delay grid, pauses on the
+// next frame, the screen at the mark.
+func TestPauseNextFrame(t *testing.T) {
 	t.Parallel()
-	tl := buildTimeline(t, 40, 10, "", output(0, "a"), input(300, "x"), output(300, "x"), mark(500, "end"))
-	var mid []reel.Frame
-	out := exportFrames(t, tl, reel.Profile{
-		Effects: []reel.Effect{Keys(time.Second), recordFrames{&mid}, PauseBadge(WithBadgeSize(8))},
-	})
-	if len(out) != len(mid) || len(out) < 3 {
-		t.Fatalf("%d frames in, %d out, want the key overlay's pieces", len(mid), len(out))
-	}
-	var badged time.Duration
+	tl := buildTimeline(t, 40, 10, "", output(0, "a"), output(74, "b"), output(126, "c"), mark(130, "m"), mark(400, "end"))
+	out := exportFrames(t, tl, reel.Profile{Effects: []reel.Effect{Pause(PauseAtMarks(time.Second, "m"), WithoutBadge())}})
+	pauses := 0
 	for i, f := range out {
-		switch {
-		case f.Image != mid[i].Image:
-			badged += f.Delay
-		case badged > 0:
-			t.Errorf("frame %d after a badged one has no badge", i)
+		if !f.Paused {
+			continue
+		}
+		pauses++
+		if text := f.Cells.Screen.Text(); !strings.HasPrefix(text, "abc") {
+			t.Errorf("pause shows %q, want the screen at the mark, abc", text)
+		}
+		if next := out[i+1]; next.Cells != f.Cells {
+			t.Error("the frame after the pause is not the one paused")
 		}
 	}
-	if badged < time.Second {
-		t.Errorf("badge plays for %v, want at least the hold of 1s", badged)
+	if pauses != 1 {
+		t.Errorf("%d pauses, want 1", pauses)
+	}
+}
+
+// TestPauseStacked checks that a Pause after another leaves the frames the
+// first paused whole: at their moment, and badged once.
+func TestPauseStacked(t *testing.T) {
+	t.Parallel()
+	var mid []reel.Frame
+	out := exportFrames(t, badgeTimeline(t), reel.Profile{Effects: []reel.Effect{
+		Pause(WithBadgeSize(8)), recordFrames{&mid}, Pause(PauseAtEnd(500*ms), WithBadgeSize(8)),
+	}})
+	first, second := out[len(out)-2], out[len(out)-1]
+	if !first.Paused || !second.Paused || first.Delay != time.Second || second.Delay != 500*ms {
+		t.Fatalf("last frames = %v, want pauses of 1s and 500ms", framesOf(out[len(out)-2:]))
+	}
+	if second.At != first.At || second.Image != mid[len(mid)-1].Image || first.Image != second.Image {
+		t.Error("the second end pause is not the first's moment and image")
 	}
 }

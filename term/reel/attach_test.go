@@ -58,7 +58,7 @@ func TestAttachClassicTiming(t *testing.T) {
 	// The times in the file, 0.906ms and 201.86ms, are rounded to the
 	// millisecond.
 	assertEvents(t, s.Timeline(), `1 output "hello"`, `202 output " world\r\n"`)
-	assertFrames(t, exportFrames(t, s.Timeline(), Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, s.Timeline(), Profile{FPS: 100}),
 		// Frames are at the times in the timeline, and delays on the 10ms
 		// grid.
 		wantFrame{"hello", 1 * ms, 200 * ms, true},

@@ -146,7 +146,7 @@ func TestPipelineStages(t *testing.T) {
 // speed and rounded to a whole step of the delay grid, so the rounding error
 // carries forward rather than adding up. A frame that ends on the step it
 // starts on is dropped for the newer one. The last frame plays at least one
-// step, extended by the hold, which the speed does not scale.
+// step.
 func TestPipelineDelays(t *testing.T) {
 	t.Parallel()
 	// every returns n offsets gap apart, from 0.
@@ -160,7 +160,6 @@ func TestPipelineDelays(t *testing.T) {
 	for _, tc := range []struct {
 		fps   int
 		speed float64
-		hold  time.Duration
 		at    []time.Duration
 		end   time.Duration
 		want  []time.Duration
@@ -176,21 +175,21 @@ func TestPipelineDelays(t *testing.T) {
 		// last, which plays at least a step.
 		{fps: 20, at: every(11, 10*ms), end: 110 * ms, want: []time.Duration{50 * ms, 50 * ms, 50 * ms}},
 		// 30 FPS is a 30ms step: a frame at the rate plays slightly fast, but
-		// a hold keeps its length.
+		// a long one keeps its length.
 		{fps: 30, at: []time.Duration{0, time.Second / 30}, end: time.Second/30 + 2*time.Second, want: []time.Duration{30 * ms, 2010 * ms}},
-		// Speed scales the timeline, but not the hold.
-		{fps: 100, speed: 2, hold: 500 * ms, at: []time.Duration{0, 400 * ms}, end: 1000 * ms, want: []time.Duration{200 * ms, 800 * ms}},
+		// Speed scales the timeline.
+		{fps: 100, speed: 2, at: []time.Duration{0, 400 * ms}, end: 1000 * ms, want: []time.Duration{200 * ms, 300 * ms}},
 		// The last frame plays at least one step.
 		{fps: 100, speed: 0.5, at: []time.Duration{0, 100 * ms}, end: 100 * ms, want: []time.Duration{200 * ms, 10 * ms}},
 		// The grid counts from the first frame, wherever it is.
 		{fps: 20, at: []time.Duration{1030 * ms, 1100 * ms}, end: 1200 * ms, want: []time.Duration{50 * ms, 100 * ms}},
 	} {
-		s, err := Profile{Outputs: Files("x.gif"), FPS: tc.fps, Speed: tc.speed, Hold: -1}.settings()
+		s, err := Profile{Outputs: Files("x.gif"), FPS: tc.fps, Speed: tc.speed}.settings()
 		if err != nil {
 			t.Fatal(err)
 		}
 		out := &collectSink{}
-		p := newPipeline(testutil.Rasterizer{}, settings{step: s.step, speed: s.speed, hold: tc.hold}, nil, out)
+		p := newPipeline(testutil.Rasterizer{}, s, nil, out)
 		for _, at := range tc.at {
 			if err = p.record(cellsOf(1, 1, "", at)); err != nil {
 				t.Fatal(err)
@@ -228,8 +227,8 @@ func TestPipelineSweep(t *testing.T) {
 		if err := p.record(cellsOf(2, 1, tc.title, start)); err != nil {
 			t.Fatal(err)
 		}
-		hold := time.Duration(float64(time.Second+20*ms) * tc.speed)
-		if err := p.finish(start + hold); err != nil {
+		span := time.Duration(float64(time.Second+20*ms) * tc.speed)
+		if err := p.finish(start + span); err != nil {
 			t.Fatal(err)
 		}
 		var total time.Duration
@@ -244,61 +243,6 @@ func TestPipelineSweep(t *testing.T) {
 		}
 		if len(out.frames) != tc.frames || total != time.Second+20*ms {
 			t.Errorf("%s x%v: %d frames over %v, want %d over 1.02s", tc.title, tc.speed, len(out.frames), total, tc.frames)
-		}
-	}
-}
-
-// TestPipelineHold checks that with stages the hold after the last frame
-// plays as frames of its own, flagged, that sum to the hold, whether the
-// last frame holds still or is swept, and that without stages it is not
-// split off.
-func TestPipelineHold(t *testing.T) {
-	t.Parallel()
-	const hold = time.Second
-	for _, tc := range []struct {
-		title  string
-		stages bool
-		frames int
-	}{
-		{"still", true, 2},
-		{"spin", true, 0},
-		{"still", false, 1},
-	} {
-		var got []Frame
-		var stages []Stage
-		if tc.stages {
-			stages = []Stage{func(f Frame, emit func(Frame)) { got = append(got, f); emit(f) }}
-		}
-		out := &collectSink{}
-		p := newPipeline(&fakeAnimator{}, settings{step: 10 * ms, speed: 1, hold: hold}, stages, out)
-		if err := p.record(cellsOf(2, 1, tc.title, 0)); err != nil {
-			t.Fatal(err)
-		}
-		if err := p.finish(500 * ms); err != nil {
-			t.Fatal(err)
-		}
-		if !tc.stages {
-			if len(out.frames) != tc.frames {
-				t.Errorf("%s without stages: %d frames, want %d", tc.title, len(out.frames), tc.frames)
-			}
-			continue
-		}
-		if tc.frames > 0 && len(got) != tc.frames {
-			t.Errorf("%s: %d frames, want %d", tc.title, len(got), tc.frames)
-		}
-		var body, held time.Duration
-		for i, f := range got {
-			switch {
-			case f.Hold:
-				held += f.Delay
-			case held > 0:
-				t.Errorf("%s: frame %d after the hold is not flagged", tc.title, i)
-			default:
-				body += f.Delay
-			}
-		}
-		if body != 500*ms || held != hold {
-			t.Errorf("%s: %v before the hold and %v flagged, want 500ms and %v", tc.title, body, held, hold)
 		}
 	}
 }

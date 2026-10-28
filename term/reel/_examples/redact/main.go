@@ -117,7 +117,7 @@ func profile(dir string) reel.Profile {
 			effects.Redact(effects.Env(tokenEnv), effects.Replace('•')),
 			effects.RedactInputs(effects.Env(tokenEnv)),
 			effects.Keys(time.Second),
-			effects.PauseBadge(),
+			effects.Pause(),
 		},
 	}
 }

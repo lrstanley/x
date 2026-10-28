@@ -117,7 +117,7 @@ func dirNames(t *testing.T, dir string) []string {
 func TestExportOnFailure(t *testing.T) {
 	t.Parallel()
 	profile := reel.Profile{Effects: []reel.Effect{
-		effects.Keys(time.Second), effects.PauseBadge(), Outro(500 * time.Millisecond),
+		effects.Keys(time.Second), effects.Pause(), Outro(500 * time.Millisecond),
 	}}
 
 	t.Run("passed", func(t *testing.T) {
@@ -160,7 +160,6 @@ func TestExportOnFailure(t *testing.T) {
 		again := filepath.Join(t.TempDir(), "again.gif")
 		p := profile
 		p.Outputs = reel.Files(again)
-		p.Hold = failureHold
 		p.Meta = &Result{Name: t.Name(), Failed: true, Failures: h.failures.messages()}
 		if err = reel.Export(t.Context(), tl, p); err != nil {
 			t.Fatal(err)
@@ -179,32 +178,35 @@ func TestExportOnFailure(t *testing.T) {
 	})
 }
 
-// TestExportAlways checks the always policy, and that a failed test's last
-// frame holds for 3s unless the profile sets a hold.
+// TestExportAlways checks the always policy, and that [Outro] makes a failed
+// test's end pause at least 3s, before its card.
 func TestExportAlways(t *testing.T) {
 	t.Parallel()
-	lastDelay := func(t *testing.T, path string) time.Duration {
+	pauseDelay := func(t *testing.T, path string) time.Duration {
 		t.Helper()
 		g := readGIF(t, path)
-		return time.Duration(g.Delay[len(g.Delay)-1]) * 10 * time.Millisecond
+		return time.Duration(g.Delay[len(g.Delay)-2]) * 10 * time.Millisecond
 	}
 	for _, tc := range []struct {
 		name   string
 		fail   bool
-		hold   time.Duration
+		pause  time.Duration
 		status string
 		want   time.Duration
 	}{
-		{"passed", false, 0, "passed", time.Second},
-		{"failed", true, 0, "failed", failureHold},
-		{"failed with hold", true, 200 * time.Millisecond, "failed", 200 * time.Millisecond},
+		{"passed", false, time.Second, "passed", time.Second},
+		{"failed", true, time.Second, "failed", failureHold},
+		{"failed with a long pause", true, 5 * time.Second, "failed", 5 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			ftb := &fakeTB{TB: t}
 			h := NewHarness(ftb, rootTestModel{}, exportOptions(dir,
-				WithRecording(reel.Profile{Outputs: reel.Files("{name}_{status}.gif"), Hold: tc.hold}),
+				WithRecording(reel.Profile{
+					Outputs: reel.Files("{name}_{status}.gif"),
+					Effects: []reel.Effect{effects.Pause(effects.PauseAtEnd(tc.pause)), Outro(100 * time.Millisecond)},
+				}),
 				WithExportAlways(),
 			)...)
 			h.Wait("size=20x4")
@@ -213,9 +215,8 @@ func TestExportAlways(t *testing.T) {
 			}
 			h.Close()
 			path := filepath.Join(dir, normalizeTestName(t.Name())+"_"+tc.status+".gif")
-			// The last frame plays for a step, then the hold.
-			if got := lastDelay(t, path); got < tc.want || got > tc.want+100*time.Millisecond {
-				t.Fatalf("last frame plays %v, want %v and a step", got, tc.want)
+			if got := pauseDelay(t, path); got != tc.want {
+				t.Fatalf("end pause plays %v, want %v", got, tc.want)
 			}
 		})
 	}

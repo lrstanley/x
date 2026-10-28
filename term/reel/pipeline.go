@@ -92,10 +92,9 @@ func (p *pipeline) record(cf CellFrame) error {
 	return p.err
 }
 
-// finish ends the newest frame at end, extended by the hold, then runs each
-// stage's held frame as its last, in order, so every stage has received all
-// of its input before its own last frame is decided. It returns the first
-// error writing a frame.
+// finish ends the newest frame at end, then runs each stage's held frame as
+// its last, in order, so every stage has received all of its input before
+// its own last frame is decided. It returns the first error writing a frame.
 func (p *pipeline) finish(end time.Duration) error {
 	p.release(end, true)
 	for i := range p.stages {
@@ -110,7 +109,7 @@ func (p *pipeline) finish(end time.Duration) error {
 
 // release sends the newest frame on, ending at offset until on the grid,
 // or drops it when that is the step it starts on. The last frame plays for
-// at least one step, then the hold.
+// at least one step.
 func (p *pipeline) release(until time.Duration, last bool) {
 	f := p.newest
 	if f.Image == nil {
@@ -128,40 +127,21 @@ func (p *pipeline) release(until time.Duration, last bool) {
 		return
 	}
 	f.Delay, p.shown = end-p.shown, end
-	// body is how long f plays before the hold, which frames past it are
-	// flagged as playing (see [Frame.Hold]). Without stages nothing reads
-	// the flag, so the hold is not split off.
-	body := f.Delay
-	if last {
-		f.Delay += p.hold
-	}
-	if len(p.stages) == 0 {
-		body = f.Delay
-	}
 	if p.anim == nil || f.Delay < 2*p.sweep || !p.anim.Animates(f.Cells.State) {
-		if body == f.Delay {
-			p.push(0, f)
-			return
-		}
-		held := f
-		f.Delay = body
-		held.At, held.Delay, held.Hold = f.At+time.Duration(float64(body)*p.speed), p.hold, true
 		p.push(0, f)
-		p.push(0, held)
 		return
 	}
-	p.sweepHold(f, body)
+	p.sweepHold(f)
 }
 
 // sweepHold sends on f, a frame held while its indicators move with the
-// timeline, which holding one image would freeze. It plays the hold as
-// frames p.sweep apart instead, each a copy of f with the indicators
+// timeline, which holding one image would freeze. It plays it as frames
+// p.sweep apart instead, each a copy of f with the indicators
 // repainted as of the timeline time it stands for. A step that would look
 // like the one before extends it instead of being drawn. The last frame takes
-// the remainder. The frames past body play the hold, and are flagged (see
-// [Frame.Hold]). f's own image may be reused once it is written, so the
+// the remainder. f's own image may be reused once it is written, so the
 // copies come from a clone.
-func (p *pipeline) sweepHold(f Frame, body time.Duration) {
+func (p *pipeline) sweepHold(f Frame) {
 	step := p.sweep
 	base := p.newImage(f.Image.Rect)
 	copy(base.Pix, f.Image.Pix)
@@ -176,14 +156,9 @@ func (p *pipeline) sweepHold(f Frame, body time.Duration) {
 		if left < 2*step {
 			cur.Delay = left
 		}
-		if played < body && played+cur.Delay > body {
-			// A piece ends where the hold starts.
-			cur.Delay = body - played
-		}
-		cur.Hold = played >= body
 		left -= cur.Delay
 		played += cur.Delay
-		if k > 0 && shown.Hold == cur.Hold && !p.anim.Changes(cells.State, shown.At, cur.At) {
+		if k > 0 && !p.anim.Changes(cells.State, shown.At, cur.At) {
 			shown.Delay += cur.Delay
 			continue
 		}
@@ -226,8 +201,8 @@ func (p *pipeline) run(i int, f Frame, last bool) {
 }
 
 // write sends f to out, its delay rounded to whole steps, at least one. The
-// pipeline's own frames are on the grid already, but for the hold; frames
-// an effect made may not be.
+// pipeline's own frames are on the grid already; frames an effect made may
+// not be.
 func (p *pipeline) write(f Frame) {
 	if p.err != nil {
 		return

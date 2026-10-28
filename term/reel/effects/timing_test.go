@@ -25,12 +25,12 @@ func TestWindowPieces(t *testing.T) {
 	t.Parallel()
 	const step = 10 * ms
 	for _, tc := range []struct {
-		name  string
-		w     window
-		at    time.Duration
-		delay time.Duration
-		last  bool
-		want  []piece
+		name   string
+		w      window
+		at     time.Duration
+		delay  time.Duration
+		paused bool
+		want   []piece
 	}{
 		{
 			name: "no window", w: window{from: openFrom, to: openTo},
@@ -103,17 +103,16 @@ func TestWindowPieces(t *testing.T) {
 			},
 		},
 		{
-			// The last piece keeps what is past the last step, the hold.
-			name: "hold", w: window{from: openFrom, to: 75 * ms},
+			// The last piece keeps what is past the last step.
+			name: "remainder", w: window{from: openFrom, to: 75 * ms},
 			at: 50 * ms, delay: 1005 * ms,
 			want: []piece{{0, 30 * ms, 1}, {30 * ms, 975 * ms, 0}},
 		},
 		{
-			// The hold of the last frame, 300ms, is at the end of the
-			// timeline, 110ms, so a window to there covers it, and its
-			// easing does not play in it.
-			name: "last frame's hold", w: window{from: openFrom, to: 110 * ms, easeOut: 20 * ms, hold: 300 * ms},
-			at: 50 * ms, delay: 360 * ms, last: true,
+			// A paused frame shows one moment, 110ms, the end of the
+			// window, so it is covered, and the easing does not play in it.
+			name: "paused", w: window{from: openFrom, to: 110 * ms, easeOut: 20 * ms},
+			at: 110 * ms, delay: 360 * ms, paused: true,
 			want: []piece{{0, 360 * ms, 1}},
 		},
 		{
@@ -128,7 +127,7 @@ func TestWindowPieces(t *testing.T) {
 		if w.speed == 0 {
 			w.speed = 1
 		}
-		got := w.pieces(reel.Frame{At: tc.at, Delay: tc.delay, Last: tc.last})
+		got := w.pieces(reel.Frame{At: tc.at, Delay: tc.delay, Paused: tc.paused})
 		if !slices.EqualFunc(got, tc.want, func(a, b piece) bool {
 			return a.start == b.start && a.delay == b.delay && math.Abs(a.level-b.level) < 1e-9
 		}) {

@@ -339,21 +339,25 @@ func (t keyTimeline) state(p time.Duration) keyState {
 }
 
 // frames splits f wherever t changes and emits each piece with the overlay
-// drawn on it.
+// drawn on it. A paused frame ([reel.Frame.Paused]) is not split: it keeps
+// the overlay as of its start.
 func (k *keysStage) frames(t keyTimeline, f reel.Frame, emit func(reel.Frame)) {
 	cuts := []time.Duration{0}
-	for _, at := range t.at {
-		cuts = append(cuts, at)
-		for level := 1; level <= keysFadeLevels+1; level++ {
-			cuts = append(cuts, t.fade(at, level))
+	if !f.Paused {
+		for _, at := range t.at {
+			cuts = append(cuts, at)
+			for level := 1; level <= keysFadeLevels+1; level++ {
+				cuts = append(cuts, t.fade(at, level))
+			}
 		}
+		slices.Sort(cuts)
+		cuts = slices.Compact(cuts)
+		// Keep cuts inside the frame that leave its last piece at least one
+		// step.
+		cuts = slices.DeleteFunc(cuts, func(c time.Duration) bool {
+			return c < 0 || (c > 0 && f.Delay-c < t.step)
+		})
 	}
-	slices.Sort(cuts)
-	cuts = slices.Compact(cuts)
-	// Keep cuts inside the frame that leave its last piece at least one step.
-	cuts = slices.DeleteFunc(cuts, func(c time.Duration) bool {
-		return c < 0 || (c > 0 && f.Delay-c < t.step)
-	})
 
 	var out []reel.Frame
 	var prev keyState

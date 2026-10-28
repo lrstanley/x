@@ -84,7 +84,7 @@ func Padding(px int) HighlightOption {
 // on copies of the frames. Dimmed frames are palettized on their own GIF
 // palette ([reel.Frame.Isolated]), so their darker colors leave the
 // recording's palette alone. List Highlight before effects whose overlays
-// should stay bright, such as [Keys] and [PauseBadge].
+// should stay bright, such as [Keys] and [Pause].
 //
 // A nil region is an error from Start. A highlight that neither dims nor
 // outlines leaves the recording alone.

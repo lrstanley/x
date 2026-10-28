@@ -47,10 +47,6 @@ const (
 	StillSnapshot
 )
 
-// failureHold is how long a failed test's recording holds its last frame,
-// unless its profile sets [reel.Profile.Hold].
-const failureHold = 3 * time.Second
-
 // Path variables steep adds to [reel.Profile.Vars].
 const (
 	varName   = "name"
@@ -104,10 +100,8 @@ var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookSettle
 // "{name}_{status}.gif" and "{name}_{status}.cast".
 //
 // At export, [reel.Context.Meta] is the test's *[Result], replacing the
-// profile's, and a failed test's recording holds its last frame for 3s unless
-// the profile sets [reel.Profile.Hold], so a viewer has time to read the
-// screen the test failed on, which [effects.PauseBadge] marks before the
-// FAIL card of [Outro].
+// profile's, which [Outro] reads to show PASS or FAIL, and for a failed test,
+// to hold the screen it failed on for at least 3s before the card.
 //
 // The recording is the [reel.Timeline] of the session up to the start of
 // [Harness.Close], so a program's repaint as it exits is left out.
@@ -313,9 +307,6 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 		result.Failures = append(result.Failures, "test panicked")
 	}
 	p.Meta = result
-	if failed && p.Hold == 0 {
-		p.Hold = failureHold
-	}
 
 	marks := h.marksUpTo(end)
 	outputs := slices.Clone(p.Outputs)

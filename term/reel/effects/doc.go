@@ -4,11 +4,11 @@
 
 // Package effects holds [reel.Effect] values for a [reel.Profile]: [Keys]
 // overlays the keys pressed in the timeline, [Intro] shows a title card
-// before the first frame, [PauseBadge] marks the held last frame with a
-// pause glyph, so a looping recording reads as finished rather than frozen,
-// [Highlight] draws attention to part of the screen, and [Zoom] zooms in on
-// it. [Redact] hides secrets from the frames before anything draws them,
-// and [RedactInputs] hides them from the keys Keys shows.
+// before the first frame, [Pause] pauses playback at the end or at marks,
+// with a pause glyph, so a looping recording reads as finished rather than
+// frozen, [Highlight] draws attention to part of the screen, and [Zoom]
+// zooms in on it. [Redact] hides secrets from the frames before anything
+// draws them, and [RedactInputs] hides them from the keys Keys shows.
 //
 // Highlight, Zoom, and Redact work on a [Region] of the terminal's cells:
 // fixed cells ([Cells], [Row], [Rows]), the cells that show some text

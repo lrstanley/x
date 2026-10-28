@@ -103,7 +103,7 @@ const (
 
 // window is a [timing] resolved for one recording: the offsets into the
 // timeline its effect is on between, with the easings in timeline time, and
-// the recording's delay grid, speed, and hold. In a live recording, the
+// the recording's delay grid and speed. In a live recording, the
 // marks not yet appended are looked for by [window.update].
 type window struct {
 	// from is past the from mark by lag, set when the mark was appended
@@ -113,7 +113,6 @@ type window struct {
 	easeIn, easeOut time.Duration
 	step            time.Duration
 	speed           float64
-	hold            time.Duration
 	// cover is set to cover every step that shows any of the window.
 	cover bool
 
@@ -147,7 +146,6 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		easeOut: time.Duration(float64(t.easeOut) * ctx.Speed),
 		step:    ctx.Step,
 		speed:   ctx.Speed,
-		hold:    ctx.Hold,
 		cover:   cov == coverWindow,
 	}
 	if t.from == "" && t.to == "" {
@@ -258,17 +256,16 @@ type piece struct {
 // Each step has the strength at its middle, or for a window that must be
 // covered, the strength at its point nearest the window, so a step that
 // shows any of the window is at full strength. The last piece takes what is
-// left of f past its last step. The hold of the last frame is past the end
-// of the timeline, so it has the strength at that end. In a live recording,
-// the marks appended since the frame before are looked for first.
+// left of f past its last step. A paused frame ([reel.Frame.Paused]) shows
+// one moment, so it is one piece, with the strength at At. In a live
+// recording, the marks appended since the frame before are looked for first.
 func (w *window) pieces(f reel.Frame) []piece {
-	steps := max(1, int(f.Delay/w.step))
-	span := f.Delay
-	if f.Last {
-		span = max(0, span-w.hold)
-	}
-	end := f.At + time.Duration(float64(span)*w.speed)
 	w.update()
+	if f.Paused {
+		return []piece{{delay: f.Delay, level: w.level(f.At)}}
+	}
+	steps := max(1, int(f.Delay/w.step))
+	end := f.At + time.Duration(float64(f.Delay)*w.speed)
 	stepAt := func(k float64) time.Duration {
 		return min(f.At+time.Duration(k*float64(w.step)*w.speed), end)
 	}

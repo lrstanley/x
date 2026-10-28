@@ -23,7 +23,7 @@ import (
 // the .cast again with the same profile writes the same GIF.
 
 // showcaseProfile is what the showcase's recording writes: the steep logo,
-// the keys pressed, a pause badge on the held last frame, and a PASS or FAIL
+// the keys pressed, a badged pause on the last frame, and a PASS or FAIL
 // card after it, in a window with chrome.
 var showcaseProfile = reel.Profile{
 	Outputs: reel.Files("showcase.gif", "showcase.cast"),
@@ -36,7 +36,7 @@ var showcaseProfile = reel.Profile{
 	Effects: []reel.Effect{
 		steep.Logo(2 * time.Second),
 		effects.Keys(1200 * time.Millisecond),
-		effects.PauseBadge(),
+		effects.Pause(),
 		steep.Outro(2 * time.Second),
 	},
 }

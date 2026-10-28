@@ -38,19 +38,20 @@ type Frame struct {
 	// replay redraws to keep its indicators moving is at the offset each
 	// redraw stands for. Frames an effect inserts may leave it zero. A
 	// frame starts playing on the delay grid step nearest At, so At plus
-	// Delay, unscaled, may be up to half a step off the next frame's At.
+	// Delay, unscaled, may be up to half a step off the next frame's At,
+	// except for a paused frame (see Paused).
 	At time.Duration
 	// Delay is how long the frame plays. For a terminal frame it is
 	// timeline time scaled by [Profile.Speed], a whole number of steps of
-	// [Context.Step]. The [Profile.Hold] after the last frame, which the
-	// speed does not scale, plays as frames of its own (see Hold), or as
-	// part of the last frame when there are no stages. The sinks are given
-	// it rounded to whole steps, at least one.
+	// [Context.Step]. The sinks are given it rounded to whole steps, at
+	// least one.
 	Delay time.Duration
-	// Hold is set on the frames that play the [Context.Hold] after the
-	// last terminal frame, copies of it, such as for a pause badge to mark.
-	// Effects that copy or split a frame keep it.
-	Hold bool
+	// Paused is set on a frame an effect inserted to pause playback, such
+	// as at a mark: it shows the timeline at At for its whole Delay, which
+	// the speed does not scale, so the frame after it starts at At too.
+	// Effects that change with the timeline draw a paused frame as of At,
+	// and do not split it. Effects that copy a frame keep it.
+	Paused bool
 	// First and Last are set for the first and last frame a stage is given.
 	// A recording of one frame sets both. The pipeline sets them on the way
 	// into each stage, so an effect need not.
@@ -122,7 +123,7 @@ type Concealer interface {
 // StillEffect is implemented by an [Effect] that also runs on the stills
 // of [File.Marks], which run through these effects and the [Concealer]
 // effects alone, in the profile's order. They are started once more, for
-// the stills, on a [Context] of their own without a Hold, and each still is
+// the stills, on a [Context] of their own, and each still is
 // given to the first as a recording of its one frame, with [Frame.First]
 // and [Frame.Last] set, a [Context.Step] long. It is given once the
 // timeline is known past that step, which in a live recording may be after
@@ -180,9 +181,6 @@ type Context struct {
 	Step time.Duration
 	// Speed is the playback speed, [Profile.Speed].
 	Speed float64
-	// Hold is how long the last frame plays past its own time,
-	// [Profile.Hold] with its default applied: zero for none.
-	Hold time.Duration
 	// Title is [Profile.Title], or the timeline's title without one.
 	Title string
 	// Meta is [Profile.Meta], which reel passes along without reading.

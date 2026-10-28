@@ -29,7 +29,7 @@ h := steep.NewHarness(t, newModel(),
 		Effects: []reel.Effect{
 			steep.Logo(2 * time.Second),
 			effects.Keys(time.Second),
-			effects.PauseBadge(),
+			effects.Pause(),
 			steep.Outro(2 * time.Second),
 		},
 	}),
@@ -37,12 +37,13 @@ h := steep.NewHarness(t, newModel(),
 )
 ```
 
-The export runs once, when the harness closes. A failed test holds its last
-frame for 3s (unless the profile sets `Hold`), then shows a FAIL card listing
-the failures. Files go to `t.ArtifactDir()` (kept with `go test -artifacts`),
+The export runs once, when the harness closes. `effects.Pause()` pauses for a
+second on the last frame, with a pause badge. For a failed test, `steep.Outro`
+stretches that pause to at least 3s, then shows a FAIL card listing the
+failures. Files go to `t.ArtifactDir()` (kept with `go test -artifacts`),
 or to `WithArtifacts(dir)`. The `.cast` file is the recording itself:
 exporting it again with `reel.Export`, the same profile, and the same
-`steep.Result` (and the 3s hold, for a failed test) writes the same GIF.
+`steep.Result` writes the same GIF.
 
 Any test can be recorded without changing it:
 

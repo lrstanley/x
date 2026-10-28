@@ -90,7 +90,7 @@ func run(ctx context.Context, dir string, cols, rows int, ts, tm io.Reader) ([]s
 	err = reel.Export(ctx, s.Timeline(), reel.Profile{
 		Outputs: reel.Files(files...),
 		Render:  []render.Option{render.WithWindowChrome(true)},
-		Effects: []reel.Effect{effects.PauseBadge()},
+		Effects: []reel.Effect{effects.Pause()},
 	})
 	if err != nil {
 		return nil, err

@@ -35,7 +35,6 @@ func recordEffects(t *testing.T, cols, rows int, fail bool, fx ...reel.Effect) [
 		WithRecording(reel.Profile{
 			Outputs: reel.Files("rec.gif"),
 			Effects: append(fx, frameLog{&frames}),
-			Hold:    -1,
 		}),
 		WithExportAlways(),
 	)...)
@@ -117,11 +116,26 @@ func TestOutro(t *testing.T) {
 	if bytes.Equal(pass.Image.Pix, fail.Image.Pix) || bytes.Equal(fail.Image.Pix, lines.Image.Pix) {
 		t.Fatal("PASS, FAIL, and custom outro cards look the same")
 	}
-	// With PauseBadge before it, the badge is on the held terminal frame,
-	// and the card follows it.
-	frames := recordEffects(t, 40, 8, true, effects.PauseBadge(), Outro(500*time.Millisecond))
-	if n := len(frames); n < 2 || frames[n-1].Cells != nil || frames[n-2].Cells == nil {
-		t.Fatal("the outro card does not follow the last terminal frame")
+	// With Pause before it, the card follows the end pause, which a
+	// failure makes 3s.
+	frames := recordEffects(t, 40, 8, true, effects.Pause(), Outro(500*time.Millisecond))
+	if n := len(frames); n < 2 || frames[n-1].Cells != nil || !frames[n-2].Paused || frames[n-2].Delay != failureHold {
+		t.Fatal("the outro card does not follow a 3s end pause")
+	}
+	// Listed before Pause, the card still follows the pause.
+	frames = recordEffects(t, 40, 8, true, Outro(500*time.Millisecond), effects.Pause())
+	if n := len(frames); n < 2 || frames[n-1].Cells != nil || !frames[n-2].Paused {
+		t.Fatal("with Outro first, the card does not follow the end pause")
+	}
+	// Without Pause, a failure holds the last terminal frame for 3s.
+	frames = recordEffects(t, 40, 8, true, Outro(500*time.Millisecond))
+	if n := len(frames); n < 2 || frames[n-2].Cells == nil || frames[n-2].Delay != failureHold {
+		t.Fatal("without Pause, the last terminal frame is not held for 3s")
+	}
+	// A pass holds nothing.
+	frames = recordEffects(t, 40, 8, false, Outro(500*time.Millisecond))
+	if n := len(frames); n < 2 || frames[n-2].Delay >= failureHold {
+		t.Fatal("a pass held its last terminal frame")
 	}
 
 	// Without a Result and without lines, there is no card.

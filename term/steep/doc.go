@@ -50,23 +50,23 @@
 // Effects run in the order the profile lists them. steep adds two to those in
 // the effects package: [Logo], an animated intro, and [Outro], a PASS or FAIL
 // card with the failures the harness reported, from the [Result] each export
-// passes them. A failed test's last frame holds for 3s, unless the profile
-// sets a hold, so the screen it failed on can be read, and
-// [effects.PauseBadge] marks that frame before the FAIL card:
+// passes them. For a failed test, Outro holds the last frame for at least
+// 3s, so the screen it failed on can be read, and [effects.Pause] before it
+// pauses there with a badge, ahead of the FAIL card:
 //
 //	steep.WithRecording(reel.Profile{
 //		Effects: []reel.Effect{
 //			steep.Logo(2 * time.Second),
 //			effects.Keys(time.Second),
-//			effects.PauseBadge(),
+//			effects.Pause(),
 //			steep.Outro(2 * time.Second),
 //		},
 //	}),
 //	steep.WithExportOnFailure(),
 //
 // The ".cast" output is the recording itself: [reel.ReadTimeline] and
-// [reel.Export] with the same profile and [Result], and for a failed test the
-// 3s hold, write the same files again, byte for byte, but for the exceptions
+// [reel.Export] with the same profile and [Result] write the same files
+// again, byte for byte, but for the exceptions
 // [reel.Timeline] lists. So a profile with [effects.Redact] or
 // [effects.RedactInputs] must set outputs without ".cast". Stills run
 // through them, and no other effect.

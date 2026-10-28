@@ -25,7 +25,6 @@ func TestProfileMerge(t *testing.T) {
 		Encode:  []sink.Option{sink.WithLoopCount(1)},
 		FPS:     10,
 		Speed:   2,
-		Hold:    time.Second,
 		Title:   "base",
 		Meta:    1,
 		Vars:    map[string]string{"a": "1", "b": "2"},
@@ -35,12 +34,11 @@ func TestProfileMerge(t *testing.T) {
 		Outputs:    Files("b.mp4", "c.cast"),
 		Rasterizer: rast,
 		FPS:        50,
-		Hold:       -1,
 		Meta:       "m",
 		Vars:       map[string]string{"b": "3", "c": "4"},
 	})
 	want := base
-	want.Outputs, want.Rasterizer, want.FPS, want.Hold, want.Meta = Files("b.mp4", "c.cast"), rast, 50, -1, "m"
+	want.Outputs, want.Rasterizer, want.FPS, want.Meta = Files("b.mp4", "c.cast"), rast, 50, "m"
 	want.Vars = map[string]string{"a": "1", "b": "3", "c": "4"}
 	// Render and Encode hold funcs, which DeepEqual only matches when nil.
 	if len(got.Render) != 1 || len(got.Encode) != 1 {
@@ -68,10 +66,10 @@ func TestProfileSettings(t *testing.T) {
 		p    Profile
 		want settings
 	}{
-		{Profile{}, settings{step: 50 * ms, speed: 1, hold: time.Second}},
-		{Profile{FPS: 30, Speed: 1.5, Hold: 2 * time.Second}, settings{step: 30 * ms, speed: 1.5, hold: 2 * time.Second}},
-		{Profile{FPS: 100, Hold: -1}, settings{step: 10 * ms, speed: 1}},
-		{Profile{FPS: 1}, settings{step: time.Second, speed: 1, hold: time.Second}},
+		{Profile{}, settings{step: 50 * ms, speed: 1}},
+		{Profile{FPS: 30, Speed: 1.5}, settings{step: 30 * ms, speed: 1.5}},
+		{Profile{FPS: 100}, settings{step: 10 * ms, speed: 1}},
+		{Profile{FPS: 1}, settings{step: time.Second, speed: 1}},
 	} {
 		tc.p.Outputs = Files("x.gif")
 		got, err := tc.p.settings()

@@ -45,10 +45,6 @@ type Profile struct {
 	FPS int
 	// Speed scales playback: 2 plays twice as fast. Zero is 1.
 	Speed float64
-	// Hold extends how long the last frame plays, unscaled by Speed, so a
-	// looping recording rests on its final screen. Zero is a second, and a
-	// negative hold is none.
-	Hold time.Duration
 	// Title names the recording, for effects such as a title card, and for
 	// asciicast outputs. Without it, the timeline's [Header.Title] is used.
 	Title string
@@ -116,9 +112,6 @@ func (p Profile) Merge(o Profile) Profile {
 	if o.Speed != 0 {
 		p.Speed = o.Speed
 	}
-	if o.Hold != 0 {
-		p.Hold = o.Hold
-	}
 	if o.Title != "" {
 		p.Title = o.Title
 	}
@@ -136,16 +129,12 @@ func (p Profile) Merge(o Profile) Profile {
 	return p
 }
 
-const (
-	defaultFPS  = 20
-	defaultHold = time.Second
-)
+const defaultFPS = 20
 
 // settings are a profile's timing, with its defaults applied.
 type settings struct {
 	step  time.Duration
 	speed float64
-	hold  time.Duration
 }
 
 // settings checks p's timing, and returns it with defaults applied.
@@ -165,12 +154,6 @@ func (p Profile) settings() (settings, error) {
 	}
 	if !(s.speed > 0) || math.IsInf(s.speed, 0) { // Also catches NaN.
 		return s, fmt.Errorf("reel: speed %v must be positive and finite", p.Speed)
-	}
-	switch {
-	case p.Hold == 0:
-		s.hold = defaultHold
-	case p.Hold > 0:
-		s.hold = p.Hold
 	}
 	return s, nil
 }

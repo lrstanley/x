@@ -26,6 +26,11 @@ import (
 // whose Meta is not a *Result, such as one exported without a harness, gets
 // no card without lines. A d of zero or less is no card either. The speed
 // does not scale d.
+//
+// For a failed test, Outro also makes the last frame before the card play
+// for at least 3s, so a viewer has time to read the screen the test failed
+// on. List [effects.Pause] before Outro, so that frame is its badged end
+// pause.
 func Outro(d time.Duration, lines ...effects.Line) reel.Effect {
 	return outro{d: d, lines: lines}
 }
@@ -44,11 +49,16 @@ func (e outro) Start(ctx *reel.Context) (reel.Stage, error) {
 	if err != nil {
 		return nil, err
 	}
+	failed := result != nil && result.Failed
 	return func(f reel.Frame, emit func(reel.Frame)) {
-		emit(f)
 		if !f.Last {
+			emit(f)
 			return
 		}
+		if failed && f.Cells != nil {
+			f.Delay = max(f.Delay, failureHold)
+		}
+		emit(f)
 		lines := e.lines
 		if len(lines) == 0 {
 			cols, rows := cards.Grid(f.Cells)
@@ -57,6 +67,10 @@ func (e outro) Start(ctx *reel.Context) (reel.Stage, error) {
 		emit(reel.Frame{Image: cards.Card(f.Cells, lines...), Delay: e.d, Isolated: true})
 	}, nil
 }
+
+// failureHold is the least a failed test's last terminal frame plays, before
+// the FAIL card.
+const failureHold = 3 * time.Second
 
 var (
 	passStyle = vt.Style{Fg: vt.Indexed(2), Attrs: vt.AttrBold}

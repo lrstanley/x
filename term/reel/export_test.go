@@ -93,7 +93,7 @@ func TestExportReplayRules(t *testing.T) {
 		Mark{event: at(800), Label: "m"},
 		Exit{event: at(1000)},
 	)
-	frames := exportFrames(t, tl, Profile{FPS: 100, Hold: -1})
+	frames := exportFrames(t, tl, Profile{FPS: 100})
 	assertFrames(t, frames,
 		wantFrame{"hi", 100 * ms, 300 * ms, true},
 		wantFrame{"hi!", 400 * ms, 200 * ms, true},
@@ -118,28 +118,26 @@ func TestExportReplayRules(t *testing.T) {
 func TestExportPristine(t *testing.T) {
 	t.Parallel()
 	events := []Event{outAt(0, "\x1b[c\x1b[?2004h"), outAt(100, "$ "), Exit{event: at(300)}}
-	assertFrames(t, exportFrames(t, buildTimeline(Header{Cols: 4, Rows: 1}, events...), Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, buildTimeline(Header{Cols: 4, Rows: 1}, events...), Profile{FPS: 100}),
 		wantFrame{"", 0, 100 * ms, true},
 		wantFrame{"$", 100 * ms, 200 * ms, true},
 	)
 	skipped := buildTimeline(Header{Cols: 4, Rows: 1, SkipPristine: true}, events...)
-	assertFrames(t, exportFrames(t, skipped, Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, skipped, Profile{FPS: 100}),
 		wantFrame{"$", 100 * ms, 200 * ms, true},
 	)
 }
 
-func TestExportHoldAndSpeed(t *testing.T) {
+func TestExportSpeed(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(Header{Cols: 4, Rows: 1}, outAt(0, "a"), outAt(1000, "b"), Exit{event: at(2000)})
 	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100}),
 		wantFrame{"a", 0, time.Second, true},
 		wantFrame{"ab", time.Second, time.Second, true},
-		wantFrame{"ab", 2 * time.Second, time.Second, true},
 	)
-	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100, Speed: 2, Hold: 300 * ms}),
+	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100, Speed: 2}),
 		wantFrame{"a", 0, 500 * ms, true},
 		wantFrame{"ab", time.Second, 500 * ms, true},
-		wantFrame{"ab", 2 * time.Second, 300 * ms, true},
 	)
 }
 
@@ -156,7 +154,7 @@ func TestExportPlaysTimelineLength(t *testing.T) {
 	tl := buildTimeline(Header{Cols: 20, Rows: 1}, events...)
 	for _, speed := range []float64{1, 2} {
 		var total time.Duration
-		for _, f := range exportFrames(t, tl, Profile{Speed: speed, Hold: -1}) {
+		for _, f := range exportFrames(t, tl, Profile{Speed: speed}) {
 			if f.Delay <= 0 || f.Delay%(50*ms) != 0 {
 				t.Errorf("x%v: delay %v is not a whole number of steps", speed, f.Delay)
 			}
@@ -185,7 +183,7 @@ func TestExportWindow(t *testing.T) {
 	}
 	// The window starts on the terminal the events before it drew, and ends
 	// at its end mark.
-	assertFrames(t, exportFrames(t, cut, Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, cut, Profile{FPS: 100}),
 		wantFrame{"ab", 500 * ms, 200 * ms, true},
 		wantFrame{"abc", 700 * ms, 200 * ms, true},
 	)
@@ -201,7 +199,7 @@ func TestExportWindow(t *testing.T) {
 	if cut, err = blurred.Between("start", ""); err != nil {
 		t.Fatal(err)
 	}
-	assertFrames(t, exportFrames(t, cut, Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, cut, Profile{FPS: 100}),
 		wantFrame{"a", 500 * ms, 200 * ms, false},
 		wantFrame{"ac", 700 * ms, 10 * ms, false},
 	)
@@ -211,7 +209,7 @@ func TestExportWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertFrames(t, exportFrames(t, cut, Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, cut, Profile{FPS: 100}),
 		wantFrame{"a", 0, 100 * ms, true},
 		wantFrame{"ab", 100 * ms, 400 * ms, true},
 	)
@@ -221,8 +219,8 @@ func TestExportNoFrames(t *testing.T) {
 	t.Parallel()
 	// A terminal nothing visible was drawn on is still one frame.
 	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "\x1b[c"), Exit{event: at(300)})
-	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100, Hold: -1}), wantFrame{"", 0, 300 * ms, true})
-	assertFrames(t, exportFrames(t, buildTimeline(Header{Cols: 2, Rows: 1}), Profile{FPS: 100, Hold: -1}),
+	assertFrames(t, exportFrames(t, tl, Profile{FPS: 100}), wantFrame{"", 0, 300 * ms, true})
+	assertFrames(t, exportFrames(t, buildTimeline(Header{Cols: 2, Rows: 1}), Profile{FPS: 100}),
 		wantFrame{"", 0, 10 * ms, true})
 }
 
@@ -241,7 +239,7 @@ func TestExportEffects(t *testing.T) {
 		log = append(log, strings.Join([]string{frameText(f), boolStr(f.First), boolStr(f.Last), boolStr(f.Cells == nil)}, ":"))
 		emit(f)
 	})
-	p := Profile{FPS: 100, Hold: -1, Effects: []Effect{card, trace}}
+	p := Profile{FPS: 100, Effects: []Effect{card, trace}}
 	for range 2 {
 		log = nil
 		exportFrames(t, tl, p)

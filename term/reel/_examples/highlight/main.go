@@ -62,7 +62,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 			),
 			// After the highlight, so the keys stay bright.
 			effects.Keys(time.Second),
-			effects.PauseBadge(),
+			effects.Pause(),
 		},
 	})
 	if err != nil {

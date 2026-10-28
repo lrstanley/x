@@ -43,7 +43,6 @@ func redactFrames(t *testing.T, r testutil.Rasterizer, tl *reel.Timeline, effect
 	})
 	out = exportFrames(t, tl, reel.Profile{
 		FPS:        100,
-		Hold:       -1,
 		Rasterizer: r,
 		Effects:    append([]reel.Effect{keep}, effects...),
 	})

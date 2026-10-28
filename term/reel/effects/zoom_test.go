@@ -30,7 +30,6 @@ func zoomFrames(t *testing.T, tl *reel.Timeline, fps int, rast reel.Rasterizer, 
 	})
 	out = exportFrames(t, tl, reel.Profile{
 		FPS:        fps,
-		Hold:       -1,
 		Rasterizer: rast,
 		Render:     opts,
 		Effects:    append([]reel.Effect{keep}, effects...),

@@ -100,7 +100,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	err = reel.Export(ctx, s.Timeline(), reel.Profile{
 		Outputs: outputs,
 		Render:  []render.Option{render.WithWindowChrome(true)},
-		Effects: []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.PauseBadge()},
+		Effects: []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.Pause()},
 	})
 	if err != nil {
 		return nil, err

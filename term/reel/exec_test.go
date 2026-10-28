@@ -78,7 +78,7 @@ func TestExecRecordsFrames(t *testing.T) {
 	if exit, ok := events[len(events)-1].(Exit); !ok || exit.Status != 0 {
 		t.Fatalf("last event = %#v, want Exit{0}", events[len(events)-1])
 	}
-	frames := exportFrames(t, tl, Profile{FPS: 100, Hold: -1})
+	frames := exportFrames(t, tl, Profile{FPS: 100})
 	var texts []string
 	for _, f := range frames {
 		texts = append(texts, frameText(f))
@@ -124,7 +124,7 @@ func TestExecEmptyPrompt(t *testing.T) {
 	for m := range s.Timeline().Marks() {
 		typed = m.At()
 	}
-	frames := exportFrames(t, s.Timeline(), Profile{FPS: 100, Hold: -1})
+	frames := exportFrames(t, s.Timeline(), Profile{FPS: 100})
 	if first := frames[0]; first.At >= typed || frameText(first) != "" {
 		t.Fatalf("first frame %q at %v, want a blank one before the typing at %v", frameText(first), first.At, typed)
 	}

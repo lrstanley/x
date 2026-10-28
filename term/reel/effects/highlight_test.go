@@ -54,7 +54,6 @@ func highlightFrames(t *testing.T, tl *reel.Timeline, effects ...reel.Effect) (i
 	})
 	out = exportFrames(t, tl, reel.Profile{
 		FPS:        100,
-		Hold:       -1,
 		Rasterizer: highlightRast,
 		Effects:    append([]reel.Effect{keep}, effects...),
 	})

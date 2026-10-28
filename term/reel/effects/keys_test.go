@@ -135,7 +135,6 @@ func TestKeysOverlay(t *testing.T) {
 	var in []reel.Frame
 	out := exportFrames(t, tl, reel.Profile{
 		Effects: []reel.Effect{recordFrames{&in}, Keys(300 * ms)},
-		Hold:    -1,
 	})
 	if len(in) != 1 {
 		t.Fatalf("%d terminal frames, want 1", len(in))
@@ -177,7 +176,7 @@ func TestKeysOverlay(t *testing.T) {
 	}
 }
 
-// TestKeysTiming checks that at any speed and hold, and with frames that
+// TestKeysTiming checks that at any speed, and with frames that
 // change while keys show, the overlay keeps every frame's length and splits
 // it on the delay grid.
 func TestKeysTiming(t *testing.T) {
@@ -193,8 +192,8 @@ func TestKeysTiming(t *testing.T) {
 		mark(1500, "end"),
 	)
 	for _, p := range []reel.Profile{
-		{Speed: 2, Hold: 300 * ms},
-		{Speed: 0.5, FPS: 30, Hold: -1},
+		{Speed: 2},
+		{Speed: 0.5, FPS: 30},
 		{FPS: 100},
 	} {
 		var in []reel.Frame
@@ -273,8 +272,8 @@ func TestKeysLeavesAlone(t *testing.T) {
 		out := exportFrames(t, cut, reel.Profile{
 			Effects: []reel.Effect{Intro(500 * ms), recordFrames{&in}, Keys(tc.shown)},
 		})
-		if len(out) != 3 || out[0].Cells != nil {
-			t.Fatalf("%s: %d frames, want the intro card, the terminal, and its hold", tc.name, len(out))
+		if len(out) != 2 || out[0].Cells != nil {
+			t.Fatalf("%s: %d frames, want the intro card and the terminal", tc.name, len(out))
 		}
 		if shown := overlaid(in, out); slices.Contains(shown, true) {
 			t.Errorf("%s: frames overlaid %v, want none", tc.name, shown)
