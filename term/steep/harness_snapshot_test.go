@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -48,6 +49,28 @@ func padScreen(lines []string, width int) string {
 		out[i] = line
 	}
 	return strings.Join(out, "\n")
+}
+
+func TestHarnessSnapshotDirFromEnv(t *testing.T) {
+	snapDir := t.TempDir()
+	t.Setenv("STEEP_SNAPSHOT_DIR", snapDir)
+	callDir := t.TempDir()
+
+	h := NewHarness(t, rootTestModel{text: "env-dir"}, WithWindowSize(20, 2))
+	h.Wait("text=env-dir").
+		AssertSnapshot(snapshot.WithUpdate(true)).
+		AssertJSON(snapshot.WithUpdate(true)).
+		AssertSnapshot(snapshot.WithDir(callDir), snapshot.WithSuffix("call"), snapshot.WithUpdate(true))
+
+	for _, path := range []string{
+		filepath.Join(snapDir, "TestHarnessSnapshotDirFromEnv.snap"),
+		filepath.Join(snapDir, "TestHarnessSnapshotDirFromEnv.json"),
+		filepath.Join(callDir, "TestHarnessSnapshotDirFromEnv.02-call.snap"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("snapshot not written: %v", err)
+		}
+	}
 }
 
 func TestHarnessImageRendersLiveState(t *testing.T) {

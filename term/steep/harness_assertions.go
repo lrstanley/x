@@ -292,7 +292,9 @@ func (h *Harness) WaitLiveMessage[T uv.Event](opts ...Option) T {
 }
 
 // WaitMessageWhere waits until fn returns true for a message of type T across
-// history and later messages. T is inferred from fn.
+// history and later messages. T is inferred from fn. fn should be quick: a
+// wait that falls 32 messages behind misses the newer ones (see
+// [Harness.Messages]).
 func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage})()
@@ -300,7 +302,8 @@ func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) 
 }
 
 // WaitLiveMessageWhere waits until fn returns true for a message of type T
-// received after this call. T is inferred from fn.
+// received after this call. T is inferred from fn. fn should be quick, as for
+// [Harness.WaitMessageWhere].
 func (h *Harness) WaitLiveMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
 	h.tb.Helper()
 	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage, Live: true})()

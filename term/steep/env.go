@@ -15,7 +15,6 @@ import (
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/sink"
-	"github.com/lrstanley/x/term/steep/snapshot"
 )
 
 func applyEnv(tb testing.TB, cfg *options) {
@@ -211,12 +210,4 @@ func parseOptimizeFlags(raw string) sink.OptimizeFlags {
 		return sink.OptimizeAll
 	}
 	return f
-}
-
-// snapshotDirFromEnv returns snapshot.WithDir when STEEP_SNAPSHOT_DIR is set.
-func snapshotDirFromEnv(cfg options) snapshot.Option {
-	if cfg.snapshotDir == "" {
-		return nil
-	}
-	return snapshot.WithDir(cfg.snapshotDir)
 }

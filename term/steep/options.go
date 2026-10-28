@@ -266,7 +266,7 @@ func WithScrollOnInput(enable bool) Option {
 
 // WithANSI determines whether ANSI sequences are kept (the default) in the
 // output that waits, assertions, and [Harness.AssertSnapshot] compare. It does
-// not change what images and recordings show.
+// not change JSON snapshots, images, or recordings.
 func WithANSI(enable bool) Option {
 	return func(cfg *options) {
 		cfg.stripANSI = !enable

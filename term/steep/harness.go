@@ -350,7 +350,9 @@ func (h *Harness) MessageHistory() iter.Seq[uv.Event] {
 }
 
 // Messages returns an iterator over all messages the model received, past
-// and future, until ctx is done.
+// and future, until ctx is done. Past messages are complete, but the iterator
+// buffers only 32 new ones: a loop that falls further behind misses the
+// newer messages, which [Harness.MessageHistory] still has.
 func (h *Harness) Messages(ctx context.Context) iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()
@@ -358,7 +360,8 @@ func (h *Harness) Messages(ctx context.Context) iter.Seq[uv.Event] {
 }
 
 // LiveMessages returns an iterator over messages the model receives after
-// the call returns, until ctx is done.
+// the call returns, until ctx is done. Like [Harness.Messages], it buffers
+// only 32 messages, and a loop that falls further behind misses the newer ones.
 func (h *Harness) LiveMessages(ctx context.Context) iter.Seq[uv.Event] {
 	h.tb.Helper()
 	h.requireProgram()

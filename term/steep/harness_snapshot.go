@@ -16,16 +16,22 @@ import (
 	"github.com/lrstanley/x/term/steep/snapshot"
 )
 
+// snapshotOpts prepends the STEEP_SNAPSHOT_DIR default to opts, so a
+// per-call directory still wins.
 func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
-	cfg := collectOptions(h.tb, h.mergedOpts()...)
-	out := opts
-	if dir := snapshotDirFromEnv(cfg); dir != nil {
-		out = append([]snapshot.Option{dir}, out...)
+	if h.cfg.snapshotDir != "" {
+		opts = append([]snapshot.Option{snapshot.WithDir(h.cfg.snapshotDir)}, opts...)
 	}
-	if !cfg.stripANSI {
-		return out
+	return opts
+}
+
+// textSnapshotOpts is [Harness.snapshotOpts], plus the harness's [WithANSI].
+func (h *Harness) textSnapshotOpts(opts []snapshot.Option) []snapshot.Option {
+	opts = h.snapshotOpts(opts)
+	if h.cfg.stripANSI {
+		opts = append([]snapshot.Option{snapshot.WithANSI(false)}, opts...)
 	}
-	return append([]snapshot.Option{snapshot.WithANSI(false)}, out...)
+	return opts
 }
 
 // AssertSnapshot compares [Harness.View] against a snapshot file. It allows
@@ -35,7 +41,7 @@ func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	meta := CaptureMeta{Kind: CaptureKindText}
 	defer h.hook(HookCapture, meta)()
 	var res snapshot.Result
-	pass := snapshot.AssertEqual(h.tb, h.View(), withResult(&res, h.snapshotOpts(opts))...)
+	pass := snapshot.AssertEqual(h.tb, h.View(), withResult(&res, h.textSnapshotOpts(opts))...)
 	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
 	return h
 }
@@ -47,7 +53,7 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	meta := CaptureMeta{Kind: CaptureKindText, Required: true}
 	defer h.hook(HookCapture, meta)()
 	var res snapshot.Result
-	pass := snapshot.AssertEqual(h.tb, h.View(), withResult(&res, h.snapshotOpts(opts))...)
+	pass := snapshot.AssertEqual(h.tb, h.View(), withResult(&res, h.textSnapshotOpts(opts))...)
 	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
 	if !pass {
 		h.tb.FailNow()
@@ -56,13 +62,13 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 }
 
 // AssertJSON compares the screen's cells and the terminal's state, as JSON,
-// against a snapshot file. It allows the test to continue.
+// against a snapshot file.
 func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	meta := CaptureMeta{Kind: CaptureKindJSON}
 	defer h.hook(HookCapture, meta)()
 	var res snapshot.Result
-	pass := snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), withResult(&res, opts)...)
+	pass := snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), withResult(&res, h.snapshotOpts(opts))...)
 	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
 	return h
 }
@@ -74,7 +80,7 @@ func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	meta := CaptureMeta{Kind: CaptureKindJSON, Required: true}
 	defer h.hook(HookCapture, meta)()
 	var res snapshot.Result
-	pass := snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), withResult(&res, opts)...)
+	pass := snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), withResult(&res, h.snapshotOpts(opts))...)
 	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
 	if !pass {
 		h.tb.FailNow()
