@@ -165,11 +165,8 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		ctx.OnClose(w.missing)
 		return w, nil
 	}
-	cut, err := ctx.Timeline.Between(t.from, t.to)
+	cut, err := t.between(ctx.Timeline)
 	if err != nil {
-		if errors.Is(err, reel.ErrNoMark) {
-			return nil, fmt.Errorf("effects: between %q and %q: %w", t.from, t.to, err)
-		}
 		return nil, err
 	}
 	from, to := cut.Window()
@@ -180,6 +177,27 @@ func (t timing) start(ctx *reel.Context, cov coverage) (*window, error) {
 		w.to = to
 	}
 	return w, nil
+}
+
+// between returns the part of tl the window of t runs over, as
+// [reel.Timeline.Between] cuts it, with an error wrapping [reel.ErrNoMark]
+// for a mark tl's window does not have.
+func (t timing) between(tl *reel.Timeline) (*reel.Timeline, error) {
+	cut, err := tl.Between(t.from, t.to)
+	if errors.Is(err, reel.ErrNoMark) {
+		return nil, fmt.Errorf("effects: between %q and %q: %w", t.from, t.to, err)
+	}
+	return cut, err
+}
+
+// checkMarks is [reel.MarkChecker.CheckMarks] for an effect with timing t:
+// the marks of [Between] must be in tl's window.
+func (t timing) checkMarks(tl *reel.Timeline) error {
+	if t.from == "" && t.to == "" {
+		return nil
+	}
+	_, err := t.between(tl)
+	return err
 }
 
 // update looks for the marks of a live window among the events appended

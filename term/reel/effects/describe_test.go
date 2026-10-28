@@ -141,41 +141,23 @@ func TestDescribeRoundTrip(t *testing.T) {
 				`"timing":{"between":{"to":"b"}},"scale":2,"anchor":{"x":0,"y":1}}`,
 		},
 		{
-			name:   "redact default",
-			effect: Redact(Env("REEL_TEST_SECRET")),
-			want:   `{"effect":"redact","region":{"type":"env","names":["REEL_TEST_SECRET"]}}`,
+			name:   "highlight env",
+			effect: Highlight(Env("REEL_TEST_SECRET"), Between("a", "")),
+			want:   `{"effect":"highlight","region":{"type":"env","names":["REEL_TEST_SECRET"]},"timing":{"between":{"from":"a"}}}`,
 		},
 		{
-			name:   "redact blur",
-			effect: Redact(Text("secret"), Blur(), Between("a", ""), MinPartial(2)),
-			want:   `{"effect":"redact","region":{"type":"text","text":"secret"},"timing":{"between":{"from":"a"}},"mode":"blur","min_partial":2}`,
-		},
-		{
-			name:   "redact replace",
-			effect: Redact(Any(Text("hunter2"), Regexp(re), Cells(image.Rect(0, 3, 2, 4)), Row(2), Env("REEL_TEST_SECRET", "REEL_UNSET")), Replace('•')),
-			want: `{"effect":"redact","region":{"type":"any","regions":[` +
+			name:   "highlight any",
+			effect: Highlight(Any(Text("hunter2"), Regexp(re), Cells(image.Rect(0, 3, 2, 4)), Row(2), Env("REEL_TEST_SECRET", "REEL_UNSET"))),
+			after:  []reel.Effect{keys},
+			want: `{"effect":"highlight","region":{"type":"any","regions":[` +
 				`{"type":"text","text":"hunter2"},{"type":"regexp","pattern":"hun\\w+"},` +
 				`{"type":"cells","x0":0,"y0":3,"x1":2,"y1":4},{"type":"rows","from":2,"to":3},` +
-				`{"type":"env","names":["REEL_TEST_SECRET","REEL_UNSET"]}]},` +
-				`"mode":"replace","replacement":"•"}`,
+				`{"type":"env","names":["REEL_TEST_SECRET","REEL_UNSET"]}]}}`,
 		},
 		{
-			name:   "redact block explicit",
-			effect: Redact(Env(), Replace('x'), Block()),
-			want:   `{"effect":"redact","region":{"type":"env","names":[]}}`,
-		},
-		{
-			name:   "redact inputs",
-			effect: RedactInputs(Any(Text("ab"), Env("REEL_TEST_SECRET")), MinPartial(1)),
-			after:  []reel.Effect{keys},
-			want: `{"effect":"redact_inputs","region":{"type":"any","regions":[` +
-				`{"type":"text","text":"ab"},{"type":"env","names":["REEL_TEST_SECRET"]}]},"min_partial":1}`,
-		},
-		{
-			name:   "redact inputs default",
-			effect: RedactInputs(Regexp(re)),
-			after:  []reel.Effect{keys},
-			want:   `{"effect":"redact_inputs","region":{"type":"regexp","pattern":"hun\\w+"}}`,
+			name:   "zoom env without names",
+			effect: Zoom(Env()),
+			want:   `{"effect":"zoom","region":{"type":"env","names":[]}}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,10 +235,8 @@ func TestDescribeANSIColors(t *testing.T) {
 func TestDescribeUnsupported(t *testing.T) {
 	t.Parallel()
 	for name, e := range map[string]reel.Effect{
-		"highlight":     Highlight(customRegion{}),
-		"zoom any":      Zoom(Any(Text("x"), customRegion{})),
-		"redact":        Redact(customRegion{}),
-		"redact inputs": RedactInputs(customRegion{}),
+		"highlight": Highlight(customRegion{}),
+		"zoom any":  Zoom(Any(Text("x"), customRegion{})),
 	} {
 		if _, err := describeEffect(t, e); !errors.Is(err, errors.ErrUnsupported) {
 			t.Errorf("%s: Describe = %v, want ErrUnsupported", name, err)
@@ -270,12 +250,11 @@ func TestDescribeInvalid(t *testing.T) {
 		"nil region":       Highlight(nil),
 		"nil regexp":       Zoom(Regexp(nil)),
 		"dim":              Highlight(Text("x"), DimOthers(2)),
-		"redact eases":     Redact(Text("x"), Ease(10*ms)),
 		"negative ease":    Zoom(Text("x"), EaseIn(-10*ms)),
 		"pause nil regexp": Pause(PauseAtMatch(ms, nil)),
+		"pause negative":   Pause(PauseAtMarks(-ms)),
 		"pause corner":     Pause(WithBadgeCorner(Corner(9))),
 		"badge size":       Pause(WithBadgeSize(4)),
-		"min partial":      RedactInputs(Text("x"), MinPartial(0)),
 		"underline":        Intro(ms, Line{Text: "x", Style: vt.Style{Underline: 99}}),
 		"anchor":           Zoom(Text("x"), Anchor(2, 0)),
 	} {
@@ -306,15 +285,15 @@ func TestFromAnnotationErrors(t *testing.T) {
 		"index color":   {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"fg":256}}]}`, "palette index"},
 		"underline":     {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"underline":"wavy"}}]}`, `unknown underline style "wavy"`},
 		"attr":          {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"attrs":["loud"]}}]}`, `unknown attribute "loud"`},
-		"mode":          {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"},"mode":"melt"}`, `unknown mode "melt"`},
-		"replacement":   {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"},"mode":"replace","replacement":"ab"}`, "not one character"},
-		"redact ease":   {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":1}}`, "ease"},
+		// The effects that hide secrets are never described.
+		"redact":        {reel.EffectKind, `{"effect":"redact","region":{"type":"text","text":"x"}}`, `unknown effect "redact"`},
+		"redact inputs": {reel.EffectKind, `{"effect":"redact_inputs","region":{"type":"text","text":"x"}}`, `unknown effect "redact_inputs"`},
 		// A field a newer reel may write is not applied without.
 		"field":        {reel.EffectKind, `{"effect":"keys","shown_ms":1,"fade_ms":1}`, `"fade_ms"`},
 		"region field": {reel.EffectKind, `{"effect":"zoom","region":{"type":"text","text":"x","pattern":"y"}}`, `"pattern"`},
 		"timing field": {reel.EffectKind, `{"effect":"zoom","region":{"type":"text","text":"x"},"timing":{"ease_ms":1}}`, `"ease_ms"`},
 		"line field":   {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","align":"left"}]}`, `"align"`},
-		"inputs field": {reel.EffectKind, `{"effect":"redact_inputs","region":{"type":"text","text":"x"},"timing":{}}`, `"timing"`},
+		"badge field":  {reel.EffectKind, `{"effect":"pause","badge_shape":"square"}`, `"badge_shape"`},
 	} {
 		a := reel.Annotation{Kind: tc.kind, Data: jsontext.Value(tc.data)}
 		if _, err := FromAnnotation(a); err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -384,6 +363,74 @@ func TestExportCastEffects(t *testing.T) {
 		b, _ := os.ReadFile(second)
 		if !bytes.Equal(a, b) {
 			t.Fatalf("v%d: exporting the file with its effects wrote:\n%s\nwant:\n%s", v, b, a)
+		}
+	}
+}
+
+// TestCheckMarks checks that the effects that look for marks report those a
+// cut does not have, so an asciicast output of the cut is an error before
+// anything is written, and that a file of the others exports again with
+// them.
+func TestCheckMarks(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 2, 1, "",
+		mark(0, "a"),
+		output(1, "x"),
+		mark(2, "b"),
+		output(3, "y"),
+		mark(4, "c"),
+	)
+	cut, err := tl.Between("b", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		effect reel.Effect
+		ok     bool
+	}{
+		"between":       {Zoom(Rows(0, 1), Between("b", "c")), true},
+		"to":            {Highlight(Rows(0, 1), Between("", "c")), true},
+		"no marks":      {Highlight(Rows(0, 1)), true},
+		"from outside":  {Zoom(Rows(0, 1), Between("a", "c")), false},
+		"to outside":    {Highlight(Rows(0, 1), Between("", "a")), false},
+		"pause":         {Pause(PauseAtMarks(ms, "b", "c")), true},
+		"pause outside": {Pause(PauseAtMarks(ms, "c", "a")), false},
+		"pause match":   {Pause(PauseAtMatch(ms, regexp.MustCompile("a"))), true},
+		"pause end":     {Pause(), true},
+	} {
+		mc, ok := tc.effect.(reel.MarkChecker)
+		if !ok {
+			t.Fatalf("%s: %T is not a reel.MarkChecker", name, tc.effect)
+		}
+		if err := mc.CheckMarks(tl); err != nil {
+			t.Errorf("%s: CheckMarks of the whole timeline = %v", name, err)
+		}
+		path := filepath.Join(t.TempDir(), "a.cast")
+		p := reel.Profile{Outputs: reel.Files(path), Effects: []reel.Effect{tc.effect}}
+		err := reel.Export(t.Context(), cut, p)
+		if !tc.ok {
+			if cerr := mc.CheckMarks(cut); !errors.Is(cerr, reel.ErrNoMark) {
+				t.Errorf("%s: CheckMarks = %v, want ErrNoMark", name, cerr)
+			}
+			if !errors.Is(err, reel.ErrNoMark) {
+				t.Errorf("%s: Export = %v, want ErrNoMark", name, err)
+			}
+			if _, err = os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("%s: wrote the file: %v", name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		read, err := FromTimeline(readCastFile(t, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Outputs[0].Path, p.Effects = filepath.Join(t.TempDir(), "a.cast"), read
+		if err = reel.Export(t.Context(), readCastFile(t, path), p); err != nil {
+			t.Errorf("%s: exporting the file again: %v", name, err)
 		}
 	}
 }

@@ -29,20 +29,21 @@
 // Each effect keeps the state of a recording in the stage it starts for it,
 // so one effect value can be shared by profiles that record in parallel.
 //
-// Each effect is a [reel.Describer]: an asciicast output records it as an
-// annotation of kind [reel.EffectKind], with its options and region, and
-// [FromTimeline] reads the effects of the file back, so an export of the
-// file applies them again ([FromAnnotation] reads one). A region of a
-// caller's own, or [Any] of one, has no description: Describe returns an
-// error wrapping [errors.ErrUnsupported], and the file leaves the effect
-// out. An [Env] region is described by the names of its variables, never
-// their values, and a [Regexp] region by its source text, so it reads back
-// with leftmost-first matching, without [regexp.Regexp.Longest]. Durations
-// are rounded to the millisecond, and the palette colors of a [Line]'s
-// style read back as [vt.Indexed]. Options Start would reject, such as a
-// [DimOthers] outside 0 to 1, are an error from Describe. Redact and
-// RedactInputs are described too, though an asciicast output is an error
-// with them, so a file written by hand can hold them.
+// Each effect but Redact and RedactInputs, which an asciicast output can
+// not be written with, is a [reel.Describer]: an asciicast output records
+// it as an annotation of kind [reel.EffectKind], with its options and
+// region, and [FromTimeline] reads the effects of the file back, so an
+// export of the file applies them again ([FromAnnotation] reads one). A
+// region of a caller's own, or [Any] of one, has no description: Describe
+// returns an error wrapping [errors.ErrUnsupported], and the file leaves the
+// effect out. An [Env] region is described by the names of its variables,
+// never their values, and a [Regexp] region by its source text, so it reads
+// back with leftmost-first matching, without [regexp.Regexp.Longest].
+// Durations are rounded to the millisecond, and the palette colors of a
+// [Line]'s style read back as [vt.Indexed]. Options Start would reject, such
+// as a [DimOthers] outside 0 to 1, are an error from Describe. The effects
+// that look for marks, with [Between] or [PauseAtMarks], are each a
+// [reel.MarkChecker], so a file never names marks it does not have.
 //
 // A [CardRenderer] draws the cards, for effects of a caller's own too:
 // lines of text on a blank terminal that matches the recording's frames.

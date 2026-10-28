@@ -91,10 +91,9 @@ type Terminal struct {
 	// replies is the pty response stream drained by Read. The VT-write
 	// callback appends to it and must not block.
 	replies *replyBuf
-	// capture is set while [Terminal.WriteReplies] runs, which the VT-write
-	// callback then also appends each reply to, as captured.
-	capture  bool
-	captured []byte
+	// captured is set while [Terminal.WriteReplies] runs, to what it
+	// returns, which the VT-write callback then also appends each reply to.
+	captured *[]byte
 
 	// title is the last OSC 0 or OSC 2 window title.
 	title string
@@ -210,10 +209,10 @@ func (t *Terminal) Write(p []byte) (int, error) {
 func (t *Terminal) WriteReplies(p []byte) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.capture = true
+	var replies []byte
+	t.captured = &replies
 	_, err := t.writeOutputLocked(p)
-	replies := t.captured
-	t.capture, t.captured = false, nil
+	t.captured = nil
 	return replies, err
 }
 

@@ -5,7 +5,6 @@
 package reel
 
 import (
-	"bytes"
 	_ "embed"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
@@ -13,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -26,6 +26,28 @@ import (
 //
 //go:embed annotation.schema.json
 var AnnotationSchema []byte
+
+// AnnotationTextMax is the most bytes of text reel and steep keep in a
+// field of an annotation they record, such as a terminal reply or the text
+// a test waited for. [ClipText] cuts longer text.
+const AnnotationTextMax = 4 << 10
+
+// ClipText returns s as valid UTF-8, cut at a character boundary to at most
+// [AnnotationTextMax] bytes, and sets *truncated when it was cut, for a
+// field of an annotation to record s in. Invalid UTF-8 is replaced with
+// U+FFFD, since an annotation is JSON.
+func ClipText(s string, truncated *bool) string {
+	s = strings.ToValidUTF8(s, "�")
+	if len(s) <= AnnotationTextMax {
+		return s
+	}
+	*truncated = true
+	n := AnnotationTextMax
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
 
 // annotationCode is the asciicast event code of an [Annotation].
 const annotationCode = "R"
@@ -56,6 +78,16 @@ type Annotation struct {
 // bytes. The annotation must be valid as [AnnotationSchema] describes its
 // kind.
 func NewAnnotation(kind string, v any) (Annotation, error) {
+	a, err := newAnnotation(kind, v)
+	if err != nil {
+		return a, err
+	}
+	return a, a.validate()
+}
+
+// newAnnotation is [NewAnnotation], without checking the annotation against
+// [AnnotationSchema], for annotations reel builds that it always allows.
+func newAnnotation(kind string, v any) (Annotation, error) {
 	a := Annotation{Kind: kind}
 	if v != nil {
 		data, err := json.Marshal(v, json.Deterministic(true), jsontext.AllowInvalidUTF8(true))
@@ -63,9 +95,6 @@ func NewAnnotation(kind string, v any) (Annotation, error) {
 			return a, fmt.Errorf("reel: annotation %q: %w", kind, err)
 		}
 		a.Data = data
-	}
-	if _, err := a.marshal(); err != nil {
-		return a, err
 	}
 	return a, nil
 }
@@ -83,71 +112,87 @@ func (e Annotation) Decode(v any) error {
 	return nil
 }
 
-// marshal returns the annotation as the JSON object of an asciicast event's
-// data, after checking it against [AnnotationSchema].
-func (e Annotation) marshal() (string, error) {
-	var b strings.Builder
-	kind, err := jsontext.AppendQuote(nil, e.Kind)
+// annotationObject is the JSON object of an [Annotation] in an asciicast
+// file: its kind, then its fields.
+type annotationObject struct {
+	Kind string         `json:"kind"`
+	Data jsontext.Value `json:",embed"`
+}
+
+// encode returns the annotation as the JSON object of an asciicast event's
+// data, without checking it against [AnnotationSchema]. Data that is not a
+// JSON object, or that has a "kind" member, is an error.
+func (e Annotation) encode() ([]byte, error) {
+	data, err := json.Marshal(annotationObject{Kind: e.Kind, Data: e.Data})
 	if err != nil {
-		return "", fmt.Errorf("reel: annotation kind %q: %w", e.Kind, err)
+		return nil, fmt.Errorf("reel: annotation %q: %w", e.Kind, err)
 	}
-	b.WriteString(`{"kind":`)
-	b.Write(kind)
-	if len(e.Data) > 0 {
-		data := jsontext.Value(bytes.Clone(e.Data))
-		if err := data.Compact(); err != nil {
-			return "", fmt.Errorf("reel: annotation %q: %w", e.Kind, err)
-		}
-		if data.Kind() != '{' {
-			return "", fmt.Errorf("reel: annotation %q: data is a JSON %v, not an object", e.Kind, data.Kind())
-		}
-		if len(data) > 2 {
-			b.WriteByte(',')
-			b.Write(data[1:])
-		} else {
-			b.WriteByte('}')
-		}
-	} else {
-		b.WriteByte('}')
+	return data, nil
+}
+
+// validate checks the annotation against [AnnotationSchema].
+func (e Annotation) validate() error {
+	data, err := e.encode()
+	if err != nil {
+		return err
 	}
-	s := b.String()
-	if err := validateAnnotation(s); err != nil {
-		return "", err
-	}
-	return s, nil
+	return validateAnnotation(data)
 }
 
 // parseAnnotation parses the data of an asciicast annotation event, after
-// checking it against [AnnotationSchema].
+// checking it against [AnnotationSchema]. Its fields keep their order.
 func parseAnnotation(data string) (Annotation, error) {
-	var a Annotation
-	if err := validateAnnotation(data); err != nil {
-		return a, err
+	b := []byte(data)
+	if err := validateAnnotation(b); err != nil {
+		return Annotation{}, err
 	}
-	var fields map[string]jsontext.Value
-	if err := json.Unmarshal([]byte(data), &fields); err != nil {
-		return a, err
+	var obj annotationObject
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return Annotation{}, err
 	}
-	if err := json.Unmarshal(fields["kind"], &a.Kind); err != nil {
-		return a, err
-	}
-	delete(fields, "kind")
-	if len(fields) > 0 {
-		var err error
-		if a.Data, err = json.Marshal(fields, json.Deterministic(true)); err != nil {
-			return a, err
-		}
-	}
-	return a, nil
+	return Annotation{Kind: obj.Kind, Data: obj.Data}, nil
 }
 
-// annotationSchema is [AnnotationSchema], resolved.
-var annotationSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
-	var s jsonschema.Schema
-	if err := json.Unmarshal(AnnotationSchema, &s); err != nil {
+// kindSchemas is [AnnotationSchema] resolved once for each kind it
+// describes, and once for every other kind.
+type kindSchemas struct {
+	kinds map[string]*jsonschema.Resolved
+	other *jsonschema.Resolved
+}
+
+// annotationSchemas returns [AnnotationSchema], resolved for each kind. The
+// schema's top level allOf checks the fields of each kind it describes,
+// with an if on the kind and a then of its definition. Checking every
+// branch for every annotation is slow, so each kind is checked against the
+// schema with that allOf replaced by the then of its kind alone, and other
+// kinds against the schema without it.
+var annotationSchemas = sync.OnceValues(func() (*kindSchemas, error) {
+	var root jsonschema.Schema
+	if err := json.Unmarshal(AnnotationSchema, &root); err != nil {
 		return nil, err
 	}
-	return s.Resolve(nil)
+	base := root.CloneSchemas()
+	base.AllOf = nil
+	other, err := base.Resolve(nil)
+	if err != nil {
+		return nil, err
+	}
+	ks := &kindSchemas{kinds: make(map[string]*jsonschema.Resolved, len(root.AllOf)), other: other}
+	for i, branch := range root.AllOf {
+		var kind string
+		if branch.If != nil && branch.If.Properties["kind"] != nil && branch.If.Properties["kind"].Const != nil {
+			kind, _ = (*branch.If.Properties["kind"].Const).(string)
+		}
+		if kind == "" || branch.Then == nil {
+			return nil, fmt.Errorf("allOf %d is not an if on a kind with a then", i)
+		}
+		one := root.CloneSchemas()
+		one.AllOf = []*jsonschema.Schema{one.AllOf[i].Then}
+		if ks.kinds[kind], err = one.Resolve(nil); err != nil {
+			return nil, err
+		}
+	}
+	return ks, nil
 })
 
 // ErrInvalidAnnotation is wrapped by the errors for an annotation that
@@ -155,15 +200,21 @@ var annotationSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
 var ErrInvalidAnnotation = errors.New("reel: invalid annotation")
 
 // validateAnnotation checks the JSON object of an annotation against
-// [AnnotationSchema].
-func validateAnnotation(data string) error {
-	rs, err := annotationSchema()
+// [AnnotationSchema], resolved for its kind.
+func validateAnnotation(data []byte) error {
+	ks, err := annotationSchemas()
 	if err != nil {
 		return fmt.Errorf("reel: annotation schema: %w", err)
 	}
 	var v any
-	if err := json.Unmarshal([]byte(data), &v); err != nil {
+	if err := json.Unmarshal(data, &v); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidAnnotation, err)
+	}
+	rs := ks.other
+	if obj, ok := v.(map[string]any); ok {
+		if kind, ok := obj["kind"].(string); ok && ks.kinds[kind] != nil {
+			rs = ks.kinds[kind]
+		}
 	}
 	if err := rs.Validate(v); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidAnnotation, err)

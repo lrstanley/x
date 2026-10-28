@@ -59,8 +59,8 @@ type Session struct {
 	// by mu.
 	pty     *pty.PTY
 	running bool
-	// queries is whether Write records the program's queries.
-	queries bool
+	// noQueries stops Write recording the program's queries.
+	noQueries bool
 }
 
 // SessionOption configures [Open].
@@ -133,7 +133,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		theme.Cursor = c
 	}
 	h := Header{Cols: cols, Rows: rows, Theme: theme, Title: cfg.title, SkipPristine: cfg.skipPristine}
-	s := &Session{term: term, timeline: newTimeline(h), queries: !cfg.noQueries}
+	s := &Session{term: term, timeline: newTimeline(h), noQueries: cfg.noQueries}
 	s.focused.Store(true)
 	return s, nil
 }
@@ -167,11 +167,10 @@ func (s *Session) Write(p []byte) (int, error) {
 	if s.closed.Load() {
 		return 0, ErrClosed
 	}
-	if len(p) == 0 {
-		return s.term.Write(p)
+	if len(p) > 0 {
+		s.timeline.append(Output{Data: bytes.Clone(p)})
 	}
-	s.timeline.append(Output{Data: bytes.Clone(p)})
-	if !s.queries {
+	if s.noQueries {
 		return s.term.Write(p)
 	}
 	replies, err := s.term.WriteReplies(p)
@@ -179,10 +178,7 @@ func (s *Session) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	for _, q := range queries(p, replies) {
-		// A query always makes a valid annotation.
-		if a, err := NewAnnotation(QueryKind, q); err == nil {
-			s.timeline.append(a)
-		}
+		s.timeline.append(queryAnnotation(q))
 	}
 	return len(p), nil
 }
@@ -353,7 +349,7 @@ func (s *Session) Mark(label string) error {
 // show, such as what a test did. It returns an error wrapping
 // [ErrInvalidAnnotation] when [AnnotationSchema] does not allow it.
 func (s *Session) Annotate(a Annotation) error {
-	if _, err := a.marshal(); err != nil {
+	if err := a.validate(); err != nil {
 		return err
 	}
 	a.Data = bytes.Clone(a.Data)

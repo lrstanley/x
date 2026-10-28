@@ -39,11 +39,10 @@ func NewWriter(w io.Writer, h Header) (*Writer, error) {
 
 // headerOf returns the JSON of h.
 func headerOf(h Header) castHeader {
-	hl := castHeader{Version: h.Version, Title: h.Title}
+	hl := castHeader{Version: h.Version, Title: h.Title, SkipPristine: h.SkipPristine}
 	if !h.Timestamp.IsZero() {
 		hl.Timestamp = h.Timestamp.Unix()
 	}
-	hl.SkipPristine = h.SkipPristine
 	var th *castTheme
 	if h.Theme != nil {
 		th = &castTheme{

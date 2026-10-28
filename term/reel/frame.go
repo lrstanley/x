@@ -128,6 +128,20 @@ type Describer interface {
 	Describe() (Annotation, error)
 }
 
+// MarkChecker is implemented by a [Describer] whose effect looks for marks,
+// such as to run between two of them, so an asciicast output does not hold
+// a description that names marks the file lacks, which an export of the
+// file could not apply. [Export] returns the error of CheckMarks before it
+// writes anything, and [Record] leaves the description out of its asciicast
+// outputs (see Export and Record).
+type MarkChecker interface {
+	Describer
+	// CheckMarks returns an error wrapping [ErrNoMark] for each mark the
+	// effect looks for that tl's window does not have, as the effect would
+	// look for it, or nil.
+	CheckMarks(tl *Timeline) error
+}
+
 // Concealer is implemented by an [Effect] that hides part of what a
 // recording shows, such as a secret. It can only hide what passes through
 // it, so in a profile with an effect whose Conceals reports true, every

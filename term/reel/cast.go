@@ -243,11 +243,13 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 		case Exit:
 			code, data = "x", strconv.Itoa(ev.Status)
 		case Annotation:
-			var err error
-			if data, err = ev.marshal(); err != nil {
+			// Every way an annotation enters a timeline checks it against
+			// the schema, so it is only encoded here.
+			b, err := ev.encode()
+			if err != nil {
 				return err
 			}
-			code = annotationCode
+			code, data = annotationCode, string(b)
 		}
 		if err := aw.WriteEvent(asciicast.Event{Time: ev.At(), Code: code, Data: data}); err != nil {
 			return err

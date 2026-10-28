@@ -42,8 +42,8 @@
       "required": ["effect"],
       "properties": {
         "effect": {
-          "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, \"zoom\" zooms in on one, \"redact\" hides a region from the frames, and \"redact_inputs\" hides typed text from the keys shown.",
-          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom", "redact", "redact_inputs"]
+          "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, and \"zoom\" zooms in on one. reel never writes its effects that hide secrets, since an asciicast file holds what they hide.",
+          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom"]
         }
       },
       "allOf": [
@@ -51,9 +51,7 @@
         {"if": {"properties": {"effect": {"const": "intro"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.intro"}},
         {"if": {"properties": {"effect": {"const": "pause"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.pause"}},
         {"if": {"properties": {"effect": {"const": "highlight"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.highlight"}},
-        {"if": {"properties": {"effect": {"const": "zoom"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.zoom"}},
-        {"if": {"properties": {"effect": {"const": "redact"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.redact"}},
-        {"if": {"properties": {"effect": {"const": "redact_inputs"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.redact_inputs"}}
+        {"if": {"properties": {"effect": {"const": "zoom"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.zoom"}}
       ]
     },
     "reel.effect.keys": {
@@ -242,54 +240,6 @@
           }
         }
       }
-    },
-    "reel.effect.redact": {
-      "description": "The redact effect: hides the cells of a region, such as a secret, from every frame, and the text of text, env, and regexp regions from the terminal's title and program status. reel never writes it, since an asciicast file holds what it hides, but reads it back.",
-      "type": "object",
-      "required": ["effect", "region"],
-      "properties": {
-        "kind": {"const": "reel.effect"},
-        "effect": {"const": "redact"},
-        "region": {"$ref": "#/$defs/reel.effect.region"},
-        "timing": {
-          "description": "When the effect is on. Left out, for the whole recording. Unlike other effects, it cannot ease, since easing would show part of what it hides.",
-          "type": "object",
-          "properties": {
-            "between": {"$ref": "#/$defs/reel.effect.between"}
-          },
-          "not": {"anyOf": [{"required": ["ease_in_ms"]}, {"required": ["ease_out_ms"]}]}
-        },
-        "mode": {
-          "description": "How each cell is hidden: \"block\" as a blank cell in its background, \"blur\" as a blurred shape of text, and \"replace\" as the replacement character, in the cell's own colors. Left out, \"block\".",
-          "type": "string", "examples": ["block", "blur", "replace"]
-        },
-        "replacement": {
-          "description": "For the \"replace\" mode: the character each cell shows, a printable character one cell wide.",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1
-        },
-        "min_partial": {"$ref": "#/$defs/reel.effect.min_partial"}
-      },
-      "if": {"properties": {"mode": {"const": "replace"}}, "required": ["mode"]},
-      "then": {"required": ["replacement"]},
-      "else": {"not": {"required": ["replacement"]}}
-    },
-    "reel.effect.redact_inputs": {
-      "description": "The redact_inputs effect: hides the text a region matches from the typed text the keys effect shows, as a bullet for each character. Its region is a text, regexp, or env region, or any of them. reel never writes it, since an asciicast file holds what it hides, but reads it back.",
-      "type": "object",
-      "required": ["effect", "region"],
-      "properties": {
-        "kind": {"const": "reel.effect"},
-        "effect": {"const": "redact_inputs"},
-        "region": {"$ref": "#/$defs/reel.effect.region"},
-        "min_partial": {"$ref": "#/$defs/reel.effect.min_partial"}
-      }
-    },
-    "reel.effect.min_partial": {
-      "description": "The fewest characters of the start or end of the text of a text or env region that are hidden where only that part of it shows, such as while it is typed. Text of this many characters or fewer is only hidden whole. Left out, 3.",
-      "type": "integer",
-      "minimum": 1
     },
     "reel.effect.timing": {
       "description": "When an effect is on, and how it eases in and out. Left out, it is on for the whole recording, and switches on and off at once.",

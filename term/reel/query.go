@@ -10,16 +10,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // QueryKind is the kind of the [Annotation] a [Session] records for each
 // query the program writes to its terminal, whose fields are a [Query].
 const QueryKind = "reel.query"
-
-// annotationTextMax is the most bytes of text an annotation field holds.
-// Longer text is cut, and the annotation marked truncated.
-const annotationTextMax = 4 << 10
 
 // Query is a query the program wrote to its terminal, such as for its device
 // attributes or its background color, and the terminal's reply: the fields
@@ -88,11 +83,22 @@ func queries(out, replies []byte) []Query {
 	})
 	for i := range qs {
 		q := &qs[i]
-		q.Param = clipText(q.Param, &q.Truncated)
-		q.Request = clipText(q.Request, &q.Truncated)
-		q.Reply = clipText(q.Reply, &q.Truncated)
+		q.Param = ClipText(q.Param, &q.Truncated)
+		q.Request = ClipText(q.Request, &q.Truncated)
+		q.Reply = ClipText(q.Reply, &q.Truncated)
 	}
 	return qs
+}
+
+// queryAnnotation returns the [QueryKind] annotation of q, one of those
+// queries returns, which [AnnotationSchema] always allows, so it is not
+// checked against it. A Query always encodes, so an error is a bug.
+func queryAnnotation(q Query) Annotation {
+	a, err := newAnnotation(QueryKind, q)
+	if err != nil {
+		panic(err)
+	}
+	return a
 }
 
 func lastIndexFunc[E any](s []E, f func(E) bool) int {
@@ -102,21 +108,6 @@ func lastIndexFunc[E any](s []E, f func(E) bool) int {
 		}
 	}
 	return -1
-}
-
-// clipText returns s as valid UTF-8, cut to annotationTextMax bytes, and
-// sets *truncated when it was cut.
-func clipText(s string, truncated *bool) string {
-	s = strings.ToValidUTF8(s, "�")
-	if len(s) <= annotationTextMax {
-		return s
-	}
-	*truncated = true
-	n := annotationTextMax
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }
 
 // ctlSeq is an escape sequence or control character in a stream of terminal
@@ -133,8 +124,9 @@ type ctlSeq struct {
 	marker, params, inter string
 	final                 byte
 	// data is the text of an OSC sequence, or of a DCS sequence after its
-	// final byte.
-	data string
+	// final byte. It is a slice of the scanned bytes, since output can hold
+	// many OSC sequences, such as hyperlinks, that are no query or reply.
+	data []byte
 }
 
 // firstParam returns the first of the sequence's parameters.
@@ -198,7 +190,7 @@ func scanSeqs(b []byte, yield func(ctlSeq)) {
 			}
 			s := ctlSeq{raw: b[:n], intro: b[1]}
 			if b[1] == ']' {
-				s.data = string(body)
+				s.data = body
 			} else {
 				head, rest := splitHead(body)
 				if len(rest) == 0 {
@@ -206,7 +198,7 @@ func scanSeqs(b []byte, yield func(ctlSeq)) {
 					continue
 				}
 				s.marker, s.params, s.inter = parseHead(head)
-				s.final, s.data = rest[0], string(rest[1:])
+				s.final, s.data = rest[0], rest[1:]
 			}
 			yield(s)
 			b = b[n:]
@@ -271,13 +263,13 @@ func requestOf(s ctlSeq) (Query, bool) {
 	case '[':
 		return csiRequest(s)
 	case ']':
-		num, rest, _ := strings.Cut(s.data, ";")
+		num, rest, _ := bytes.Cut(s.data, []byte(";"))
 		switch {
-		case isColorOSC(num) && strings.Contains(rest, "?"):
-			return Query{Query: "osc_color", Param: num}, true
-		case num == "52" && strings.HasSuffix(rest, ";?"):
-			sel, _, _ := strings.Cut(rest, ";")
-			return Query{Query: "osc52", Param: sel}, true
+		case isColorOSC(num) && bytes.IndexByte(rest, '?') >= 0:
+			return Query{Query: "osc_color", Param: string(num)}, true
+		case string(num) == "52" && bytes.HasSuffix(rest, []byte(";?")):
+			sel, _, _ := bytes.Cut(rest, []byte(";"))
+			return Query{Query: "osc52", Param: string(sel)}, true
 		}
 	case 'P':
 		if s.marker != "" || s.params != "" || s.final != 'q' {
@@ -285,9 +277,9 @@ func requestOf(s ctlSeq) (Query, bool) {
 		}
 		switch s.inter {
 		case "$":
-			return Query{Query: "decrqss", Param: s.data}, true
+			return Query{Query: "decrqss", Param: string(s.data)}, true
 		case "+":
-			return Query{Query: "xtgettcap", Param: capNames(s.data)}, true
+			return Query{Query: "xtgettcap", Param: capNames(string(s.data))}, true
 		}
 	}
 	return Query{}, false
@@ -366,13 +358,13 @@ func replyOf(s ctlSeq) Query {
 			return Query{Query: "xtwinops"}
 		}
 	case ']':
-		num, rest, _ := strings.Cut(s.data, ";")
+		num, rest, _ := bytes.Cut(s.data, []byte(";"))
 		switch {
 		case isColorOSC(num):
-			return Query{Query: "osc_color", Param: num}
-		case num == "52":
-			sel, _, _ := strings.Cut(rest, ";")
-			return Query{Query: "osc52", Param: sel}
+			return Query{Query: "osc_color", Param: string(num)}
+		case string(num) == "52":
+			sel, _, _ := bytes.Cut(rest, []byte(";"))
+			return Query{Query: "osc52", Param: string(sel)}
 		}
 	case 'P':
 		switch {
@@ -393,9 +385,12 @@ func replyOf(s ctlSeq) Query {
 
 // isColorOSC reports whether num is the number of an OSC sequence that sets
 // or reports a color: 4 for the palette, or 10 to 19 for the dynamic colors.
-func isColorOSC(num string) bool {
-	n, err := strconv.Atoi(num)
-	return err == nil && (n == 4 || n >= 10 && n <= 19)
+func isColorOSC(num []byte) bool {
+	switch string(num) {
+	case "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19":
+		return true
+	}
+	return false
 }
 
 // capNames returns the hex encoded capability names of an XTGETTCAP query,

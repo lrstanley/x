@@ -22,6 +22,10 @@ func sessionQueries(t *testing.T, s *Session) []Query {
 		if a.Kind != QueryKind {
 			continue
 		}
+		// The session records them unchecked, as the schema allows them all.
+		if err := a.validate(); err != nil {
+			t.Fatal(err)
+		}
 		var q Query
 		if err := a.Decode(&q); err != nil {
 			t.Fatal(err)
@@ -151,7 +155,7 @@ func TestSessionQueriesTruncated(t *testing.T) {
 	s.Terminal().SetClipboard(strings.Repeat("x", 8<<10))
 	write(t, s, "\x1b]52;c;?\x07")
 	got := sessionQueries(t, s)
-	if len(got) != 1 || !got[0].Truncated || len(got[0].Reply) != annotationTextMax {
+	if len(got) != 1 || !got[0].Truncated || len(got[0].Reply) != AnnotationTextMax {
 		t.Fatalf("queries = %d, truncated %v, reply %d bytes", len(got), len(got) > 0 && got[0].Truncated, len(got[0].Reply))
 	}
 }

@@ -55,7 +55,7 @@ type PauseOption func(*pause)
 // PauseAtEnd pauses for d after the last terminal frame, so a looping
 // recording rests on its final screen.
 func PauseAtEnd(d time.Duration) PauseOption {
-	return func(p *pause) { p.points = append(p.points, pausePoint{d: d, end: true}) }
+	return func(p *pause) { p.points = append(p.points, pausePoint{at: pauseAtEnd, d: d}) }
 }
 
 // PauseAtMarks pauses for d at each mark labeled one of labels, or at every
@@ -65,21 +65,13 @@ func PauseAtEnd(d time.Duration) PauseOption {
 // it.
 func PauseAtMarks(d time.Duration, labels ...string) PauseOption {
 	labels = slices.Clone(labels)
-	match := func(string) bool { return true }
-	if len(labels) > 0 {
-		match = func(label string) bool { return slices.Contains(labels, label) }
-	}
-	return func(p *pause) { p.points = append(p.points, pausePoint{d: d, labels: labels, match: match}) }
+	return func(p *pause) { p.points = append(p.points, pausePoint{at: pauseAtMarks, d: d, labels: labels}) }
 }
 
 // PauseAtMatch pauses for d at each mark whose label re matches. A nil re
 // is an error from Start.
 func PauseAtMatch(d time.Duration, re *regexp.Regexp) PauseOption {
-	var match func(string) bool
-	if re != nil {
-		match = re.MatchString
-	}
-	return func(p *pause) { p.points = append(p.points, pausePoint{d: d, match: match, re: re}) }
+	return func(p *pause) { p.points = append(p.points, pausePoint{at: pauseAtMatch, d: d, re: re}) }
 }
 
 // WithBadgeCorner puts the badge in corner c of the terminal's cell grid,
@@ -152,7 +144,7 @@ func Pause(opts ...PauseOption) reel.Effect {
 		}
 	}
 	if p.points == nil {
-		p.points = []pausePoint{{d: pauseEnd, end: true}}
+		p.points = []pausePoint{{at: pauseAtEnd, d: pauseEnd}}
 	}
 	return p
 }
@@ -165,38 +157,59 @@ type pause struct {
 	noBadge bool
 }
 
-// pausePoint is where [Pause] pauses, and for how long: at the end, or at
-// the marks whose labels match reports true for. labels are those it names,
-// which must be in the timeline, and re is the regexp of [PauseAtMatch].
+// Where a [pausePoint] pauses, by the names its description gives them.
+const (
+	// pauseAtEnd is after the last terminal frame.
+	pauseAtEnd = "end"
+	// pauseAtMarks is at each mark labeled one of the point's labels, or
+	// at every mark without labels.
+	pauseAtMarks = "marks"
+	// pauseAtMatch is at each mark whose label the point's regexp matches.
+	pauseAtMatch = "match"
+)
+
+// pausePoint is where [Pause] pauses, at, and for how long, d. labels are
+// the labels of [PauseAtMarks], which must be in the timeline, and re is
+// the regexp of [PauseAtMatch].
 type pausePoint struct {
+	at     string
 	d      time.Duration
-	end    bool
-	match  func(label string) bool
 	labels []string
 	re     *regexp.Regexp
 }
 
+// matches reports whether the point pauses at a mark labeled label.
+func (pt pausePoint) matches(label string) bool {
+	switch pt.at {
+	case pauseAtMarks:
+		return len(pt.labels) == 0 || slices.Contains(pt.labels, label)
+	case pauseAtMatch:
+		return pt.re != nil && pt.re.MatchString(label)
+	}
+	return false
+}
+
+// check returns an error for a point Start rejects.
+func (pt pausePoint) check() error {
+	switch {
+	case pt.d < 0:
+		return fmt.Errorf("effects: pause of %v is below zero", pt.d)
+	case pt.at == pauseAtMatch && pt.re == nil:
+		return errors.New("effects: pause at a nil regexp")
+	}
+	return nil
+}
+
 func (e pause) Start(ctx *reel.Context) (reel.Stage, error) {
 	for _, pt := range e.points {
-		switch {
-		case pt.d < 0:
-			return nil, fmt.Errorf("effects: pause of %v is below zero", pt.d)
-		case !pt.end && pt.match == nil:
-			return nil, errors.New("effects: pause at a nil regexp")
+		if err := pt.check(); err != nil {
+			return nil, err
 		}
 	}
-	s := &pauseStage{ctx: ctx}
-	for _, pt := range e.points {
-		if pt.end {
-			s.end = max(s.end, pt.d)
-		} else {
-			s.points = append(s.points, pt)
-		}
-	}
-	s.from, _ = ctx.Timeline.Window()
+	s := e.newStage(ctx)
 	if !e.noBadge {
-		if e.corner < TopLeft || e.corner > BottomRight {
-			return nil, fmt.Errorf("effects: pause badge corner %d out of range", e.corner)
+		if err := e.checkCorner(); err != nil {
+			return nil, err
 		}
 		size := e.size
 		switch {
@@ -217,6 +230,37 @@ func (e pause) Start(ctx *reel.Context) (reel.Stage, error) {
 		return nil, err
 	}
 	return s.run, nil
+}
+
+// checkCorner returns an error for a badge corner that is none of the four.
+func (e pause) checkCorner() error {
+	if e.corner < TopLeft || e.corner > BottomRight {
+		return fmt.Errorf("effects: pause badge corner %d out of range", e.corner)
+	}
+	return nil
+}
+
+// CheckMarks implements [reel.MarkChecker]: each label of [PauseAtMarks]
+// must name a mark in tl's window.
+func (e pause) CheckMarks(tl *reel.Timeline) error {
+	s := e.newStage(&reel.Context{Timeline: tl})
+	s.readMarks()
+	return s.missing()
+}
+
+// newStage returns the stage of the pauses for the recording of ctx,
+// without a badge, before it reads any mark.
+func (e pause) newStage(ctx *reel.Context) *pauseStage {
+	s := &pauseStage{ctx: ctx}
+	for _, pt := range e.points {
+		if pt.at == pauseAtEnd {
+			s.end = max(s.end, pt.d)
+		} else {
+			s.points = append(s.points, pt)
+		}
+	}
+	s.from, _ = ctx.Timeline.Window()
+	return s
 }
 
 // markPause is a pause at a mark, at offset at into the timeline.
@@ -269,7 +313,7 @@ func (s *pauseStage) readMarks() {
 		s.seen[m.Label] = true
 		var d time.Duration
 		for _, pt := range s.points {
-			if pt.match(m.Label) {
+			if pt.matches(m.Label) {
 				d = max(d, pt.d)
 			}
 		}

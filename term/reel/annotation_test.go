@@ -6,10 +6,13 @@ package reel
 
 import (
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 func TestNewAnnotation(t *testing.T) {
@@ -62,16 +65,16 @@ func TestNewAnnotation(t *testing.T) {
 func TestAnnotationUnknownKindRoundTrip(t *testing.T) {
 	t.Parallel()
 	// A kind the schema does not describe keeps every field, whatever it
-	// holds.
+	// holds, in the order of the file, wherever the kind is.
 	data := `{"version":2,"width":4,"height":1}
-[0.5,"R","{\"kind\":\"future.thing\",\"z\":[1,{\"a\":null}],\"b\":\"x\"}"]
+[0.5,"R","{\"z\":[1,{\"a\":null}], \"kind\":\"future.thing\",\"b\":\"x\"}"]
 `
 	tl := readCast(t, []byte(data))
 	got := slices.Collect(tl.Annotations())
-	if len(got) != 1 || got[0].Kind != "future.thing" || string(got[0].Data) != `{"b":"x","z":[1,{"a":null}]}` {
+	if len(got) != 1 || got[0].Kind != "future.thing" || string(got[0].Data) != `{"z":[1,{"a":null}],"b":"x"}` {
 		t.Fatalf("Annotations = %+v", got)
 	}
-	want := `[0.500,"R","{\"kind\":\"future.thing\",\"b\":\"x\",\"z\":[1,{\"a\":null}]}"]`
+	want := `[0.500,"R","{\"kind\":\"future.thing\",\"z\":[1,{\"a\":null}],\"b\":\"x\"}"]`
 	if out := string(writeCast(t, tl, CastV2)); !strings.Contains(out, want) {
 		t.Fatalf("written:\n%s\nwant line %s", out, want)
 	}
@@ -123,9 +126,13 @@ func TestNewAnnotationInvalidUTF8(t *testing.T) {
 	}
 }
 
-func TestEffectAnnotationSchema(t *testing.T) {
-	t.Parallel()
-	valid := []string{
+// effectSchemaCases are annotations of [EffectKind] the schema allows, and
+// those it does not, by name.
+var effectSchemaCases = struct {
+	valid   []string
+	invalid map[string]string
+}{
+	valid: []string{
 		`{"kind":"reel.effect","effect":"keys","shown_ms":1000}`,
 		`{"kind":"reel.effect","effect":"intro","duration_ms":500}`,
 		`{"kind":"reel.effect","effect":"intro","duration_ms":500,"lines":[{"text":"hi","style":{"fg":3,"bg":"#010203","underline_color":"#AABBCC80","underline":"dotted","attrs":["bold","rapid_blink"]}},{"text":""}]}`,
@@ -136,16 +143,25 @@ func TestEffectAnnotationSchema(t *testing.T) {
 		`{"kind":"reel.effect","effect":"highlight","region":{"type":"any","regions":[{"type":"cells","x0":-1,"y0":0,"x1":5,"y1":2},{"type":"rows","from":1,"to":2},{"type":"regexp","pattern":"a+"},{"type":"env","names":[]},{"type":"any","regions":[]}]},"timing":{"between":{"from":"a","to":"b"},"ease_in_ms":100,"ease_out_ms":0},"dim":0,"outline":{"color":"#ff0000c8","width_px":3},"padding_px":0}`,
 		`{"kind":"reel.effect","effect":"highlight","region":{"type":"rows","from":0,"to":1},"timing":{"between":{}},"outline":{}}`,
 		`{"kind":"reel.effect","effect":"zoom","region":{"type":"rows","from":0,"to":1},"scale":1.5,"anchor":{"x":0,"y":1}}`,
-		`{"kind":"reel.effect","effect":"redact","region":{"type":"env","names":["TOKEN"]},"timing":{"between":{"to":"b"}},"mode":"blur","min_partial":1}`,
-		`{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"replace","replacement":"•"}`,
-		`{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"min_partial":4}`,
-	}
-	for _, data := range valid {
-		if err := validateAnnotation(data); err != nil {
-			t.Errorf("%s: %v", data, err)
-		}
-	}
-	invalid := map[string]string{
+		// Fields and values the schema does not list are allowed, since
+		// newer tools may write them. The effects package refuses to apply
+		// them.
+		`{"kind":"reel.effect","effect":"sparkle"}`,
+		`{"kind":"reel.effect","effect":"keys","shown_ms":1,"fade_ms":1}`,
+		`{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"underline":"wavy"}}]}`,
+		`{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"attrs":["loud"]}}]}`,
+		`{"kind":"reel.effect","effect":"pause","points":[{"at":"start","duration_ms":1}]}`,
+		`{"kind":"reel.effect","effect":"pause","badge_corner":"middle"}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"oval"}}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x","pattern":"y"}}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"env","names":["A"],"values":["secret"]}}`,
+		`{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x"},"timing":{"ease_ms":1}}`,
+		// The schema does not describe the effects that conceal, which an
+		// asciicast file is never written with.
+		`{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"replace"}`,
+		`{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"min_partial":0}`,
+	},
+	invalid: map[string]string{
 		"no effect":                `{"kind":"reel.effect"}`,
 		"keys without shown":       `{"kind":"reel.effect","effect":"keys"}`,
 		"keys fractional ms":       `{"kind":"reel.effect","effect":"keys","shown_ms":1.5}`,
@@ -168,35 +184,79 @@ func TestEffectAnnotationSchema(t *testing.T) {
 		"ease negative":            `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":-1}}`,
 		"zoom scale":               `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"scale":0.5}`,
 		"zoom anchor":              `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"anchor":{"x":0.5}}`,
-		"redact eases":             `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":1}}`,
-		"replace without char":     `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"replace"}`,
-		"replacement two chars":    `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"replace","replacement":"ab"}`,
-		"replacement with block":   `{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"replacement":"*"}`,
-		"min partial":              `{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"min_partial":0}`,
+	},
+}
+
+func TestEffectAnnotationSchema(t *testing.T) {
+	t.Parallel()
+	for _, data := range effectSchemaCases.valid {
+		if err := validateAnnotation([]byte(data)); err != nil {
+			t.Errorf("%s: %v", data, err)
+		}
 	}
-	for name, data := range invalid {
-		if err := validateAnnotation(data); !errors.Is(err, ErrInvalidAnnotation) {
+	for name, data := range effectSchemaCases.invalid {
+		if err := validateAnnotation([]byte(data)); !errors.Is(err, ErrInvalidAnnotation) {
 			t.Errorf("%s: validate = %v, want ErrInvalidAnnotation", name, err)
 		}
 	}
-	// Fields and values the schema does not list are allowed, since newer
-	// tools may write them. The effects package refuses to apply them.
-	for _, data := range []string{
-		`{"kind":"reel.effect","effect":"sparkle"}`,
-		`{"kind":"reel.effect","effect":"keys","shown_ms":1,"fade_ms":1}`,
-		`{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"underline":"wavy"}}]}`,
-		`{"kind":"reel.effect","effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"attrs":["loud"]}}]}`,
-		`{"kind":"reel.effect","effect":"pause","points":[{"at":"start","duration_ms":1}]}`,
-		`{"kind":"reel.effect","effect":"pause","badge_corner":"middle"}`,
-		`{"kind":"reel.effect","effect":"highlight","region":{"type":"oval"}}`,
-		`{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x","pattern":"y"}}`,
-		`{"kind":"reel.effect","effect":"highlight","region":{"type":"env","names":["A"],"values":["secret"]}}`,
-		`{"kind":"reel.effect","effect":"highlight","region":{"type":"text","text":"x"},"timing":{"ease_ms":1}}`,
-		`{"kind":"reel.effect","effect":"redact","region":{"type":"text","text":"x"},"mode":"melt"}`,
-		`{"kind":"reel.effect","effect":"redact_inputs","region":{"type":"text","text":"x"},"timing":{}}`,
-	} {
+}
+
+// TestAnnotationSchemaByKind checks that checking an annotation against the
+// schema resolved for its kind decides as the whole schema does, and that
+// every kind the schema describes is resolved.
+func TestAnnotationSchemaByKind(t *testing.T) {
+	t.Parallel()
+	var s jsonschema.Schema
+	if err := json.Unmarshal(AnnotationSchema, &s); err != nil {
+		t.Fatal(err)
+	}
+	whole, err := s.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks, err := annotationSchemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ks.kinds) != len(s.AllOf) || ks.kinds[EffectKind] == nil || ks.kinds[QueryKind] == nil || ks.kinds["steep.result"] == nil {
+		t.Fatalf("resolved %d kinds, want %d, with %s, %s, and steep.result", len(ks.kinds), len(s.AllOf), EffectKind, QueryKind)
+	}
+
+	samples := slices.Clone(effectSchemaCases.valid)
+	for _, data := range effectSchemaCases.invalid {
+		samples = append(samples, data)
+	}
+	samples = append(samples,
+		`{"kind":"reel.query","query":"da1","request":"\u001b[c"}`,
+		`{"kind":"reel.query","query":"da1"}`,
+		`{"kind":"steep.result","test":"T","failed":false,"failures":0,"duration_ms":1}`,
+		`{"kind":"steep.result","test":"T"}`,
+		`{"kind":"steep.exit","killed":false}`,
+		`{"kind":"future.thing","n":1}`,
+		`{"kind":"Future"}`,
+		`{"kind":1}`,
+		`{"n":1}`,
+		`[1]`,
+	)
+	for _, data := range samples {
+		var v any
+		if err := json.Unmarshal([]byte(data), &v); err != nil {
+			t.Fatal(err)
+		}
+		want := whole.Validate(v) == nil
+		if got := validateAnnotation([]byte(data)) == nil; got != want {
+			t.Errorf("%s: valid %v, want %v", data, got, want)
+		}
+	}
+}
+
+// BenchmarkValidateAnnotation measures a check of an annotation of a kind
+// the schema describes.
+func BenchmarkValidateAnnotation(b *testing.B) {
+	data := []byte(`{"kind":"reel.query","query":"da1","request":"\u001b[c","reply":"\u001b[?64c"}`)
+	for b.Loop() {
 		if err := validateAnnotation(data); err != nil {
-			t.Errorf("%s: %v", data, err)
+			b.Fatal(err)
 		}
 	}
 }

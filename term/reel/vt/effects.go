@@ -74,8 +74,8 @@ func (t *Terminal) onWritePty(_, _ int32, data, n int32) {
 		return
 	}
 	reply := append([]byte(nil), t.mod.Slice(data, int(n))...)
-	if t.capture {
-		t.captured = append(t.captured, reply...)
+	if t.captured != nil {
+		*t.captured = append(*t.captured, reply...)
 	}
 	t.replies.Write(reply)
 }

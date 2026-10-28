@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
@@ -25,14 +24,22 @@ import (
 
 // The names of the effects in their annotations.
 const (
-	effectKeys         = "keys"
-	effectIntro        = "intro"
-	effectPause        = "pause"
-	effectHighlight    = "highlight"
-	effectZoom         = "zoom"
-	effectRedact       = "redact"
-	effectRedactInputs = "redact_inputs"
+	effectKeys      = "keys"
+	effectIntro     = "intro"
+	effectPause     = "pause"
+	effectHighlight = "highlight"
+	effectZoom      = "zoom"
 )
+
+// effectDecoders return the effect the data of an annotation describes, by
+// the name of the effect.
+var effectDecoders = map[string]func(data jsontext.Value) (reel.Effect, error){
+	effectKeys:      decodeEffect(keysData.effect),
+	effectIntro:     decodeEffect(introData.effect),
+	effectPause:     decodeEffect(pauseData.effect),
+	effectHighlight: decodeEffect(highlightData.effect),
+	effectZoom:      decodeEffect(zoomData.effect),
+}
 
 // FromAnnotation returns the effect an annotation of kind [reel.EffectKind]
 // describes, as the package's effects describe themselves (see
@@ -52,26 +59,11 @@ func FromAnnotation(a reel.Annotation) (reel.Effect, error) {
 	if err := a.Decode(&head); err != nil {
 		return nil, err
 	}
-	var e reel.Effect
-	var err error
-	switch head.Effect {
-	case effectKeys:
-		e, err = decodeEffect(a.Data, keysData.effect)
-	case effectIntro:
-		e, err = decodeEffect(a.Data, introData.effect)
-	case effectPause:
-		e, err = decodeEffect(a.Data, pauseData.effect)
-	case effectHighlight:
-		e, err = decodeEffect(a.Data, highlightData.effect)
-	case effectZoom:
-		e, err = decodeEffect(a.Data, zoomData.effect)
-	case effectRedact:
-		e, err = decodeEffect(a.Data, redactData.effect)
-	case effectRedactInputs:
-		e, err = decodeEffect(a.Data, redactInputsData.effect)
-	default:
+	decode, ok := effectDecoders[head.Effect]
+	if !ok {
 		return nil, fmt.Errorf("effects: unknown effect %q", head.Effect)
 	}
+	e, err := decode(a.Data)
 	if err != nil {
 		return nil, fmt.Errorf("effects: %s: %w", head.Effect, err)
 	}
@@ -97,18 +89,21 @@ func FromTimeline(t *reel.Timeline) ([]reel.Effect, error) {
 	return out, nil
 }
 
+// effectData is the data of an effect's annotation: the effect's name, then
+// the fields of T, its options.
+type effectData[T any] struct {
+	Effect string `json:"effect"`
+	Data   T      `json:",embed"`
+}
+
 // describe returns the annotation of kind [reel.EffectKind] of effect, with
 // the fields of data, a struct, after its name.
-func describe(effect string, data any) (reel.Annotation, error) {
-	fields, err := json.Marshal(data)
+func describe[T any](effect string, data T) (reel.Annotation, error) {
+	a, err := reel.NewAnnotation(reel.EffectKind, effectData[T]{Effect: effect, Data: data})
 	if err != nil {
 		return reel.Annotation{}, fmt.Errorf("effects: %s: %w", effect, err)
 	}
-	obj := []byte(`{"effect":"` + effect + `"`)
-	if len(fields) > 2 {
-		obj = append(obj, ',')
-	}
-	return reel.NewAnnotation(reel.EffectKind, jsontext.Value(append(obj, fields[1:]...)))
+	return a, nil
 }
 
 // decodeAs unmarshals the JSON object data into a T, and returns what build
@@ -123,25 +118,16 @@ func decodeAs[T, R any](data jsontext.Value, build func(T) (R, error)) (R, error
 	return build(d)
 }
 
-// decodeEffect is decodeAs for the data of an effect, which also names the
-// effect.
-func decodeEffect[T, R any](data jsontext.Value, build func(T) (R, error)) (R, error) {
-	var fields map[string]jsontext.Value
-	if err := json.Unmarshal(data, &fields); err != nil {
-		var zero R
-		return zero, err
+// decodeEffect returns a function that is decodeAs for the data of an
+// effect's annotation, which names the effect before the fields of a T.
+func decodeEffect[T any](build func(T) (reel.Effect, error)) func(jsontext.Value) (reel.Effect, error) {
+	return func(data jsontext.Value) (reel.Effect, error) {
+		return decodeAs(data, func(d effectData[T]) (reel.Effect, error) { return build(d.Data) })
 	}
-	delete(fields, "effect")
-	data, err := json.Marshal(fields)
-	if err != nil {
-		var zero R
-		return zero, err
-	}
-	return decodeAs(data, build)
 }
 
 // millis is d in whole milliseconds, rounded, as an annotation holds it.
-func millis(d time.Duration) int64 { return int64(d.Round(time.Millisecond) / time.Millisecond) }
+func millis(d time.Duration) int64 { return d.Round(time.Millisecond).Milliseconds() }
 
 // fromMillis is the duration of ms milliseconds.
 func fromMillis(ms int64) time.Duration { return time.Duration(ms) * time.Millisecond }
@@ -246,30 +232,21 @@ type pointData struct {
 	Pattern    *string  `json:"pattern,omitzero"`
 }
 
-// The kinds of pause points.
-const (
-	pauseAtEnd   = "end"
-	pauseAtMarks = "marks"
-	pauseAtMatch = "match"
-)
-
 // cornerNames are the names of the corners, by value.
 var cornerNames = []string{"top_left", "top_right", "bottom_left", "bottom_right"}
 
 // Describe implements [reel.Describer].
 func (e pause) Describe() (reel.Annotation, error) {
 	var d pauseData
-	if len(e.points) != 1 || !e.points[0].end || e.points[0].d != pauseEnd {
+	if len(e.points) != 1 || e.points[0].at != pauseAtEnd || e.points[0].d != pauseEnd {
 		for _, pt := range e.points {
-			pd := pointData{At: pauseAtMarks, DurationMS: millis(pt.d), Labels: pt.labels}
-			switch {
-			case pt.end:
-				pd.At = pauseAtEnd
-			case pt.re != nil:
+			if err := pt.check(); err != nil {
+				return reel.Annotation{}, err
+			}
+			pd := pointData{At: pt.at, DurationMS: millis(pt.d), Labels: pt.labels}
+			if pt.re != nil {
 				pattern := pt.re.String()
-				pd.At, pd.Pattern = pauseAtMatch, &pattern
-			case pt.match == nil:
-				return reel.Annotation{}, errors.New("effects: pause at a nil regexp")
+				pd.Pattern = &pattern
 			}
 			d.Points = append(d.Points, pd)
 		}
@@ -278,8 +255,8 @@ func (e pause) Describe() (reel.Annotation, error) {
 		d.Badge = new(false)
 		return describe(effectPause, d)
 	}
-	if e.corner < TopLeft || e.corner > BottomRight {
-		return reel.Annotation{}, fmt.Errorf("effects: pause badge corner %d out of range", e.corner)
+	if err := e.checkCorner(); err != nil {
+		return reel.Annotation{}, err
 	}
 	if e.corner != TopRight {
 		d.BadgeCorner = cornerNames[e.corner]
@@ -365,6 +342,10 @@ func (e highlight) Describe() (reel.Annotation, error) {
 	return describe(effectHighlight, d)
 }
 
+// CheckMarks implements [reel.MarkChecker]: the marks of [Between] must be
+// in tl's window.
+func (e highlight) CheckMarks(tl *reel.Timeline) error { return e.timing.checkMarks(tl) }
+
 func (d highlightData) effect() (reel.Effect, error) {
 	region, err := decodeRegion(d.Region)
 	if err != nil {
@@ -411,6 +392,10 @@ func (e zoom) Describe() (reel.Annotation, error) {
 	return describe(effectZoom, d)
 }
 
+// CheckMarks implements [reel.MarkChecker]: the marks of [Between] must be
+// in tl's window.
+func (e zoom) CheckMarks(tl *reel.Timeline) error { return e.timing.checkMarks(tl) }
+
 func (d zoomData) effect() (reel.Effect, error) {
 	region, err := decodeRegion(d.Region)
 	if err != nil {
@@ -424,98 +409,6 @@ func (d zoomData) effect() (reel.Effect, error) {
 		opts = append(opts, Anchor(d.Anchor.X, d.Anchor.Y))
 	}
 	return Zoom(region, opts...), nil
-}
-
-type redactData struct {
-	Region      jsontext.Value `json:"region"`
-	Timing      timingData     `json:"timing,omitzero"`
-	Mode        string         `json:"mode,omitzero"`
-	Replacement string         `json:"replacement,omitzero"`
-	MinPartial  *int           `json:"min_partial,omitzero"`
-}
-
-// redactModeNames are the names of the [redactMode] values, by value.
-var redactModeNames = []string{"block", "blur", "replace"}
-
-// Describe implements [reel.Describer]. An [Env] region is described by
-// the names of its variables, never their values.
-func (e redact) Describe() (reel.Annotation, error) {
-	region, err := describeRegion(e.region)
-	if err != nil {
-		return reel.Annotation{}, err
-	}
-	d := redactData{Region: region, Timing: e.timing.data(), MinPartial: e.matching.data()}
-	if e.mode != redactBlock {
-		d.Mode = redactModeNames[e.mode]
-	}
-	if e.mode == redactReplace {
-		d.Replacement = string(e.mask)
-	}
-	return describe(effectRedact, d)
-}
-
-func (d redactData) effect() (reel.Effect, error) {
-	if d.Timing.EaseInMS != 0 || d.Timing.EaseOutMS != 0 {
-		return nil, errors.New("redact cannot ease")
-	}
-	region, err := decodeRegion(d.Region)
-	if err != nil {
-		return nil, err
-	}
-	opts := []RedactOption{d.Timing.option()}
-	switch d.Mode {
-	case "", "block":
-	case "blur":
-		opts = append(opts, Blur())
-	case "replace":
-		r, n := utf8.DecodeRuneInString(d.Replacement)
-		if n == 0 || n != len(d.Replacement) {
-			return nil, fmt.Errorf("replacement %q is not one character", d.Replacement)
-		}
-		opts = append(opts, Replace(r))
-	default:
-		return nil, fmt.Errorf("unknown mode %q", d.Mode)
-	}
-	if d.MinPartial != nil {
-		opts = append(opts, MinPartial(*d.MinPartial))
-	}
-	return Redact(region, opts...), nil
-}
-
-type redactInputsData struct {
-	Region     jsontext.Value `json:"region"`
-	MinPartial *int           `json:"min_partial,omitzero"`
-}
-
-// Describe implements [reel.Describer]. An [Env] region is described by
-// the names of its variables, never their values.
-func (e redactInputs) Describe() (reel.Annotation, error) {
-	region, err := describeRegion(e.region)
-	if err != nil {
-		return reel.Annotation{}, err
-	}
-	return describe(effectRedactInputs, redactInputsData{Region: region, MinPartial: e.matching.data()})
-}
-
-func (d redactInputsData) effect() (reel.Effect, error) {
-	region, err := decodeRegion(d.Region)
-	if err != nil {
-		return nil, err
-	}
-	var opts []Matching
-	if d.MinPartial != nil {
-		opts = append(opts, MinPartial(*d.MinPartial))
-	}
-	return RedactInputs(region, opts...), nil
-}
-
-// data returns the min partial of m for an annotation, or nil for the
-// default.
-func (m matching) data() *int {
-	if m.minPartial == defaultMatching.minPartial {
-		return nil
-	}
-	return &m.minPartial
 }
 
 type timingData struct {
