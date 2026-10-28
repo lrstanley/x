@@ -125,7 +125,8 @@ func WithoutBadge() PauseOption {
 // left alone, and duplicate frame merging still merges them.
 //
 // The end pause follows the last terminal frame, so a card an effect adds
-// after it, before or after Pause in the list, follows the pause. Effects
+// after it, before or after Pause in the list, follows the pause. A [Hide]
+// listed before Pause leaves out the pauses at the marks in what it cuts. Effects
 // listed after Pause draw a paused frame as of its moment, so [Keys] keys
 // stay as they were when the pause started; list [Highlight] and [Zoom]
 // before Pause, so the badge is drawn over them.
@@ -249,6 +250,7 @@ func (e pause) CheckMarks(tl *reel.Timeline) error {
 // without a badge, before it reads any mark.
 func (e pause) newStage(ctx *reel.Context) *pauseStage {
 	s := &pauseStage{ctx: ctx}
+	s.cuts, _ = ctx.Value(cutsKey{}).([]*cuts)
 	for _, pt := range e.points {
 		if pt.at == pauseAtEnd {
 			s.end = max(s.end, pt.d)
@@ -275,6 +277,9 @@ type pauseStage struct {
 	// from is the start of the timeline's window: marks before it are not
 	// paused at.
 	from time.Duration
+	// cuts are those of each [Hide] before Pause, whose marks it does not
+	// pause at.
+	cuts []*cuts
 	// glyph is the badge, size pixels in corner, or nil for none.
 	corner Corner
 	size   int
@@ -383,16 +388,18 @@ func (s *pauseStage) release(until time.Duration, last bool, emit func(reel.Fram
 		if m.at >= until {
 			break
 		}
+		n++
+		if hidden(s.cuts, m.at) {
+			continue
+		}
 		var off time.Duration
 		switch {
 		case !f.Paused:
-			off = time.Duration(float64(m.at-f.At) / s.ctx.Speed).Round(s.ctx.Step)
-			off = min(max(off, 0), f.Delay)
+			off = delayOffset(s.ctx, f, m.at)
 		case m.at > f.At:
 			off = f.Delay
 		}
 		add(off, m.d)
-		n++
 	}
 	s.marks = s.marks[n:]
 	if last && s.end > 0 {

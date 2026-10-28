@@ -87,6 +87,19 @@ const (
 	openTo   = time.Duration(math.MaxInt64)
 )
 
+// delayOffset is the offset into the delay of f, a frame that is not
+// paused, of offset at into the timeline, on the delay grid of ctx, from 0
+// to f's delay. at may be openFrom or openTo.
+func delayOffset(ctx *reel.Context, f reel.Frame, at time.Duration) time.Duration {
+	if at <= f.At {
+		return 0
+	}
+	if at == openTo {
+		return f.Delay
+	}
+	return min(time.Duration(float64(at-f.At)/ctx.Speed).Round(ctx.Step), f.Delay)
+}
+
 // coverage is how much of its window an effect must cover.
 type coverage int
 

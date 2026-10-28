@@ -9,6 +9,8 @@
 // frozen, [Highlight] draws attention to part of the screen, and [Zoom]
 // zooms in on it. [Redact] hides secrets from the frames before anything
 // draws them, and [RedactInputs] hides them from the keys Keys shows.
+// [Hide] cuts stretches out of playback: between marks, or while the screen
+// shows, or does not show, a [Region].
 //
 // Highlight, Zoom, and Redact work on a [Region] of the terminal's cells:
 // fixed cells ([Cells], [Row], [Rows]), the cells that show some text
@@ -29,8 +31,11 @@
 // Each effect keeps the state of a recording in the stage it starts for it,
 // so one effect value can be shared by profiles that record in parallel.
 //
-// Each effect but Redact and RedactInputs, which an asciicast output can
-// not be written with, is a [reel.Describer]: an asciicast output records
+// Hide is a [reel.Cutter], so a recording it cuts can not be saved as
+// asciicast either.
+//
+// Each effect but Redact, RedactInputs, and Hide, which an asciicast output
+// can not be written with, is a [reel.Describer]: an asciicast output records
 // it as an annotation of kind [reel.EffectKind], with its options and
 // region, and [FromTimeline] reads the effects of the file back, so an
 // export of the file applies them again ([FromAnnotation] reads one). A

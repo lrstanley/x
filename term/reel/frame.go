@@ -98,7 +98,7 @@ type Animator interface {
 // for one with [Context.OnClose]. The effects package has some.
 //
 // An effect that wraps another, such as to log it, should have an
-// Unwrap() Effect method that returns it, so a [Concealer] or
+// Unwrap() Effect method that returns it, so a [Concealer], [Cutter], or
 // [StillEffect] it wraps is still found, as [errors.As] finds an error. A
 // [Describer] is not: the wrapper describes itself, or is not described.
 type Effect interface {
@@ -155,6 +155,20 @@ type Concealer interface {
 	Conceals() bool
 }
 
+// Cutter is implemented by an [Effect] that cuts stretches of the timeline
+// out of a recording, so they never play, such as setup a viewer need not
+// see. An output that skips the effects, as an asciicast file of the
+// timeline does, would still play them, so [Export] and [Record] return an
+// error wrapping [ErrRawOutput] for a profile with an effect whose Cuts
+// reports true and such an output, before they write anything. Unlike a
+// [Concealer], a Cutter may come anywhere in the profile, and does not run
+// on stills.
+type Cutter interface {
+	Effect
+	// Cuts reports whether the effect cuts anything.
+	Cuts() bool
+}
+
 // StillEffect is implemented by an [Effect] that also runs on the stills
 // of [File.Marks], which run through these effects and the [Concealer]
 // effects alone, in the profile's order. They are started once more, for
@@ -174,8 +188,9 @@ type StillEffect interface {
 }
 
 // ErrRawOutput is wrapped by the error [Export] and [Record] return for a
-// profile with a [Concealer] and an output that skips the effects, such as
-// an asciicast file, which would show what it hides.
+// profile with a [Concealer] or [Cutter] and an output that skips the
+// effects, such as an asciicast file, which would show what it hides or
+// play what it cuts.
 var ErrRawOutput = errors.New("reel: output skips the effects")
 
 // Stage receives each frame of a recording in order, and emits the frames to

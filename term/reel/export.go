@@ -52,9 +52,9 @@ import (
 // [Timeline.WriteCast], with the [Profile.Title] and the palette the frames
 // are drawn with in its header. When every output is asciicast, nothing is
 // drawn and no renderer is built. It does not run through the effects, so
-// a profile with a [Concealer] and an asciicast output is an error wrapping
-// [ErrRawOutput]. A still of [File.Marks] runs through the Concealer and
-// [StillEffect] effects alone (see StillEffect).
+// a profile with a [Concealer] or [Cutter] and an asciicast output is an
+// error wrapping [ErrRawOutput]. A still of [File.Marks] runs through the
+// Concealer and [StillEffect] effects alone (see StillEffect).
 //
 // An asciicast output records the profile's effects instead: the
 // description of each effect that is a [Describer], in the profile's
@@ -167,7 +167,7 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if err != nil {
 		return nil, err
 	}
-	err = outs.checkConcealers(p.Effects)
+	err = outs.checkEffects(p.Effects)
 	if err != nil {
 		return nil, err
 	}

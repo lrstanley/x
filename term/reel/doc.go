@@ -38,7 +38,8 @@
 // timeline with [Timeline.Updated], and writes the files Export would. An
 // effect that hides secrets is a [Concealer], which runs before every other
 // effect, and on stills too, which skip the others but for a [StillEffect],
-// and makes asciicast outputs, the timeline as recorded, an error. An
+// and makes asciicast outputs, the timeline as recorded, an error, as an
+// effect that cuts stretches of the timeline out, a [Cutter], does. An
 // asciicast output records the effects that describe themselves
 // ([Describer]) as [Annotation] events, which the effects package reads
 // back, so an export of the file can apply them again.

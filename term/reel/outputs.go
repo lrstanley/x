@@ -109,10 +109,10 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 	return o, nil
 }
 
-// checkConcealers checks that every [Concealer] among effects comes before
-// every other effect, and when there is one, that no output skips the
-// effects.
-func (o *outputs) checkConcealers(effects []Effect) error {
+// checkEffects checks that every [Concealer] among effects comes before
+// every other effect, and when there is one, or a [Cutter], that no output
+// skips the effects.
+func (o *outputs) checkEffects(effects []Effect) error {
 	n := 0
 	for n < len(effects) && conceals(effects[n]) {
 		n++
@@ -122,7 +122,7 @@ func (o *outputs) checkConcealers(effects []Effect) error {
 			return fmt.Errorf("reel: effect %d (%T) conceals, so it must come before effect %d (%T), which does not", i, effects[i], n, effects[n])
 		}
 	}
-	if n > 0 && len(o.casts) > 0 {
+	if len(o.casts) > 0 && (n > 0 || slices.ContainsFunc(effects, cuts)) {
 		return fmt.Errorf("%w: %q is an asciicast file, the timeline as recorded", ErrRawOutput, o.casts[0].path)
 	}
 	return nil
@@ -132,6 +132,12 @@ func (o *outputs) checkConcealers(effects []Effect) error {
 func conceals(e Effect) bool {
 	c, ok := effectAs[Concealer](e)
 	return ok && c.Conceals()
+}
+
+// cuts reports whether e is a [Cutter] that cuts.
+func cuts(e Effect) bool {
+	c, ok := effectAs[Cutter](e)
+	return ok && c.Cuts()
 }
 
 // effectAs returns the first effect in e's chain of Unwrap methods,

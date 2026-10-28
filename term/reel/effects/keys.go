@@ -66,7 +66,8 @@ var keyGlyphs = map[string]string{
 // The overlay splits frames on the delay grid wherever it changes, which
 // adds a few frames per burst of keys. Frames without a terminal, such as
 // cards, are left alone. A [RedactInputs] listed before Keys hides typed
-// text from it.
+// text from it, and a [Hide] listed before it the keys pressed in what it
+// cuts.
 func Keys(shown time.Duration) reel.Effect {
 	return keys{shown: shown}
 }
@@ -86,6 +87,7 @@ func (e keys) Start(ctx *reel.Context) (reel.Stage, error) {
 	if rs, ok := ctx.Value(typedRedactionKey{}).([]typedRedaction); ok {
 		k.mask = &typedMask{redactions: rs}
 	}
+	k.cuts, _ = ctx.Value(cutsKey{}).([]*cuts)
 	return k.run, nil
 }
 
@@ -123,6 +125,8 @@ type keysStage struct {
 	read int
 	// mask hides typed text, for [RedactInputs], or is nil.
 	mask *typedMask
+	// cuts are those of each [Hide] before Keys, whose keys it leaves out.
+	cuts []*cuts
 	// start is the first press a frame can show: the ones before it ended
 	// a burst that is gone.
 	start int
@@ -278,6 +282,9 @@ func (k *keysStage) timeline(f reel.Frame) keyTimeline {
 		at := time.Duration(float64(p.at-f.At) / k.ctx.Speed).Round(t.step)
 		if at >= f.Delay {
 			break
+		}
+		if hidden(k.cuts, p.at) {
+			continue
 		}
 		t.at = append(t.at, at)
 		t.labels = append(t.labels, p.shownLabel())

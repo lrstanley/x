@@ -771,6 +771,46 @@ func TestExportConcealer(t *testing.T) {
 	}
 }
 
+// cutter is a [Cutter] that passes frames on, and cuts when on is set.
+type cutter struct{ on bool }
+
+func (cutter) Start(*Context) (Stage, error) {
+	return func(f Frame, emit func(Frame)) { emit(f) }, nil
+}
+
+func (c cutter) Cuts() bool { return c.on }
+
+// TestExportCutter checks that a profile with a [Cutter] that cuts writes
+// no output that skips the effects, failing before it writes anything, and
+// that a Cutter may come anywhere.
+func TestExportCutter(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"))
+	keep := effectFunc(func(f Frame, emit func(Frame)) { emit(f) })
+	for _, effects := range [][]Effect{{cutter{true}}, {keep, wrapped{cutter{true}}}} {
+		dir := t.TempDir()
+		err := Export(t.Context(), tl, Profile{Outputs: Files(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: testutil.Rasterizer{}, Effects: effects})
+		if !errors.Is(err, ErrRawOutput) {
+			t.Errorf("Export = %v, want ErrRawOutput", err)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("wrote %d files", len(entries))
+		}
+	}
+	// One that cuts may come anywhere, and one that does not may write
+	// asciicast.
+	dir := t.TempDir()
+	for _, p := range []Profile{
+		{Outputs: Files(filepath.Join(dir, "a.gif")), Effects: []Effect{keep, cutter{true}, keep}},
+		{Outputs: Files(filepath.Join(dir, "b.gif"), filepath.Join(dir, "b.cast")), Effects: []Effect{cutter{false}}},
+	} {
+		p.Rasterizer = testutil.Rasterizer{}
+		if err := Export(t.Context(), tl, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestExportStillEffects checks that a still runs through the [Concealer]
 // and [StillEffect] values alone, as a recording of its one frame, and that
 // one they drop is an error.
