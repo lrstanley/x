@@ -39,6 +39,8 @@ type Options struct {
 	// Scale multiplies the base font size, and therefore every cell metric
 	// derived from it. See [BaseFontSizePx].
 	Scale float64
+	// ScaleSet reports whether Scale was configured explicitly.
+	ScaleSet bool
 
 	CellWidth              units.Adjustment
 	CellHeight             units.Adjustment

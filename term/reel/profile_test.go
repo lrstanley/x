@@ -5,6 +5,7 @@
 package reel
 
 import (
+	"image"
 	"maps"
 	"reflect"
 	"strings"
@@ -34,11 +35,13 @@ func TestProfileMerge(t *testing.T) {
 		Outputs:    Files("b.mp4", "c.cast"),
 		Rasterizer: rast,
 		FPS:        50,
+		Fit:        image.Pt(640, 480),
 		Meta:       "m",
 		Vars:       map[string]string{"b": "3", "c": "4"},
 	})
 	want := base
 	want.Outputs, want.Rasterizer, want.FPS, want.Meta = Files("b.mp4", "c.cast"), rast, 50, "m"
+	want.Fit = image.Pt(640, 480)
 	want.Vars = map[string]string{"a": "1", "b": "3", "c": "4"}
 	// Render and Encode hold funcs, which DeepEqual only matches when nil.
 	if len(got.Render) != 1 || len(got.Encode) != 1 {

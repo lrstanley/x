@@ -6,6 +6,7 @@ package reel
 
 import (
 	"fmt"
+	"image"
 	"maps"
 	"math"
 	"time"
@@ -25,6 +26,15 @@ type Profile struct {
 	// set with [render.WithPalette] replaces the timeline's
 	// [Header.Palette].
 	Render []render.Option
+	// Fit, when set, fits the frames within this many pixels wide (X) and
+	// tall (Y), by choosing the render scale, so text stays sharp rather than
+	// the image being resized. It is the largest scale at which the image of
+	// the timeline's [Header] size fits (see [render.FitScale]), so one
+	// direction may be smaller, and [render.WithScale] in Render is an error.
+	// An X or Y of 0 sets no limit in that direction. A [Resize] to a larger
+	// terminal still grows the frames. It is an error with a Rasterizer,
+	// which draws its own size.
+	Fit image.Point
 	// Rasterizer, when set, draws the frames instead of a renderer built
 	// from Render. It is not closed, and is drawn with from one goroutine
 	// per recording.
@@ -98,6 +108,9 @@ func (p Profile) Merge(o Profile) Profile {
 	}
 	if o.Render != nil {
 		p.Render = o.Render
+	}
+	if o.Fit != (image.Point{}) {
+		p.Fit = o.Fit
 	}
 	if o.Rasterizer != nil {
 		p.Rasterizer = o.Rasterizer

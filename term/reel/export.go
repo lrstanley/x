@@ -194,6 +194,9 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if len(outs.files) == 0 {
 		return r, nil
 	}
+	if opts, err = p.fitRender(tl.header, opts); err != nil {
+		return nil, err
+	}
 	if err = r.openDrawn(ctx, rt, tl, live, p, opts, title); err != nil {
 		r.abort()
 		return nil, err
@@ -343,6 +346,22 @@ func renderOptions(h Header, opts []render.Option) []render.Option {
 		return opts
 	}
 	return append([]render.Option{render.WithPalette(render.Palette{Indexed: indexed})}, opts...)
+}
+
+// fitRender returns opts with the scale that fits a screen of h's size within
+// p.Fit, or opts when it is not set.
+func (p Profile) fitRender(h Header, opts []render.Option) ([]render.Option, error) {
+	if p.Fit == (image.Point{}) {
+		return opts, nil
+	}
+	if p.Rasterizer != nil {
+		return nil, errors.New("reel: Fit cannot be set with a Rasterizer")
+	}
+	scale, err := render.FitScale(h.Cols, h.Rows, p.Fit.X, p.Fit.Y, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("reel: Fit %v: %w", p.Fit, err)
+	}
+	return append(slices.Clip(opts), render.WithScale(scale)), nil
 }
 
 // drawnPalette returns the 16 colors a renderer built from opts draws with,

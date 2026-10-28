@@ -160,6 +160,7 @@ func WithScale(scale float64) Option {
 			return err
 		}
 		d.opts.Scale = v
+		d.opts.ScaleSet = true
 		return nil
 	}
 }

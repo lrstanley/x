@@ -506,6 +506,69 @@ func TestExportClosesEffects(t *testing.T) {
 	}
 }
 
+// TestExportFit checks that Profile.Fit draws frames within it, at the
+// largest scale that fits.
+func TestExportFit(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 20, Rows: 5}, outAt(0, "hello"))
+	path := filepath.Join(t.TempDir(), "fit.png")
+	var prev image.Point
+	for _, size := range []image.Point{{400, 300}, {800, 600}, {1600, 1200}} {
+		p := Profile{Outputs: Files(path), Fit: size, Render: []render.Option{render.WithPadding(4)}}
+		if err := Export(t.Context(), tl, p); err != nil {
+			t.Fatal(err)
+		}
+		got := readPNG(t, path).Rect.Size()
+		if got.X > size.X || got.Y > size.Y {
+			t.Errorf("Fit %v wrote a %v image", size, got)
+		}
+		if got.X < prev.X || got.Y < prev.Y {
+			t.Errorf("Fit %v wrote %v, smaller than %v for a smaller Fit", size, got, prev)
+		}
+		prev = got
+	}
+}
+
+// TestExportFitOneDimension checks that a 0 in Fit leaves that direction
+// unlimited, so the other alone decides the scale.
+func TestExportFitOneDimension(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 20, Rows: 5}, outAt(0, "hello"))
+	dir := t.TempDir()
+	for _, size := range []image.Point{{800, 0}, {0, 300}} {
+		path := filepath.Join(dir, "one.png")
+		if err := Export(t.Context(), tl, Profile{Outputs: Files(path), Fit: size}); err != nil {
+			t.Fatal(err)
+		}
+		got := readPNG(t, path).Rect.Size()
+		if size.X != 0 && (got.X > size.X || got.X*2 < size.X) || size.Y != 0 && (got.Y > size.Y || got.Y*2 < size.Y) {
+			t.Errorf("Fit %v wrote a %v image, want it to fill the limited direction", size, got)
+		}
+	}
+}
+
+func TestExportFitErrors(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(Header{Cols: 20, Rows: 5}, outAt(0, "hello"))
+	path := filepath.Join(t.TempDir(), "x.png")
+	for _, tc := range []struct {
+		name string
+		p    Profile
+		want string
+	}{
+		{"negative", Profile{Fit: image.Pt(800, -1)}, "neither negative"},
+		{"rasterizer", Profile{Fit: image.Pt(800, 600), Rasterizer: testutil.Rasterizer{}}, "cannot be set with a Rasterizer"},
+		{"scale", Profile{Fit: image.Pt(800, 600), Render: []render.Option{render.WithScale(2)}}, "WithScale cannot be set"},
+		{"too small", Profile{Fit: image.Pt(10, 10)}, "do not fit"},
+	} {
+		tc.p.Outputs = Files(path)
+		err := Export(t.Context(), tl, tc.p)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Export = %v, want an error containing %q", tc.name, err, tc.want)
+		}
+	}
+}
+
 func TestExportErrors(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a"))

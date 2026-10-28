@@ -17,6 +17,10 @@
 //	img := image.NewNRGBA(d.Layout(cols, rows).Image)
 //	d.Draw(img, scr, vt.State{Focused: true}, 0)
 //
+// To target a pixel size, [Renderer.Fit] returns the most columns and rows
+// that fit within it, and [FitScale] the largest [WithScale] at which a given
+// screen does; [ScaleForFontSize] converts a font size in pixels to a scale.
+//
 // Each draw takes the [vt.State] around the grid, which the emulator
 // fills, and an offset into the timeline that blinking and animated parts of
 // the image take their phase from. The zero state draws an unfocused window
