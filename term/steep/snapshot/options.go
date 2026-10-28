@@ -44,6 +44,9 @@ type options struct {
 	// indent, when true, pretty-prints JSON snapshots with one tab per nesting
 	// level ([WithIndent]). Default is compact JSON.
 	indent bool
+	// result, when set, is filled in with what a comparison found
+	// ([WithResult]).
+	result *Result
 }
 
 // collectOptions applies functional options into a single configuration.
@@ -163,6 +166,37 @@ func WithEscapeESC(enable bool) Option {
 func WithIndent(enable bool) Option {
 	return func(cfg *options) {
 		cfg.indent = enable
+	}
+}
+
+// Result is what a comparison against a snapshot file found, which
+// [WithResult] reports.
+type Result struct {
+	// Path is the snapshot file compared against, or written.
+	Path string
+	// Updated is whether the file was written instead of compared (see
+	// [WithUpdate]).
+	Updated bool
+	// Missing is whether the file did not exist.
+	Missing bool
+	// Diff is a unified diff from the file to the value, for a text
+	// snapshot that did not match. It is empty otherwise.
+	Diff string
+}
+
+// WithResult fills in r with what the comparison found, such as for a
+// harness to record it. Whether it matched is what the comparison returns.
+func WithResult(r *Result) Option {
+	return func(cfg *options) {
+		cfg.result = r
+	}
+}
+
+// report sets what the comparison found on the result [WithResult] asked
+// for, if any.
+func (o options) report(r Result) {
+	if o.result != nil {
+		*o.result = r
 	}
 }
 

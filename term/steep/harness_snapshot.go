@@ -6,6 +6,7 @@ package steep
 
 import (
 	"image"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
 func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "snapshot"})()
-	snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...)
+	h.assertSnapshot("text", false, opts)
 	return h
 }
 
@@ -45,9 +46,7 @@ func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "snapshot"})()
-	if !snapshot.AssertEqual(h.tb, h.View(), h.snapshotOpts(opts)...) {
-		h.tb.FailNow()
-	}
+	h.assertSnapshot("text", true, opts)
 	return h
 }
 
@@ -58,7 +57,7 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
-	snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), opts...)
+	h.assertSnapshot("json", false, opts)
 	return h
 }
 
@@ -70,8 +69,28 @@ func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
-	snapshot.RequireScreenEqual(h.tb, screenSnapshot(h.tb, h.session), opts...)
+	h.assertSnapshot("json", true, opts)
 	return h
+}
+
+// assertSnapshot compares the screen with its snapshot file, as text or as
+// JSON, and records the comparison. With required, a mismatch stops the
+// test.
+func (h *Harness) assertSnapshot(format string, required bool, opts []snapshot.Option) {
+	h.tb.Helper()
+	var res snapshot.Result
+	n := snapshotNote{Format: format, Required: required}
+	if format == "json" {
+		n.Pass = snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), append(slices.Clip(opts), snapshot.WithResult(&res))...)
+	} else {
+		n.Pass = snapshot.AssertEqual(h.tb, h.View(), append(slices.Clip(h.snapshotOpts(opts)), snapshot.WithResult(&res))...)
+	}
+	n.Path, n.Updated, n.Missing = res.Path, res.Updated, res.Missing
+	n.Diff = clip(res.Diff, &n.Truncated)
+	h.annotate(kindSnapshot, n)
+	if required && !n.Pass {
+		h.tb.FailNow()
+	}
 }
 
 // ImageInto renders the current terminal screen buffer into dst, at

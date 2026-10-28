@@ -29,6 +29,28 @@
 // timeline, so a test never sleeps or slows down to be recorded, and
 // [WithSlow] is only for programs that need real time between actions.
 //
+// The timeline also records what the test did and found, so tools can print,
+// debug, and draw a run from its ".cast" file, as [reel.Annotation] events,
+// which a replay ignores, and which reel's annotation.schema.json describes:
+// the harness's configuration ("steep.start"), the program's start
+// ("steep.ready") and end ("steep.exit"), each input with its keys, text, and
+// mouse cells ("steep.input"), changes to the terminal and actions on the
+// program that no other event records ("steep.terminal" and
+// "steep.program"), the start and end of each wait, with what it waited for,
+// how it ended, and where on the screen it found its text
+// ("steep.wait.start" and "steep.wait.end"), each assertion and snapshot
+// comparison and whether it passed ("steep.assert" and "steep.snapshot"),
+// each failure the harness reported ("steep.failure"), and the test's result,
+// with the stack of a panic ("steep.result"). The result is recorded just
+// before the mark [Harness.Close] places, which recordings end at, so they
+// hold it, but not what comes after: the end of a program Close stops, or a
+// failure to stop it. The session records the program's queries and the
+// terminal's replies (see [reel.QueryKind]). Text longer than 4 KiB, such as
+// a long paste or diff, is cut, and its annotation marked truncated.
+// [WithRecordMessages], or STEEP_RECORD_MESSAGES=1, also records each message
+// the model receives ("steep.message"), which is off by default, since a
+// program that ticks or animates receives many.
+//
 // By default nothing is written: the timeline stays in memory, for
 // [Harness.Timeline], since a failing test already prints the screen as
 // text, and artifacts written into a package directory may not be ignored

@@ -58,13 +58,16 @@ func AssertEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) bool
 	actual := []byte(normalize(got, cfg))
 
 	if cfg.update {
+		cfg.report(Result{Path: path, Updated: true})
 		writeBytes(tb, actual, path, opts...)
 		return true
 	}
 
+	cfg.report(Result{Path: path})
 	expected, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			cfg.report(Result{Path: path, Missing: true})
 			errNotExist(tb, path)
 			return false
 		}
@@ -79,6 +82,7 @@ func AssertEqual[T ~[]byte | ~string](tb testing.TB, got T, opts ...Option) bool
 	}
 
 	diff := udiff.Unified(path, "actual", string(expected), string(actual))
+	cfg.report(Result{Path: path, Diff: diff})
 	tb.Errorf("snapshot %q does not match:\n%s", path, diff)
 	return false
 }

@@ -25,6 +25,10 @@ type observer struct {
 	firstEventOnce sync.Once
 	// lastViewSnapshot stores the most recent View content observed by the renderer.
 	lastViewSnapshot string
+	// onMessage, when set, is called with each message before the wrapped
+	// model receives it, but for mutate requests. It is set before the
+	// program starts.
+	onMessage func(uv.Event)
 }
 
 // newObserver returns a tea.Model wrapper around model that records every
@@ -52,6 +56,10 @@ func (o *observer) Init() tea.Cmd {
 func (o *observer) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	o.tb.Helper()
 	copiedMsg := msg
+
+	if _, ok := msg.(mutateRequest); !ok && o.onMessage != nil {
+		o.onMessage(msg)
+	}
 
 	o.mu.Lock()
 	defer o.mu.Unlock()

@@ -49,6 +49,13 @@ func (f *fakeTB) Errorf(format string, args ...any) { f.record(fmt.Sprintf(forma
 
 func (f *fakeTB) Fail() { f.record("") }
 
+// FailNow marks the test failed, and stops the goroutine, so it must be
+// called on a goroutine of the test's own.
+func (f *fakeTB) FailNow() {
+	f.record("")
+	runtime.Goexit()
+}
+
 // Fatalf records the error, and stops the goroutine as FailNow does, so it
 // must be called on a goroutine of the test's own.
 func (f *fakeTB) Fatalf(format string, args ...any) {
@@ -514,6 +521,22 @@ func TestExportOnPanic(t *testing.T) {
 	want := []string{"TestExportOnPanic_failed.cast", "TestExportOnPanic_failed.gif"}
 	if got := dirNames(t, dir); !slices.Equal(got, want) {
 		t.Fatalf("files = %q, want %q\n%s", got, want, out)
+	}
+
+	// The recording ends on the result, with the stack of the panic.
+	f, err := os.Open(filepath.Join(dir, want[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tl, err := reel.ReadTimeline(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := notes(t, tl)
+	n := findNote(t, got[len(got)-1:], kindResult, map[string]any{"failed": true, "panicked": true})
+	if stack, _ := n.fields["stack"].(string); !strings.HasPrefix(stack, "panic(") || !strings.Contains(stack, "TestExportOnPanic") {
+		t.Fatalf("stack = %q", stack)
 	}
 }
 

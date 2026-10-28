@@ -45,6 +45,13 @@ or to `WithArtifacts(dir)`. The `.cast` file is the recording itself:
 exporting it again with `reel.Export`, the same profile, and the same
 `steep.Result` writes the same GIF.
 
+The `.cast` file also holds what the test did and found, as annotations that
+players ignore: the harness's configuration, each input, wait, assertion,
+and snapshot comparison with its outcome, each failure, the result, and the
+program's terminal queries with the replies. reel's
+[`annotation.schema.json`](../reel/annotation.schema.json) describes them.
+`steep.WithRecordMessages(true)` adds every message the model receives.
+
 Any test can be recorded without changing it:
 
 ```sh
@@ -59,6 +66,7 @@ STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -artifacts ./...
 | `STEEP_EXPORT_FPS`, `STEEP_EXPORT_SPEED` | the profile's timing |
 | `STEEP_EXPORT_QUALITY`, `STEEP_EXPORT_MAX_FRAMES`, `STEEP_EXPORT_MAX_BYTES`, `STEEP_EXPORT_OPTIMIZE` | encoder options |
 | `STEEP_RENDERER_SCALE`, `STEEP_RENDERER_FONT_FAMILY` | renderer options |
+| `STEEP_RECORD_MESSAGES` | `1` to record every message the model receives |
 
 See [`_examples/reel-showcase`](_examples/reel-showcase/main_test.go) for a
 complete example.

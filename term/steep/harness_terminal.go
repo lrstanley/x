@@ -107,6 +107,7 @@ func (h *Harness) Resize(width, height int) *Harness {
 func (h *Harness) Paste(text string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "paste", Text: text})()
+	h.noteInput(inputNote{Action: "paste", Text: text})
 	h.check(h.session.Paste(text))
 	return h
 }
@@ -200,6 +201,7 @@ func (h *Harness) ScrollbackCount() int { return h.session.Terminal().Scrollback
 func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
+	h.annotate(kindTerminal, terminalNote{Action: "scrollback_size", Lines: &maxLines})
 	h.check(h.session.Terminal().SetScrollbackMaxLines(maxLines))
 	return h
 }
@@ -208,6 +210,7 @@ func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 func (h *Harness) ClearScrollback() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
+	h.annotate(kindTerminal, terminalNote{Action: "clear_scrollback"})
 	h.check(h.session.Terminal().ClearScrollback())
 	return h
 }
@@ -222,6 +225,7 @@ func (h *Harness) ClearScrollback() *Harness {
 func (h *Harness) Type(s string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "type", Text: s})()
+	h.noteInput(inputNote{Action: "type", Text: s})
 	h.check(h.session.Type(s))
 	return h
 }
@@ -237,6 +241,7 @@ func (h *Harness) Type(s string) *Harness {
 func (h *Harness) Key(key string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "key", Key: key})()
+	h.noteInput(inputNote{Action: "key", Key: key})
 	h.check(h.session.Key(key))
 	return h
 }
@@ -275,6 +280,7 @@ func (h *Harness) KeyCtrlD() *Harness { return h.Key("ctrl+d") }
 func (h *Harness) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookInput, InputMeta{Kind: "mouse"})()
+	h.noteInput(inputNote{Action: "mouse", Mouse: mouseNames[action], Button: buttonName(button), At: &cell{Row: y, Col: x}})
 	h.check(h.session.Mouse(action, button, x, y))
 	return h
 }
@@ -288,6 +294,8 @@ func (h *Harness) MouseClick(button vt.MouseButton, x, y int) *Harness {
 }
 
 func (h *Harness) mouseClick(button vt.MouseButton, x, y int) {
+	h.tb.Helper()
+	h.noteInput(inputNote{Action: "click", Button: buttonName(button), At: &cell{Row: y, Col: x}})
 	h.check(h.session.Mouse(vt.MousePress, button, x, y))
 	h.check(h.session.Mouse(vt.MouseRelease, button, x, y))
 }
@@ -325,6 +333,8 @@ func (h *Harness) MouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) *Harness 
 }
 
 func (h *Harness) mouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) {
+	h.tb.Helper()
+	h.noteInput(inputNote{Action: "drag", Button: buttonName(button), At: &cell{Row: y1, Col: x1}, To: &cell{Row: y2, Col: x2}})
 	h.check(h.session.Mouse(vt.MousePress, button, x1, y1))
 	dx, dy := 0, 0
 	switch {
@@ -373,6 +383,9 @@ func (h *Harness) Clipboard() string { return h.session.Terminal().Clipboard() }
 func (h *Harness) SetClipboard(text string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
+	n := terminalNote{Action: "clipboard"}
+	n.Text = clip(text, &n.Truncated)
+	h.annotate(kindTerminal, n)
 	h.session.Terminal().SetClipboard(text)
 	return h
 }

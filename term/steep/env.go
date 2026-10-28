@@ -29,6 +29,12 @@ func applyEnv(tb testing.TB, cfg *options) {
 		}
 	}
 
+	if v := os.Getenv("STEEP_RECORD_MESSAGES"); v != "" {
+		if on, err := strconv.ParseBool(v); err == nil {
+			cfg.recordMessages = on
+		}
+	}
+
 	if v := os.Getenv("STEEP_SLOW"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.slow = d

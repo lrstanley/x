@@ -295,13 +295,16 @@ func AssertScreenEqual(tb testing.TB, screen *ScreenSnapshot, opts ...Option) bo
 	path := snapshotPath(tb, cfg.suffix, ".json", cfg)
 
 	if cfg.update {
+		cfg.report(Result{Path: path, Updated: true})
 		writeScreen(tb, screen, path, opts...)
 		return true
 	}
 
+	cfg.report(Result{Path: path})
 	expectedb, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			cfg.report(Result{Path: path, Missing: true})
 			errNotExist(tb, path)
 			return false
 		}

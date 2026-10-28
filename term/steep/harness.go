@@ -64,6 +64,8 @@ type Harness struct {
 	marks     []hookMark
 	// closed is set by the first [Harness.Close].
 	closed atomic.Bool
+	// waits counts the waits recorded, for the ids of their annotations.
+	waits atomic.Int64
 }
 
 // NewHarness creates a test harness by running the root [tea.Model] in a
@@ -112,6 +114,11 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		hooks:         append([]Hook(nil), cfg.hooks...),
 		markCount:     make(map[HookEvent]int),
 	}
+	failures.note = h.noteFailure
+	if cfg.recordMessages {
+		h.observer.onMessage = h.noteMessage
+	}
+	h.annotate(kindStart, newStartNote(tb.Name(), cfg))
 
 	env, programOpts := cfg.envVars, cfg.programOpts
 	if cfg.color != 0 {
@@ -133,6 +140,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 
 	go func() {
 		finalModel, ferr := h.program.Run()
+		h.noteExit(ferr)
 		h.resultMu.Lock()
 		h.result = &runResult{
 			model: finalModel,
@@ -177,7 +185,8 @@ func (h *Harness) Close() {
 	// The recording ends here, on the last screen the test saw: the
 	// program's repaint as it exits, such as leaving the alternate screen,
 	// is left out. It is exported once the program has stopped, or failed
-	// to.
+	// to. The result is recorded first, so the recording holds it.
+	h.annotate(kindResult, h.newResultNote())
 	end := h.markEvent(HookClose)
 	defer h.exportRecording(end)
 
@@ -226,15 +235,21 @@ func (h *Harness) waitStarted(cfg options) {
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
+	note := func(outcome string) {
+		h.annotate(kindReady, readyNote{Outcome: outcome, ElapsedMS: time.Since(h.start).Milliseconds()})
+	}
 	select {
 	case <-h.observer.firstEvent:
+		note("ready")
 		if !h.readyHooked {
 			h.readyHooked = true
 			done := h.hook(HookReady, nil)
 			done()
 		}
 	case <-timer.C:
+		note(outcomeTimeout)
 	case <-cfg.ctx.Done():
+		note(outcomeCanceled)
 	}
 }
 
@@ -277,6 +292,12 @@ func (h *Harness) SendProgram(msg uv.Event) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookProgram, nil)()
 	h.requireProgram()
+	// Mutate records its own.
+	if _, ok := msg.(mutateRequest); !ok {
+		n := programNote{Action: "send"}
+		n.Type, n.Value = valueNote(msg, &n.Truncated)
+		h.annotate(kindProgram, n)
+	}
 	h.program.Send(msg)
 	return h
 }
@@ -288,6 +309,7 @@ func (h *Harness) QuitProgram() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookClose, nil)()
 	h.requireProgram()
+	h.annotate(kindProgram, programNote{Action: "quit"})
 	h.program.Quit()
 	return h
 }

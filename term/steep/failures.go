@@ -13,11 +13,14 @@ import (
 )
 
 // failureTB records the failure messages the harness reports through it, for
-// [Result.Failures], so an outro card can show why a test failed. It calls
-// Helper before each report, so failures are still attributed to the
-// caller's line.
+// [Result.Failures], so an outro card can show why a test failed, and passes
+// each to note, when set, before reporting it. It calls Helper before each
+// report, so failures are still attributed to the caller's line.
 type failureTB struct {
 	testing.TB
+
+	// note is set once, before the program starts.
+	note func(msg string)
 
 	mu   sync.Mutex
 	msgs []string
@@ -56,6 +59,9 @@ func (f *failureTB) record(msg string) {
 	f.mu.Lock()
 	f.msgs = append(f.msgs, msg)
 	f.mu.Unlock()
+	if f.note != nil {
+		f.note(msg)
+	}
 }
 
 func (f *failureTB) messages() []string {

@@ -103,6 +103,17 @@ func TestApplyEnvSlow(t *testing.T) {
 	}
 }
 
+func TestApplyEnvRecordMessages(t *testing.T) {
+	t.Setenv("STEEP_RECORD_MESSAGES", "1")
+	if cfg := collectOptions(t); !cfg.recordMessages {
+		t.Fatal("STEEP_RECORD_MESSAGES=1 did not record messages")
+	}
+	t.Setenv("STEEP_RECORD_MESSAGES", "false")
+	if cfg := collectOptions(t, WithRecordMessages(true)); cfg.recordMessages {
+		t.Fatal("STEEP_RECORD_MESSAGES=false did not override the option")
+	}
+}
+
 // TestApplyEnvProfile checks the environment's patch of the recording
 // profile: timing and outputs replace the profile's, and encode and render
 // options are added after its own.

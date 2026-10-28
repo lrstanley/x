@@ -86,6 +86,10 @@ type options struct {
 	// stills are the kinds of still written at each hook event's marks.
 	stills map[HookEvent]StillKind
 
+	// recordMessages records each message the model receives in the
+	// timeline.
+	recordMessages bool
+
 	hooks       []Hook
 	ignoreEnv   bool
 	slow        time.Duration
@@ -321,6 +325,21 @@ func WithSlow(d time.Duration) Option {
 func WithLog(tb testing.TB) Option {
 	return func(cfg *options) {
 		cfg.hooks = append(cfg.hooks, LoggerHook(tb, nil))
+	}
+}
+
+// WithRecordMessages records each message the model receives in the
+// session's [reel.Timeline], as a "steep.message" annotation of its type
+// and value, as fmt's %+v prints it, cut to 4 KiB (see the package
+// documentation for what else is recorded). It is off by default, since a
+// program that ticks or animates receives many messages, each of which
+// grows the timeline and the ".cast" file of a recording.
+//
+// Environment: STEEP_RECORD_MESSAGES (true or 1, or false or 0) overrides
+// this option unless [WithIgnoreEnv] is set.
+func WithRecordMessages(enable bool) Option {
+	return func(cfg *options) {
+		cfg.recordMessages = enable
 	}
 }
 

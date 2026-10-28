@@ -49,6 +49,7 @@ func (h *Harness) Mutate[M any](fn func(M) M, opts ...Option) *Harness {
 	if fn == nil {
 		h.tb.Fatalf("mutate function must not be nil")
 	}
+	h.annotate(kindProgram, programNote{Action: "mutate", Type: typeName[M]()})
 
 	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
 	done := make(chan error, 1)
