@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
@@ -386,6 +387,59 @@ func TestHarness_TerminalKey_accumulatesPrintableText(t *testing.T) {
 	t.Parallel()
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
 	h.Key("a").Key("b").Key("space").Wait("text=ab").Require("text=ab")
+}
+
+func TestHarness_TerminalTypingDelay_pausesAfterEachKey(t *testing.T) {
+	t.Parallel()
+	const delay = 20 * time.Millisecond
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3), WithIgnoreEnv(true), WithTypingDelay(delay))
+	h.Type("ab").Key("space").Type("cd", WithTypingDelay(0)).Wait("text=ab cd")
+
+	inputs := inputEvents(h)
+	var got []string
+	for _, in := range inputs {
+		got = append(got, string(in.Data))
+	}
+	if want := []string{"a", "b", " ", "cd"}; !slices.Equal(got, want) {
+		t.Fatalf("got inputs %q, want %q", got, want)
+	}
+	assertInputGaps(t, inputs, delay)
+	findNote(t, notes(t, h.Timeline()), kindStart, map[string]any{"typing_ms": 20})
+}
+
+func TestHarness_TerminalTypingDelay_perCall(t *testing.T) {
+	t.Parallel()
+	const delay = 20 * time.Millisecond
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3), WithIgnoreEnv(true))
+	h.Type("ab", WithTypingDelay(delay)).KeyBackspace(WithTypingDelay(delay)).Wait("text=a")
+
+	inputs := inputEvents(h)
+	if len(inputs) != 3 {
+		t.Fatalf("got %d inputs, want one per key", len(inputs))
+	}
+	assertInputGaps(t, inputs, delay)
+}
+
+// inputEvents returns the [reel.Input] events in h's timeline.
+func inputEvents(h *Harness) []reel.Input {
+	var inputs []reel.Input
+	for ev := range h.Timeline().Events() {
+		if in, ok := ev.(reel.Input); ok {
+			inputs = append(inputs, in)
+		}
+	}
+	return inputs
+}
+
+// assertInputGaps checks that each input came at least d after the one
+// before.
+func assertInputGaps(t *testing.T, inputs []reel.Input, d time.Duration) {
+	t.Helper()
+	for i := 1; i < len(inputs); i++ {
+		if gap := inputs[i].At() - inputs[i-1].At(); gap < d {
+			t.Fatalf("input %d came %v after the one before, want at least %v", i, gap, d)
+		}
+	}
 }
 
 func enableEmulatorMouseReporting(tb testing.TB, h *Harness) {

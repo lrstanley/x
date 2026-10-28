@@ -41,6 +41,12 @@ func applyEnv(tb testing.TB, cfg *options) {
 		}
 	}
 
+	if v := os.Getenv("STEEP_TYPING_DELAY"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.typingDelay = d
+		}
+	}
+
 	applyExportEnv(cfg)
 
 	if v := os.Getenv("STEEP_SNAPSHOT_DIR"); v != "" {

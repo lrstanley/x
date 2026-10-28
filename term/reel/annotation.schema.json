@@ -428,6 +428,7 @@
         "check_ms": {"description": "How often a wait checks the screen.", "type": "integer"},
         "settle_ms": {"description": "How long the screen, or the program's messages, must stay unchanged for a settle wait to be satisfied.", "type": "integer"},
         "slow_ms": {"description": "How long the harness sleeps after each action. Left out for none.", "type": "integer"},
+        "typing_ms": {"description": "How long the harness pauses after each key it types or presses. Left out for none.", "type": "integer"},
         "ansi": {"description": "Whether assertions, waits, and snapshots compare the screen with its ANSI sequences kept. When false they are stripped first.", "type": "boolean"},
         "color": {
           "description": "The color support the terminal advertises to the program. Left out when the test left it as it is, 256 colors.",

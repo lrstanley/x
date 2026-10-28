@@ -13,6 +13,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/lrstanley/x/term/reel/internal/pty"
 	"github.com/lrstanley/x/term/reel/vt"
@@ -64,6 +65,8 @@ type Session struct {
 	scrollOnInput bool
 	// noQueries stops Write recording the program's queries.
 	noQueries bool
+	// typingDelay is how long Type and Key pause after each key press.
+	typingDelay time.Duration
 }
 
 // SessionOption configures [Open].
@@ -76,6 +79,7 @@ type sessionConfig struct {
 	skipPristine  bool
 	scrollOnInput bool
 	noQueries     bool
+	typingDelay   time.Duration
 }
 
 // WithRuntime opens the session's terminal from rt instead of the package's
@@ -129,6 +133,42 @@ func WithoutQueries() SessionOption {
 	return func(cfg *sessionConfig) { cfg.noQueries = true }
 }
 
+// WithTypingDelay makes [Session.Type] and [Session.Key] pause for d after
+// each key press, so the program has time to echo each one, and a recording
+// shows the text typed rather than appearing at once. Without it, or with d
+// zero or less, keys are sent with no pause. [KeyDelay] overrides it for one
+// call. The pause is a [time.Sleep], so it costs no real time inside a
+// [testing/synctest] bubble.
+func WithTypingDelay(d time.Duration) SessionOption {
+	return func(cfg *sessionConfig) { cfg.typingDelay = d }
+}
+
+// KeyOption configures one call to [Session.Type] or [Session.Key].
+type KeyOption func(*keyConfig)
+
+type keyConfig struct {
+	delay time.Duration
+}
+
+// KeyDelay pauses for d after each key press of the call, rather than for the
+// delay set with [WithTypingDelay]. Zero or less sends the keys with no
+// pause.
+func KeyDelay(d time.Duration) KeyOption {
+	return func(cfg *keyConfig) { cfg.delay = d }
+}
+
+// keyDelay returns the pause after each key press, the session's unless
+// opts set one.
+func (s *Session) keyDelay(opts []KeyOption) time.Duration {
+	cfg := keyConfig{delay: s.typingDelay}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg.delay
+}
+
 // Open starts a session on a terminal of cols by rows cells. It blocks until
 // the terminal's pool has room or ctx is canceled. The session starts
 // focused. Close it to return the terminal to the pool.
@@ -151,6 +191,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 	s := &Session{
 		term: term, timeline: newTimeline(h),
 		scrollOnInput: cfg.scrollOnInput, noQueries: cfg.noQueries,
+		typingDelay: cfg.typingDelay,
 	}
 	s.focused.Store(true)
 	return s, nil
@@ -271,24 +312,42 @@ func (s *Session) send(encode func() ([]byte, error), snap bool) error {
 	})
 }
 
-// Type sends text as key presses, one per character, as one [Input] event.
-// Each character is pressed as the key that types it on a US layout, with
-// shift held for upper case letters and shifted symbols. Other characters,
-// including control characters such as "\n", are sent as they are. Type is
-// for text, not for keys with modifiers; see [Session.Key]. A scrolled
-// viewport goes back to the bottom first (see [WithScrollOnInput]).
-func (s *Session) Type(text string) error {
-	return s.send(func() ([]byte, error) {
-		var data []byte
-		for _, r := range text {
-			b, err := s.term.EncodeKey(vt.RuneKey(r))
-			if err != nil {
-				return nil, err
-			}
-			data = append(data, b...)
+// Type sends text as key presses, one per character. Each character is
+// pressed as the key that types it on a US layout, with shift held for upper
+// case letters and shifted symbols. Other characters, including control
+// characters such as "\n", are sent as they are. Type is for text, not for
+// keys with modifiers; see [Session.Key]. A scrolled viewport goes back to
+// the bottom first (see [WithScrollOnInput]).
+//
+// With no delay set by [WithTypingDelay] or [KeyDelay], the text is sent at
+// once, as one [Input] event, or not at all if a key fails to encode. With a
+// delay, each key press is its own [Input] event, followed by the pause, and
+// the keys before one that fails to encode have been sent.
+func (s *Session) Type(text string, opts ...KeyOption) error {
+	d := s.keyDelay(opts)
+	if d <= 0 {
+		return s.send(func() ([]byte, error) { return s.encodeText(text) }, true)
+	}
+	for _, r := range text {
+		if err := s.send(func() ([]byte, error) { return s.encodeText(string(r)) }, true); err != nil {
+			return err
 		}
-		return data, nil
-	}, true)
+		time.Sleep(d)
+	}
+	return nil
+}
+
+// encodeText encodes each character of text as the key press that types it.
+func (s *Session) encodeText(text string) ([]byte, error) {
+	var data []byte
+	for _, r := range text {
+		b, err := s.term.EncodeKey(vt.RuneKey(r))
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, b...)
+	}
+	return data, nil
 }
 
 // Key sends one key press, such as "enter", "ctrl+c", "shift+tab", "f5", or
@@ -301,18 +360,26 @@ func (s *Session) Type(text string) error {
 // kitty keyboard protocol. A combination the mode cannot encode, such as
 // ctrl+shift+a without the kitty protocol, is an error, and sends nothing.
 // A scrolled viewport goes back to the bottom first (see [WithScrollOnInput]).
-func (s *Session) Key(name string) error {
+//
+// Key pauses after the press for the delay set with [WithTypingDelay] or
+// [KeyDelay].
+func (s *Session) Key(name string, opts ...KeyOption) error {
 	key, perr := parseKey(name)
 	if perr != nil {
 		return perr
 	}
-	return s.send(func() ([]byte, error) {
+	d := s.keyDelay(opts)
+	err := s.send(func() ([]byte, error) {
 		data, err := s.term.EncodeKey(key)
 		if err == nil && len(data) == 0 {
 			err = fmt.Errorf("reel: key %q has no encoding in the program's keyboard mode", name)
 		}
 		return data, err
 	}, true)
+	if err == nil {
+		time.Sleep(d)
+	}
+	return err
 }
 
 // Paste sends text as a paste, bracketed when the program has enabled

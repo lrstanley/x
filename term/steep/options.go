@@ -104,6 +104,7 @@ type options struct {
 	hooks       []Hook
 	ignoreEnv   bool
 	slow        time.Duration
+	typingDelay time.Duration
 	snapshotDir string
 }
 
@@ -142,6 +143,7 @@ func (o options) validate() options {
 	if o.timeout <= 0 {
 		o.timeout = DefaultTimeout
 	}
+	o.typingDelay = max(o.typingDelay, 0)
 	if o.settleTimeout <= 0 {
 		o.settleTimeout = DefaultSettleTimeout
 	}
@@ -355,6 +357,19 @@ func WithIgnoreEnv(ignore bool) Option {
 func WithSlow(d time.Duration) Option {
 	return func(cfg *options) {
 		cfg.slow = d
+	}
+}
+
+// WithTypingDelay makes [Harness.Type] and [Harness.Key] pause for d after
+// each key press, as [reel.WithTypingDelay] does, so the program echoes each
+// key before the next, and recordings show text being typed. Unlike
+// [WithSlow], it only slows input. Passed to [Harness.Type] or [Harness.Key],
+// it sets the pause for that call.
+//
+// Environment: STEEP_TYPING_DELAY.
+func WithTypingDelay(d time.Duration) Option {
+	return func(cfg *options) {
+		cfg.typingDelay = d
 	}
 }
 

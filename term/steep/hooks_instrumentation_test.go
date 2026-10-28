@@ -25,7 +25,7 @@ func init() {
 		"ProgramStatuses",
 		"Progress", "Notifications", "Clipboard", "WorkingDirectory", "Prompt", "ResizeRequest",
 		"Scrollback", "ScrollbackCount", "ScrollbackOffset", "MessageHistory", "Messages", "LiveMessages",
-		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts",
+		"FinalModel", "FinalModelAs", "mergedOpts", "keyDelay", "requireProgram", "waitStarted", "snapshotOpts",
 		"FilterMessagesType", "FilterMessagesFunc",
 		"drawImage", "drawImageInto", "imageViewport", "dropImageScreen",
 		"check", "waitFinished",

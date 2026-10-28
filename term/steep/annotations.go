@@ -111,6 +111,7 @@ type startNote struct {
 	CheckMS   int64  `json:"check_ms"`
 	SettleMS  int64  `json:"settle_ms"`
 	SlowMS    int64  `json:"slow_ms,omitzero"`
+	TypingMS  int64  `json:"typing_ms,omitzero"`
 	ANSI      bool   `json:"ansi"`
 	Color     string `json:"color,omitzero"`
 	Export    string `json:"export"`
@@ -129,6 +130,7 @@ func newStartNote(test string, cfg options) *startNote {
 		CheckMS:   cfg.checkInterval.Milliseconds(),
 		SettleMS:  cfg.settleTimeout.Milliseconds(),
 		SlowMS:    cfg.slow.Milliseconds(),
+		TypingMS:  cfg.typingDelay.Milliseconds(),
 		ANSI:      !cfg.stripANSI,
 		Export:    cfg.policy.String(),
 		Messages:  cfg.recordMessages,

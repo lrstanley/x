@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
@@ -269,12 +270,14 @@ func (h *Harness) ClearScrollback() *Harness {
 // Because this goes through the emulator, pairing it with [Harness.SendProgram]
 // can deliver events to the [tea.Program] in a different order than the
 // calls were made.
-func (h *Harness) Type(s string) *Harness {
+//
+// Pass [WithTypingDelay] to pause after each key press of this call.
+func (h *Harness) Type(s string, opts ...Option) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindType, Text: s}
 	defer h.hook(HookInput, meta)()
 	h.annotate(&inputNote{InputMeta: meta})
-	h.check(h.session.Type(s))
+	h.check(h.session.Type(s, h.keyDelay(opts)))
 	return h
 }
 
@@ -286,41 +289,50 @@ func (h *Harness) Type(s string) *Harness {
 // Because this goes through the emulator, pairing it with [Harness.SendProgram]
 // can deliver events to the [tea.Program] in a different order than the
 // calls were made.
-func (h *Harness) Key(key string) *Harness {
+//
+// Pass [WithTypingDelay] to pause after the key press of this call.
+func (h *Harness) Key(key string, opts ...Option) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindKey, Key: key}
 	defer h.hook(HookInput, meta)()
 	h.annotate(&inputNote{InputMeta: meta})
-	h.check(h.session.Key(key))
+	h.check(h.session.Key(key, h.keyDelay(opts)))
 	return h
 }
 
+// keyDelay returns the harness's [WithTypingDelay], overridden by any in
+// opts.
+func (h *Harness) keyDelay(opts []Option) reel.KeyOption {
+	h.tb.Helper()
+	return reel.KeyDelay(collectOptions(h.tb, h.mergedOpts(opts...)...).typingDelay)
+}
+
 // KeyUp sends an up-arrow key press to the terminal emulator.
-func (h *Harness) KeyUp() *Harness { return h.Key("up") }
+func (h *Harness) KeyUp(opts ...Option) *Harness { return h.Key("up", opts...) }
 
 // KeyDown sends a down-arrow key press to the terminal emulator.
-func (h *Harness) KeyDown() *Harness { return h.Key("down") }
+func (h *Harness) KeyDown(opts ...Option) *Harness { return h.Key("down", opts...) }
 
 // KeyLeft sends a left-arrow key press to the terminal emulator.
-func (h *Harness) KeyLeft() *Harness { return h.Key("left") }
+func (h *Harness) KeyLeft(opts ...Option) *Harness { return h.Key("left", opts...) }
 
 // KeyRight sends a right-arrow key press to the terminal emulator.
-func (h *Harness) KeyRight() *Harness { return h.Key("right") }
+func (h *Harness) KeyRight(opts ...Option) *Harness { return h.Key("right", opts...) }
 
 // KeyEsc sends an escape key press to the terminal emulator.
-func (h *Harness) KeyEsc() *Harness { return h.Key("esc") }
+func (h *Harness) KeyEsc(opts ...Option) *Harness { return h.Key("esc", opts...) }
 
 // KeyDelete sends a delete (forward-delete) key press to the terminal emulator.
-func (h *Harness) KeyDelete() *Harness { return h.Key("delete") }
+func (h *Harness) KeyDelete(opts ...Option) *Harness { return h.Key("delete", opts...) }
 
 // KeyBackspace sends a backspace key press to the terminal emulator.
-func (h *Harness) KeyBackspace() *Harness { return h.Key("backspace") }
+func (h *Harness) KeyBackspace(opts ...Option) *Harness { return h.Key("backspace", opts...) }
 
 // KeyCtrlC sends ctrl+c to the terminal emulator.
-func (h *Harness) KeyCtrlC() *Harness { return h.Key("ctrl+c") }
+func (h *Harness) KeyCtrlC(opts ...Option) *Harness { return h.Key("ctrl+c", opts...) }
 
 // KeyCtrlD sends ctrl+d to the terminal emulator.
-func (h *Harness) KeyCtrlD() *Harness { return h.Key("ctrl+d") }
+func (h *Harness) KeyCtrlD(opts ...Option) *Harness { return h.Key("ctrl+d", opts...) }
 
 // Mouse forwards a mouse event through the terminal emulator. The running
 // [tea.Program] must have enabled a mouse tracking mode and, typically, SGR

@@ -125,6 +125,47 @@ func TestSessionRecordsWithTimestamps(t *testing.T) {
 	})
 }
 
+func TestSessionTypingDelay(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s := openTest(t, 20, 4, WithTypingDelay(100*time.Millisecond))
+		if err := s.Type("hi"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Key("enter"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Type("ok", KeyDelay(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Key("tab", KeyDelay(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Type("at once", KeyDelay(0)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Paste("p"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Key("nope"); err == nil {
+			t.Fatal("Key with an unknown name succeeded")
+		}
+		write(t, s, "end")
+
+		assertEvents(t, s.Timeline(),
+			`0 input "h"`,
+			`100 input "i"`,
+			`200 input "\r"`,
+			`300 input "o"`,
+			`1300 input "k"`,
+			`2300 input "\t"`,
+			`3300 input "at once"`,
+			`3300 input "p"`,
+			`3300 output "end"`,
+		)
+	})
+}
+
 func TestSessionInputMatchesRead(t *testing.T) {
 	t.Parallel()
 	s := openTest(t, 20, 4)

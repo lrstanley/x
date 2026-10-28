@@ -30,8 +30,9 @@
 // A harness runs its program in a [reel.Session], whose [reel.Timeline]
 // records every byte the program wrote and everything the test did to the
 // terminal, at a cost of a copy of the bytes. Recordings are made from the
-// timeline, so a test never sleeps or slows down to be recorded, and
-// [WithSlow] is only for programs that need real time between actions.
+// timeline, so a test never sleeps or slows down to be recorded. [WithSlow]
+// is only for programs that need real time between actions, and
+// [WithTypingDelay] for recordings that should show text being typed.
 //
 // The timeline also records what the test did and found, so tools can print,
 // debug, and draw a run from its ".cast" file, as [reel.Annotation] events,

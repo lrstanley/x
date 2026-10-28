@@ -103,6 +103,18 @@ func TestApplyEnvSlow(t *testing.T) {
 	}
 }
 
+func TestApplyEnvTypingDelay(t *testing.T) {
+	t.Setenv("STEEP_TYPING_DELAY", "50ms")
+	if cfg := collectOptions(t); cfg.typingDelay != 50*time.Millisecond {
+		t.Fatalf("got %v", cfg.typingDelay)
+	}
+	// As with the other STEEP_ variables, it overrides the option, even one
+	// passed to a single call.
+	if cfg := collectOptions(t, WithTypingDelay(0)); cfg.typingDelay != 50*time.Millisecond {
+		t.Fatalf("with WithTypingDelay(0): got %v", cfg.typingDelay)
+	}
+}
+
 func TestApplyEnvRecordMessages(t *testing.T) {
 	t.Setenv("STEEP_RECORD_MESSAGES", "1")
 	if cfg := collectOptions(t); !cfg.recordMessages {
