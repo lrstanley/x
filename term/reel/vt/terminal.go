@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"math"
 	"sync"
 	"time"
 
@@ -447,16 +448,17 @@ func (t *Terminal) State() State {
 	t.alt = t.activeAlt()
 	cc, hasCursor := t.cursorColorLocked()
 	return State{
-		Title:          t.title,
-		AltScreen:      t.alt,
-		Cursor:         cur,
-		Foreground:     t.shownColor(t.fgOverride, t.fgDefault, wasmvt.TerminalDataColorForeground, t.fg),
-		Background:     t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
-		CursorColor:    cc,
-		CursorColorSet: hasCursor,
-		ScrollbackLen:  t.scrollbackLenLocked(),
-		Progress:       t.progress,
-		Generation:     gen,
+		Title:            t.title,
+		AltScreen:        t.alt,
+		Cursor:           cur,
+		Foreground:       t.shownColor(t.fgOverride, t.fgDefault, wasmvt.TerminalDataColorForeground, t.fg),
+		Background:       t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
+		CursorColor:      cc,
+		CursorColorSet:   hasCursor,
+		ScrollbackLen:    t.scrollbackLenLocked(),
+		ScrollbackOffset: t.scrollbackOffsetLocked(),
+		Progress:         t.progress,
+		Generation:       gen,
 
 		ProgramStatuses:         t.statusView,
 		ProgramStatusGeneration: t.statusGen,
@@ -702,6 +704,66 @@ func (t *Terminal) ScrollbackLen() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.scrollbackLenLocked()
+}
+
+// ScrollbackOffset returns how many rows the viewport is scrolled up from the
+// bottom, so zero while it follows live output. It is zero on the alternate
+// screen.
+func (t *Terminal) ScrollbackOffset() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.scrollbackOffsetLocked()
+}
+
+// ScrollTo scrolls the viewport to offset rows up from the bottom, clamped to
+// the scrollback: zero is the live screen. Like a real terminal's scrollbar, it
+// changes what [Terminal.Screen] shows but not what the program sees, and the
+// viewport stays where it is as the program writes more, until it is scrolled
+// back to the bottom. The alternate screen has no scrollback, so it changes
+// nothing there.
+func (t *Terminal) ScrollTo(offset int) error {
+	return t.scroll(func(int) int { return offset })
+}
+
+// ScrollUp scrolls the viewport n rows toward older scrollback, stopping at
+// the oldest row. See [Terminal.ScrollTo]. n <= 0 changes nothing.
+func (t *Terminal) ScrollUp(n int) error {
+	return t.scroll(func(cur int) int { return cur + min(max(n, 0), math.MaxInt-cur) })
+}
+
+// ScrollDown scrolls the viewport n rows toward the live screen, stopping at
+// the bottom. See [Terminal.ScrollTo]. n <= 0 changes nothing.
+func (t *Terminal) ScrollDown(n int) error {
+	return t.scroll(func(cur int) int { return cur - max(n, 0) })
+}
+
+// ScrollToTop scrolls the viewport to the oldest scrollback row. See
+// [Terminal.ScrollTo].
+func (t *Terminal) ScrollToTop() error { return t.ScrollTo(math.MaxInt) }
+
+// ScrollToBottom scrolls the viewport back to the live screen. See
+// [Terminal.ScrollTo].
+func (t *Terminal) ScrollToBottom() error { return t.ScrollTo(0) }
+
+// scroll moves the viewport to the offset next returns for the current one,
+// clamped to the scrollback.
+func (t *Terminal) scroll(next func(cur int) int) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.idle {
+		return errClosed
+	}
+	if t.alt = t.activeAlt(); t.alt {
+		return nil
+	}
+	n, cur, ok := t.viewportLocked()
+	if !ok {
+		return errors.New("vt: cannot read the viewport position")
+	}
+	if want := max(0, min(n, next(cur))); want != cur {
+		t.setOffsetLocked(want, n)
+	}
+	return nil
 }
 
 // SetScrollbackMaxLines sets the retained history cap. Zero disables it.

@@ -144,7 +144,10 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 					if rng.IntN(2) == 0 {
 						buf.SetCell(rng.IntN(cols), rows-1, randCell(rng))
 					}
-				case 5: // nothing changes
+				case 5: // nothing changes, or only the scrollbar's thumb moves
+					if state.ScrollbackLen > 0 && rng.IntN(2) == 0 {
+						state.ScrollbackOffset = rng.IntN(state.ScrollbackLen + 1)
+					}
 				case 6: // cursor visibility toggle
 					state.Cursor.Visible = !state.Cursor.Visible
 				case 7: // a few scattered edits

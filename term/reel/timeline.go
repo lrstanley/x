@@ -117,7 +117,7 @@ type Colors struct {
 }
 
 // Event is one entry in a [Timeline]: [Output], [Input], [Resize], [Mark],
-// [Focus], [Theme], [Exit], or [Annotation]. The set is closed.
+// [Focus], [Scroll], [Theme], [Exit], or [Annotation]. The set is closed.
 type Event interface {
 	// At is the event's offset from the first event in its timeline.
 	At() time.Duration
@@ -171,6 +171,15 @@ type Focus struct {
 	On bool
 }
 
+// Scroll is the host scrolling the terminal's viewport through its scrollback.
+// It is not sent to the program.
+type Scroll struct {
+	event
+	// Offset is how many rows the viewport is scrolled up from the bottom,
+	// after the change. Zero is the live screen.
+	Offset int
+}
+
 // Theme is the host changing the terminal's colors.
 type Theme struct {
 	event
@@ -192,6 +201,7 @@ func (e Input) stamp(at time.Duration) Event  { e.at = at; return e }
 func (e Resize) stamp(at time.Duration) Event { e.at = at; return e }
 func (e Mark) stamp(at time.Duration) Event   { e.at = at; return e }
 func (e Focus) stamp(at time.Duration) Event  { e.at = at; return e }
+func (e Scroll) stamp(at time.Duration) Event { e.at = at; return e }
 func (e Theme) stamp(at time.Duration) Event  { e.at = at; return e }
 func (e Exit) stamp(at time.Duration) Event   { e.at = at; return e }
 

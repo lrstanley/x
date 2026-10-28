@@ -14,7 +14,9 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
-const scrollbarWidthPx = 1
+// minScrollbarWidthPx is the narrowest scrollbar that scales with the cell
+// width, so the thumb stays visible at small scales.
+const minScrollbarWidthPx = 2
 
 const (
 	// glyphSpill is how many cells past its own a glyph's ink can reach on
@@ -62,10 +64,7 @@ func (d *Renderer) layout(cols, rows int) Layout {
 	cell := d.metrics.CellSize()
 	margin, padding, chrome := d.opts.Margin.Int(), d.opts.Padding.Int(), d.chromeHeight()
 	inset := 2 * (margin + padding)
-	bar := 0
-	if d.opts.Scrollbar {
-		bar = scrollbarWidthPx
-	}
+	bar := d.scrollbarWidth()
 	grid := image.Rectangle{Max: image.Pt(cols*cell.X, rows*cell.Y)}.
 		Add(image.Pt(margin+padding, margin+chrome+padding))
 	return Layout{
@@ -74,6 +73,18 @@ func (d *Renderer) layout(cols, rows int) Layout {
 		Cell:  cell,
 		Scale: d.metrics.Scale,
 	}
+}
+
+// scrollbarWidth is the width of the scrollbar in pixels, zero when there is
+// none: [WithScrollbarWidth], or a third of a cell.
+func (d *Renderer) scrollbarWidth() int {
+	if !d.opts.Scrollbar {
+		return 0
+	}
+	if w := d.opts.ScrollbarWidth.Int(); w > 0 {
+		return w
+	}
+	return max(minScrollbarWidthPx, d.metrics.CellSize().X/3)
 }
 
 // Animates reports whether the indicators drawn for st move with the
@@ -282,7 +293,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 	d.drawProgress(dst, f)
 
 	if d.opts.Scrollbar && !f.st.AltScreen &&
-		f.st.ScrollbackLen > view.Dy() &&
+		f.st.ScrollbackLen > 0 &&
 		!f.scrollbarBounds.Empty() {
 		d.drawScrollbar(dst, f.scrollbarBounds, f)
 	}

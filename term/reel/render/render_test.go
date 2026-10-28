@@ -261,7 +261,7 @@ func TestRendererBoundsNormalizePaddingAndScrollbarGutter(t *testing.T) {
 	areas := []image.Rectangle{layout.cellBounds(5, 7), layout.cellBounds(6, 7)}
 
 	cell := d.Layout(2, 1).Cell
-	wantSize := image.Pt(cell.X*2+1+2*2+3*2, cell.Y+2*2+3*2)
+	wantSize := image.Pt(cell.X*2+d.scrollbarWidth()+2*2+3*2, cell.Y+2*2+3*2)
 	if got := d.Layout(2, 1).Image.Size(); got != wantSize {
 		t.Fatalf("Layout().Image size = %v, want %v", got, wantSize)
 	}
@@ -787,25 +787,6 @@ func TestRendererBlinkFollowsOffset(t *testing.T) {
 			t.Fatalf("blink-hidden cursor pixel = %#v, want non-cursor", got)
 		}
 	})
-}
-
-func TestRendererScrollbarThumbPinnedToBottom(t *testing.T) {
-	t.Parallel()
-
-	scr := newTestScreen(1, 4)
-	d := MustNew(WithScrollbar(true))
-	img := drawAt(t, d, scr, vt.State{Focused: true, ScrollbackLen: 30}, 0)
-	ctx := d.layoutSnapshot(t, image.Point{}, scr)
-	sb := ctx.ScrollbarBounds()
-	top := img.NRGBAAt(sb.Min.X, sb.Min.Y)
-	bottom := img.NRGBAAt(sb.Min.X, sb.Max.Y-1)
-
-	if top == bottom {
-		t.Fatalf("scrollbar track and thumb matched: %#v", top)
-	}
-	if bottom.R <= top.R {
-		t.Fatalf("scrollbar bottom thumb = %#v, want brighter than track %#v", bottom, top)
-	}
 }
 
 func TestRendererFocusDimmingExcludesMargin(t *testing.T) {

@@ -27,6 +27,7 @@ type frameSnap struct {
 	alt        bool
 	cursor     vt.Cursor
 	scrollback int
+	scrolled   int
 	fg, bg     color.NRGBA
 	cur        color.NRGBA // zero unless the state sets a cursor color
 	curSet     bool
@@ -117,6 +118,7 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 		alt:        st.AltScreen,
 		cursor:     st.Cursor,
 		scrollback: st.ScrollbackLen,
+		scrolled:   st.ScrollbackOffset,
 		fg:         st.Foreground,
 		bg:         st.Background,
 	}

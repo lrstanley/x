@@ -821,3 +821,72 @@ func (e startFunc) Start(ctx *Context) (Stage, error) {
 	e(ctx)
 	return nil, nil //nolint:nilnil // It changes no frame.
 }
+
+func TestExportReplaysScroll(t *testing.T) {
+	t.Parallel()
+	tl := newTimeline(Header{Cols: 6, Rows: 2})
+	tl.appendAt(Output{Data: []byte("a\r\nb\r\nc\r\nd\r\ne")}, 0)
+	tl.appendAt(Scroll{Offset: 2}, time.Second)
+	tl.appendAt(Scroll{Offset: 0}, 2*time.Second)
+
+	var live, scrolled string
+	for _, f := range exportFrames(t, tl, Profile{FPS: 10}) {
+		if f.Cells == nil {
+			continue
+		}
+		switch {
+		case f.Cells.State.ScrollbackOffset == 0 && f.At < time.Second:
+			live = frameText(f)
+		case f.Cells.State.ScrollbackOffset == 2:
+			scrolled = frameText(f)
+		}
+	}
+	if live == "" || scrolled == "" || live == scrolled {
+		t.Fatalf("live frame %q, scrolled frame %q, want two different screens", live, scrolled)
+	}
+}
+
+func TestExportScrollClamps(t *testing.T) {
+	t.Parallel()
+	// The event was recorded against more scrollback than the replay has.
+	tl := newTimeline(Header{Cols: 6, Rows: 2})
+	tl.appendAt(Output{Data: []byte("a\r\nb\r\nc\r\nd")}, 0)
+	tl.appendAt(Scroll{Offset: 500}, time.Second)
+
+	var got, scrollback int
+	for _, f := range exportFrames(t, tl, Profile{FPS: 10}) {
+		if f.Cells != nil {
+			got, scrollback = f.Cells.State.ScrollbackOffset, f.Cells.State.ScrollbackLen
+		}
+	}
+	if scrollback == 0 || got != scrollback {
+		t.Fatalf("last frame offset = %d with %d rows of scrollback, want the top", got, scrollback)
+	}
+}
+
+func TestCutKeepsScrolledViewport(t *testing.T) {
+	t.Parallel()
+	tl := newTimeline(Header{Cols: 6, Rows: 2})
+	tl.appendAt(Output{Data: []byte("a\r\nb\r\nc\r\nd\r\ne")}, 0)
+	tl.appendAt(Scroll{Offset: 2}, time.Second)
+	tl.appendAt(Mark{Label: "here"}, 2*time.Second)
+	tl.appendAt(Output{Data: []byte("!")}, 3*time.Second)
+
+	cut, err := tl.Between("here", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scrolls []int
+	for ev := range cut.Events() {
+		if sc, ok := ev.(Scroll); ok {
+			scrolls = append(scrolls, sc.Offset)
+		}
+	}
+	if !slices.Equal(scrolls, []int{2}) {
+		t.Fatalf("Scroll events of the cut = %v, want the scrolled viewport restored as [2]", scrolls)
+	}
+	data := writeCast(t, cut, CastV3)
+	if !bytes.Contains(data, []byte(`"s"`)) {
+		t.Fatalf("cast of the cut has no scroll event: %s", data)
+	}
+}

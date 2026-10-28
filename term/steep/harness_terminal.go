@@ -173,7 +173,8 @@ func (h *Harness) SetDefaultCursorColor(c color.Color) *Harness {
 	return h
 }
 
-// CursorPosition returns the terminal emulator cursor position.
+// CursorPosition returns the terminal emulator cursor position, or (-1, -1)
+// while the viewport is scrolled off it (see [Harness.ScrollUp]).
 func (h *Harness) CursorPosition() image.Point {
 	cur := h.session.Terminal().Cursor()
 	return image.Pt(cur.X, cur.Y)
@@ -196,6 +197,51 @@ func (h *Harness) Scrollback() [][]vt.Cell { return h.session.Terminal().Scrollb
 
 // ScrollbackCount returns the count of scrollback lines.
 func (h *Harness) ScrollbackCount() int { return h.session.Terminal().ScrollbackLen() }
+
+// ScrollbackOffset returns how many rows the terminal's viewport is scrolled up
+// from the bottom, so zero while it shows the live screen.
+func (h *Harness) ScrollbackOffset() int { return h.session.Terminal().ScrollbackOffset() }
+
+// ScrollUp scrolls the terminal's viewport n rows toward older scrollback, the
+// way a terminal's scrollbar does, so [Harness.View] and snapshots show the
+// older rows, and a scrollbar drawn with window chrome moves. The program
+// is not told, and the viewport stays where it is as the program writes more,
+// until [Harness.ScrollDown] or [Harness.ScrollToBottom] returns to the bottom,
+// or until [Harness.Type], [Harness.Key], or [Harness.Paste] send it input
+// (see [WithScrollOnInput]).
+func (h *Harness) ScrollUp(n int) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
+	h.check(h.session.ScrollUp(n))
+	return h
+}
+
+// ScrollDown scrolls the terminal's viewport n rows toward the live screen.
+// See [Harness.ScrollUp].
+func (h *Harness) ScrollDown(n int) *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
+	h.check(h.session.ScrollDown(n))
+	return h
+}
+
+// ScrollToTop scrolls the terminal's viewport to the oldest scrollback row.
+// See [Harness.ScrollUp].
+func (h *Harness) ScrollToTop() *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
+	h.check(h.session.ScrollToTop())
+	return h
+}
+
+// ScrollToBottom scrolls the terminal's viewport back to the live screen. See
+// [Harness.ScrollUp].
+func (h *Harness) ScrollToBottom() *Harness {
+	h.tb.Helper()
+	defer h.hook(HookTerminal, nil)()
+	h.check(h.session.ScrollToBottom())
+	return h
+}
 
 // SetScrollbackSize sets the maximum scrollback lines retained on the terminal's
 // screen buffer.

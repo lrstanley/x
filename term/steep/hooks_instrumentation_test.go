@@ -24,7 +24,7 @@ func init() {
 		"CursorColor", "CursorPosition", "CursorVisible", "CursorBlink", "CursorStyle",
 		"ProgramStatuses",
 		"Progress", "Notifications", "Clipboard", "WorkingDirectory", "Prompt", "ResizeRequest",
-		"Scrollback", "ScrollbackCount", "MessageHistory", "Messages", "LiveMessages",
+		"Scrollback", "ScrollbackCount", "ScrollbackOffset", "MessageHistory", "Messages", "LiveMessages",
 		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts",
 		"FilterMessagesType", "FilterMessagesFunc",
 		"drawImage", "drawImageInto", "imageViewport", "dropImageScreen",

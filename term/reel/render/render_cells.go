@@ -128,12 +128,11 @@ func (d *Renderer) drawCursor(dst draw.Image, area image.Rectangle, f *renderFra
 	}
 }
 
+// drawScrollbar draws the track and the thumb in area, for a state with
+// scrollback.
 func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *renderFrame) {
 	screenRows := f.screenBounds.Dy()
 	totalRows := f.st.ScrollbackLen + screenRows
-	if screenRows <= 0 || totalRows <= screenRows {
-		return
-	}
 
 	fg := f.foregroundNRGBA(nil)
 	bg := f.backgroundNRGBA(nil)
@@ -143,8 +142,13 @@ func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *render
 
 	thumbHeight := max(1, area.Dy()*screenRows/totalRows)
 	thumbHeight = min(thumbHeight, area.Dy())
+	// The thumb's top is the viewport's first row, as a share of all rows,
+	// kept so the thumb stays inside the track.
+	scrolled := max(0, min(f.st.ScrollbackOffset, f.st.ScrollbackLen))
+	top := (area.Dy() - thumbHeight) * (f.st.ScrollbackLen - scrolled) / f.st.ScrollbackLen
 	thumbArea := area
-	thumbArea.Min.Y = area.Max.Y - thumbHeight
+	thumbArea.Min.Y = area.Min.Y + top
+	thumbArea.Max.Y = thumbArea.Min.Y + thumbHeight
 	idraw.Fill(dst, thumbArea, thumb)
 }
 

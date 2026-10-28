@@ -248,10 +248,28 @@ func PaletteOf(opts ...Option) (Palette, error) {
 	return config.ClonePalette(d.opts.Palette), errors.Join(errs...)
 }
 
-// WithScrollbar sets whether to draw a scrollbar.
+// WithScrollbar sets whether to draw a scrollbar, a track with a thumb for the
+// viewport's place in the scrollback, to the right of the cell grid. It is
+// only drawn when there is scrollback, and not on the alternate screen. See
+// [WithScrollbarWidth] for its width.
 func WithScrollbar(enabled bool) Option {
 	return func(d *Renderer) error {
 		d.opts.Scrollbar = enabled
+		return nil
+	}
+}
+
+// WithScrollbarWidth sets the scrollbar's width in pixels, which is part of
+// the image whether or not there is scrollback to show. Zero, the default,
+// scales it with the cell width, so it stays in proportion with the text at
+// any [WithScale]: a third of a cell, and at least 2 pixels.
+func WithScrollbarWidth(px int) Option {
+	return func(d *Renderer) error {
+		v, err := config.ParsePositivePx(px, "scrollbar width")
+		if err != nil {
+			return err
+		}
+		d.opts.ScrollbarWidth = v
 		return nil
 	}
 }

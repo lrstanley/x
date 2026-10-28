@@ -736,3 +736,63 @@ func TestProgramStatusInSnapshot(t *testing.T) {
 		t.Fatalf("progress = %v, want 0", snap.ProgramStatus[0].Progress)
 	}
 }
+
+func TestHarness_terminalScrollViewport(t *testing.T) {
+	t.Parallel()
+	h := newTerminalHarness(t, 6, 3)
+	var rows strings.Builder
+	for i := range 12 {
+		fmt.Fprintf(&rows, "row-%d\r\n", i)
+	}
+	writeVT(t, h, rows.String())
+	live := h.View()
+
+	h.ScrollUp(2)
+	if got := h.ScrollbackOffset(); got != 2 {
+		t.Fatalf("ScrollbackOffset = %d, want 2", got)
+	}
+	if h.View() == live {
+		t.Fatalf("View did not change after ScrollUp: %q", live)
+	}
+
+	h.ScrollToTop()
+	if got, want := h.ScrollbackOffset(), h.ScrollbackCount(); got != want {
+		t.Fatalf("after ScrollToTop, offset = %d, want %d", got, want)
+	}
+	if !strings.Contains(h.View(), "row-0") {
+		t.Fatalf("View at the top = %q, want the first row", h.View())
+	}
+
+	h.ScrollDown(1)
+	if got, want := h.ScrollbackOffset(), h.ScrollbackCount()-1; got != want {
+		t.Fatalf("after ScrollDown(1), offset = %d, want %d", got, want)
+	}
+
+	h.ScrollToBottom()
+	if got := h.ScrollbackOffset(); got != 0 {
+		t.Fatalf("after ScrollToBottom, offset = %d, want 0", got)
+	}
+	if got := h.View(); got != live {
+		t.Fatalf("View = %q, want the live screen %q", got, live)
+	}
+}
+
+func TestHarness_terminalScrollOnInput(t *testing.T) {
+	t.Parallel()
+	for _, enabled := range []bool{true, false} {
+		h := NewHarness(t, terminalProbe{}, WithWindowSize(6, 3), WithScrollOnInput(enabled))
+		var rows strings.Builder
+		for i := range 12 {
+			fmt.Fprintf(&rows, "row-%d\r\n", i)
+		}
+		writeVT(t, h, rows.String())
+		h.ScrollUp(4).Type("a")
+		want := 0
+		if !enabled {
+			want = 4
+		}
+		if got := h.ScrollbackOffset(); got != want {
+			t.Fatalf("scroll on input %v: offset = %d, want %d", enabled, got, want)
+		}
+	}
+}

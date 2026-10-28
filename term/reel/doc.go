@@ -7,10 +7,11 @@
 //
 // A [Session] owns a terminal emulator that a program runs in: the program
 // writes its output to the session and reads its input from it, while the
-// host types, presses keys, pastes, clicks, resizes, focuses, and sets colors.
-// The session records each of these in a [Timeline], an append-only event log
-// of the bytes and host actions that changed the terminal, with each event's
-// offset from the first, in whole milliseconds. Recordings are derived from
+// host types, presses keys, pastes, clicks, resizes, focuses, scrolls the
+// viewport, and sets colors. The session records each of these in a
+// [Timeline], an append-only event log of the bytes and host actions that
+// changed the terminal, with each event's offset from the first, in whole
+// milliseconds. Recordings are derived from
 // a timeline by replaying it, so recording costs a copy of the bytes and
 // nothing more while the program runs. [Mark] events name points in a
 // timeline, and [Timeline.Between] cuts the part between two of them. A

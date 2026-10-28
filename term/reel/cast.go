@@ -93,8 +93,9 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // reel's own "skip_pristine": true when [Header.SkipPristine] is set.
 // Events are asciicast's output ("o"), input ("i"), resize ("r", as
 // "COLSxROWS"), and marker ("m"), and exit ("x"), which is asciicast's own in
-// v3, and reel's in v2, and three more of reel's own: focus ("f", as "1" or
-// "0"), theme ("t", as "fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", leaving out
+// v3, and reel's in v2, and four more of reel's own: focus ("f", as "1" or
+// "0"), scroll ("s", as the rows the viewport is scrolled up from the
+// bottom), theme ("t", as "fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", leaving out
 // the colors that are nil), and [Annotation] ("R"). Other readers ignore the
 // header fields and events that are reel's own, as the asciicast format
 // asks of them.
@@ -164,6 +165,9 @@ func (t *Timeline) cut() (*Timeline, error) {
 		}
 		h.Cols, h.Rows = r.term.Size()
 		out = append(out, Output{Data: redraw})
+		if offset := r.term.ScrollbackOffset(); offset > 0 {
+			out = append(out, Scroll{Offset: offset})
+		}
 		if theme != nil {
 			out = append(out, Theme{Colors: theme.Colors})
 		}
@@ -238,6 +242,8 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 			if ev.On {
 				data = "1"
 			}
+		case Scroll:
+			code, data = "s", strconv.Itoa(ev.Offset)
 		case Theme:
 			code, data = "t", asciicast.FormatColors(asciicast.Colors(ev.Colors))
 		case Exit:
@@ -348,6 +354,13 @@ var castDecoders = map[string]func(data string) (Event, error){
 			return nil, fmt.Errorf("focus %q is not 0 or 1", data)
 		}
 		return Focus{On: data == "1"}, nil
+	},
+	"s": func(data string) (Event, error) {
+		offset, err := strconv.Atoi(data)
+		if err != nil || offset < 0 {
+			return nil, fmt.Errorf("scroll offset %q is not a row count", data)
+		}
+		return Scroll{Offset: offset}, nil
 	},
 	"t": func(data string) (Event, error) {
 		c, err := asciicast.ParseColors(data)

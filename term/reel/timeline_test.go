@@ -42,6 +42,8 @@ func describe(events []Event) []string {
 			out[i] = fmt.Sprintf("%d mark %s", ms, ev.Label)
 		case Focus:
 			out[i] = fmt.Sprintf("%d focus %t", ms, ev.On)
+		case Scroll:
+			out[i] = fmt.Sprintf("%d scroll %d", ms, ev.Offset)
 		case Theme:
 			out[i] = fmt.Sprintf("%d theme %v %v %v", ms, ev.Fg, ev.Bg, ev.Cursor)
 		case Exit:

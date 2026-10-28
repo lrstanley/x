@@ -64,6 +64,7 @@ type Options struct {
 	Palette types.Palette
 
 	Scrollbar              bool
+	ScrollbarWidth         units.Px // zero scales with the cell width
 	WindowChrome           bool
 	ProgressBar            bool
 	ProgressBarHeight      units.Px

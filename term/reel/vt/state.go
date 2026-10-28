@@ -11,7 +11,8 @@ import (
 
 // Cursor is the caret of a screen.
 type Cursor struct {
-	// X is the column, starting at 0.
+	// X is the column, starting at 0. It is -1 when the viewport is scrolled
+	// off the cursor (see [State.ScrollbackOffset]), as is Y.
 	X int
 	// Y is the viewport row, starting at 0.
 	Y int
@@ -53,6 +54,10 @@ type State struct {
 	// ScrollbackLen is the number of scrollback rows. It is zero on the
 	// alternate screen.
 	ScrollbackLen int
+	// ScrollbackOffset is how many rows the viewport is scrolled up from the
+	// bottom, between zero and ScrollbackLen. Zero follows live output, and
+	// is the zero value, so a state built by hand shows the live screen.
+	ScrollbackOffset int
 	// Progress is the latest OSC 9;4 report. See [State.ShownProgress] for
 	// the progress to draw.
 	Progress Progress
@@ -97,6 +102,7 @@ func (s State) Equal(o State) bool {
 		s.Foreground == o.Foreground &&
 		s.Background == o.Background &&
 		s.ScrollbackLen == o.ScrollbackLen &&
+		s.ScrollbackOffset == o.ScrollbackOffset &&
 		s.Progress == o.Progress &&
 		s.ProgramStatusGeneration == o.ProgramStatusGeneration &&
 		s.ProgramStatusReported == o.ProgramStatusReported &&
@@ -121,10 +127,12 @@ func (s State) SameCommit(o State) bool {
 
 // SameLook reports whether s and o, two states of one terminal, are drawn
 // the same: they are the same commit (see [State.SameCommit]), with the same
-// focus and colors. Like SameCommit, it ignores scrollback.
+// focus, colors, and scrollback offset. Like SameCommit, it ignores the
+// scrollback length, which only changes with output.
 func (s State) SameLook(o State) bool {
 	return s.SameCommit(o) &&
 		s.Focused == o.Focused &&
+		s.ScrollbackOffset == o.ScrollbackOffset &&
 		s.Foreground == o.Foreground &&
 		s.Background == o.Background &&
 		s.CursorColor == o.CursorColor &&

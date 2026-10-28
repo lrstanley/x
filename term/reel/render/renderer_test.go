@@ -96,7 +96,7 @@ func TestLayout(t *testing.T) {
 	if want := image.Rect(5, 5, 5+4*cell.X, 5+2*cell.Y); l.Grid != want {
 		t.Fatalf("Layout grid = %v, want %v", l.Grid, want)
 	}
-	if want := image.Rect(0, 0, l.Grid.Max.X+scrollbarWidthPx+5, l.Grid.Max.Y+5); l.Image != want {
+	if want := image.Rect(0, 0, l.Grid.Max.X+d.scrollbarWidth()+5, l.Grid.Max.Y+5); l.Image != want {
 		t.Fatalf("Layout image = %v, want %v", l.Image, want)
 	}
 	want := image.Rectangle{Min: l.Grid.Min.Add(image.Pt(3*cell.X, cell.Y)), Max: l.Grid.Max}
@@ -156,6 +156,7 @@ func TestFrameSnapTracksState(t *testing.T) {
 		"Foreground":            func(s *vt.State) { s.Foreground = red },
 		"Background":            func(s *vt.State) { s.Background = red },
 		"ScrollbackLen":         func(s *vt.State) { s.ScrollbackLen = 9 },
+		"ScrollbackOffset":      func(s *vt.State) { s.ScrollbackOffset = 3 },
 		"Progress":              func(s *vt.State) { s.Progress.Percent = 6 },
 		"ProgramStatuses":       func(s *vt.State) { s.ProgramStatuses = []vt.ProgramStatus{{Progress: -1}} },
 		"ProgramStatusReported": func(s *vt.State) { s.ProgramStatusReported = true },

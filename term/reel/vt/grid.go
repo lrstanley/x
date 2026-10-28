@@ -449,6 +449,8 @@ func (t *Terminal) readCursorLocked() {
 	if t.mod.U8(ptr, wasmvt.RenderStateCursorViewportHasValueOff) != 0 {
 		cur.X = int(t.mod.U16(ptr, wasmvt.RenderStateCursorViewportXOff))
 		cur.Y = int(t.mod.U16(ptr, wasmvt.RenderStateCursorViewportYOff))
+	} else {
+		cur.X, cur.Y = -1, -1
 	}
 	cur.Visible = t.mod.U8(ptr, wasmvt.RenderStateCursorVisibleOff) != 0
 	cur.Blink = t.mod.U8(ptr, wasmvt.RenderStateCursorBlinkingOff) != 0

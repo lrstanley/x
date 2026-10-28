@@ -6,6 +6,7 @@ package reel
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"io"
 	"slices"
@@ -353,4 +354,159 @@ func TestSessionConcurrent(t *testing.T) {
 	if counts["output"] != n || counts["input"] != n || counts["resize"] != 20 {
 		t.Fatalf("event counts = %v", counts)
 	}
+}
+
+func TestSessionScroll(t *testing.T) {
+	t.Parallel()
+	s := openTest(t, 6, 2)
+	var out strings.Builder
+	for i := range 8 {
+		fmt.Fprintf(&out, "row%d\r\n", i)
+	}
+	write(t, s, out.String())
+	live := s.Terminal().Text()
+	n := s.Terminal().ScrollbackLen()
+
+	// Moving the viewport is not a change when it cannot move.
+	if err := s.ScrollDown(3); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ScrollUp(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.State().ScrollbackOffset; got != 0 {
+		t.Fatalf("offset = %d, want 0", got)
+	}
+
+	for _, step := range []func() error{
+		func() error { return s.ScrollUp(2) },
+		func() error { return s.ScrollDown(1) },
+		s.ScrollToTop,
+		s.ScrollToBottom,
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []int
+	for ev := range s.Timeline().Events() {
+		if sc, ok := ev.(Scroll); ok {
+			got = append(got, sc.Offset)
+		}
+	}
+	if want := []int{2, 1, n, 0}; !slices.Equal(got, want) {
+		t.Fatalf("Scroll offsets = %v, want %v", got, want)
+	}
+	if got := s.Terminal().Text(); got != live {
+		t.Fatalf("Text = %q, want the live screen %q", got, live)
+	}
+
+	// The program is not told, and is not sent anything.
+	if n := len(slices.Collect(s.Timeline().Inputs())); n != 0 {
+		t.Fatalf("scrolling recorded %d inputs", n)
+	}
+}
+
+func TestSessionScrollOnInput(t *testing.T) {
+	t.Parallel()
+	scrolls := func(s *Session) (offsets []int) {
+		for ev := range s.Timeline().Events() {
+			if sc, ok := ev.(Scroll); ok {
+				offsets = append(offsets, sc.Offset)
+			}
+		}
+		return offsets
+	}
+	setup := func(t *testing.T, opts ...SessionOption) *Session {
+		s := openTest(t, 6, 2, opts...)
+		var out strings.Builder
+		for i := range 8 {
+			fmt.Fprintf(&out, "row%d\r\n", i)
+		}
+		write(t, s, out.String())
+		return s
+	}
+
+	t.Run("snaps once, before the input", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t)
+		if err := s.ScrollUp(3); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Type("ab"); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.Terminal().ScrollbackOffset(); got != 0 {
+			t.Fatalf("offset after Type = %d, want 0", got)
+		}
+		// At the bottom, more input adds no scroll events.
+		if err := s.Key("enter"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Paste("x"); err != nil {
+			t.Fatal(err)
+		}
+		if got := scrolls(s); !slices.Equal(got, []int{3, 0}) {
+			t.Fatalf("Scroll offsets = %v, want [3 0]", got)
+		}
+		var kinds []string
+		for ev := range s.Timeline().Events() {
+			kinds = append(kinds, fmt.Sprintf("%T", ev))
+		}
+		want := []string{"reel.Output", "reel.Scroll", "reel.Scroll", "reel.Input", "reel.Input", "reel.Input"}
+		if !slices.Equal(kinds, want) {
+			t.Fatalf("events = %v, want %v", kinds, want)
+		}
+	})
+
+	t.Run("key and paste snap too", func(t *testing.T) {
+		t.Parallel()
+		for name, send := range map[string]func(*Session) error{
+			"key":   func(s *Session) error { return s.Key("a") },
+			"paste": func(s *Session) error { return s.Paste("a") },
+		} {
+			s := setup(t)
+			if err := s.ScrollUp(2); err != nil {
+				t.Fatal(err)
+			}
+			if err := send(s); err != nil {
+				t.Fatal(err)
+			}
+			if got := s.Terminal().ScrollbackOffset(); got != 0 {
+				t.Fatalf("%s: offset = %d, want 0", name, got)
+			}
+		}
+	})
+
+	t.Run("mouse and unsent keys do not", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t)
+		if err := s.ScrollUp(2); err != nil {
+			t.Fatal(err)
+		}
+		_ = s.Mouse(vt.MousePress, vt.MouseLeft, 0, 0)
+		if err := s.Key("nonsense-key"); err == nil {
+			t.Fatal("Key with an unknown name succeeded")
+		}
+		if got := s.Terminal().ScrollbackOffset(); got != 2 {
+			t.Fatalf("offset = %d, want 2", got)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t, WithScrollOnInput(false))
+		if err := s.ScrollUp(2); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Type("a"); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.Terminal().ScrollbackOffset(); got != 2 {
+			t.Fatalf("offset = %d, want 2", got)
+		}
+		if got := scrolls(s); !slices.Equal(got, []int{2}) {
+			t.Fatalf("Scroll offsets = %v, want [2]", got)
+		}
+	})
 }

@@ -58,6 +58,10 @@ type options struct {
 	// [Harness.WaitSettleMessages].
 	settleIgnore []reflect.Type
 
+	// scrollOnInput scrolls the terminal's viewport back to the bottom when
+	// keys, text, or a paste are sent to it.
+	scrollOnInput bool
+
 	// stripANSI removes ANSI sequences from view text and dimensions used in
 	// comparisons and snapshots.
 	stripANSI bool
@@ -110,6 +114,7 @@ func defaultOptions() options {
 		timeout:       DefaultTimeout,
 		checkInterval: DefaultCheckInterval,
 		settleTimeout: DefaultSettleTimeout,
+		scrollOnInput: true,
 		envVars: []string{
 			// Force TTY mode, since we're not connecting to a real TTY/PTY.
 			"TTY_FORCE=1",
@@ -289,6 +294,18 @@ func WithSettleIgnoreMsgs(types ...any) Option {
 			}
 			cfg.settleIgnore = append(cfg.settleIgnore, reflect.TypeOf(s))
 		}
+	}
+}
+
+// WithScrollOnInput determines whether [Harness.Type], [Harness.Key] (and the
+// helpers built on it), and [Harness.Paste] scroll the terminal's viewport back
+// to the bottom first when [Harness.ScrollUp] and friends scrolled it, as a real
+// terminal does when a key is pressed. Enabled by default. Mouse events never
+// scroll. Messages sent with [Harness.SendProgram] go to the [tea.Program]
+// directly, not through the terminal, so they do not either.
+func WithScrollOnInput(enable bool) Option {
+	return func(cfg *options) {
+		cfg.scrollOnInput = enable
 	}
 }
 

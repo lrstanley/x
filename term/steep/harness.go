@@ -97,6 +97,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 	session, err := reel.Open(
 		tb.Context(), max(cfg.width, 1), max(cfg.height, 1),
 		reel.WithTitle(tb.Name()), reel.WithSkipPristine(),
+		reel.WithScrollOnInput(cfg.scrollOnInput),
 	)
 	if err != nil {
 		tb.Fatal(err)

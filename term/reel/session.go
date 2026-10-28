@@ -59,6 +59,9 @@ type Session struct {
 	// by mu.
 	pty     *pty.PTY
 	running bool
+	// scrollOnInput is whether Type, Key, and Paste scroll the viewport to the
+	// bottom first, see [WithScrollOnInput].
+	scrollOnInput bool
 	// noQueries stops Write recording the program's queries.
 	noQueries bool
 }
@@ -67,11 +70,12 @@ type Session struct {
 type SessionOption func(*sessionConfig)
 
 type sessionConfig struct {
-	runtime      *vt.Runtime
-	vtOpts       []vt.Option
-	title        string
-	skipPristine bool
-	noQueries    bool
+	runtime       *vt.Runtime
+	vtOpts        []vt.Option
+	title         string
+	skipPristine  bool
+	scrollOnInput bool
+	noQueries     bool
 }
 
 // WithRuntime opens the session's terminal from rt instead of the package's
@@ -105,6 +109,17 @@ func WithSkipPristine() SessionOption {
 	return func(cfg *sessionConfig) { cfg.skipPristine = true }
 }
 
+// WithScrollOnInput sets whether [Session.Type], [Session.Key], and
+// [Session.Paste] scroll the viewport back to the bottom first when it is
+// scrolled up (see [Session.ScrollUp]), as a real terminal does when a key is
+// pressed, so the program's response is in view. Enabled by default. The scroll
+// is recorded as a [Scroll] event, before the [Input], and only when the
+// viewport was scrolled, so typing at the bottom adds nothing. Mouse events
+// never scroll, since the program may be handling them.
+func WithScrollOnInput(enabled bool) SessionOption {
+	return func(cfg *sessionConfig) { cfg.scrollOnInput = enabled }
+}
+
 // WithoutQueries stops the session recording a [QueryKind] annotation for
 // each query the program writes, such as to keep the replies out of a
 // recording: a reply to a clipboard read holds the clipboard's text. A
@@ -118,7 +133,7 @@ func WithoutQueries() SessionOption {
 // the terminal's pool has room or ctx is canceled. The session starts
 // focused. Close it to return the terminal to the pool.
 func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session, error) {
-	cfg := sessionConfig{runtime: defaultRuntime}
+	cfg := sessionConfig{runtime: defaultRuntime, scrollOnInput: true}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
@@ -133,7 +148,10 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		theme.Cursor = c
 	}
 	h := Header{Cols: cols, Rows: rows, Theme: theme, Title: cfg.title, SkipPristine: cfg.skipPristine}
-	s := &Session{term: term, timeline: newTimeline(h), noQueries: cfg.noQueries}
+	s := &Session{
+		term: term, timeline: newTimeline(h),
+		scrollOnInput: cfg.scrollOnInput, noQueries: cfg.noQueries,
+	}
 	s.focused.Store(true)
 	return s, nil
 }
@@ -234,11 +252,20 @@ func (s *Session) change(fn func() (Event, error)) error {
 
 // send sends the program the input encode returns, and appends it as an
 // [Input] event. Nothing is sent or appended when encode returns no bytes.
-func (s *Session) send(encode func() ([]byte, error)) error {
+// With snap, and unless [WithScrollOnInput] turned it off, a scrolled viewport
+// first goes back to the bottom, which appends a [Scroll] event before the
+// input.
+func (s *Session) send(encode func() ([]byte, error), snap bool) error {
 	return s.change(func() (Event, error) {
 		data, err := encode()
 		if err != nil || len(data) == 0 {
 			return nil, err
+		}
+		if snap && s.scrollOnInput && s.term.ScrollbackOffset() != 0 {
+			if err = s.term.ScrollToBottom(); err != nil {
+				return nil, err
+			}
+			s.timeline.append(Scroll{})
 		}
 		return Input{Data: data}, s.term.SendInput(data)
 	})
@@ -248,7 +275,8 @@ func (s *Session) send(encode func() ([]byte, error)) error {
 // Each character is pressed as the key that types it on a US layout, with
 // shift held for upper case letters and shifted symbols. Other characters,
 // including control characters such as "\n", are sent as they are. Type is
-// for text, not for keys with modifiers; see [Session.Key].
+// for text, not for keys with modifiers; see [Session.Key]. A scrolled
+// viewport goes back to the bottom first (see [WithScrollOnInput]).
 func (s *Session) Type(text string) error {
 	return s.send(func() ([]byte, error) {
 		var data []byte
@@ -260,7 +288,7 @@ func (s *Session) Type(text string) error {
 			data = append(data, b...)
 		}
 		return data, nil
-	})
+	}, true)
 }
 
 // Key sends one key press, such as "enter", "ctrl+c", "shift+tab", "f5", or
@@ -272,6 +300,7 @@ func (s *Session) Type(text string) error {
 // The key is encoded the way the program's keyboard mode asks, such as the
 // kitty keyboard protocol. A combination the mode cannot encode, such as
 // ctrl+shift+a without the kitty protocol, is an error, and sends nothing.
+// A scrolled viewport goes back to the bottom first (see [WithScrollOnInput]).
 func (s *Session) Key(name string) error {
 	key, perr := parseKey(name)
 	if perr != nil {
@@ -283,20 +312,22 @@ func (s *Session) Key(name string) error {
 			err = fmt.Errorf("reel: key %q has no encoding in the program's keyboard mode", name)
 		}
 		return data, err
-	})
+	}, true)
 }
 
 // Paste sends text as a paste, bracketed when the program has enabled
-// bracketed paste mode.
+// bracketed paste mode. A scrolled viewport goes back to the bottom first (see
+// [WithScrollOnInput]).
 func (s *Session) Paste(text string) error {
-	return s.send(func() ([]byte, error) { return s.term.EncodePaste(text) })
+	return s.send(func() ([]byte, error) { return s.term.EncodePaste(text) }, true)
 }
 
 // Mouse sends a mouse event at cell (x, y), counted from 0. The program
 // must have enabled a mouse tracking mode that reports the event, as in a real
-// terminal; otherwise nothing is sent.
+// terminal; otherwise nothing is sent. Unlike keys, it leaves a scrolled
+// viewport where it is, since the program may be handling the event.
 func (s *Session) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) error {
-	return s.send(func() ([]byte, error) { return s.term.EncodeMouse(action, button, x, y) })
+	return s.send(func() ([]byte, error) { return s.term.EncodeMouse(action, button, x, y) }, false)
 }
 
 // Focus gives the terminal window focus, or takes it away, and appends a
@@ -312,6 +343,45 @@ func (s *Session) Focus(on bool) error {
 		}
 		s.focused.Store(on)
 		return Focus{On: on}, nil
+	})
+}
+
+// ScrollUp scrolls the terminal's viewport n rows toward older scrollback, as
+// scrolling a real terminal's window does, and appends a [Scroll] event. The
+// program is not told. The viewport stays put as the program writes more, until
+// it is scrolled back to the bottom, or until keys, text, or a paste are sent to
+// it (see [WithScrollOnInput]).
+func (s *Session) ScrollUp(n int) error {
+	return s.scroll(func() error { return s.term.ScrollUp(n) })
+}
+
+// ScrollDown scrolls the viewport n rows toward the live screen. See
+// [Session.ScrollUp].
+func (s *Session) ScrollDown(n int) error {
+	return s.scroll(func() error { return s.term.ScrollDown(n) })
+}
+
+// ScrollToTop scrolls the viewport to the oldest scrollback row. See
+// [Session.ScrollUp].
+func (s *Session) ScrollToTop() error { return s.scroll(s.term.ScrollToTop) }
+
+// ScrollToBottom scrolls the viewport back to the live screen. See
+// [Session.ScrollUp].
+func (s *Session) ScrollToBottom() error { return s.scroll(s.term.ScrollToBottom) }
+
+// scroll runs move, which scrolls the terminal's viewport, and appends a
+// [Scroll] event when it moved.
+func (s *Session) scroll(move func() error) error {
+	return s.change(func() (Event, error) {
+		before := s.term.ScrollbackOffset()
+		if err := move(); err != nil {
+			return nil, err
+		}
+		after := s.term.ScrollbackOffset()
+		if after == before {
+			return nil, nil
+		}
+		return Scroll{Offset: after}, nil
 	})
 }
 

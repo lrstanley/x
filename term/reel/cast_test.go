@@ -100,6 +100,7 @@ func TestCastRoundTrip(t *testing.T) {
 		Focus{event: at(250), On: false},
 		Theme{event: at(250), Colors: Colors{Fg: castBg, Bg: castFg}},
 		Focus{event: at(1500), On: true},
+		Scroll{event: at(1500), Offset: 7},
 		Theme{event: at(1500)},
 		Resize{event: at(61_001), Cols: 132, Rows: 43},
 		Mark{event: at(61_001), Label: ""},
@@ -220,6 +221,7 @@ func TestCastVersionsRoundTrip(t *testing.T) {
 	for _, ev := range []Event{
 		Output{event: at(0), Data: []byte("hi")},
 		Focus{event: at(3)},
+		Scroll{event: at(4), Offset: 2},
 		Input{event: at(7), Data: []byte("q")},
 		Theme{event: at(8), Colors: Colors{Fg: castFg}},
 		Resize{event: at(1234), Cols: 100, Rows: 30},
@@ -237,6 +239,7 @@ func TestCastVersionsRoundTrip(t *testing.T) {
 		assertEvents(t, got,
 			`0 output "hi"`,
 			`3 focus false`,
+			`4 scroll 2`,
 			`7 input "q"`,
 			fmt.Sprintf("8 theme %v <nil> <nil>", castFg),
 			`1234 resize 100x30`,
@@ -663,6 +666,23 @@ func TestCastPalette(t *testing.T) {
 		got := readCast(t, data).Header()
 		if want := withDefaultPalette(h); got != want {
 			t.Fatalf("v%d Header = %+v, want %+v", v, got, want)
+		}
+	}
+}
+
+func TestCastScrollInvalid(t *testing.T) {
+	t.Parallel()
+	read := func(data string) error {
+		cast := `{"version":3,"term":{"cols":4,"rows":2}}` + "\n" + `[0.1,"s","` + data + `"]` + "\n"
+		_, err := ReadTimeline(strings.NewReader(cast))
+		return err
+	}
+	if err := read("3"); err != nil {
+		t.Fatalf("a valid scroll event failed to read: %v", err)
+	}
+	for _, data := range []string{"-1", "x", ""} {
+		if err := read(data); err == nil {
+			t.Errorf("scroll event %q read without an error", data)
 		}
 	}
 }

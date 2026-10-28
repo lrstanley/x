@@ -478,7 +478,7 @@
       ]
     },
     "steep.terminal": {
-      "description": "A change the test made to the terminal that no other event records. Resizes, focus changes, and colors are their own events.",
+      "description": "A change the test made to the terminal that no other event records. Resizes, focus changes, scrolls of the viewport, and colors are their own events.",
       "type": "object",
       "required": ["kind", "action"],
       "properties": {

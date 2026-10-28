@@ -111,7 +111,7 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr v
 	if d.opts.Scrollbar {
 		f.scrollbarBounds = image.Rect(
 			f.gridBounds.Max.X, f.gridBounds.Min.Y,
-			f.gridBounds.Max.X+scrollbarWidthPx, f.gridBounds.Max.Y,
+			f.gridBounds.Max.X+d.scrollbarWidth(), f.gridBounds.Max.Y,
 		)
 	}
 	d.layoutProgress(f)

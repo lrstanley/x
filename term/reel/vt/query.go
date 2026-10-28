@@ -126,7 +126,7 @@ func (t *Terminal) Scrollback() [][]Cell {
 	if n <= 0 || t.rows <= 0 {
 		return nil
 	}
-	offset, length := t.scrollbar()
+	offset := t.scrollbackOffsetLocked()
 	lines := make([][]Cell, 0, n)
 	for row := 0; row < n; row += t.rows {
 		t.scrollRow(row)
@@ -143,29 +143,60 @@ func (t *Terminal) Scrollback() [][]Cell {
 			lines = append(lines, line)
 		}
 	}
-	t.scrollRow(int(offset))
-	_ = length
-	t.gridFresh = false
+	t.setOffsetLocked(offset, n)
 	return lines
 }
 
-// scrollbar reads GhosttyTerminalScrollbar. offset is the viewport
-// row measured from the top of the scrollable area. length is the
-// total scrollable rows. Both are u64 in the manifest.
-func (t *Terminal) scrollbar() (offset, length uint64) {
+// viewportRowLocked reads GhosttyTerminalScrollbar. It returns the
+// viewport's first row, measured from the top of the scrollable area (the
+// oldest scrollback row), which at the bottom is the scrollback length. ok is
+// false when the read failed.
+func (t *Terminal) viewportRowLocked() (row int, ok bool) {
 	n := wasmvt.SizeTerminalScrollbar
 	ptr, err := t.mod.Alloc(n)
 	if err != nil {
-		return 0, 0
+		return 0, false
 	}
 	defer t.mod.Free(ptr, n)
 	t.mod.Zero(ptr, n)
 	if t.mod.Get(t.term, wasmvt.TerminalDataScrollbar, ptr) != nil {
-		return 0, 0
+		return 0, false
 	}
-	off := wasmvt.TerminalScrollbarOffsetOff
-	ln := wasmvt.TerminalScrollbarLenOff
-	return t.mod.U64(ptr, off), t.mod.U64(ptr, ln)
+	return int(t.mod.U64(ptr, wasmvt.TerminalScrollbarOffsetOff)), true
+}
+
+// viewportLocked returns the number of scrollback rows n, and how many rows
+// the viewport is scrolled up from the bottom, which is between 0 and n. Both
+// are zero on the alternate screen, which has no scrollback. ok is false when
+// the viewport position cannot be read.
+func (t *Terminal) viewportLocked() (n, offset int, ok bool) {
+	n = t.scrollbackLenLocked()
+	if n <= 0 {
+		return 0, 0, true
+	}
+	row, ok := t.viewportRowLocked()
+	return n, max(0, min(n, n-row)), ok
+}
+
+// scrollbackOffsetLocked is the offset of [Terminal.viewportLocked], zero when
+// the position cannot be read: a state still has to be reported.
+func (t *Terminal) scrollbackOffsetLocked() int {
+	_, offset, _ := t.viewportLocked()
+	return offset
+}
+
+// setOffsetLocked scrolls the viewport to offset rows up from the bottom of n
+// scrollback rows. Zero goes to the bottom itself, not to the last row, so the
+// viewport follows live output again.
+func (t *Terminal) setOffsetLocked(offset, n int) {
+	if offset <= 0 {
+		t.mod.Zero(t.scratch, wasmvt.SizeTerminalScrollViewport)
+		t.mod.SetI32(t.scratch, wasmvt.TerminalScrollViewportTagOff, wasmvt.TerminalScrollViewportTagBottom)
+		t.mod.Xghostty_terminal_scroll_viewport(t.term, t.scratch)
+	} else {
+		t.scrollRow(n - offset)
+	}
+	t.gridFresh = false
 }
 
 // scrollRow moves the viewport to an absolute row. The argument is a

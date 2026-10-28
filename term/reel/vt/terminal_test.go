@@ -6,7 +6,9 @@ package vt
 
 import (
 	"context"
+	"fmt"
 	"image/color"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"strconv"
@@ -381,6 +383,184 @@ func TestScrollbackCap(t *testing.T) {
 	}
 	if term.ScrollbackLen() != 0 {
 		t.Fatalf("cleared scrollback = %d", term.ScrollbackLen())
+	}
+}
+
+func TestScrollViewport(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 4, 2)
+	var b strings.Builder
+	for i := range 8 {
+		fmt.Fprintf(&b, "r%d\r\n", i)
+	}
+	if _, err := term.Write([]byte(b.String())); err != nil {
+		t.Fatal(err)
+	}
+	n := term.ScrollbackLen()
+	if n < 4 {
+		t.Fatalf("scrollback = %d, want at least 4", n)
+	}
+	live := term.Text()
+	if got := term.State(); got.ScrollbackOffset != 0 || got.ScrollbackLen != n {
+		t.Fatalf("State = offset %d len %d, want 0, %d", got.ScrollbackOffset, got.ScrollbackLen, n)
+	}
+
+	if err := term.ScrollUp(2); err != nil {
+		t.Fatal(err)
+	}
+	st := term.State()
+	if st.ScrollbackOffset != 2 || term.ScrollbackOffset() != 2 {
+		t.Fatalf("after ScrollUp(2), offset = %d", st.ScrollbackOffset)
+	}
+	if term.Text() == live {
+		t.Fatalf("viewport text did not change: %q", live)
+	}
+	if st.Cursor.X != -1 || st.Cursor.Y != -1 || !st.Cursor.Visible {
+		t.Fatalf("cursor with the viewport scrolled off it = %+v, want -1,-1 and still visible (mode 25)", st.Cursor)
+	}
+	if st.Equal(term.State()) == false {
+		t.Fatal("State is not stable")
+	}
+
+	// The history is the same wherever the viewport is.
+	if got := len(term.Scrollback()); got != n {
+		t.Fatalf("Scrollback rows = %d, want %d", got, n)
+	}
+	if got := term.ScrollbackOffset(); got != 2 {
+		t.Fatalf("Scrollback moved the viewport to offset %d", got)
+	}
+
+	// Output does not move a scrolled viewport back down to the bottom.
+	if _, err := term.Write([]byte("more\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got < 2 {
+		t.Fatalf("offset after output = %d, want the viewport held", got)
+	}
+
+	if err := term.ScrollToTop(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := term.ScrollbackOffset(), term.ScrollbackLen(); got != want {
+		t.Fatalf("after ScrollToTop, offset = %d, want %d", got, want)
+	}
+	if err := term.ScrollUp(1000); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := term.ScrollbackOffset(), term.ScrollbackLen(); got != want {
+		t.Fatalf("ScrollUp past the top, offset = %d, want %d", got, want)
+	}
+	if err := term.ScrollDown(1); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := term.ScrollbackOffset(), term.ScrollbackLen()-1; got != want {
+		t.Fatalf("after ScrollDown(1), offset = %d, want %d", got, want)
+	}
+	if err := term.ScrollDown(1000); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != 0 {
+		t.Fatalf("ScrollDown past the bottom, offset = %d, want 0", got)
+	}
+	if err := term.ScrollUp(3); err != nil {
+		t.Fatal(err)
+	}
+	if err := term.ScrollToBottom(); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != 0 {
+		t.Fatalf("after ScrollToBottom, offset = %d, want 0", got)
+	}
+	if cur := term.State().Cursor; !cur.Visible || cur.Y < 0 {
+		t.Fatalf("cursor at the bottom = %+v, want it in the viewport", cur)
+	}
+}
+
+func TestScrollViewportEdges(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 4, 2)
+	var b strings.Builder
+	for i := range 8 {
+		fmt.Fprintf(&b, "r%d\r\n", i)
+	}
+	if _, err := term.Write([]byte(b.String())); err != nil {
+		t.Fatal(err)
+	}
+	n := term.ScrollbackLen()
+
+	// Nothing to move: a count that is not positive changes nothing.
+	for _, step := range []func() error{
+		func() error { return term.ScrollUp(0) },
+		func() error { return term.ScrollUp(-3) },
+		func() error { return term.ScrollDown(-3) },
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+		if got := term.ScrollbackOffset(); got != 0 {
+			t.Fatalf("offset = %d, want 0", got)
+		}
+	}
+
+	if err := term.ScrollTo(3); err != nil {
+		t.Fatal(err)
+	}
+	// Counts that overflow stop at the top, not wrap around.
+	if err := term.ScrollUp(math.MaxInt); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != n {
+		t.Fatalf("ScrollUp(MaxInt): offset = %d, want %d", got, n)
+	}
+	if err := term.ScrollTo(3); err != nil {
+		t.Fatal(err)
+	}
+	if err := term.ScrollDown(-1); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != 3 {
+		t.Fatalf("ScrollDown(-1) moved the viewport to %d, want 3", got)
+	}
+	for _, tc := range []struct{ to, want int }{{n + 50, n}, {-5, 0}, {1, 1}} {
+		if err := term.ScrollTo(tc.to); err != nil {
+			t.Fatal(err)
+		}
+		if got := term.ScrollbackOffset(); got != tc.want {
+			t.Fatalf("ScrollTo(%d): offset = %d, want %d", tc.to, got, tc.want)
+		}
+	}
+
+	// Reading the history leaves the viewport where it was, and a viewport
+	// that was at the bottom still follows output.
+	if err := term.ScrollToBottom(); err != nil {
+		t.Fatal(err)
+	}
+	_ = term.Scrollback()
+	if _, err := term.Write([]byte("more\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != 0 {
+		t.Fatalf("offset after Scrollback and output = %d, want 0", got)
+	}
+}
+
+func TestScrollViewportAltScreen(t *testing.T) {
+	t.Parallel()
+	term := openTest(t, 4, 2)
+	if _, err := term.Write([]byte("a\r\nb\r\nc\r\nd\r\n\x1b[?1049h")); err != nil {
+		t.Fatal(err)
+	}
+	if err := term.ScrollUp(2); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != 0 {
+		t.Fatalf("offset on the alternate screen = %d", got)
+	}
+	if _, err := term.Write([]byte("\x1b[?1049l")); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.ScrollbackOffset(); got != 0 {
+		t.Fatalf("offset after leaving the alternate screen = %d", got)
 	}
 }
 

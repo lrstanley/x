@@ -135,6 +135,10 @@ func (r *replay) apply(ev Event) error {
 		err = r.term.Resize(ev.Cols, ev.Rows)
 	case Focus:
 		r.focused = ev.On
+	case Scroll:
+		// The scrollback of a replay that started mid-timeline may be shorter
+		// than the one the event was recorded against, so the offset clamps.
+		err = r.term.ScrollTo(ev.Offset)
 	case Theme:
 		err = r.setColors(ev.Colors)
 	case Mark:
