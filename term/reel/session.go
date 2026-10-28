@@ -333,11 +333,8 @@ func (s *Session) encodeText(text string) ([]byte, error) {
 	return data, nil
 }
 
-// Key sends one key press, such as "enter", "ctrl+c", "shift+tab", "f5", or
-// "a". Modifiers (ctrl, alt, shift, super) come first, joined by "+". The
-// key is a single character or one of: enter, esc (escape), tab, backspace,
-// delete, insert, up, down, left, right, home, end, pgup (pageup), pgdown
-// (pagedown), space, and f1 through f12. Unknown names are an error.
+// Key sends one key press, named as [vt.ParseKey] accepts, such as "enter",
+// "ctrl+c", "shift+tab", "f5", or "a". An unknown name is an error.
 //
 // The key is encoded per the program's keyboard mode, such as the kitty
 // keyboard protocol. A combination the mode cannot encode (such as
@@ -345,7 +342,7 @@ func (s *Session) encodeText(text string) ([]byte, error) {
 // viewport goes back to the bottom first (see [WithScrollOnInput]). Key
 // pauses after the press for the [WithTypingDelay] or [KeyDelay] delay.
 func (s *Session) Key(name string, opts ...KeyOption) error {
-	key, perr := parseKey(name)
+	key, perr := vt.ParseKey(name)
 	if perr != nil {
 		return perr
 	}
@@ -374,7 +371,9 @@ func (s *Session) Paste(text string) error {
 // unless the program enabled a mouse tracking mode that reports the event.
 // Unlike keys, it leaves a scrolled viewport where it is.
 func (s *Session) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) error {
-	return s.send(func() ([]byte, error) { return s.term.EncodeMouse(action, button, x, y) }, false)
+	return s.send(func() ([]byte, error) {
+		return s.term.EncodeMouse(vt.MouseEvent{Action: action, Button: button, X: x, Y: y})
+	}, false)
 }
 
 // Focus sets whether the terminal window has focus and appends a [Focus]

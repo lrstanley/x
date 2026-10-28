@@ -46,7 +46,9 @@ const (
 	PromptCommand PromptKind = "end"
 )
 
-// Key is a key press encoded for the program's stdin.
+// Key is a key press, as [Terminal.EncodeKey] encodes it for the program's
+// stdin and [DecodeInput] decodes it. [ParseKey] and [Key.String] convert it
+// to and from a name such as "ctrl+c".
 type Key struct {
 	// Code is a Ghostty key name such as "ENTER" or "A". Empty means the
 	// encoder should use Text alone.
@@ -82,13 +84,34 @@ const (
 // MouseButton is a button index the encoder understands.
 type MouseButton int32
 
-// Mouse buttons.
+// Mouse buttons. The wheel turns as presses of buttons 4 through 7, and
+// buttons 8 through 11 are the extra buttons, back and forward first.
 const (
 	MouseUnknown MouseButton = iota
 	MouseLeft
 	MouseRight
 	MouseMiddle
+	MouseWheelUp
+	MouseWheelDown
+	MouseWheelLeft
+	MouseWheelRight
+	MouseBackward
+	MouseForward
 )
+
+// MouseEvent is a mouse event, as [Terminal.EncodeMouse] encodes it and
+// [DecodeInput] decodes it.
+type MouseEvent struct {
+	// Action is a press, release, or motion. A wheel turn is a press of a
+	// wheel button.
+	Action MouseAction
+	// Button is the button. It is [MouseUnknown] when the encoding does not
+	// say, such as for a release in the X10 encoding or motion with no
+	// button held.
+	Button MouseButton
+	// X and Y are the cell, from 0.
+	X, Y int
+}
 
 // Mode identifies a terminal mode. ANSI is true for modes such as linefeed
 // (20) and false for DEC private modes such as the alternate screen (1047).

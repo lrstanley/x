@@ -188,7 +188,7 @@ func TestStrokesMouse(t *testing.T) {
 				{vt.MousePress, vt.MouseRight, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseRight, X: 3, Y: 2}},
 				{vt.MousePress, vt.MouseMiddle, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseMiddle, X: 3, Y: 2}},
 				{vt.MouseMotion, vt.MouseLeft, vt.MouseEvent{Action: vt.MouseMotion, Button: vt.MouseLeft, X: 3, Y: 2}},
-				{vt.MousePress, vt.MouseButton(4), vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseButton(4), X: 3, Y: 2}},
+				{vt.MousePress, vt.MouseWheelUp, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseWheelUp, X: 3, Y: 2}},
 			}
 			release := vt.MouseEvent{Action: vt.MouseRelease, Button: vt.MouseLeft, X: 3, Y: 2}
 			if mode.name == "x10" {
@@ -217,36 +217,5 @@ func TestStrokesSkipsOtherInput(t *testing.T) {
 	}
 	if got := vt.DecodeInput(nil); got != nil {
 		t.Fatalf("empty input strokes = %+v", got)
-	}
-}
-
-func TestParseKey(t *testing.T) {
-	t.Parallel()
-	tests := map[string]vt.Key{
-		"a":              {Code: "A", Text: "a"},
-		"A":              {Code: "A", Text: "A", Mods: vt.ModShift},
-		"shift+a":        {Code: "A", Text: "A", Mods: vt.ModShift},
-		"ctrl+a":         {Code: "A", Mods: vt.ModCtrl},
-		"ctrl+alt+a":     {Code: "A", Mods: vt.ModCtrl | vt.ModAlt},
-		"5":              {Code: "DIGIT_5", Text: "5"},
-		"+":              {Code: "EQUAL", Text: "+", Mods: vt.ModShift},
-		"ctrl++":         {Code: "EQUAL", Mods: vt.ModCtrl | vt.ModShift},
-		"alt+a":          {Code: "A", Text: "a", Mods: vt.ModAlt},
-		"é":              {Text: "é"},
-		"shift+é":        {Text: "É", Mods: vt.ModShift},
-		"space":          {Code: "SPACE", Text: " "},
-		"ctrl+space":     {Code: "SPACE", Mods: vt.ModCtrl},
-		"super+shift+f1": {Code: "F1", Mods: vt.ModSuper | vt.ModShift},
-	}
-	for name, want := range tests {
-		got, err := parseKey(name)
-		if err != nil || got != want {
-			t.Errorf("parseKey(%q) = %+v, %v, want %+v", name, got, err, want)
-		}
-	}
-	for _, name := range []string{"", "ctrl+", "hyper+a", "f13", "ab", "\x01", "shift+1"} {
-		if _, err := parseKey(name); err == nil {
-			t.Errorf("parseKey(%q) succeeded", name)
-		}
 	}
 }

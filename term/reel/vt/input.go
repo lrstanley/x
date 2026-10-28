@@ -77,53 +77,6 @@ func (t *Terminal) EncodeKey(key Key) ([]byte, error) {
 	})
 }
 
-// usKeys maps the Ghostty keys that type a character on a US layout to that
-// character without and with shift.
-var usKeys = func() map[string][2]rune {
-	keys := map[string][2]rune{
-		"SPACE":         {' ', ' '},
-		"MINUS":         {'-', '_'},
-		"EQUAL":         {'=', '+'},
-		"BRACKET_LEFT":  {'[', '{'},
-		"BRACKET_RIGHT": {']', '}'},
-		"BACKSLASH":     {'\\', '|'},
-		"SEMICOLON":     {';', ':'},
-		"QUOTE":         {'\'', '"'},
-		"BACKQUOTE":     {'`', '~'},
-		"COMMA":         {',', '<'},
-		"PERIOD":        {'.', '>'},
-		"SLASH":         {'/', '?'},
-	}
-	for r := 'a'; r <= 'z'; r++ {
-		keys[string(unicode.ToUpper(r))] = [2]rune{r, unicode.ToUpper(r)}
-	}
-	for i, shifted := range ")!@#$%^&*(" {
-		keys["DIGIT_"+string(rune('0'+i))] = [2]rune{rune('0' + i), shifted}
-	}
-	return keys
-}()
-
-// usRunes maps each character in [usKeys] to the key that types it and
-// whether shift is held.
-var usRunes = func() map[rune]Key {
-	runes := make(map[rune]Key, 2*len(usKeys))
-	for code, chars := range usKeys {
-		runes[chars[1]] = Key{Code: code, Mods: ModShift}
-		runes[chars[0]] = Key{Code: code}
-	}
-	return runes
-}()
-
-// RuneKey returns the key press that types r on a US layout: the key, with
-// shift held for a shifted character, and r as its text. A character no key
-// types, such as "é" or a control character, has no code, so the encoder
-// sends its text as is.
-func RuneKey(r rune) Key {
-	key := usRunes[r]
-	key.Text = string(r)
-	return key
-}
-
 // unshiftedCodepoint is the character key types without modifiers on a US
 // layout. A key with no code takes it from its text. The kitty keyboard
 // protocol, and ctrl and alt combinations, encode that character.
@@ -167,12 +120,12 @@ func (t *Terminal) encode(what string, capN int, fn func(buf, capN, lenPtr int32
 // enabled mode reports the event. It does not send them; see
 // [Terminal.SendInput].
 //
-// x and y are cell coordinates. Ghostty's position is surface pixels,
-// so they are scaled by the cell size stored on the terminal. The
+// Ghostty's position is surface pixels, so the event's cell is scaled by
+// the cell size stored on the terminal. The
 // position pointer is two little-endian binary32 values. The C type
 // GhosttySurfacePosition is two doubles. This build's mouse event
 // setter consumes the 8-byte form written here.
-func (t *Terminal) EncodeMouse(action MouseAction, button MouseButton, x, y int) ([]byte, error) {
+func (t *Terminal) EncodeMouse(m MouseEvent) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.idle {
@@ -181,15 +134,15 @@ func (t *Terminal) EncodeMouse(action MouseAction, button MouseButton, x, y int)
 	if err := t.configureMouse(); err != nil {
 		return nil, err
 	}
-	t.mod.Xghostty_mouse_event_set_action(t.mouseEv, int32(action))
-	t.mod.Xghostty_mouse_event_set_button(t.mouseEv, int32(button))
+	t.mod.Xghostty_mouse_event_set_action(t.mouseEv, int32(m.Action))
+	t.mod.Xghostty_mouse_event_set_button(t.mouseEv, int32(m.Button))
 	pos, err := t.mod.Alloc(8)
 	if err != nil {
 		return nil, err
 	}
 	defer t.mod.Free(pos, 8)
-	t.mod.SetF32(pos, 0, float32(x)*float32(t.cellW))
-	t.mod.SetF32(pos, 4, float32(y)*float32(t.cellH))
+	t.mod.SetF32(pos, 0, float32(m.X)*float32(t.cellW))
+	t.mod.SetF32(pos, 4, float32(m.Y)*float32(t.cellH))
 	t.mod.Xghostty_mouse_event_set_position(t.mouseEv, pos)
 	return t.encode("mouse encode", 64, func(buf, capN, lenPtr int32) int32 {
 		return t.mod.Xghostty_mouse_encoder_encode(t.mice, t.mouseEv, buf, capN, lenPtr)

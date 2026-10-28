@@ -223,9 +223,6 @@ var modifierKeys = map[string]bool{
 	"leftctrl": true, "rightctrl": true,
 	"leftalt": true, "rightalt": true,
 	"leftsuper": true, "rightsuper": true,
-	"lefthyper": true, "righthyper": true,
-	"leftmeta": true, "rightmeta": true,
-	"isolevel3shift": true, "isolevel5shift": true,
 }
 
 // modifierKey reports whether name, as in [vt.Stroke.Key], is a lone

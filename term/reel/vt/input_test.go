@@ -56,8 +56,10 @@ func TestEncodeDoesNotSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoders := map[string]func() ([]byte, error){
-		"key":   func() ([]byte, error) { return term.EncodeKey(Key{Code: "ENTER"}) },
-		"mouse": func() ([]byte, error) { return term.EncodeMouse(MousePress, MouseLeft, 3, 1) },
+		"key": func() ([]byte, error) { return term.EncodeKey(Key{Code: "ENTER"}) },
+		"mouse": func() ([]byte, error) {
+			return term.EncodeMouse(MouseEvent{Action: MousePress, Button: MouseLeft, X: 3, Y: 1})
+		},
 		"paste": func() ([]byte, error) { return term.EncodePaste("hi") },
 		"focus": func() ([]byte, error) { return term.EncodeFocus(true) },
 	}
@@ -93,7 +95,7 @@ func TestEncodeDoesNotSend(t *testing.T) {
 func TestEncodeNothingWithoutMode(t *testing.T) {
 	t.Parallel()
 	term := openTest(t, 8, 2)
-	if got, err := term.EncodeMouse(MousePress, MouseLeft, 0, 0); err != nil || got != nil {
+	if got, err := term.EncodeMouse(MouseEvent{Action: MousePress, Button: MouseLeft}); err != nil || got != nil {
 		t.Fatalf("EncodeMouse without tracking = %q, %v, want nil", got, err)
 	}
 	if got, err := term.EncodeFocus(true); err != nil || got != nil {
