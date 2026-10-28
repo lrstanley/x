@@ -49,11 +49,13 @@ func (h *Harness) Mutate[M any](fn func(M) M, opts ...Option) *Harness {
 	if fn == nil {
 		h.tb.Fatalf("mutate function must not be nil")
 	}
-	h.annotate(kindProgram, programNote{Action: "mutate", Type: typeName[M]()})
+	h.annotate(&programNote{Action: "mutate", Type: typeName[M]()})
 
 	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
 	done := make(chan error, 1)
-	h.SendProgram(mutateMsg[M]{fn: fn, done: done})
+	// Sent past [Harness.SendProgram], which would record and hook it as a
+	// message of the test's own.
+	h.program.Send(mutateMsg[M]{fn: fn, done: done})
 
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()

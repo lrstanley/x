@@ -65,6 +65,13 @@ type options struct {
 	// reason is an optional, propagated reason for an error or failure.
 	reason string
 
+	// harness is the harness whose timeline waits and assertions record
+	// what they found in, or nil to record nothing (see [withHarness]).
+	harness *Harness
+	// required is whether an assertion is a requirement, for its record
+	// (see [withRequired]).
+	required bool
+
 	// envVars are extra environment variables to set for the [tea.Program].
 	envVars []string
 	// color is the color support advertised to the [tea.Program], or 0 to
@@ -170,6 +177,24 @@ func withReason(format string, args ...any) Option {
 		} else {
 			cfg.reason = format
 		}
+	}
+}
+
+// withHarness has the waits and assertions the options are passed to record
+// how they ended, and what they found, in h's timeline. [NewHarness] adds it
+// to the options it merges into each call's, so the package's waits and
+// assertions record for a harness's methods, and record nothing otherwise.
+func withHarness(h *Harness) Option {
+	return func(cfg *options) {
+		cfg.harness = h
+	}
+}
+
+// withRequired records the assertion the options are passed to as a
+// requirement, which stops the test when it fails, as [Require] does.
+func withRequired() Option {
+	return func(cfg *options) {
+		cfg.required = true
 	}
 }
 
@@ -299,7 +324,7 @@ func WithIgnoreEnv(ignore bool) Option {
 }
 
 // WithSlow makes the harness sleep for d after every hooked action (input,
-// terminal, program, settle, ready, close) finishes, before its After hooks
+// terminal, program, wait, ready, close) finishes, before its After hooks
 // run. This paces the test so the program has real time to run between actions,
 // which is useful for animations, ticks, and timers, or for watching a test
 // play out.

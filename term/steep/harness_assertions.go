@@ -6,7 +6,6 @@ package steep
 
 import (
 	"errors"
-	"fmt"
 	"iter"
 	"time"
 
@@ -19,17 +18,18 @@ import (
 // See also [Harness.FinalModel] and [Harness.WaitSettleMessages].
 func (h *Harness) WaitFinished(opts ...Option) {
 	h.tb.Helper()
-	defer h.hook(HookClose, nil)()
-	w := h.startWait(waitNote{Wait: "finished"}, h.mergedOpts(opts...))
+	meta := WaitMeta{Kind: WaitKindFinished}
+	defer h.hook(HookClose, meta)()
+	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
+	w := cfg.startWait(waitNote{WaitMeta: meta})
 	defer w.finish()
-	h.waitFinished(opts...)
-	w.satisfied(nil, "")
+	h.waitFinished(cfg, w)
 }
 
-func (h *Harness) waitFinished(opts ...Option) {
+// waitFinished waits for the program to finish, with cfg, and sets how the
+// wait ended on w, if any.
+func (h *Harness) waitFinished(cfg options, w *waitRecord) {
 	h.tb.Helper()
-
-	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
 
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
@@ -40,14 +40,18 @@ func (h *Harness) waitFinished(opts ...Option) {
 		result := h.result
 		h.resultMu.RUnlock()
 		if result.err != nil && !errors.Is(result.err, tea.ErrProgramKilled) {
+			w.ended(outcomeFailed)
 			h.tb.Fatalf("bubble tea program failed: %v", result.err)
 		}
+		w.ended(outcomeSatisfied)
 		if wrapper, ok := result.model.(*observer); ok {
 			h.observer.replace(wrapper.currentModel())
 		}
 	case <-timer.C:
+		w.ended(outcomeTimeout)
 		h.tb.Fatalf("timeout waiting for bubble tea program to finish after %s", cfg.timeout)
 	case <-cfg.ctx.Done():
+		w.ended(outcomeCanceled)
 		h.tb.Fatalf("test context canceled waiting for bubble tea program to finish: %v", cfg.ctx.Err())
 	}
 }
@@ -61,18 +65,19 @@ func (h *Harness) waitFinished(opts ...Option) {
 // there is one: a wait does not depend on how fast the program runs.
 func (h *Harness) Sleep(d time.Duration, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "sleep"})()
+	meta := WaitMeta{Kind: WaitKindSleep}
+	defer h.hook(HookWait, meta)()
 
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "sleep", DurationMS: d.Milliseconds()}, opts)
+	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
+	w := h.startWait(waitNote{WaitMeta: meta, DurationMS: d.Milliseconds()})
 	defer w.finish()
-	cfg := collectOptions(h.tb, opts...)
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
-		w.satisfied(nil, "")
+		w.ended(outcomeSatisfied)
 	case <-cfg.ctx.Done():
+		w.ended(outcomeCanceled)
 		h.tb.Fatalf("sleep canceled: %v", cfg.ctx.Err())
 	}
 	return h
@@ -86,12 +91,8 @@ func (h *Harness) Sleep(d time.Duration, opts ...Option) *Harness {
 // [WithCheck], and [WithTimeout].
 func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "settle"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "settle"}, opts)
-	defer w.finish()
-	WaitSettle(h.tb, h.View, opts...)
-	w.satisfied(nil, "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindSettle})()
+	WaitSettle(h.tb, h.View, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -101,12 +102,8 @@ func (h *Harness) WaitSettle(opts ...Option) *Harness {
 // See also [WaitViewFunc], [Harness.Wait], [Harness.WaitNot], and [Harness.WaitMatch].
 func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "func"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "func"}, opts)
-	defer w.finish()
-	WaitViewFunc(h.tb, h.View, condition, opts...)
-	w.satisfied(nil, "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindFunc})()
+	WaitViewFunc(h.tb, h.View, condition, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -116,13 +113,8 @@ func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opt
 // See also [Wait], [Harness.WaitFunc], [Harness.WaitNot], and [Harness.WaitMatch].
 func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "wait"})()
-	opts = h.mergedOpts(opts...)
-	text := texts(contents)
-	w := h.startWait(waitNote{Wait: "text", Text: text}, opts)
-	defer w.finish()
-	view := Wait(h.tb, h.View, contents, opts...)
-	w.satisfied(textMatches(view, text), "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindText})()
+	Wait(h.tb, h.View, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -132,12 +124,8 @@ func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option)
 // See also [WaitNot], [Harness.Wait], and [Harness.WaitNotMatch].
 func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "not"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "not_text", Text: texts(contents)}, opts)
-	defer w.finish()
-	WaitNot(h.tb, h.View, contents, opts...)
-	w.satisfied(nil, "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindNotText})()
+	WaitNot(h.tb, h.View, contents, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -147,12 +135,8 @@ func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Opti
 // [Harness.RequireMatch].
 func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "match"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "match", Pattern: pattern}, opts)
-	defer w.finish()
-	view := WaitMatch(h.tb, h.View, pattern, opts...)
-	w.satisfied(patternMatches(view, pattern), "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMatch})()
+	WaitMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -163,12 +147,8 @@ func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
 // [Harness.RequireNotMatch].
 func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "not_match"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "not_match", Pattern: pattern}, opts)
-	defer w.finish()
-	WaitNotMatch(h.tb, h.View, pattern, opts...)
-	w.satisfied(nil, "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindNotMatch})()
+	WaitNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -178,8 +158,8 @@ func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 // See also [Assert], [Harness.Require], and [Harness.Wait].
 func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assert"})()
-	assertText(h, false, true, content, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindContains})()
+	Assert(h.tb, h.View, content, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -189,8 +169,8 @@ func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harnes
 // See also [Require], [Harness.Assert], and [Harness.Wait].
 func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "require"})()
-	assertText(h, true, true, content, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindContains, Required: true})()
+	Require(h.tb, h.View, content, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -200,8 +180,8 @@ func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harne
 // See also [AssertNot], [Harness.Assert], and [Harness.WaitNot].
 func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assert_not"})()
-	assertText(h, false, false, content, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotContains})()
+	AssertNot(h.tb, h.View, content, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -211,8 +191,8 @@ func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Har
 // See also [RequireNot], [Harness.Require], and [Harness.WaitNot].
 func (h *Harness) RequireNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "require_not"})()
-	assertText(h, true, false, content, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotContains, Required: true})()
+	RequireNot(h.tb, h.View, content, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -223,8 +203,8 @@ func (h *Harness) RequireNot[T string | []string](content T, opts ...Option) *Ha
 // [Harness.AssertNotMatch], [Harness.RequireNotMatch], and [Harness.WaitNotMatch].
 func (h *Harness) AssertMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertMatch"})()
-	assertPattern(h, false, true, pattern, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindMatch})()
+	AssertMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -235,8 +215,8 @@ func (h *Harness) AssertMatch(pattern string, opts ...Option) *Harness {
 // [Harness.WaitMatch].
 func (h *Harness) RequireMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireMatch"})()
-	assertPattern(h, true, true, pattern, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindMatch, Required: true})()
+	RequireMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -247,8 +227,8 @@ func (h *Harness) RequireMatch(pattern string, opts ...Option) *Harness {
 // [Harness.RequireMatch], and [Harness.WaitNotMatch].
 func (h *Harness) AssertNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertNotMatch"})()
-	assertPattern(h, false, false, pattern, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotMatch})()
+	AssertNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -259,8 +239,8 @@ func (h *Harness) AssertNotMatch(pattern string, opts ...Option) *Harness {
 // [Harness.RequireMatch], and [Harness.WaitNotMatch].
 func (h *Harness) RequireNotMatch(pattern string, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireNotMatch"})()
-	assertPattern(h, true, false, pattern, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotMatch, Required: true})()
+	RequireNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -271,8 +251,8 @@ func (h *Harness) RequireNotMatch(pattern string, opts ...Option) *Harness {
 // [Harness.AssertWidth], [AssertDimensions], and [Dimensions].
 func (h *Harness) AssertHeight(height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertHeight"})()
-	assertDims(h, false, nil, &height, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHeight})()
+	AssertHeight(h.tb, h.View, height, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -282,8 +262,8 @@ func (h *Harness) AssertHeight(height int, opts ...Option) *Harness {
 // and [AssertDimensions].
 func (h *Harness) RequireHeight(height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireHeight"})()
-	assertDims(h, true, nil, &height, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHeight, Required: true})()
+	RequireHeight(h.tb, h.View, height, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -294,8 +274,8 @@ func (h *Harness) RequireHeight(height int, opts ...Option) *Harness {
 // [Harness.AssertHeight], [AssertDimensions], and [Dimensions].
 func (h *Harness) AssertWidth(width int, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertWidth"})()
-	assertDims(h, false, &width, nil, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindWidth})()
+	AssertWidth(h.tb, h.View, width, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -305,8 +285,8 @@ func (h *Harness) AssertWidth(width int, opts ...Option) *Harness {
 // and [AssertDimensions].
 func (h *Harness) RequireWidth(width int, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireWidth"})()
-	assertDims(h, true, &width, nil, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindWidth, Required: true})()
+	RequireWidth(h.tb, h.View, width, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -317,8 +297,8 @@ func (h *Harness) RequireWidth(width int, opts ...Option) *Harness {
 // [Harness.AssertHeight], [Harness.RequireSnapshot], and [Dimensions].
 func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "assertDimensions"})()
-	assertDims(h, false, &width, &height, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindDimensions})()
+	AssertDimensions(h.tb, h.View, width, height, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -329,8 +309,8 @@ func (h *Harness) AssertDimensions(width, height int, opts ...Option) *Harness {
 // [Harness.RequireWidth], and [Harness.RequireSnapshot].
 func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireDimensions"})()
-	assertDims(h, true, &width, &height, opts)
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindDimensions, Required: true})()
+	RequireDimensions(h.tb, h.View, width, height, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -341,12 +321,8 @@ func (h *Harness) RequireDimensions(width, height int, opts ...Option) *Harness 
 // [WithSettle], [WithCheck], and [WithTimeout].
 func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "messages"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "settle_messages"}, opts)
-	defer w.finish()
-	WaitSettleMessages(h.tb, h, opts...)
-	w.satisfied(nil, "")
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindSettleMessages})()
+	WaitSettleMessages(h.tb, h, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -356,13 +332,8 @@ func (h *Harness) WaitSettleMessages(opts ...Option) *Harness {
 // See also [WaitMessage], [Harness.WaitMessageWhere], and [Harness.WaitLiveMessage].
 func (h *Harness) WaitMessage[T uv.Event](opts ...Option) T {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "message"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "message", Type: typeName[T]()}, opts)
-	defer w.finish()
-	msg := WaitMessage[T](h.tb, h, opts...)
-	w.satisfied(nil, fmt.Sprintf("%T", msg))
-	return msg
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage})()
+	return WaitMessage[T](h.tb, h, h.mergedOpts(opts...)...)
 }
 
 // WaitLiveMessage waits until a new message with concrete type T arrives after
@@ -371,13 +342,8 @@ func (h *Harness) WaitMessage[T uv.Event](opts ...Option) T {
 // See also [WaitLiveMessage], [Harness.WaitMessage], and [Harness.WaitLiveMessageWhere].
 func (h *Harness) WaitLiveMessage[T uv.Event](opts ...Option) T {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "live_message"})()
-	opts = h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "message", Type: typeName[T](), Live: true}, opts)
-	defer w.finish()
-	msg := WaitLiveMessage[T](h.tb, h, opts...)
-	w.satisfied(nil, fmt.Sprintf("%T", msg))
-	return msg
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage, Live: true})()
+	return WaitLiveMessage[T](h.tb, h, h.mergedOpts(opts...)...)
 }
 
 // WaitMessageWhere waits until fn returns true for a message of type T across
@@ -386,8 +352,8 @@ func (h *Harness) WaitLiveMessage[T uv.Event](opts ...Option) T {
 // See also [WaitMessageWhere] and [Harness.WaitLiveMessageWhere].
 func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "message_where"})()
-	return waitMessageWhere[T](h, false, fn, opts...)
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage})()
+	return waitMessage(h.tb, h, false, fn, h.mergedOpts(opts...)...)
 }
 
 // WaitLiveMessageWhere waits until fn returns true for a message of type T
@@ -396,34 +362,8 @@ func (h *Harness) WaitMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) 
 // See also [WaitLiveMessageWhere] and [Harness.WaitMessageWhere].
 func (h *Harness) WaitLiveMessageWhere[T uv.Event](fn func(T) bool, opts ...Option) T {
 	h.tb.Helper()
-	defer h.hook(HookSettle, SettleMeta{Kind: "live_message_where"})()
-	return waitMessageWhere[T](h, true, fn, opts...)
-}
-
-// waitMessageWhere waits until fn returns true for a message of type T, and
-// records the wait. With live, only messages after the call count.
-func waitMessageWhere[T uv.Event](h *Harness, live bool, fn func(T) bool, opts ...Option) T {
-	h.tb.Helper()
-	var match T
-	pred := func(msg uv.Event) bool {
-		typed, ok := msg.(T)
-		if !ok || !fn(typed) {
-			return false
-		}
-		match = typed
-		return true
-	}
-	merged := h.mergedOpts(opts...)
-	w := h.startWait(waitNote{Wait: "message", Type: typeName[T](), Live: live}, merged)
-	defer w.finish()
-	var msg uv.Event
-	if live {
-		msg = WaitLiveMessageWhere(h.tb, h, pred, merged...)
-	} else {
-		msg = WaitMessageWhere(h.tb, h, pred, merged...)
-	}
-	w.satisfied(nil, fmt.Sprintf("%T", msg))
-	return match
+	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMessage, Live: true})()
+	return waitMessage(h.tb, h, true, fn, h.mergedOpts(opts...)...)
 }
 
 // AssertHasMessage reports an error unless history contains a message of type T.
@@ -431,10 +371,8 @@ func waitMessageWhere[T uv.Event](h *Harness, live bool, fn func(T) bool, opts .
 // See also [AssertHasMessage] and [Harness.RequireHasMessage].
 func (h *Harness) AssertHasMessage[T uv.Event](opts ...Option) bool {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "hasMessage"})()
-	pass := AssertHasMessage[T](h.tb, h, h.mergedOpts(opts...)...)
-	h.finishAssert(assertNote{Assert: "has_message", Pass: pass, Type: typeName[T]()})
-	return pass
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHasMessage})()
+	return AssertHasMessage[T](h.tb, h, h.mergedOpts(opts...)...)
 }
 
 // RequireHasMessage fails the test immediately unless history contains a message
@@ -443,9 +381,8 @@ func (h *Harness) AssertHasMessage[T uv.Event](opts ...Option) bool {
 // See also [RequireHasMessage] and [Harness.AssertHasMessage].
 func (h *Harness) RequireHasMessage[T uv.Event](opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: "requireHasMessage"})()
-	pass := AssertHasMessage[T](h.tb, h, h.mergedOpts(opts...)...)
-	h.finishAssert(assertNote{Assert: "has_message", Required: true, Pass: pass, Type: typeName[T]()})
+	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindHasMessage, Required: true})()
+	RequireHasMessage[T](h.tb, h, h.mergedOpts(opts...)...)
 	return h
 }
 
@@ -463,71 +400,4 @@ func (h *Harness) FilterMessagesType[T uv.Event]() iter.Seq[T] {
 func (h *Harness) FilterMessagesFunc[T uv.Event](fn func(T) bool) iter.Seq[T] {
 	h.tb.Helper()
 	return FilterMessagesFunc[T](h.tb, h.MessageHistory(), fn)
-}
-
-// assertText asserts that view output contains content, or with present
-// false, that it does not, and records it. With required, a failure stops
-// the test.
-func assertText[T string | []string](h *Harness, required, present bool, content T, opts []Option) {
-	h.tb.Helper()
-	opts = h.mergedOpts(opts...)
-	view := h.sampleView(opts)
-	sample := func() string { return view }
-	n := assertNote{Assert: "contains", Required: required, Text: texts(content)}
-	if present {
-		n.Pass = Assert(h.tb, sample, content, opts...)
-		if n.Pass {
-			n.Matches = textMatches(view, n.Text)
-		}
-	} else {
-		n.Assert = "not_contains"
-		n.Pass = AssertNot(h.tb, sample, content, opts...)
-	}
-	h.finishAssert(n)
-}
-
-// assertPattern asserts that view output matches pattern, or with present
-// false, that it does not, and records it. With required, a failure stops
-// the test.
-func assertPattern(h *Harness, required, present bool, pattern string, opts []Option) {
-	h.tb.Helper()
-	opts = h.mergedOpts(opts...)
-	view := h.sampleView(opts)
-	sample := func() string { return view }
-	n := assertNote{Assert: "match", Required: required, Pattern: pattern}
-	if present {
-		n.Pass = AssertMatch(h.tb, sample, pattern, opts...)
-		if n.Pass {
-			n.Matches = patternMatches(view, pattern)
-		}
-	} else {
-		n.Assert = "not_match"
-		n.Pass = AssertNotMatch(h.tb, sample, pattern, opts...)
-	}
-	h.finishAssert(n)
-}
-
-// assertDims asserts that view output is width columns wide and height rows
-// high, either of which may be nil to not check it, and records it. With
-// required, a failure stops the test.
-func assertDims(h *Harness, required bool, width, height *int, opts []Option) {
-	h.tb.Helper()
-	opts = h.mergedOpts(opts...)
-	view := h.sampleView(opts)
-	sample := func() string { return view }
-	n := assertNote{Required: required, Expected: &dims{Width: width, Height: height}}
-	switch {
-	case width == nil:
-		n.Assert = "height"
-		n.Pass = AssertHeight(h.tb, sample, *height, opts...)
-	case height == nil:
-		n.Assert = "width"
-		n.Pass = AssertWidth(h.tb, sample, *width, opts...)
-	default:
-		n.Assert = "dimensions"
-		n.Pass = AssertDimensions(h.tb, sample, *width, *height, opts...)
-	}
-	w, ht := Dimensions(h.tb, view, opts...)
-	n.Actual = &dims{Width: &w, Height: &ht}
-	h.finishAssert(n)
 }

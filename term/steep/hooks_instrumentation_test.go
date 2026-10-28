@@ -25,10 +25,11 @@ func init() {
 		"ProgramStatuses",
 		"Progress", "Notifications", "Clipboard", "WorkingDirectory", "Prompt", "ResizeRequest",
 		"Scrollback", "ScrollbackCount", "MessageHistory", "Messages", "LiveMessages",
-		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts", "assertSnapshot",
+		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts",
 		"FilterMessagesType", "FilterMessagesFunc",
 		"drawImage", "drawImageInto", "imageViewport", "dropImageScreen",
-		"check", "mouseClick", "mouseDrag", "waitFinished",
+		"check", "waitFinished",
+		"LeftClick", "MiddleClick", "RightClick", "LeftDrag",
 		"KeyUp", "KeyDown", "KeyLeft", "KeyRight", "KeyEsc", "KeyDelete",
 		"KeyBackspace", "KeyCtrlC", "KeyCtrlD",
 	} {

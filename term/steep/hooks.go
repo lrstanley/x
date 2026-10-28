@@ -10,46 +10,179 @@ import (
 	"time"
 )
 
-// InputMeta describes keyboard, paste, and mouse harness actions.
+// InputKind is the kind of an input action: the "action" of its
+// "steep.input" annotation.
+type InputKind string
+
+const (
+	// InputKindType is text typed as key presses ([Harness.Type]).
+	InputKindType InputKind = "type"
+	// InputKindKey is a key press ([Harness.Key]).
+	InputKindKey InputKind = "key"
+	// InputKindPaste is a paste ([Harness.Paste]).
+	InputKindPaste InputKind = "paste"
+	// InputKindMouse is a single mouse event ([Harness.Mouse]).
+	InputKindMouse InputKind = "mouse"
+	// InputKindClick is a press and release of a mouse button
+	// ([Harness.MouseClick]).
+	InputKindClick InputKind = "click"
+	// InputKindDrag is a press of a mouse button, motion, and its release
+	// ([Harness.MouseDrag]).
+	InputKindDrag InputKind = "drag"
+)
+
+// InputMeta is the metadata of [HookInput] events: keyboard, paste, and
+// mouse actions.
 type InputMeta struct {
-	Kind string `json:"kind,omitempty"`
-	Key  string `json:"key,omitempty"`
-	Text string `json:"text,omitempty"`
+	Kind InputKind `json:"action"`
+	// Text is the text of [InputKindType] and [InputKindPaste].
+	Text string `json:"text,omitzero"`
+	// Key is the key of [InputKindKey], such as "enter" or "ctrl+c".
+	Key string `json:"key,omitzero"`
+	// Mouse is the mouse event of [InputKindMouse]: "press", "release", or
+	// "motion".
+	Mouse string `json:"mouse,omitzero"`
+	// Button is the mouse button of [InputKindMouse], [InputKindClick], and
+	// [InputKindDrag]: "left", "right", "middle", or "none" for motion
+	// without one.
+	Button string `json:"button,omitzero"`
 }
 
 func (m InputMeta) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("kind", m.Kind),
-		slog.String("key", m.Key),
+	attrs := []slog.Attr{slog.String("kind", string(m.Kind))}
+	for _, a := range []slog.Attr{
 		slog.String("text", m.Text),
-	)
+		slog.String("key", m.Key),
+		slog.String("mouse", m.Mouse),
+		slog.String("button", m.Button),
+	} {
+		if a.Value.String() != "" {
+			attrs = append(attrs, a)
+		}
+	}
+	return slog.GroupValue(attrs...)
 }
 
-// SettleMeta describes blocking settle and wait helpers.
-type SettleMeta struct {
-	Kind string `json:"kind,omitempty"`
+// WaitKind is what a wait waits for: the "wait" of its "steep.wait.start"
+// and "steep.wait.end" annotations.
+type WaitKind string
+
+const (
+	// WaitKindText waits for text to be on the screen ([Harness.Wait]).
+	WaitKindText WaitKind = "text"
+	// WaitKindNotText waits for text not to be on the screen
+	// ([Harness.WaitNot]).
+	WaitKindNotText WaitKind = "not_text"
+	// WaitKindMatch waits for a regular expression to match the screen
+	// ([Harness.WaitMatch]).
+	WaitKindMatch WaitKind = "match"
+	// WaitKindNotMatch waits for a regular expression not to match the
+	// screen ([Harness.WaitNotMatch]).
+	WaitKindNotMatch WaitKind = "not_match"
+	// WaitKindFunc waits for a condition of the test's own on the screen
+	// ([Harness.WaitFunc]).
+	WaitKindFunc WaitKind = "func"
+	// WaitKindSettle waits for the screen to stay unchanged
+	// ([Harness.WaitSettle]).
+	WaitKindSettle WaitKind = "settle"
+	// WaitKindSettleMessages waits for the model to receive no messages
+	// ([Harness.WaitSettleMessages]).
+	WaitKindSettleMessages WaitKind = "settle_messages"
+	// WaitKindMessage waits for the model to receive a message of a type
+	// ([Harness.WaitMessage] and the like).
+	WaitKindMessage WaitKind = "message"
+	// WaitKindFinished waits for the program to end
+	// ([Harness.WaitFinished]).
+	WaitKindFinished WaitKind = "finished"
+	// WaitKindSleep waits for time to pass ([Harness.Sleep]).
+	WaitKindSleep WaitKind = "sleep"
+)
+
+// WaitMeta is the metadata of [HookWait] events, and of the [HookClose]
+// event of [Harness.WaitFinished].
+type WaitMeta struct {
+	Kind WaitKind `json:"wait"`
+	// Live is true for a [WaitKindMessage] wait that only counts messages
+	// received after it starts, such as [Harness.WaitLiveMessage].
+	Live bool `json:"live,omitzero"`
 }
 
-func (m SettleMeta) LogValue() slog.Value {
-	return slog.StringValue(m.Kind)
+func (m WaitMeta) LogValue() slog.Value {
+	attrs := []slog.Attr{slog.String("kind", string(m.Kind))}
+	if m.Live {
+		attrs = append(attrs, slog.Bool("live", true))
+	}
+	return slog.GroupValue(attrs...)
 }
 
-// AssertMeta describes immediate assertion helpers.
+// AssertKind is what an assertion asserts: the "assert" of its
+// "steep.assert" annotation.
+type AssertKind string
+
+const (
+	// AssertKindContains asserts that text is on the screen
+	// ([Harness.Assert] and [Harness.Require]).
+	AssertKindContains AssertKind = "contains"
+	// AssertKindNotContains asserts that text is not on the screen
+	// ([Harness.AssertNot] and [Harness.RequireNot]).
+	AssertKindNotContains AssertKind = "not_contains"
+	// AssertKindMatch asserts that a regular expression matches the screen
+	// ([Harness.AssertMatch] and [Harness.RequireMatch]).
+	AssertKindMatch AssertKind = "match"
+	// AssertKindNotMatch asserts that a regular expression does not match
+	// the screen ([Harness.AssertNotMatch] and [Harness.RequireNotMatch]).
+	AssertKindNotMatch AssertKind = "not_match"
+	// AssertKindWidth asserts the width of the screen's text
+	// ([Harness.AssertWidth] and [Harness.RequireWidth]).
+	AssertKindWidth AssertKind = "width"
+	// AssertKindHeight asserts the height of the screen's text
+	// ([Harness.AssertHeight] and [Harness.RequireHeight]).
+	AssertKindHeight AssertKind = "height"
+	// AssertKindDimensions asserts the width and height of the screen's
+	// text ([Harness.AssertDimensions] and [Harness.RequireDimensions]).
+	AssertKindDimensions AssertKind = "dimensions"
+	// AssertKindHasMessage asserts that the model received a message of a
+	// type ([Harness.AssertHasMessage] and [Harness.RequireHasMessage]).
+	AssertKindHasMessage AssertKind = "has_message"
+)
+
+// AssertMeta is the metadata of [HookAssert] events.
 type AssertMeta struct {
-	Kind string `json:"kind,omitempty"`
+	Kind AssertKind `json:"assert"`
+	// Required is true for a Require method, whose failure stops the test,
+	// and false for an Assert method, which lets it go on.
+	Required bool `json:"required"`
 }
 
 func (m AssertMeta) LogValue() slog.Value {
-	return slog.StringValue(m.Kind)
+	return slog.GroupValue(slog.String("kind", string(m.Kind)), slog.Bool("required", m.Required))
 }
 
-// CaptureMeta describes snapshot, JSON, and image capture helpers.
+// CaptureKind is what a capture captures. For a snapshot comparison, it is
+// the "format" of its "steep.snapshot" annotation.
+type CaptureKind string
+
+const (
+	// CaptureKindText compares the screen's text with a ".snap" file
+	// ([Harness.AssertSnapshot] and [Harness.RequireSnapshot]).
+	CaptureKindText CaptureKind = "text"
+	// CaptureKindJSON compares the screen's cells and the terminal's state
+	// with a ".json" file ([Harness.AssertJSON] and [Harness.RequireJSON]).
+	CaptureKindJSON CaptureKind = "json"
+	// CaptureKindImage renders the screen as an image ([Harness.Image] and
+	// [Harness.ImageInto]). It records no annotation.
+	CaptureKindImage CaptureKind = "image"
+)
+
+// CaptureMeta is the metadata of [HookCapture] events.
 type CaptureMeta struct {
-	Kind string `json:"kind,omitempty"`
+	Kind CaptureKind `json:"format"`
+	// Required is true for a Require method, whose mismatch stops the test.
+	Required bool `json:"required"`
 }
 
 func (m CaptureMeta) LogValue() slog.Value {
-	return slog.StringValue(m.Kind)
+	return slog.GroupValue(slog.String("kind", string(m.Kind)), slog.Bool("required", m.Required))
 }
 
 // HookEvent identifies a harness action for hooks, and labels the action's
@@ -57,13 +190,23 @@ func (m CaptureMeta) LogValue() slog.Value {
 type HookEvent int
 
 const (
+	// HookInput is a keyboard, paste, or mouse action, with [InputMeta].
 	HookInput HookEvent = iota
+	// HookTerminal is a change to the terminal, such as a resize.
 	HookTerminal
+	// HookProgram is an action on the program, such as a message sent to it.
 	HookProgram
-	HookSettle
+	// HookWait is a wait, or a sleep, with [WaitMeta].
+	HookWait
+	// HookReady is the program's start.
 	HookReady
+	// HookClose is the program's end, and the harness's. The wait of
+	// [Harness.WaitFinished] has [WaitMeta].
 	HookClose
+	// HookAssert is an assertion, with [AssertMeta].
 	HookAssert
+	// HookCapture is a snapshot comparison or image capture, with
+	// [CaptureMeta].
 	HookCapture
 )
 
@@ -77,8 +220,8 @@ func (e HookEvent) String() string {
 		return "terminal"
 	case HookProgram:
 		return "program"
-	case HookSettle:
-		return "settle"
+	case HookWait:
+		return "wait"
 	case HookReady:
 		return "ready"
 	case HookClose:
@@ -112,6 +255,12 @@ func (s HookStage) String() string {
 
 // Hook observes harness actions (see [WithHooks]). Errors fail the test
 // immediately.
+//
+// metadata is nil, or the action's [InputMeta], [WaitMeta], [AssertMeta], or
+// [CaptureMeta]. Each uses the vocabulary of the [reel.Annotation] the
+// harness records for the same action (see reel's annotation.schema.json):
+// it marshals to JSON as the fields of that annotation it holds, with the
+// same names and values.
 type Hook func(event HookEvent, stage HookStage, metadata any) error
 
 func (h *Harness) hook(event HookEvent, metadata any) func() {

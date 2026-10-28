@@ -34,8 +34,11 @@ func (h *Harness) snapshotOpts(opts []snapshot.Option) []snapshot.Option {
 // See also [Harness.RequireSnapshot].
 func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookCapture, CaptureMeta{Kind: "snapshot"})()
-	h.assertSnapshot("text", false, opts)
+	meta := CaptureMeta{Kind: CaptureKindText}
+	defer h.hook(HookCapture, meta)()
+	var res snapshot.Result
+	pass := snapshot.AssertEqual(h.tb, h.View(), withResult(&res, h.snapshotOpts(opts))...)
+	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
 	return h
 }
 
@@ -45,8 +48,14 @@ func (h *Harness) AssertSnapshot(opts ...snapshot.Option) *Harness {
 // See also [Harness.AssertSnapshot].
 func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookCapture, CaptureMeta{Kind: "snapshot"})()
-	h.assertSnapshot("text", true, opts)
+	meta := CaptureMeta{Kind: CaptureKindText, Required: true}
+	defer h.hook(HookCapture, meta)()
+	var res snapshot.Result
+	pass := snapshot.AssertEqual(h.tb, h.View(), withResult(&res, h.snapshotOpts(opts))...)
+	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
+	if !pass {
+		h.tb.FailNow()
+	}
 	return h
 }
 
@@ -56,8 +65,11 @@ func (h *Harness) RequireSnapshot(opts ...snapshot.Option) *Harness {
 // See also [Harness.AssertSnapshot].
 func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
-	h.assertSnapshot("json", false, opts)
+	meta := CaptureMeta{Kind: CaptureKindJSON}
+	defer h.hook(HookCapture, meta)()
+	var res snapshot.Result
+	pass := snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), withResult(&res, opts)...)
+	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
 	return h
 }
 
@@ -68,29 +80,21 @@ func (h *Harness) AssertJSON(opts ...snapshot.Option) *Harness {
 // See also [Harness.AssertJSON].
 func (h *Harness) RequireJSON(opts ...snapshot.Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookCapture, CaptureMeta{Kind: "json"})()
-	h.assertSnapshot("json", true, opts)
+	meta := CaptureMeta{Kind: CaptureKindJSON, Required: true}
+	defer h.hook(HookCapture, meta)()
+	var res snapshot.Result
+	pass := snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), withResult(&res, opts)...)
+	h.noteSnapshot(snapshotNote{CaptureMeta: meta, Pass: pass}, res)
+	if !pass {
+		h.tb.FailNow()
+	}
 	return h
 }
 
-// assertSnapshot compares the screen with its snapshot file, as text or as
-// JSON, and records the comparison. With required, a mismatch stops the
-// test.
-func (h *Harness) assertSnapshot(format string, required bool, opts []snapshot.Option) {
-	h.tb.Helper()
-	var res snapshot.Result
-	n := snapshotNote{Format: format, Required: required}
-	if format == "json" {
-		n.Pass = snapshot.AssertScreenEqual(h.tb, screenSnapshot(h.tb, h.session), append(slices.Clip(opts), snapshot.WithResult(&res))...)
-	} else {
-		n.Pass = snapshot.AssertEqual(h.tb, h.View(), append(slices.Clip(h.snapshotOpts(opts)), snapshot.WithResult(&res))...)
-	}
-	n.Path, n.Updated, n.Missing = res.Path, res.Updated, res.Missing
-	n.Diff = clip(res.Diff, &n.Truncated)
-	h.annotate(kindSnapshot, n)
-	if required && !n.Pass {
-		h.tb.FailNow()
-	}
+// withResult returns opts, in a new slice, with [snapshot.WithResult] of res
+// added, for the comparison's record.
+func withResult(res *snapshot.Result, opts []snapshot.Option) []snapshot.Option {
+	return append(slices.Clip(opts), snapshot.WithResult(res))
 }
 
 // ImageInto renders the current terminal screen buffer into dst, at
@@ -101,7 +105,7 @@ func (h *Harness) assertSnapshot(format string, required bool, opts []snapshot.O
 // See also [Harness.Image].
 func (h *Harness) ImageInto(dst *image.NRGBA) {
 	h.tb.Helper()
-	defer h.hook(HookCapture, CaptureMeta{Kind: "image_into"})()
+	defer h.hook(HookCapture, CaptureMeta{Kind: CaptureKindImage})()
 	h.drawImageInto(dst)
 }
 
@@ -125,7 +129,7 @@ func (h *Harness) drawImageInto(dst *image.NRGBA) {
 // See also [Harness.ImageInto].
 func (h *Harness) Image() image.Image {
 	h.tb.Helper()
-	defer h.hook(HookCapture, CaptureMeta{Kind: "image"})()
+	defer h.hook(HookCapture, CaptureMeta{Kind: CaptureKindImage})()
 	return h.drawImage()
 }
 

@@ -26,8 +26,8 @@ type observer struct {
 	// lastViewSnapshot stores the most recent View content observed by the renderer.
 	lastViewSnapshot string
 	// onMessage, when set, is called with each message before the wrapped
-	// model receives it, but for mutate requests. It is set before the
-	// program starts.
+	// model receives it, but for mutate requests, with mu held. It is set
+	// before the program starts, and must not call back into the observer.
 	onMessage func(uv.Event)
 }
 
@@ -57,6 +57,8 @@ func (o *observer) Update(msg uv.Event) (tea.Model, tea.Cmd) {
 	o.tb.Helper()
 	copiedMsg := msg
 
+	// Recorded before taking the lock, which View waits on. Update runs on
+	// the program's goroutine alone, so messages are still recorded in order.
 	if _, ok := msg.(mutateRequest); !ok && o.onMessage != nil {
 		o.onMessage(msg)
 	}

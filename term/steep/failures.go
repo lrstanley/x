@@ -19,7 +19,9 @@ import (
 type failureTB struct {
 	testing.TB
 
-	// note is set once, before the program starts.
+	// note is set once, before the program starts. It is called with mu
+	// held, so failures are noted in the order of msgs, and must not report
+	// through the failureTB.
 	note func(msg string)
 
 	mu   sync.Mutex
@@ -57,8 +59,8 @@ func sprintln(args ...any) string {
 
 func (f *failureTB) record(msg string) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.msgs = append(f.msgs, msg)
-	f.mu.Unlock()
 	if f.note != nil {
 		f.note(msg)
 	}

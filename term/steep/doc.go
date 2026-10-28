@@ -19,7 +19,11 @@
 // Harness actions invoke [Hook] callbacks from [WithHooks] before and after
 // the action body. Hook errors fail the test immediately. Each action is also
 // marked in the session's timeline once it is done, labeled with its event
-// and count, such as "input-2" (see [Harness.Mark]).
+// and count, such as "input-2" or "wait-1" (see [Harness.Mark]). Inputs,
+// waits, assertions, and captures pass hooks an [InputMeta], [WaitMeta],
+// [AssertMeta], or [CaptureMeta], whose kinds ([InputKind], [WaitKind],
+// [AssertKind], and [CaptureKind]) and fields are those of the annotation
+// the harness records for the action (see below).
 //
 // # Recording and export
 //

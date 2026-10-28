@@ -33,6 +33,19 @@ const (
 	exportAlways
 )
 
+// String returns the name of the policy, as the "export" of a "steep.start"
+// annotation: "off", "failure", or "always".
+func (p exportPolicy) String() string {
+	switch p {
+	case exportOnFailure:
+		return "failure"
+	case exportAlways:
+		return "always"
+	default:
+		return "off"
+	}
+}
+
 // StillKind is a kind of still [WithStills] writes at a hook event's mark.
 // Kinds combine with |.
 type StillKind uint8
@@ -80,7 +93,7 @@ type Result struct {
 
 // captureEvents are the hook events [WithStills] uses when it is given none,
 // those of actions that change what the terminal shows or wait for it.
-var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookSettle, HookReady, HookClose}
+var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookWait, HookReady, HookClose}
 
 // WithRecording sets what an export writes: the outputs, renderer, encoder
 // options, effects, and timing of a [reel.Profile]. It does not export by
@@ -177,7 +190,7 @@ func WithExportAlways() Option {
 // "{name}_{status}_{mark}.snap" for [StillSnapshot], such as
 // "TestLogin_failed_input-2.png" for the second input. Without events, it
 // covers the events of actions that change what the terminal shows or wait
-// for it: input, terminal, program, settle, ready, and close. Calls
+// for it: input, terminal, program, wait, ready, and close. Calls
 // accumulate.
 //
 // Stills are written with the recording, so only when an export policy is on
@@ -224,7 +237,7 @@ type hookMark struct {
 //
 // The harness marks every hook event once its action is done, just before
 // its After hooks run, labeled with the event's name and its count so far,
-// such as "input-1", "input-2", and "settle-1", so each one can be told apart
+// such as "input-1", "input-2", and "wait-1", so each one can be told apart
 // in an asciicast file and cut at. While an export policy is on, an input,
 // terminal, or program action is marked once the program has painted its
 // response (see [WithSettle]). [Harness.Close] places its mark as it starts,
@@ -277,9 +290,7 @@ func (h *Harness) exportRecording(end string) {
 	if h.cfg.policy == exportOff {
 		return
 	}
-	// A test that panics runs its cleanups before it is marked failed.
-	panicked := panicking()
-	failed := panicked || h.tb.Failed()
+	failed, panicked := h.testStatus()
 	if !failed && (h.cfg.policy == exportOnFailure || h.tb.Skipped()) {
 		return
 	}
@@ -387,6 +398,14 @@ func writeSnapshot(path, text string) error {
 		return fmt.Errorf("snapshot %q: %w", path, err)
 	}
 	return nil
+}
+
+// testStatus returns whether the test has failed, or is panicking, and
+// whether it is panicking. A test that panics runs its cleanups before it is
+// marked failed (see [panicking]).
+func (h *Harness) testStatus() (failed, panicked bool) {
+	panicked = panicking()
+	return panicked || h.tb.Failed(), panicked
 }
 
 // panicking reports whether the calling goroutine is panicking. A test that

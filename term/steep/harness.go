@@ -10,6 +10,7 @@ import (
 	"iter"
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -114,11 +115,14 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		hooks:         append([]Hook(nil), cfg.hooks...),
 		markCount:     make(map[HookEvent]int),
 	}
+	// Clipped, so appending to the options of one call cannot write into
+	// another's.
+	h.opts = slices.Clip(append(h.opts, withHarness(h)))
 	failures.note = h.noteFailure
 	if cfg.recordMessages {
 		h.observer.onMessage = h.noteMessage
 	}
-	h.annotate(kindStart, newStartNote(tb.Name(), cfg))
+	h.annotate(newStartNote(tb.Name(), cfg))
 
 	env, programOpts := cfg.envVars, cfg.programOpts
 	if cfg.color != 0 {
@@ -186,7 +190,7 @@ func (h *Harness) Close() {
 	// program's repaint as it exits, such as leaving the alternate screen,
 	// is left out. It is exported once the program has stopped, or failed
 	// to. The result is recorded first, so the recording holds it.
-	h.annotate(kindResult, h.newResultNote())
+	h.annotate(h.newResultNote())
 	end := h.markEvent(HookClose)
 	defer h.exportRecording(end)
 
@@ -222,7 +226,7 @@ func (h *Harness) Close() {
 	}
 	// TB context is already canceled during Cleanups (see testing.T.Context); join with
 	// a detached parent so WaitFinished observes h.done/timer only.
-	h.waitFinished(WithContext(context.Background()))
+	h.waitFinished(collectOptions(h.tb, h.mergedOpts(WithContext(context.Background()))...), nil)
 }
 
 func (h *Harness) waitStarted(cfg options) {
@@ -235,12 +239,12 @@ func (h *Harness) waitStarted(cfg options) {
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
-	note := func(outcome string) {
-		h.annotate(kindReady, readyNote{Outcome: outcome, ElapsedMS: time.Since(h.start).Milliseconds()})
+	note := func(o outcome) {
+		h.annotate(&readyNote{Outcome: o, ElapsedMS: time.Since(h.start).Milliseconds()})
 	}
 	select {
 	case <-h.observer.firstEvent:
-		note("ready")
+		note(outcomeReady)
 		if !h.readyHooked {
 			h.readyHooked = true
 			done := h.hook(HookReady, nil)
@@ -292,12 +296,9 @@ func (h *Harness) SendProgram(msg uv.Event) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookProgram, nil)()
 	h.requireProgram()
-	// Mutate records its own.
-	if _, ok := msg.(mutateRequest); !ok {
-		n := programNote{Action: "send"}
-		n.Type, n.Value = valueNote(msg, &n.Truncated)
-		h.annotate(kindProgram, n)
-	}
+	n := &programNote{Action: "send"}
+	n.Type, n.Value = valueNote(msg)
+	h.annotate(n)
 	h.program.Send(msg)
 	return h
 }
@@ -309,7 +310,7 @@ func (h *Harness) QuitProgram() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookClose, nil)()
 	h.requireProgram()
-	h.annotate(kindProgram, programNote{Action: "quit"})
+	h.annotate(&programNote{Action: "quit"})
 	h.program.Quit()
 	return h
 }

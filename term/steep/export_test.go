@@ -241,7 +241,7 @@ func TestExportMarks(t *testing.T) {
 	for m := range h.Timeline().Marks() {
 		labels = append(labels, m.Label)
 	}
-	want := []string{"ready-1", "settle-1", "input-1", "mine", "input-2", "settle-2", "close-1"}
+	want := []string{"ready-1", "wait-1", "input-1", "mine", "input-2", "wait-2", "close-1"}
 	if !slices.Equal(labels, want) {
 		t.Fatalf("marks = %q, want %q", labels, want)
 	}
@@ -255,7 +255,7 @@ func TestExportStills(t *testing.T) {
 	h := NewHarness(t, rootTestModel{}, exportOptions(dir,
 		WithRecording(reel.Profile{Outputs: reel.Files("rec/{name}.cast")}),
 		WithStills(StillPNG, HookInput),
-		WithStills(StillSnapshot, HookInput, HookSettle),
+		WithStills(StillSnapshot, HookInput, HookWait),
 		WithExportAlways(),
 	)...)
 	h.Type("a").Type("b").Wait("text=ab")
@@ -265,7 +265,7 @@ func TestExportStills(t *testing.T) {
 	want := []string{
 		stem + "input-1.png", stem + "input-1.snap",
 		stem + "input-2.png", stem + "input-2.snap",
-		stem + "settle-1.snap",
+		stem + "wait-1.snap",
 		"rec",
 	}
 	slices.Sort(want)
