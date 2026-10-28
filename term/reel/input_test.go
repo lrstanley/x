@@ -85,8 +85,8 @@ func TestStrokesKeys(t *testing.T) {
 					want = name
 				}
 				got := lastStrokes(t, s, func() error { return s.Key(name) })
-				if wantStrokes := []vt.Stroke{{Kind: vt.StrokeKey, Key: want}}; !slices.Equal(got, wantStrokes) {
-					t.Errorf("Key(%q) decodes to %+v, want %+v", name, got, wantStrokes)
+				if len(got) != 1 || got[0].Kind != vt.StrokeKey || got[0].Key.String() != want {
+					t.Errorf("Key(%q) decodes to %+v, want the key %q", name, got, want)
 				}
 			}
 		})
@@ -127,7 +127,7 @@ func TestStrokesMixed(t *testing.T) {
 	got := lastStrokes(t, s, func() error { return s.Type("ab\tc") })
 	want := []vt.Stroke{
 		{Kind: vt.StrokeText, Text: "ab"},
-		{Kind: vt.StrokeKey, Key: "tab"},
+		{Kind: vt.StrokeKey, Key: vt.Key{Code: "TAB"}},
 		{Kind: vt.StrokeText, Text: "c"},
 	}
 	if !slices.Equal(got, want) {
@@ -143,7 +143,7 @@ func TestStrokesPaste(t *testing.T) {
 	got := lastStrokes(t, s, func() error { return s.Paste("one\ntwo") })
 	want := []vt.Stroke{
 		{Kind: vt.StrokeText, Text: "one"},
-		{Kind: vt.StrokeKey, Key: "enter"},
+		{Kind: vt.StrokeKey, Key: vt.Key{Code: "ENTER"}},
 		{Kind: vt.StrokeText, Text: "two"},
 	}
 	if !slices.Equal(got, want) {

@@ -38,19 +38,22 @@ var keysOpacity = [keysFadeLevels + 1]uint8{255, 192, 128, 64}
 // xterm 255 and 238.
 var keysChip = vt.Style{Fg: vt.Indexed(255), Bg: vt.Indexed(238), Attrs: vt.AttrBold}
 
-// keyGlyphs are the labels for the named keys of [vt.Stroke.Key]. Other
-// keys are shown by name.
+// keyGlyphs are the labels for keys by their [vt.Key] code. Other keys are
+// shown by name.
 var keyGlyphs = map[string]string{
-	"up":        "↑",
-	"down":      "↓",
-	"left":      "←",
-	"right":     "→",
-	"enter":     "⏎",
-	"tab":       "⇥",
-	"backspace": "⌫",
-	"delete":    "⌦",
-	"space":     "␣",
+	"ARROW_UP":    "↑",
+	"ARROW_DOWN":  "↓",
+	"ARROW_LEFT":  "←",
+	"ARROW_RIGHT": "→",
+	"ENTER":       "⏎",
+	"TAB":         "⇥",
+	"BACKSPACE":   "⌫",
+	"DELETE":      "⌦",
+	"SPACE":       "␣",
 }
+
+// ctrlJ is a typed "\n", which decodes as ctrl+j.
+var ctrlJ = vt.Key{Code: "J", Mods: vt.ModCtrl}
 
 // Keys returns an effect that overlays the keys pressed in the timeline
 // ([reel.Input] events) on the terminal frames, in the bottom right corner.
@@ -185,26 +188,27 @@ func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
 				mask.add(r, run, len(presses[run].typed)-1)
 			}
 		case vt.StrokeKey:
+			k := s.Key
 			switch {
-			case s.Key == "enter" || s.Key == "tab" || (s.Key == "ctrl+j" && run >= 0):
+			case k == vt.Key{Code: "ENTER"} || k == vt.Key{Code: "TAB"} || (k == ctrlJ && run >= 0):
 				mask.end(presses)
-				glyph := keyGlyphs[s.Key]
-				if s.Key == "ctrl+j" {
-					// A typed "\n", which decodes as ctrl+j.
-					glyph = keyGlyphs["enter"]
+				glyph := keyGlyphs[k.Code]
+				if k == ctrlJ {
+					glyph = keyGlyphs["ENTER"]
 				}
 				for _, r := range glyph {
 					typed(r)
 				}
-			case modifierKey(s.Key):
+			case k.IsModifier():
+				// Modifiers show with the keys they modify.
 			default:
-				if s.Key == "backspace" {
+				if k == (vt.Key{Code: "BACKSPACE"}) {
 					mask.backspace()
 				} else {
 					mask.end(presses)
 				}
 				run = -1
-				presses = append(presses, keyPress{at: in.At(), label: keyLabel(s.Key)})
+				presses = append(presses, keyPress{at: in.At(), label: keyLabel(k)})
 			}
 		case vt.StrokePaste, vt.StrokeMouse:
 			mask.end(presses)
@@ -215,40 +219,23 @@ func addPresses(presses []keyPress, in reel.Input, mask *typedMask) []keyPress {
 	return presses
 }
 
-// modifierKeys are the lone modifier presses the kitty keyboard protocol can
-// report, which the overlay leaves out: modifiers show with the keys they
-// modify.
-var modifierKeys = map[string]bool{
-	"leftshift": true, "rightshift": true,
-	"leftctrl": true, "rightctrl": true,
-	"leftalt": true, "rightalt": true,
-	"leftsuper": true, "rightsuper": true,
-}
-
-// modifierKey reports whether name, as in [vt.Stroke.Key], is a lone
-// modifier press.
-func modifierKey(name string) bool {
-	return modifierKeys[name[strings.LastIndexByte(name, '+')+1:]]
-}
-
-// keyLabel is the label of a key named as in [vt.Stroke.Key]: its
-// modifiers, then its glyph or name.
-func keyLabel(name string) string {
-	mods, key := "", name
-	if i := strings.LastIndexByte(key, '+'); i > 0 && i < len(key)-1 {
-		mods, key = key[:i+1], key[i+1:]
+// keyLabel is the label of a key: its name, with the key's glyph in place
+// of the key for a key that has one.
+func keyLabel(k vt.Key) string {
+	name := k.String()
+	if glyph, ok := keyGlyphs[k.Code]; ok {
+		// A key with a glyph is named by its code alone, after its
+		// modifiers.
+		return strings.TrimSuffix(name, vt.Key{Code: k.Code}.String()) + glyph
 	}
-	if glyph := keyGlyphs[key]; glyph != "" {
-		key = glyph
-	}
-	return mods + key
+	return name
 }
 
 // typedLabel is the label of typed text, cut to keysMaxText. Text of only
 // spaces shows a ␣ for each, rather than an empty chip.
 func typedLabel(text string) string {
 	if strings.TrimFunc(text, unicode.IsSpace) == "" {
-		text = strings.Repeat(keyGlyphs["space"], utf8.RuneCountInString(text))
+		text = strings.Repeat(keyGlyphs["SPACE"], utf8.RuneCountInString(text))
 	}
 	return ansi.Truncate(text, keysMaxText, "…")
 }

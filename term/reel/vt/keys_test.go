@@ -82,3 +82,19 @@ func TestKeyString(t *testing.T) {
 		}
 	}
 }
+
+func TestKeyIsModifier(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]bool{
+		"leftshift": true, "rightctrl": true, "leftalt": true, "rightsuper": true,
+		"shift+a": false, "ctrl+c": false, "enter": false, "capslock": false,
+	} {
+		key, err := ParseKey(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := key.IsModifier(); got != want {
+			t.Errorf("ParseKey(%q).IsModifier() = %v, want %v", name, got, want)
+		}
+	}
+}

@@ -39,6 +39,8 @@ func TestKeyLabels(t *testing.T) {
 		{"\x1b[Z", []string{"shift+⇥"}},
 		{"\x1b\r", []string{"alt+⏎"}},
 		{"\x1b[5~", []string{"pgup"}},
+		{"\x1b[1;5A\x00", []string{"ctrl+↑", "ctrl+␣"}},
+		{"\x1b[61;6u", []string{"ctrl++"}},
 		{"\x1b", []string{"esc"}},
 		{"\x7f", []string{"⌫"}},
 		{"+", []string{"+"}},

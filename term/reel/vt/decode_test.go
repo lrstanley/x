@@ -18,47 +18,50 @@ import (
 // paste is a decoded paste, as [decodeAll] returns it.
 type paste string
 
-// decodeAll decodes data event by event, without [DecodeInput]'s fast path
-// for text, into each event's [Key], [MouseEvent], or [paste].
+// decodeAll decodes data stroke by stroke, without [DecodeInput]'s fast
+// path for text, into each stroke's [Key], [MouseEvent], or [paste].
 func decodeAll(data []byte) []any {
 	var out []any
-	for b := data; len(b) > 0; {
-		n, ev := decodeEvent(b)
-		b = b[n:]
-		switch ev.kind {
-		case eventNone:
-		case eventKey:
-			out = append(out, ev.key)
-		case eventMouse:
-			out = append(out, ev.mouse)
-		case eventPaste:
-			out = append(out, paste(ev.paste))
+	for _, s := range decodeStrokes(data) {
+		switch s.Kind {
+		case StrokeKey:
+			out = append(out, s.Key)
+		case StrokeMouse:
+			out = append(out, s.Mouse)
+		case StrokePaste:
+			out = append(out, paste(s.Text))
+		case StrokeText:
+			// decodeStrokes decodes text as keys.
 		}
 	}
 	return out
 }
 
-// slowDecodeInput is [DecodeInput] built on [decodeAll], which decodes text
-// one key at a time.
+// decodeStrokes decodes data stroke by stroke, without [DecodeInput]'s fast
+// path for text.
+func decodeStrokes(data []byte) []Stroke {
+	var out []Stroke
+	for b := data; len(b) > 0; {
+		n, s := decodeEvent(b)
+		b = b[n:]
+		if s.Kind != 0 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// slowDecodeInput is [DecodeInput] built on [decodeStrokes], which decodes
+// text one key at a time.
 func slowDecodeInput(data []byte) []Stroke {
 	var out []Stroke
-	for _, ev := range decodeAll(data) {
-		var s Stroke
-		switch ev := ev.(type) {
-		case Key:
-			if ev.Text != "" && ev.Mods&^ModShift == 0 {
-				if n := len(out); n > 0 && out[n-1].Kind == StrokeText {
-					out[n-1].Text += ev.Text
-					continue
-				}
-				s = Stroke{Kind: StrokeText, Text: ev.Text}
-			} else {
-				s = Stroke{Kind: StrokeKey, Key: ev.String()}
+	for _, s := range decodeStrokes(data) {
+		if s.Kind == StrokeKey && s.Key.Text != "" && s.Key.Mods&^ModShift == 0 {
+			if n := len(out); n > 0 && out[n-1].Kind == StrokeText {
+				out[n-1].Text += s.Key.Text
+				continue
 			}
-		case MouseEvent:
-			s = Stroke{Kind: StrokeMouse, Mouse: ev}
-		case paste:
-			s = Stroke{Kind: StrokePaste, Text: string(ev)}
+			s = Stroke{Kind: StrokeText, Text: s.Key.Text}
 		}
 		out = append(out, s)
 	}
@@ -143,6 +146,13 @@ func TestDecodeEvents(t *testing.T) {
 		{"skipped", "\x1b[I\x1b[O\x1b]11;rgb:0/0/0\a\x1bP>|ghostty\x1b\\\x1b[?62;22c\x1b_Gi=1;OK\x1b\\\x1b[?1u", nil},
 		{"many params", "\x1b[" + strings.Repeat(";", 100) + "u\x1b[" + strings.Repeat("9", 100) + "u", nil},
 		{"kitty release then text", "\x1b[97;1:3ub", []any{text('b', 0)}},
+		{"cut-off strings", "\x1b]abc\x1bPx\r\x1b_", []any{
+			text(']', ModAlt), text('a', 0), text('b', 0), text('c', 0), text('P', ModAlt), text('x', 0),
+			key("ENTER", 0), text('_', ModAlt),
+		}},
+		{"ended strings", "\x1b]x\aa\x1bPx\x1b\\b\x1b_x\x9cc", []any{text('a', 0), text('b', 0), text('c', 0)}},
+		// BS is ctrl+h, as terminals send it, but kitty names backspace by it.
+		{"kitty backspace", "\x08\x1b[8u\x1b[8;5u", []any{key("H", ModCtrl), key("BACKSPACE", 0), key("BACKSPACE", ModCtrl)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

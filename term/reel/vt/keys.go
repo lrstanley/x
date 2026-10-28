@@ -222,6 +222,17 @@ func modBit(name string) (Mods, bool) {
 	return 0, false
 }
 
+// IsModifier reports whether the key is a modifier on its own, such as left
+// shift, which the kitty keyboard protocol can report.
+func (k Key) IsModifier() bool {
+	switch k.Code {
+	case "SHIFT_LEFT", "SHIFT_RIGHT", "CONTROL_LEFT", "CONTROL_RIGHT",
+		"ALT_LEFT", "ALT_RIGHT", "META_LEFT", "META_RIGHT":
+		return true
+	}
+	return false
+}
+
 // String returns the key's name, as [ParseKey] accepts it: its modifiers,
 // then the key. A letter is lower case, with shift for upper case; another
 // character is named by itself, shifted or not; a key with no code is named
