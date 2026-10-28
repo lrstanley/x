@@ -93,7 +93,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		filepath.Join(dir, "exec.png"),
 	}
 	err = reel.Export(ctx, s.Timeline(), reel.Profile{
-		Outputs: reel.Files(files...),
+		Outputs: reel.MustFiles(files...),
 		Render:  []render.Option{render.WithWindowChrome(true)},
 		Effects: []reel.Effect{effects.Keys(time.Second), effects.Pause()},
 	})

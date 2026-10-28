@@ -21,7 +21,7 @@ func TestProfileMerge(t *testing.T) {
 	t.Parallel()
 	rast := testutil.Rasterizer{}
 	base := Profile{
-		Outputs: Files("a.gif"),
+		Outputs: MustFiles("a.gif"),
 		Render:  []render.Option{render.WithScale(2)},
 		Encode:  []sink.Option{sink.WithLoopCount(1)},
 		FPS:     10,
@@ -32,7 +32,7 @@ func TestProfileMerge(t *testing.T) {
 	}
 	vars := maps.Clone(base.Vars)
 	got := base.Merge(Profile{
-		Outputs:    Files("b.mp4", "c.cast"),
+		Outputs:    MustFiles("b.mp4", "c.cast"),
 		Rasterizer: rast,
 		FPS:        50,
 		Fit:        image.Pt(640, 480),
@@ -40,7 +40,7 @@ func TestProfileMerge(t *testing.T) {
 		Vars:       map[string]string{"b": "3", "c": "4"},
 	})
 	want := base
-	want.Outputs, want.Rasterizer, want.FPS, want.Meta = Files("b.mp4", "c.cast"), rast, 50, "m"
+	want.Outputs, want.Rasterizer, want.FPS, want.Meta = MustFiles("b.mp4", "c.cast"), rast, 50, "m"
 	want.Fit = image.Pt(640, 480)
 	want.Vars = map[string]string{"a": "1", "b": "3", "c": "4"}
 	// Render and Encode hold funcs, which DeepEqual only matches when nil.
@@ -74,10 +74,39 @@ func TestProfileSettings(t *testing.T) {
 		{Profile{FPS: 100}, settings{step: 10 * ms, speed: 1}},
 		{Profile{FPS: 1}, settings{step: time.Second, speed: 1}},
 	} {
-		tc.p.Outputs = Files("x.gif")
+		tc.p.Outputs = MustFiles("x.gif")
 		got, err := tc.p.settings()
 		if err != nil || got != tc.want {
 			t.Errorf("%+v: settings = %+v, %v; want %+v", tc.p, got, err, tc.want)
+		}
+	}
+}
+
+func TestTimelinePathVars(t *testing.T) {
+	t.Parallel()
+	tl := demoTimeline()
+	vars, err := tl.PathVars(map[string]string{"name": "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"name": "demo", "duration": "1.5s", "timestamp": "20261025T123045"}
+	if !maps.Equal(vars, want) {
+		t.Errorf("PathVars = %v, want %v", vars, want)
+	}
+	// A window starts at its mark.
+	between, err := tl.Between("shot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vars, err = between.PathVars(nil); err != nil {
+		t.Fatal(err)
+	}
+	if vars["duration"] != "300ms" || vars["timestamp"] != "20261025T123046" {
+		t.Errorf("window PathVars = %v", vars)
+	}
+	for _, name := range []string{"duration", "timestamp", "mark"} {
+		if _, err = tl.PathVars(map[string]string{name: "x"}); err == nil {
+			t.Errorf("PathVars accepted {%s} in extra", name)
 		}
 	}
 }
@@ -90,12 +119,12 @@ func TestExpandPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	vars[varDuration] = "4.2s"
-	got, err := expandPath("out/{name}_{duration}_{timestamp}.gif", vars)
+	got, err := ExpandPath("out/{name}_{duration}_{timestamp}.gif", vars)
 	if err != nil || got != "out/n/x_4.2s_20260102T020405.gif" {
-		t.Fatalf("expandPath = %q, %v", got, err)
+		t.Fatalf("ExpandPath = %q, %v", got, err)
 	}
-	if got, err = expandPath("plain.gif", vars); err != nil || got != "plain.gif" {
-		t.Fatalf("expandPath = %q, %v", got, err)
+	if got, err = ExpandPath("plain.gif", vars); err != nil || got != "plain.gif" {
+		t.Fatalf("ExpandPath = %q, %v", got, err)
 	}
 	for path, want := range map[string]string{
 		"{nope}.gif":     "unknown variable {nope}",
@@ -105,8 +134,8 @@ func TestExpandPath(t *testing.T) {
 		"{duration}.gif": "{duration} is only known once a recording ends",
 	} {
 		delete(vars, varDuration)
-		if _, err = expandPath(path, vars); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("expandPath(%q) = %v, want an error containing %q", path, err, want)
+		if _, err = ExpandPath(path, vars); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ExpandPath(%q) = %v, want an error containing %q", path, err, want)
 		}
 	}
 	if vars, err = pathVars(nil, time.Time{}); err != nil || vars[varTimestamp] == "" {

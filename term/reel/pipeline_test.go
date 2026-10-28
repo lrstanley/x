@@ -184,7 +184,7 @@ func TestPipelineDelays(t *testing.T) {
 		// The grid counts from the first frame, wherever it is.
 		{fps: 20, at: []time.Duration{1030 * ms, 1100 * ms}, end: 1200 * ms, want: []time.Duration{50 * ms, 100 * ms}},
 	} {
-		s, err := Profile{Outputs: Files("x.gif"), FPS: tc.fps, Speed: tc.speed}.settings()
+		s, err := Profile{Outputs: MustFiles("x.gif"), FPS: tc.fps, Speed: tc.speed}.settings()
 		if err != nil {
 			t.Fatal(err)
 		}

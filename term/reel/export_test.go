@@ -40,7 +40,7 @@ func frameText(f Frame) string { return testutil.Text(f.Image) }
 func exportFrames(t *testing.T, tl *Timeline, p Profile) []Frame {
 	t.Helper()
 	var frames []Frame
-	p.Outputs = Files(filepath.Join(t.TempDir(), "out.gif"))
+	p.Outputs = MustFiles(filepath.Join(t.TempDir(), "out.gif"))
 	p.Rasterizer = testutil.Rasterizer{}
 	p.Effects = append(slices.Clip(p.Effects), recordFrames(&frames))
 	if err := Export(t.Context(), tl, p); err != nil {
@@ -301,7 +301,7 @@ func TestExportDeterministic(t *testing.T) {
 	var gifs [][]byte
 	for i := range 2 {
 		path := filepath.Join(dir, "demo-"+string(rune('a'+i))+".gif")
-		if err := Export(t.Context(), tl, Profile{Outputs: Files(path)}); err != nil {
+		if err := Export(t.Context(), tl, Profile{Outputs: MustFiles(path)}); err != nil {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(path)
@@ -335,7 +335,7 @@ func TestExportCastAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	p := Profile{FPS: 100, Outputs: Files(filepath.Join(dir, "a.gif"), filepath.Join(dir, "a.cast"))}
+	p := Profile{FPS: 100, Outputs: MustFiles(filepath.Join(dir, "a.gif"), filepath.Join(dir, "a.cast"))}
 	if err := Export(t.Context(), s.Timeline(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestExportCastAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSameTimes(t, tl, s.Timeline())
-	p.Outputs = Files(filepath.Join(dir, "b.gif"))
+	p.Outputs = MustFiles(filepath.Join(dir, "b.gif"))
 	if err = Export(t.Context(), tl, p); err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestExportClosesEffects(t *testing.T) {
 	} {
 		var log []string
 		err := Export(t.Context(), tl, Profile{
-			Outputs:    Files(filepath.Join(t.TempDir(), "x.gif")),
+			Outputs:    MustFiles(filepath.Join(t.TempDir(), "x.gif")),
 			Rasterizer: testutil.Rasterizer{},
 			Effects:    tc.effects(&log),
 		})
@@ -516,7 +516,7 @@ func TestExportFit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "fit.png")
 	var prev image.Point
 	for _, size := range []image.Point{{400, 300}, {800, 600}, {1600, 1200}} {
-		p := Profile{Outputs: Files(path), Fit: size, Render: []render.Option{render.WithPadding(4)}}
+		p := Profile{Outputs: MustFiles(path), Fit: size, Render: []render.Option{render.WithPadding(4)}}
 		if err := Export(t.Context(), tl, p); err != nil {
 			t.Fatal(err)
 		}
@@ -539,7 +539,7 @@ func TestExportFitOneDimension(t *testing.T) {
 	dir := t.TempDir()
 	for _, size := range []image.Point{{800, 0}, {0, 300}} {
 		path := filepath.Join(dir, "one.png")
-		if err := Export(t.Context(), tl, Profile{Outputs: Files(path), Fit: size}); err != nil {
+		if err := Export(t.Context(), tl, Profile{Outputs: MustFiles(path), Fit: size}); err != nil {
 			t.Fatal(err)
 		}
 		got := readPNG(t, path).Rect.Size()
@@ -563,7 +563,7 @@ func TestExportFitErrors(t *testing.T) {
 		{"scale", Profile{Fit: image.Pt(800, 600), Render: []render.Option{render.WithScale(2)}}, "WithScale cannot be set"},
 		{"too small", Profile{Fit: image.Pt(10, 10)}, "do not fit"},
 	} {
-		tc.p.Outputs = Files(path)
+		tc.p.Outputs = MustFiles(path)
 		err := Export(t.Context(), tl, tc.p)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: Export = %v, want an error containing %q", tc.name, err, tc.want)
@@ -595,11 +595,11 @@ func TestExportErrors(t *testing.T) {
 		{"Cast on a gif", p(File{Path: path, Cast: CastV2}), "Cast is set"},
 		{"unknown cast version", p(File{Path: filepath.Join(dir, "x.cast"), Cast: 7}), "unknown asciicast version"},
 		{"unknown format", p(File{Path: filepath.Join(dir, "x.jpg")}), sink.ErrUnknownFormat.Error()},
-		{"built-in var", Profile{Outputs: Files(path), Vars: map[string]string{"duration": "1"}}, "built-in path variable {duration}"},
-		{"bad fps", Profile{Outputs: Files(path), FPS: 101}, "FPS 101"},
-		{"bad speed", Profile{Outputs: Files(path), Speed: -1}, "speed -1"},
-		{"effects drop every frame", Profile{Outputs: Files(path), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{effectFunc(func(Frame, func(Frame)) {})}}, "dropped every frame"},
-		{"effect fails", Profile{Outputs: Files(path), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{failEffect{}}}, errEffect.Error()},
+		{"built-in var", Profile{Outputs: MustFiles(path), Vars: map[string]string{"duration": "1"}}, "built-in path variable {duration}"},
+		{"bad fps", Profile{Outputs: MustFiles(path), FPS: 101}, "FPS 101"},
+		{"bad speed", Profile{Outputs: MustFiles(path), Speed: -1}, "speed -1"},
+		{"effects drop every frame", Profile{Outputs: MustFiles(path), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{effectFunc(func(Frame, func(Frame)) {})}}, "dropped every frame"},
+		{"effect fails", Profile{Outputs: MustFiles(path), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{failEffect{}}}, errEffect.Error()},
 	} {
 		err := Export(t.Context(), tl, tc.p)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -626,7 +626,7 @@ func TestExportCastOnly(t *testing.T) {
 	t.Parallel()
 	tl := demoTimeline()
 	path := filepath.Join(t.TempDir(), "only.cast")
-	err := Export(t.Context(), tl, Profile{Outputs: Files(path), Effects: []Effect{failEffect{}}, Title: "titled"})
+	err := Export(t.Context(), tl, Profile{Outputs: MustFiles(path), Effects: []Effect{failEffect{}}, Title: "titled"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +669,7 @@ func TestExportPalette(t *testing.T) {
 		starts := 0
 		ctxEffect := &countingEffect{starts: &starts, stage: func(f Frame, emit func(Frame)) { emit(f) }}
 		p := Profile{
-			Outputs:    Files(filepath.Join(dir, "x.cast"), filepath.Join(dir, "x.gif")),
+			Outputs:    MustFiles(filepath.Join(dir, "x.cast"), filepath.Join(dir, "x.gif")),
 			Render:     tc.render,
 			Rasterizer: testutil.Rasterizer{},
 			Effects:    []Effect{ctxEffect},
@@ -691,7 +691,7 @@ func TestExportPalette(t *testing.T) {
 			t.Errorf("%s: custom rasterizer cast palette color 1 = %v, want the timeline's", tc.name, got)
 		}
 
-		p.Rasterizer, p.Outputs = nil, Files(filepath.Join(dir, "y.cast"))
+		p.Rasterizer, p.Outputs = nil, MustFiles(filepath.Join(dir, "y.cast"))
 		if err = Export(t.Context(), buildTimeline(tc.header, outAt(0, "a")), p); err != nil {
 			t.Fatal(err)
 		}
@@ -738,11 +738,11 @@ func TestExportConcealer(t *testing.T) {
 		is      error
 		want    string
 	}{
-		{"cast", Files("x.gif", "x.cast"), []Effect{concealer{true}}, ErrRawOutput, "asciicast"},
-		{"cast only", Files("x.cast"), []Effect{concealer{true}, keep}, ErrRawOutput, "asciicast"},
-		{"order", Files("x.gif"), []Effect{concealer{true}, keep, concealer{true}}, nil, "effect 2 (reel.concealer) conceals, so it must come before effect 1"},
-		{"wrapped cast", Files("x.gif", "x.cast"), []Effect{wrapped{concealer{true}}}, ErrRawOutput, "asciicast"},
-		{"wrapped order", Files("x.gif"), []Effect{keep, wrapped{wrapped{concealer{true}}}}, nil, "conceals, so it must come before effect 0"},
+		{"cast", MustFiles("x.gif", "x.cast"), []Effect{concealer{true}}, ErrRawOutput, "asciicast"},
+		{"cast only", MustFiles("x.cast"), []Effect{concealer{true}, keep}, ErrRawOutput, "asciicast"},
+		{"order", MustFiles("x.gif"), []Effect{concealer{true}, keep, concealer{true}}, nil, "effect 2 (reel.concealer) conceals, so it must come before effect 1"},
+		{"wrapped cast", MustFiles("x.gif", "x.cast"), []Effect{wrapped{concealer{true}}}, ErrRawOutput, "asciicast"},
+		{"wrapped order", MustFiles("x.gif"), []Effect{keep, wrapped{wrapped{concealer{true}}}}, nil, "conceals, so it must come before effect 0"},
 	} {
 		dir := t.TempDir()
 		var outputs []File
@@ -765,7 +765,7 @@ func TestExportConcealer(t *testing.T) {
 		{keep, concealer{false}},
 		{concealer{true}, concealer{true}, keep},
 	} {
-		if err := Export(t.Context(), tl, Profile{Outputs: Files(filepath.Join(dir, "x.gif")), Rasterizer: testutil.Rasterizer{}, Effects: effects}); err != nil {
+		if err := Export(t.Context(), tl, Profile{Outputs: MustFiles(filepath.Join(dir, "x.gif")), Rasterizer: testutil.Rasterizer{}, Effects: effects}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -789,7 +789,7 @@ func TestExportCutter(t *testing.T) {
 	keep := effectFunc(func(f Frame, emit func(Frame)) { emit(f) })
 	for _, effects := range [][]Effect{{cutter{true}}, {keep, wrapped{cutter{true}}}} {
 		dir := t.TempDir()
-		err := Export(t.Context(), tl, Profile{Outputs: Files(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: testutil.Rasterizer{}, Effects: effects})
+		err := Export(t.Context(), tl, Profile{Outputs: MustFiles(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: testutil.Rasterizer{}, Effects: effects})
 		if !errors.Is(err, ErrRawOutput) {
 			t.Errorf("Export = %v, want ErrRawOutput", err)
 		}
@@ -801,8 +801,8 @@ func TestExportCutter(t *testing.T) {
 	// asciicast.
 	dir := t.TempDir()
 	for _, p := range []Profile{
-		{Outputs: Files(filepath.Join(dir, "a.gif")), Effects: []Effect{keep, cutter{true}, keep}},
-		{Outputs: Files(filepath.Join(dir, "b.gif"), filepath.Join(dir, "b.cast")), Effects: []Effect{cutter{false}}},
+		{Outputs: MustFiles(filepath.Join(dir, "a.gif")), Effects: []Effect{keep, cutter{true}, keep}},
+		{Outputs: MustFiles(filepath.Join(dir, "b.gif"), filepath.Join(dir, "b.cast")), Effects: []Effect{cutter{false}}},
 	} {
 		p.Rasterizer = testutil.Rasterizer{}
 		if err := Export(t.Context(), tl, p); err != nil {

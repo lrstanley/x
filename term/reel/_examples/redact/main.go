@@ -110,7 +110,7 @@ func record(ctx context.Context, token string) (*reel.Timeline, error) {
 // profile writes a GIF of the login into dir, with the token hidden.
 func profile(dir string) reel.Profile {
 	return reel.Profile{
-		Outputs: reel.Files(filepath.Join(dir, "redact.gif")),
+		Outputs: reel.MustFiles(filepath.Join(dir, "redact.gif")),
 		Render:  []render.Option{render.WithWindowChrome(true), render.WithPadding(14)},
 		Effects: []reel.Effect{
 			// Before every other effect, so none of them sees the token.

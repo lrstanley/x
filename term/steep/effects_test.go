@@ -33,7 +33,7 @@ func recordEffects(t *testing.T, cols, rows int, fail bool, fx ...reel.Effect) [
 	h := NewHarness(ftb, rootTestModel{}, exportOptions(t.TempDir(),
 		WithWindowSize(cols, rows),
 		WithRecording(reel.Profile{
-			Outputs: reel.Files("rec.gif"),
+			Outputs: reel.MustFiles("rec.gif"),
 			Effects: append(fx, frameLog{&frames}),
 		}),
 		WithExportAlways(),

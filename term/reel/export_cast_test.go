@@ -130,7 +130,7 @@ func TestExportDescribesEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "cut.cast")
-	if err = Export(t.Context(), cut, Profile{Outputs: Files(path), Effects: effects}); err != nil {
+	if err = Export(t.Context(), cut, Profile{Outputs: MustFiles(path), Effects: effects}); err != nil {
 		t.Fatal(err)
 	}
 	got := castEvents(t, path)
@@ -141,7 +141,7 @@ func TestExportDescribesEffects(t *testing.T) {
 	// Without effects that describe themselves, the timeline's effects are
 	// left out.
 	path = filepath.Join(t.TempDir(), "none.cast")
-	if err = Export(t.Context(), tl, Profile{Outputs: Files(path)}); err != nil {
+	if err = Export(t.Context(), tl, Profile{Outputs: MustFiles(path)}); err != nil {
 		t.Fatal(err)
 	}
 	if got = castEvents(t, path); !slices.Equal(got, []string{`0s o "a"`, `6ms R test.fx {"n":1}`, `7ms R test.note {"n":1}`, `8ms m m`, `10ms o "b"`}) {
@@ -161,7 +161,7 @@ func TestExportDescribeErrors(t *testing.T) {
 		"kind":    {describer{a: Annotation{Kind: "Bad"}}, ErrInvalidAnnotation, "effect 0"},
 	} {
 		dir := t.TempDir()
-		p := Profile{Outputs: Files(filepath.Join(dir, "a.cast"), filepath.Join(dir, "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{tc.effect}}
+		p := Profile{Outputs: MustFiles(filepath.Join(dir, "a.cast"), filepath.Join(dir, "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{tc.effect}}
 		err := Export(t.Context(), buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a")), p)
 		if !errors.Is(err, tc.is) || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: Export = %v, want an error containing %q", name, err, tc.want)
@@ -171,7 +171,7 @@ func TestExportDescribeErrors(t *testing.T) {
 		}
 	}
 	// Without an asciicast output, the effects are not described.
-	p := Profile{Outputs: Files(filepath.Join(t.TempDir(), "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{describer{err: errEffect}}}
+	p := Profile{Outputs: MustFiles(filepath.Join(t.TempDir(), "a.gif")), Rasterizer: testutil.Rasterizer{}, Effects: []Effect{describer{err: errEffect}}}
 	if err := Export(t.Context(), buildTimeline(Header{Cols: 2, Rows: 1}, outAt(0, "a")), p); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestExportEffectMarks(t *testing.T) {
 		effects := []Effect{describer{a: keys, marks: tc.marks}}
 		dir := t.TempDir()
 		path := filepath.Join(dir, "a.cast")
-		p := Profile{Outputs: Files(path), Effects: effects}
+		p := Profile{Outputs: MustFiles(path), Effects: effects}
 		err := Export(t.Context(), cut, p)
 		switch labels, rest := MissingMarks(err); {
 		case !tc.ok && (rest != nil || !slices.Equal(labels, []string{"a"})):
@@ -228,7 +228,7 @@ func TestExportEffectMarks(t *testing.T) {
 			continue
 		}
 		again := filepath.Join(t.TempDir(), "a.cast")
-		if err = Export(t.Context(), readCast(t, data), Profile{Outputs: Files(again), Effects: effects}); err != nil {
+		if err = Export(t.Context(), readCast(t, data), Profile{Outputs: MustFiles(again), Effects: effects}); err != nil {
 			t.Errorf("%s: exporting the file again: %v", name, err)
 		}
 	}
@@ -249,9 +249,9 @@ func TestRecordEffectMarks(t *testing.T) {
 		s := openSession(t, 4, 1)
 		dir := t.TempDir()
 		path := filepath.Join(dir, "a.cast")
-		p := Profile{Outputs: Files(path), Effects: effects}
+		p := Profile{Outputs: MustFiles(path), Effects: effects}
 		if drawn {
-			p.Outputs, p.Rasterizer = Files(path, filepath.Join(dir, "a.gif")), testutil.Rasterizer{}
+			p.Outputs, p.Rasterizer = MustFiles(path, filepath.Join(dir, "a.gif")), testutil.Rasterizer{}
 		}
 		rec, err := Record(t.Context(), s, p)
 		if err != nil {

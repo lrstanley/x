@@ -142,7 +142,7 @@ func TestCardRendererClosed(t *testing.T) {
 	t.Parallel()
 	var cards *CardRenderer
 	err := reel.Export(t.Context(), buildTimeline(t, 20, 4, "", output(0, "x")), reel.Profile{
-		Outputs:    reel.Files(filepath.Join(t.TempDir(), "x.gif")),
+		Outputs:    reel.MustFiles(filepath.Join(t.TempDir(), "x.gif")),
 		Rasterizer: testutil.Rasterizer{},
 		Effects:    []reel.Effect{cardsEffect{&cards}},
 	})

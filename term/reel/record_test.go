@@ -89,7 +89,7 @@ func TestRecordConcurrentWrites(t *testing.T) {
 	s := openSession(t, 20, 4)
 	var frames []Frame
 	rec, err := Record(t.Context(), s, Profile{
-		Outputs:    Files(filepath.Join(t.TempDir(), "x.gif")),
+		Outputs:    MustFiles(filepath.Join(t.TempDir(), "x.gif")),
 		Rasterizer: testutil.Rasterizer{},
 		Effects:    []Effect{recordFrames(&frames)},
 	})
@@ -119,7 +119,7 @@ func TestRecordCancel(t *testing.T) {
 	s := openSession(t, 4, 1)
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
-	rec, err := Record(ctx, s, Profile{Outputs: Files(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: testutil.Rasterizer{}})
+	rec, err := Record(ctx, s, Profile{Outputs: MustFiles(filepath.Join(dir, "x.gif"), filepath.Join(dir, "x.cast")), Rasterizer: testutil.Rasterizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRecordErrors(t *testing.T) {
 	t.Parallel()
 	s := openSession(t, 4, 1)
 	dir := t.TempDir()
-	_, err := Record(t.Context(), s, Profile{Outputs: Files(filepath.Join(dir, "{duration}.gif"))})
+	_, err := Record(t.Context(), s, Profile{Outputs: MustFiles(filepath.Join(dir, "{duration}.gif"))})
 	if err == nil || !strings.Contains(err.Error(), "{duration} is only known once a recording ends") {
 		t.Fatalf("Record with {duration} = %v", err)
 	}

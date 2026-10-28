@@ -406,7 +406,7 @@ func TestCheckMarks(t *testing.T) {
 			t.Errorf("%s: CheckMarks of the whole timeline = %v", name, err)
 		}
 		path := filepath.Join(t.TempDir(), "a.cast")
-		p := reel.Profile{Outputs: reel.Files(path), Effects: []reel.Effect{tc.effect}}
+		p := reel.Profile{Outputs: reel.MustFiles(path), Effects: []reel.Effect{tc.effect}}
 		err := reel.Export(t.Context(), cut, p)
 		if !tc.ok {
 			if cerr := mc.CheckMarks(cut); !errors.Is(cerr, reel.ErrNoMark) {

@@ -50,7 +50,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	}
 	files := []string{filepath.Join(dir, "highlight.gif")}
 	err = reel.Export(ctx, tl, reel.Profile{
-		Outputs: reel.Files(files...),
+		Outputs: reel.MustFiles(files...),
 		Render:  []render.Option{render.WithWindowChrome(true), render.WithPadding(14)},
 		Effects: []reel.Effect{
 			// "input-8" is the mark of the key that deploys billing.

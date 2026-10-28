@@ -19,7 +19,7 @@ const (
 )
 
 // pathVars returns extra plus {timestamp} for start (or now, if zero).
-// {duration} is left for the caller, since only Export knows it up front.
+// {duration} is left for the caller, since only a finished timeline has it.
 func pathVars(extra map[string]string, start time.Time) (map[string]string, error) {
 	for _, name := range []string{varDuration, varTimestamp, varMark} {
 		if _, ok := extra[name]; ok {
@@ -37,9 +37,27 @@ func pathVars(extra map[string]string, start time.Time) (map[string]string, erro
 	return vars, nil
 }
 
-// expandPath replaces each {name} in path with vars[name]; unknown names
-// are an error.
-func expandPath(path string, vars map[string]string) (string, error) {
+// PathVars returns extra plus the path variables [Export] sets for t's
+// window: {duration}, its length rounded to 100ms, such as "4.2s", and
+// {timestamp}, its start in UTC as 20060102T150405, or now if t has no
+// start time. It is an error for extra to set those or {mark}.
+func (t *Timeline) PathVars(extra map[string]string) (map[string]string, error) {
+	from, to := t.Window()
+	start := t.started()
+	if !start.IsZero() {
+		start = start.Add(from)
+	}
+	vars, err := pathVars(extra, start)
+	if err != nil {
+		return nil, err
+	}
+	vars[varDuration] = (to - from).Round(100 * time.Millisecond).String()
+	return vars, nil
+}
+
+// ExpandPath replaces each {name} in path with vars[name], as [Export] does
+// for output paths; unknown names are an error.
+func ExpandPath(path string, vars map[string]string) (string, error) {
 	var b strings.Builder
 	for rest := path; rest != ""; {
 		open := strings.IndexByte(rest, '{')

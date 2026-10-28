@@ -75,7 +75,7 @@ func (e recordFrames) Start(*reel.Context) (reel.Stage, error) {
 func exportFrames(t *testing.T, tl *reel.Timeline, p reel.Profile) []reel.Frame {
 	t.Helper()
 	var frames []reel.Frame
-	p.Outputs = reel.Files(filepath.Join(t.TempDir(), "out.gif"))
+	p.Outputs = reel.MustFiles(filepath.Join(t.TempDir(), "out.gif"))
 	if p.Rasterizer == nil {
 		p.Rasterizer = testutil.Rasterizer{}
 	}

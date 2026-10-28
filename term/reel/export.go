@@ -30,10 +30,9 @@ import (
 // the first paint. A window with no frames at all shows the terminal as it
 // is at the end.
 //
-// Output paths may contain {name} variables: {duration} (window length
-// rounded to 100ms, such as "4.2s"), {timestamp} (window start in UTC as
-// 20060102T150405, or now if the timeline has no start time), {mark} for
-// outputs with Marks, and any name in [Profile.Vars]. Unknown names and
+// Output paths may contain {name} variables: those of
+// [Timeline.PathVars], {mark} for outputs with Marks, and any name in
+// [Profile.Vars]. Unknown names and
 // duplicate paths are errors. All outputs are checked and created before
 // any frame is drawn, so a missing ffmpeg fails at once. Each output is
 // written to a temporary file and moved into place when complete, so a
@@ -49,16 +48,11 @@ import (
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
 	tl = tl.fixed(tl.header, -1)
-	from, to := tl.Window()
-	start := tl.started()
-	if !start.IsZero() {
-		start = start.Add(from)
-	}
-	vars, err := pathVars(p.Vars, start)
+	_, to := tl.Window()
+	vars, err := tl.PathVars(p.Vars)
 	if err != nil {
 		return err
 	}
-	vars[varDuration] = (to - from).Round(100 * time.Millisecond).String()
 	rec, err := newRecorder(ctx, replayRuntime, tl, false, p, vars)
 	if err != nil {
 		return err

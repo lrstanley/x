@@ -75,7 +75,7 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 			return nil, fmt.Errorf("reel: output %q: a path with Marks must hold {%s}", out.Path, varMark)
 		}
 		if len(out.Marks) == 0 {
-			path, err := expandPath(out.Path, vars)
+			path, err := ExpandPath(out.Path, vars)
 			if err != nil {
 				return nil, err
 			}
@@ -93,7 +93,7 @@ func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
 		markVars := maps.Clone(vars)
 		for _, label := range out.Marks {
 			markVars[varMark] = label
-			path, err := expandPath(out.Path, markVars)
+			path, err := ExpandPath(out.Path, markVars)
 			if err != nil {
 				return nil, err
 			}

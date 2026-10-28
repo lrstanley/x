@@ -297,7 +297,7 @@ func TestKeysShared(t *testing.T) {
 	dir := t.TempDir()
 	profile := func(name string) reel.Profile {
 		return reel.Profile{
-			Outputs:    reel.Files(filepath.Join(dir, name+".gif")),
+			Outputs:    reel.MustFiles(filepath.Join(dir, name+".gif")),
 			Rasterizer: testutil.Rasterizer{},
 			Effects:    []reel.Effect{shared, sharedIntro},
 		}

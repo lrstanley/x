@@ -167,7 +167,7 @@ func TestExportOnFailure(t *testing.T) {
 		}
 		again := filepath.Join(t.TempDir(), "again.gif")
 		p := profile
-		p.Outputs = reel.Files(again)
+		p.Outputs = reel.MustFiles(again)
 		p.Meta = &Result{Name: t.Name(), Failed: true, Failures: h.failures.messages()}
 		if err = reel.Export(t.Context(), tl, p); err != nil {
 			t.Fatal(err)
@@ -212,7 +212,7 @@ func TestExportAlways(t *testing.T) {
 			ftb := &fakeTB{TB: t}
 			h := NewHarness(ftb, rootTestModel{}, exportOptions(dir,
 				WithRecording(reel.Profile{
-					Outputs: reel.Files("{name}_{status}.gif"),
+					Outputs: reel.MustFiles("{name}_{status}.gif"),
 					Effects: []reel.Effect{effects.Pause(effects.PauseAtEnd(tc.pause)), Outro(100 * time.Millisecond)},
 				}),
 				WithExportAlways(),
@@ -254,7 +254,7 @@ func TestExportStills(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	h := NewHarness(t, rootTestModel{}, exportOptions(dir,
-		WithRecording(reel.Profile{Outputs: reel.Files("rec/{name}.cast")}),
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("rec/{name}.cast")}),
 		WithStills(StillPNG, HookInput),
 		WithStills(StillSnapshot, HookInput, HookWait),
 		WithExportAlways(),
@@ -305,7 +305,7 @@ func TestExportPaths(t *testing.T) {
 		t.Parallel()
 		dir, abs := t.TempDir(), filepath.Join(t.TempDir(), "abs.cast")
 		h := NewHarness(t, rootTestModel{}, exportOptions(dir,
-			WithRecording(reel.Profile{Outputs: reel.Files("{name}.cast", abs)}),
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("{name}.cast", abs)}),
 			WithExportAlways(),
 		)...)
 		h.Wait("size=20x4")
@@ -322,7 +322,7 @@ func TestExportPaths(t *testing.T) {
 		h := NewHarness(t, rootTestModel{},
 			WithWindowSize(20, 4), WithIgnoreEnv(true),
 			WithRecording(reel.Profile{
-				Outputs: reel.Files("{name}_{status}.cast"),
+				Outputs: reel.MustFiles("{name}_{status}.cast"),
 				Vars:    map[string]string{"name": "fixed", "status": "ok"},
 			}),
 			WithStills(StillPNG|StillSnapshot, HookReady),
@@ -337,13 +337,37 @@ func TestExportPaths(t *testing.T) {
 	})
 }
 
+// TestExportSnapshotVars checks that snapshot paths expand the variables
+// reel's outputs do, and that a variable cannot move one out of the
+// artifacts directory, as it cannot for reel's outputs.
+func TestExportSnapshotVars(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STEEP_EXPORT_MODE", "on")
+	t.Setenv("STEEP_EXPORT_DIR", dir)
+	t.Setenv("STEEP_EXPORT", "{name}_{timestamp}.cast,{name}_{timestamp}_{duration}_{mark}.snap?events=ready,{name}_{status}_{mark}.snap?events=ready")
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(20, 4),
+		WithRecording(reel.Profile{Vars: map[string]string{"name": "/abs"}}))
+	h.Wait("size=20x4")
+	h.Close()
+	got := dirNames(t, dir)
+	if len(got) != 3 || got[2] != "abs_passed_ready-1.snap" {
+		t.Fatalf("files = %q", got)
+	}
+	// The snapshot gets the same {timestamp} as the cast, and a {duration}.
+	stamp := strings.TrimSuffix(strings.TrimPrefix(got[0], "abs_"), ".cast")
+	if !strings.HasPrefix(got[1], "abs_"+stamp+"_") || !strings.HasSuffix(got[1], "s_ready-1.snap") {
+		t.Fatalf("files = %q, want the snapshot to share the cast's timestamp", got)
+	}
+}
+
 // TestExportEnv checks the environment's policy and outputs: the default
-// outputs when it names none.
+// outputs when it names none, and its outputs and stills replacing the
+// options' when it does.
 func TestExportEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STEEP_EXPORT_MODE", "on")
 	t.Setenv("STEEP_EXPORT_DIR", dir)
-	t.Setenv("STEEP_EXPORT_TYPE", "")
+	t.Setenv("STEEP_EXPORT", "")
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(20, 4))
 	h.Wait("size=20x4")
 	h.Close()
@@ -354,12 +378,20 @@ func TestExportEnv(t *testing.T) {
 
 	dir = t.TempDir()
 	t.Setenv("STEEP_EXPORT_DIR", dir)
-	t.Setenv("STEEP_EXPORT_TYPE", "snapshot")
+	t.Setenv("STEEP_EXPORT", "{name}_{status}_{mark}.snap,snaps/{mark}.snap?events=input,{name}-{mark}.png?optimize=none&events=input,{name}.cast")
 	h = NewHarness(t, rootTestModel{}, WithWindowSize(20, 4),
-		WithRecording(reel.Profile{Outputs: reel.Files("ignored.gif")}))
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("ignored.gif")}),
+		WithStills(StillPNG, HookClose))
 	h.Type("a")
 	h.Close()
-	want = []string{"TestExportEnv_passed_close-1.snap", "TestExportEnv_passed_input-1.snap", "TestExportEnv_passed_ready-1.snap"}
+	if got := dirNames(t, filepath.Join(dir, "snaps")); !slices.Equal(got, []string{"input-1.snap"}) {
+		t.Fatalf("snaps = %q", got)
+	}
+	want = []string{
+		"TestExportEnv-input-1.png", "TestExportEnv.cast",
+		"TestExportEnv_passed_close-1.snap", "TestExportEnv_passed_input-1.snap", "TestExportEnv_passed_ready-1.snap",
+		"snaps",
+	}
 	if got := dirNames(t, dir); !slices.Equal(got, want) {
 		t.Fatalf("files = %q, want %q", got, want)
 	}
@@ -403,7 +435,7 @@ func TestExportWhenStopFails(t *testing.T) {
 	ftb := &fakeTB{TB: t}
 	h := NewHarness(ftb, slowModel{}, exportOptions(dir,
 		WithTimeout(200*time.Millisecond),
-		WithRecording(reel.Profile{Outputs: reel.Files("rec.cast")}),
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("rec.cast")}),
 		WithExportOnFailure(),
 	)...)
 	h.Wait("size=20x4").Type("z")
@@ -427,7 +459,7 @@ func TestExportError(t *testing.T) {
 	ftb := &fakeTB{TB: t}
 	h := NewHarness(ftb, rootTestModel{}, exportOptions(t.TempDir(),
 		WithRecording(reel.Profile{
-			Outputs: reel.Files("rec.mp4"),
+			Outputs: reel.MustFiles("rec.mp4"),
 			Encode:  []sink.Option{sink.WithFFmpeg(filepath.Join(t.TempDir(), "no-ffmpeg"))},
 		}),
 		WithExportAlways(),
@@ -492,7 +524,7 @@ func TestExportUnplacedMarks(t *testing.T) {
 			ftb := &fakeTB{TB: t}
 			h := NewHarness(ftb, rootTestModel{}, exportOptions(dir,
 				WithRecording(reel.Profile{
-					Outputs: reel.Files("rec.gif"),
+					Outputs: reel.MustFiles("rec.gif"),
 					Effects: []reel.Effect{effects.Pause(effects.PauseAtMarks(time.Second, tc.label))},
 				}),
 				WithExportAlways(),
@@ -547,7 +579,7 @@ func TestExportOmitsProgramExitRepaint(t *testing.T) {
 	dir := t.TempDir()
 	h := NewHarness(t, altScreenModel{}, exportOptions(dir,
 		WithWindowSize(20, 2),
-		WithRecording(reel.Profile{Outputs: reel.Files("rec.gif")}),
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("rec.gif")}),
 		WithExportAlways(),
 	)...)
 	h.Type("abc").Wait("text=abc")
@@ -576,7 +608,7 @@ func TestExportVideo(t *testing.T) {
 	}
 	dir := t.TempDir()
 	h := NewHarness(t, rootTestModel{}, exportOptions(dir,
-		WithRecording(reel.Profile{Outputs: reel.Files("rec.gif", "rec.mp4")}),
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("rec.gif", "rec.mp4")}),
 		WithExportAlways(),
 	)...)
 	h.Type("ab")

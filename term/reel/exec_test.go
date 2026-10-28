@@ -94,7 +94,7 @@ func TestExecRecordsFrames(t *testing.T) {
 
 	// The real renderer encodes the same frames to a GIF.
 	path := filepath.Join(t.TempDir(), "exec.gif")
-	if err := Export(t.Context(), tl, Profile{Outputs: Files(path)}); err != nil {
+	if err := Export(t.Context(), tl, Profile{Outputs: MustFiles(path)}); err != nil {
 		t.Fatal(err)
 	}
 	if g := readGIF(t, path); len(g.Image) < 2 {

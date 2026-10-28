@@ -208,7 +208,7 @@ func TestHideStart(t *testing.T) {
 		{"no show mark", Hide(HideBetween("hide", "nope")), nil, reel.ErrNoMark, `"nope"`},
 		{"show before hide", Hide(HideBetween("show", "hide")), nil, nil, ""},
 		{"every frame", Hide(HideWhile(Text("a"))), nil, nil, "dropped every frame"},
-		{"cast", Hide(HideBetween("hide", "show")), reel.Files("x.gif", "x.cast"), reel.ErrRawOutput, "asciicast"},
+		{"cast", Hide(HideBetween("hide", "show")), reel.MustFiles("x.gif", "x.cast"), reel.ErrRawOutput, "asciicast"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -216,7 +216,7 @@ func TestHideStart(t *testing.T) {
 			p := reel.Profile{Rasterizer: testutil.Rasterizer{}, Effects: []reel.Effect{tc.effect}}
 			p.Outputs = tc.outputs
 			if p.Outputs == nil {
-				p.Outputs = reel.Files("x.gif")
+				p.Outputs = reel.MustFiles("x.gif")
 			}
 			for i := range p.Outputs {
 				p.Outputs[i].Path = filepath.Join(dir, p.Outputs[i].Path)
@@ -255,7 +255,7 @@ func TestHideMissingMark(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "out.gif")
 			var frames []reel.Frame
 			err := reel.Export(t.Context(), tl, reel.Profile{
-				Outputs:    reel.Files(path),
+				Outputs:    reel.MustFiles(path),
 				Rasterizer: testutil.Rasterizer{},
 				FPS:        hideFPS,
 				Effects:    []reel.Effect{Hide(HideBetween(tc.hide, tc.show)), recordFrames{&frames}},
@@ -290,7 +290,7 @@ func TestHideRecord(t *testing.T) {
 			effects = []reel.Effect{effects[0], recordFrames{frames[0]}, effects[1], recordFrames{frames[1]}}
 		}
 		return reel.Profile{
-			Outputs:    reel.Files(filepath.Join(dir, name+".gif")),
+			Outputs:    reel.MustFiles(filepath.Join(dir, name+".gif")),
 			Rasterizer: testutil.Rasterizer{},
 			FPS:        hideFPS,
 			Effects:    effects,

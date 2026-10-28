@@ -71,6 +71,9 @@ type Profile struct {
 // anything is written, it is an error for Describe to fail otherwise or
 // for a description to fail [AnnotationSchema]; see [MarkChecker] for
 // effects that name marks.
+//
+// [ParseFile] reads a File written as a path with query parameters, such as
+// for a command line or configuration file.
 type File struct {
 	// Path is where the file is written; it may contain variables (see
 	// [Export]). The extension picks the format: ".cast" for asciicast,
@@ -90,13 +93,20 @@ type File struct {
 	Cast CastVersion
 }
 
-// Files returns a [File] for each path.
-func Files(paths ...string) []File {
-	out := make([]File, len(paths))
-	for i, p := range paths {
-		out[i].Path = p
+// MustFiles returns a [File] for each output, parsed with [ParseFile], such
+// as MustFiles("{name}.gif?loop=once", "{name}.cast"). It panics if one
+// does not parse, so it is for outputs written in code; use ParseFile for
+// those read at run time.
+func MustFiles(outputs ...string) []File {
+	files := make([]File, len(outputs))
+	for i, raw := range outputs {
+		f, err := ParseFile(raw)
+		if err != nil {
+			panic(err)
+		}
+		files[i] = f
 	}
-	return out
+	return files
 }
 
 // Merge returns p with every non-zero field of o replacing p's. Slices are

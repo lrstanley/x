@@ -130,7 +130,7 @@ func TestAnnotations(t *testing.T) {
 	dir := t.TempDir()
 	ftb := &fakeTB{TB: t}
 	h := NewHarness(ftb, rootTestModel{}, exportOptions(dir,
-		WithRecording(reel.Profile{Outputs: reel.Files("rec.cast")}),
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("rec.cast")}),
 		WithExportAlways(),
 		WithSettle(20*time.Millisecond),
 	)...)

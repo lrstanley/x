@@ -165,7 +165,7 @@ func TestPauseMerge(t *testing.T) {
 	} {
 		path := filepath.Join(t.TempDir(), "out.gif")
 		err := reel.Export(t.Context(), tl, reel.Profile{
-			Outputs:    reel.Files(path),
+			Outputs:    reel.MustFiles(path),
 			Rasterizer: blankRasterizer{},
 			Effects:    tc.effects,
 		})
@@ -340,7 +340,7 @@ func TestPauseKeys(t *testing.T) {
 func TestPauseNoMark(t *testing.T) {
 	t.Parallel()
 	tl := badgeTimeline(t)
-	p := reel.Profile{Outputs: reel.Files(filepath.Join(t.TempDir(), "out.gif")), Rasterizer: testutil.Rasterizer{}}
+	p := reel.Profile{Outputs: reel.MustFiles(filepath.Join(t.TempDir(), "out.gif")), Rasterizer: testutil.Rasterizer{}}
 	p.Effects = []reel.Effect{Pause(PauseAtMarks(time.Second, "end", "nope"))}
 	if err := reel.Export(t.Context(), tl, p); !errors.Is(err, reel.ErrNoMark) || !strings.Contains(err.Error(), `"nope"`) {
 		t.Errorf("Export = %v, want ErrNoMark for nope", err)
@@ -462,7 +462,7 @@ func TestPauseRecord(t *testing.T) {
 	dir := t.TempDir()
 	profile := func(name string, labels ...string) reel.Profile {
 		return reel.Profile{
-			Outputs:    reel.Files(filepath.Join(dir, name+".gif")),
+			Outputs:    reel.MustFiles(filepath.Join(dir, name+".gif")),
 			Rasterizer: testutil.Rasterizer{},
 			Effects:    []reel.Effect{Pause(PauseAtMarks(300*ms, labels...), PauseAtEnd(time.Second))},
 		}

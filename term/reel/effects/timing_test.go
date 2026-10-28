@@ -360,7 +360,7 @@ func TestBetweenRecord(t *testing.T) {
 	dir := t.TempDir()
 	profile := func(name string, to string) reel.Profile {
 		return reel.Profile{
-			Outputs:    reel.Files(filepath.Join(dir, name+".gif")),
+			Outputs:    reel.MustFiles(filepath.Join(dir, name+".gif")),
 			Rasterizer: highlightRast,
 			FPS:        100,
 			Effects:    []reel.Effect{Highlight(Row(0), Between("on", to))},

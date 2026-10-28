@@ -68,7 +68,7 @@ type options struct {
 	// artifacts is empty for [testing.TB.ArtifactDir].
 	artifacts string
 	policy    exportPolicy
-	stills    map[HookEvent]StillKind
+	stills    []hookStill
 
 	recordMessages bool
 

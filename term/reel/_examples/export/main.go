@@ -97,7 +97,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	}
 
 	files := recordings(dir, "demo")
-	outputs := append(reel.Files(files...), reel.File{
+	outputs := append(reel.MustFiles(files...), reel.File{
 		Path:  filepath.Join(dir, "demo-{mark}.png"),
 		Marks: []string{"built"},
 	})
@@ -125,7 +125,7 @@ func runCast(ctx context.Context, dir, path string) ([]string, error) {
 		return nil, err
 	}
 	files := recordings(dir, "cast")
-	if err = reel.Export(ctx, tl, profile(reel.Files(files...), fx)); err != nil {
+	if err = reel.Export(ctx, tl, profile(reel.MustFiles(files...), fx)); err != nil {
 		return nil, err
 	}
 	return files, nil

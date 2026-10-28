@@ -88,7 +88,7 @@ func run(ctx context.Context, dir string, cols, rows int, ts, tm io.Reader) ([]s
 
 	files := []string{filepath.Join(dir, "attach.gif"), filepath.Join(dir, "attach.cast")}
 	err = reel.Export(ctx, s.Timeline(), reel.Profile{
-		Outputs: reel.Files(files...),
+		Outputs: reel.MustFiles(files...),
 		Render:  []render.Option{render.WithWindowChrome(true)},
 		Effects: []reel.Effect{effects.Pause()},
 	})

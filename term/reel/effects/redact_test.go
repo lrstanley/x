@@ -246,7 +246,7 @@ func TestRedactRenderer(t *testing.T) {
 	opts := []render.Option{render.WithWindowChrome(true)}
 	var frames []reel.Frame
 	err := reel.Export(t.Context(), tl, reel.Profile{
-		Outputs: reel.Files(filepath.Join(t.TempDir(), "out.gif")),
+		Outputs: reel.MustFiles(filepath.Join(t.TempDir(), "out.gif")),
 		Render:  opts,
 		Effects: []reel.Effect{Redact(Text("hunter2")), recordFrames{&frames}},
 	})
@@ -435,11 +435,11 @@ func TestRedactOutputs(t *testing.T) {
 		effects []reel.Effect
 		is      error
 	}{
-		{"cast", reel.Files("out.gif", "out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrRawOutput},
-		{"cast only", reel.Files("out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrRawOutput},
-		{"inputs cast", reel.Files("out.gif", "out.cast"), []reel.Effect{RedactInputs(Text("hunter2"))}, reel.ErrRawOutput},
-		{"order", reel.Files("out.gif"), []reel.Effect{Keys(time.Second), Redact(Text("hunter2"))}, nil},
-		{"inputs order", reel.Files("out.gif"), []reel.Effect{Keys(time.Second), RedactInputs(Text("hunter2"))}, nil},
+		{"cast", reel.MustFiles("out.gif", "out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrRawOutput},
+		{"cast only", reel.MustFiles("out.cast"), []reel.Effect{Redact(Text("hunter2"))}, reel.ErrRawOutput},
+		{"inputs cast", reel.MustFiles("out.gif", "out.cast"), []reel.Effect{RedactInputs(Text("hunter2"))}, reel.ErrRawOutput},
+		{"order", reel.MustFiles("out.gif"), []reel.Effect{Keys(time.Second), Redact(Text("hunter2"))}, nil},
+		{"inputs order", reel.MustFiles("out.gif"), []reel.Effect{Keys(time.Second), RedactInputs(Text("hunter2"))}, nil},
 	} {
 		dir := t.TempDir()
 		var outputs []reel.File
@@ -461,7 +461,7 @@ func TestRedactOutputs(t *testing.T) {
 	}
 	defer s.Close()
 	_, err = reel.Record(t.Context(), s, reel.Profile{
-		Outputs:    reel.Files(filepath.Join(t.TempDir(), "out.cast")),
+		Outputs:    reel.MustFiles(filepath.Join(t.TempDir(), "out.cast")),
 		Rasterizer: testutil.Rasterizer{},
 		Effects:    []reel.Effect{Redact(Text("hunter2"))},
 	})
@@ -482,7 +482,7 @@ func TestRedactRecord(t *testing.T) {
 	defer s.Close()
 	var frames []reel.Frame
 	rec, err := reel.Record(t.Context(), s, reel.Profile{
-		Outputs:    reel.Files(filepath.Join(t.TempDir(), "out.gif")),
+		Outputs:    reel.MustFiles(filepath.Join(t.TempDir(), "out.gif")),
 		Rasterizer: testutil.Rasterizer{},
 		FPS:        100,
 		Effects:    []reel.Effect{Redact(Text("hunter2"), Between("secret", "")), recordFrames{&frames}},
@@ -534,7 +534,7 @@ func TestRedactUnreachedMarks(t *testing.T) {
 	} {
 		var frames []reel.Frame
 		err := reel.Export(t.Context(), tl, reel.Profile{
-			Outputs:    reel.Files(filepath.Join(t.TempDir(), "out.gif")),
+			Outputs:    reel.MustFiles(filepath.Join(t.TempDir(), "out.gif")),
 			Rasterizer: testutil.Rasterizer{},
 			FPS:        100,
 			Effects:    []reel.Effect{Redact(Text("hunter2"), Between(tc.from, tc.to)), recordFrames{&frames}},

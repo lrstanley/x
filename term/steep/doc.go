@@ -78,7 +78,7 @@
 //
 // These variables override the options set in code unless [WithIgnoreEnv]
 // is set, so any test can be recorded or tuned without changing it.
-// Unparsable values are ignored.
+// Unparsable values are ignored, except in STEEP_EXPORT.
 //
 //   - STEEP_TIMEOUT, STEEP_CHECK, STEEP_SETTLE, STEEP_SLOW,
 //     STEEP_TYPING_DELAY: durations for [WithTimeout], [WithCheck],
@@ -91,20 +91,20 @@
 //     failure (or on-failure) for [WithExportOnFailure], off (or false, 0)
 //     for neither.
 //   - STEEP_EXPORT_DIR: the directory of [WithArtifacts].
-//   - STEEP_EXPORT_TYPE: replaces the outputs and stills with a
-//     comma-separated list: gif, mp4, webm, webp, and cast write
-//     "{name}_{status}.<type>"; png and snapshot write [StillPNG] and
-//     [StillSnapshot] stills at the default [WithStills] events; all is gif,
-//     cast, png, and snapshot. Unknown names are ignored.
+//   - STEEP_EXPORT: replaces the outputs and stills with a comma-separated
+//     list of outputs, each a path with optional query parameters (see
+//     [reel.ParseFile]), such as "{name}_{status}.gif?max-bytes=5MB". A
+//     path that holds {mark}, with no marks parameter, is instead a still at
+//     each hook mark (see [WithStills]); "events" parameters, such as
+//     "?events=input&events=wait", pick the hook events, by default those of
+//     WithStills. A ".snap" path is such a still of [Harness.View], with no
+//     other parameters. An output that does not parse fails the test.
 //   - STEEP_EXPORT_FPS, STEEP_EXPORT_SPEED: replace [reel.Profile.FPS] and
 //     [reel.Profile.Speed].
-//   - STEEP_EXPORT_QUALITY (0 to 100), STEEP_EXPORT_MAX_FRAMES,
-//     STEEP_EXPORT_MAX_BYTES, STEEP_EXPORT_OPTIMIZE (comma-separated none,
-//     frames, dirty, quantize, or all): appended to [reel.Profile.Encode].
 //   - STEEP_RENDERER_SCALE, STEEP_RENDERER_FONT_FAMILY: appended to
 //     [reel.Profile.Render].
 //
 // For example:
 //
-//	STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -artifacts ./...
+//	STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.mp4,{name}_{mark}.png?events=wait' go test -artifacts ./...
 package steep

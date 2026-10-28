@@ -25,7 +25,7 @@ what to write, how to draw it, and the effects to apply.
 ```go
 h := steep.NewHarness(t, newModel(),
 	steep.WithRecording(reel.Profile{
-		Outputs: reel.Files("{name}_{status}.gif", "{name}_{status}.cast"),
+		Outputs: reel.MustFiles("{name}_{status}.gif", "{name}_{status}.cast"),
 		Effects: []reel.Effect{
 			steep.Logo(2 * time.Second),
 			effects.Keys(time.Second),
@@ -55,16 +55,15 @@ program's terminal queries with the replies. reel's
 Any test can be recorded without changing it:
 
 ```sh
-STEEP_EXPORT_MODE=on STEEP_EXPORT_TYPE=gif,mp4 go test -artifacts ./...
+STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.gif?max-bytes=5MB,{name}.cast' go test -artifacts ./...
 ```
 
 | Variable | Sets |
 | --- | --- |
 | `STEEP_EXPORT_MODE` | `on`, `failure`, or `off` |
-| `STEEP_EXPORT_TYPE` | outputs: `gif`, `mp4`, `webm`, `webp`, `cast`; stills: `png`, `snapshot`; or `all` |
+| `STEEP_EXPORT` | comma-separated outputs, each a path with optional query parameters (see `reel.ParseFile`), such as `{name}.gif?loop=once`; a path with `{mark}` and no `marks=` is a still at each hook mark, narrowed with `?events=input&events=wait`, and `.snap` writes the screen's text. An entry that does not parse fails the test. |
 | `STEEP_EXPORT_DIR` | the artifacts directory |
 | `STEEP_EXPORT_FPS`, `STEEP_EXPORT_SPEED` | the profile's timing |
-| `STEEP_EXPORT_QUALITY`, `STEEP_EXPORT_MAX_FRAMES`, `STEEP_EXPORT_MAX_BYTES`, `STEEP_EXPORT_OPTIMIZE` | encoder options |
 | `STEEP_RENDERER_SCALE`, `STEEP_RENDERER_FONT_FAMILY` | renderer options |
 | `STEEP_RECORD_MESSAGES` | `1` to record every message the model receives |
 

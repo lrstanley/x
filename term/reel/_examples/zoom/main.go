@@ -51,7 +51,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	}
 	files := []string{filepath.Join(dir, "zoom.gif")}
 	err = reel.Export(ctx, tl, reel.Profile{
-		Outputs: reel.Files(files...),
+		Outputs: reel.MustFiles(files...),
 		Render:  []render.Option{render.WithWindowChrome(true), render.WithPadding(14)},
 		Effects: []reel.Effect{
 			// The pipeline panel, at the right of the middle row. "input-8"

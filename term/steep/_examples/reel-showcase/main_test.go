@@ -26,7 +26,7 @@ import (
 // the keys pressed, a badged pause on the last frame, and a PASS or FAIL
 // card after it, in a window with chrome.
 var showcaseProfile = reel.Profile{
-	Outputs: reel.Files("showcase.gif", "showcase.cast"),
+	Outputs: reel.MustFiles("showcase.gif", "showcase.cast"),
 	Render: []render.Option{
 		render.WithWindowChrome(true),
 		render.WithPadding(14),

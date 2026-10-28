@@ -17,14 +17,15 @@ import (
 //
 //	STEEP_EXPORT_MODE=on go test -v -count 1 ./reel-simple/
 //
-// which writes testdata/TestGenerate.gif and testdata/TestGenerate.mp4 (the
-// MP4 needs ffmpeg).
+// which writes testdata/TestGenerate.gif, played once, and
+// testdata/TestGenerate.mp4 (the MP4 needs ffmpeg). Each output's query
+// parameters set its encoding options (see reel.ParseFile).
 
 func TestGenerate(t *testing.T) {
 	h := steep.NewHarness(
 		t, newRankingModel(),
 		steep.WithRecording(reel.Profile{
-			Outputs: reel.Files("{name}.gif", "{name}.mp4"),
+			Outputs: reel.MustFiles("{name}.gif?loop=once", "{name}.mp4?quality=90"),
 			Render: []render.Option{
 				render.WithWindowChrome(true),
 				render.WithPadding(5),
