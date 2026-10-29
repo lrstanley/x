@@ -29,7 +29,8 @@ func fixWebP(path string, loopCount int, total time.Duration) error {
 	defer f.Close()
 
 	var hdr [16]byte
-	if _, err := f.ReadAt(hdr[:12], 0); err != nil {
+	_, err = f.ReadAt(hdr[:12], 0)
+	if err != nil {
 		return err
 	}
 	if string(hdr[:4]) != "RIFF" || string(hdr[8:12]) != "WEBP" {
@@ -41,7 +42,8 @@ func fixWebP(path string, loopCount int, total time.Duration) error {
 		lastDelay  time.Duration
 	)
 	for off := int64(12); ; {
-		if _, err := f.ReadAt(hdr[:8], off); errors.Is(err, io.EOF) {
+		_, err = f.ReadAt(hdr[:8], off)
+		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			return err
@@ -53,7 +55,8 @@ func fixWebP(path string, loopCount int, total time.Duration) error {
 		case "ANMF":
 			// The payload starts with x, y, width-1, and height-1 (3 bytes
 			// each), then a 3-byte duration in milliseconds.
-			if _, err := f.ReadAt(hdr[:3], off+8+12); err != nil {
+			_, err = f.ReadAt(hdr[:3], off+8+12)
+			if err != nil {
 				return err
 			}
 			if last >= 0 {
@@ -71,12 +74,14 @@ func fixWebP(path string, loopCount int, total time.Duration) error {
 
 	var loop [2]byte
 	binary.LittleEndian.PutUint16(loop[:], uint16(webpLoopCount(loopCount))) //nolint:gosec // <= 65535.
-	if _, err := f.WriteAt(loop[:], anim+4); err != nil {
+	_, err = f.WriteAt(loop[:], anim+4)
+	if err != nil {
 		return err
 	}
 	ms := min(max((total-sum)/time.Millisecond, 1), maxWebPDuration)
 	le := []byte{byte(ms), byte(ms >> 8), byte(ms >> 16)} //nolint:gosec // ms fits in 24 bits.
-	if _, err := f.WriteAt(le, last); err != nil {
+	_, err = f.WriteAt(le, last)
+	if err != nil {
 		return err
 	}
 	return f.Close()

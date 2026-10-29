@@ -238,7 +238,8 @@ func newVideo(create func() (*pendingFile, error), format Format, opts []Option)
 		return nil, fmt.Errorf("sink: creating %s output: %w", format, err)
 	}
 	// ffmpeg opens the file by name, so it is the only writer.
-	if err := file.f.Close(); err != nil {
+	err = file.f.Close()
+	if err != nil {
 		_ = file.abort()
 		return nil, err
 	}

@@ -29,7 +29,8 @@ func TestNewAnnotation(t *testing.T) {
 		t.Fatalf("NewAnnotation = %q %s", a.Kind, a.Data)
 	}
 	var got note
-	if err := a.Decode(&got); err != nil || got != (note{N: 1}) {
+	err = a.Decode(&got)
+	if err != nil || got != (note{N: 1}) {
 		t.Fatalf("Decode = %+v, %v", got, err)
 	}
 
@@ -37,7 +38,8 @@ func TestNewAnnotation(t *testing.T) {
 	if err != nil || empty.Data != nil {
 		t.Fatalf("NewAnnotation(nil) = %s, %v", empty.Data, err)
 	}
-	if err := empty.Decode(&got); err != nil {
+	err = empty.Decode(&got)
+	if err != nil {
 		t.Fatalf("Decode of no fields: %v", err)
 	}
 
@@ -53,11 +55,13 @@ func TestNewAnnotation(t *testing.T) {
 		"data not json":     {"test.note", func() {}},
 		"kind trailing dot": {"test.note.", nil},
 	} {
-		if _, err := NewAnnotation(tc.kind, tc.v); err == nil {
+		_, err = NewAnnotation(tc.kind, tc.v)
+		if err == nil {
 			t.Errorf("%s: NewAnnotation succeeded", name)
 		}
 	}
-	if _, err := NewAnnotation("Bad", nil); !errors.Is(err, ErrInvalidAnnotation) {
+	_, err = NewAnnotation("Bad", nil)
+	if !errors.Is(err, ErrInvalidAnnotation) {
 		t.Errorf("bad kind: %v, want ErrInvalidAnnotation", err)
 	}
 }
@@ -240,7 +244,8 @@ func TestAnnotationSchemaByKind(t *testing.T) {
 	)
 	for _, data := range samples {
 		var v any
-		if err := json.Unmarshal([]byte(data), &v); err != nil {
+		err = json.Unmarshal([]byte(data), &v)
+		if err != nil {
 			t.Fatal(err)
 		}
 		want := whole.Validate(v) == nil

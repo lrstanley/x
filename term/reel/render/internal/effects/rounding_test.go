@@ -6,6 +6,7 @@ package effects_test
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -156,8 +157,11 @@ func TestApplyRoundedMaskMatchesReference(t *testing.T) {
 }
 
 func pixOf(img draw.Image) []byte {
-	if n, ok := img.(*image.NRGBA); ok {
-		return n.Pix
+	switch m := img.(type) {
+	case *image.NRGBA:
+		return m.Pix
+	case *image.RGBA:
+		return m.Pix
 	}
-	return img.(*image.RGBA).Pix
+	panic(fmt.Sprintf("pixOf: unsupported image %T", img))
 }

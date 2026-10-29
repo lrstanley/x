@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -37,9 +36,9 @@ func (p exportPolicy) String() string {
 		return "failure"
 	case exportAlways:
 		return "always"
-	default:
-		return "off"
+	case exportOff:
 	}
+	return "off"
 }
 
 // StillKind is a kind of still [WithStills] writes at a hook event's mark.
@@ -50,7 +49,8 @@ const (
 	// StillPNG is a PNG of the terminal at the mark, drawn with the profile's
 	// Render options and only its [reel.StillEffect] effects.
 	StillPNG StillKind = 1 << iota
-	// StillSnapshot is a ".snap" file of [Harness.View] at the mark.
+	// StillSnapshot is a ".snap" file of the screen's text at the mark, as
+	// [Harness.View] showed it, from the recording's replay.
 	StillSnapshot
 )
 
@@ -165,75 +165,54 @@ func WithExportAlways() Option {
 // "TestLogin_failed_input-2.png". Without events, it uses input, terminal,
 // program, wait, ready, and close. Calls accumulate.
 //
-// Stills are only written when the recording is exported. For a single PNG
-// of the last frame, add a ".png" output to the profile instead.
+// Each is a [reel.File] whose [reel.File.MarkMatch] matches the events'
+// marks, such as "input-[0-9]*". Stills are only written when the recording is
+// exported. For a single PNG of the last frame, add a ".png" output to the
+// profile instead.
 func WithStills(kinds StillKind, events ...HookEvent) Option {
 	return func(cfg *options) {
 		if len(events) == 0 {
 			events = captureEvents
 		}
-		// These stills have no options, so they merge rather than fail.
 		if kinds&StillPNG != 0 {
-			cfg.stills, _ = addStill(cfg.stills, hookStill{file: reel.File{Path: stillPath + ".png"}}, events)
+			cfg.stills = addStill(cfg.stills, stillPath+".png", hookPatterns(events))
 		}
 		if kinds&StillSnapshot != 0 {
-			cfg.stills, _ = addStill(cfg.stills, hookStill{file: reel.File{Path: stillPath + snapExt}}, events)
+			cfg.stills = addStill(cfg.stills, stillPath+".snap", hookPatterns(events))
 		}
 	}
 }
 
-// addStill adds s at events. A still already at s's path, once cleaned,
-// takes the events instead; if either has options, which cannot be
-// compared, that is an error.
-func addStill(stills []hookStill, s hookStill, events []HookEvent) ([]hookStill, error) {
-	path := filepath.Clean(s.file.Path)
-	i := slices.IndexFunc(stills, func(o hookStill) bool { return filepath.Clean(o.file.Path) == path })
-	switch {
-	case i < 0:
-		stills = append(stills, s)
-		i = len(stills) - 1
-	case len(s.file.Options) > 0 || len(stills[i].file.Options) > 0:
-		return stills, fmt.Errorf("two outputs write %q", s.file.Path)
+// hookPatterns returns the [reel.File.MarkMatch] patterns of the marks of
+// events, such as "input-[0-9]*" for "input-1", "input-2", and so on.
+func hookPatterns(events []HookEvent) []string {
+	patterns := make([]string, len(events))
+	for i, ev := range events {
+		patterns[i] = ev.String() + "-[0-9]*"
 	}
-	for _, ev := range events {
-		if !slices.Contains(stills[i].events, ev) {
-			stills[i].events = append(stills[i].events, ev)
+	return patterns
+}
+
+// addStill adds a still at path matching patterns, or the patterns to the
+// still already there.
+func addStill(stills []reel.File, path string, patterns []string) []reel.File {
+	i := slices.IndexFunc(stills, func(f reel.File) bool { return f.Path == path })
+	if i < 0 {
+		return append(stills, reel.File{Path: path, MarkMatch: patterns})
+	}
+	for _, p := range patterns {
+		if !slices.Contains(stills[i].MarkMatch, p) {
+			stills[i].MarkMatch = append(slices.Clip(stills[i].MarkMatch), p)
 		}
 	}
-	return stills, nil
+	return stills
 }
 
 // stillPath is the path of a still of [WithStills], without its extension.
 const stillPath = "{name}_{status}_" + markVar
 
-// varMark names the {mark} path variable, which markVar is.
-const (
-	varMark = "mark"
-	markVar = "{" + varMark + "}"
-)
-
-// snapExt is the extension of a still of [Harness.View]'s text.
-const snapExt = ".snap"
-
-// hookStill is a still written at each mark of events; file.Path holds
-// {mark}. A ".snap" still writes the text of [Harness.View]; any other is a
-// reel output, with its Marks set at export.
-type hookStill struct {
-	file   reel.File
-	events []HookEvent
-}
-
-func (s hookStill) isSnap() bool { return isSnapPath(s.file.Path) }
-
-func isSnapPath(path string) bool { return strings.EqualFold(filepath.Ext(path), snapExt) }
-
-// hookMark is a mark the harness placed for a hook event.
-type hookMark struct {
-	label string
-	event HookEvent
-	// snap is the screen's text at the mark, for a ".snap" still.
-	snap string
-}
+// markVar is reel's {mark} path variable.
+const markVar = "{mark}"
 
 // Mark places a [reel.Mark] labeled label in the session's timeline, which
 // [reel.Timeline.Between] can cut a recording at. The label must not be
@@ -281,13 +260,6 @@ func (h *Harness) markEvent(event HookEvent) string {
 		return ""
 	}
 	h.markCount[event]++
-	m := hookMark{label: label, event: event}
-	if h.cfg.policy != exportOff && slices.ContainsFunc(h.cfg.stills, func(s hookStill) bool {
-		return s.isSnap() && slices.Contains(s.events, event)
-	}) {
-		m.snap = h.View()
-	}
-	h.marks = append(h.marks, m)
 	return label
 }
 
@@ -343,119 +315,30 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 		// outputs can do without (see [reel.MissingMarks]).
 		return fmt.Errorf("the end of the recording: %v", err) //nolint:errorlint // Not a missing mark to export without.
 	}
-	// Snapshots expand the variables reel's outputs do.
-	vars, err := tl.PathVars(p.Vars)
-	if err != nil {
-		return err
-	}
-
-	marks := h.marksUpTo(end)
 	outputs := slices.Clone(p.Outputs)
 	if outputs == nil {
 		outputs = reel.MustFiles("{name}_{status}.gif", "{name}_{status}.cast")
 	}
+	outputs = append(outputs, h.cfg.stills...)
 	dir := h.cfg.artifacts
-	resolve := func(path string) string {
-		if filepath.IsAbs(path) {
-			return path
-		}
-		if dir == "" {
-			dir = h.tb.ArtifactDir()
-		}
-		return filepath.Join(dir, path)
-	}
-	stills, snapshots, err := planStills(h.cfg.stills, marks, vars, resolve)
-	if err != nil {
-		return err
-	}
-	outputs = append(outputs, stills...)
 	for i := range outputs {
-		outputs[i].Path = resolve(outputs[i].Path)
+		f := &outputs[i]
+		if strings.Contains(f.Path, markVar) && len(f.Marks) == 0 && len(f.MarkMatch) == 0 {
+			f.MarkMatch = hookPatterns(captureEvents)
+		}
+		if !filepath.IsAbs(f.Path) {
+			if dir == "" {
+				dir = h.tb.ArtifactDir()
+			}
+			f.Path = filepath.Join(dir, f.Path)
+		}
+	}
+	if len(outputs) == 0 {
+		return nil
 	}
 	p.Outputs = outputs
-
-	var errs []error
-	if len(p.Outputs) > 0 {
-		// The test's context is canceled by the time cleanups run.
-		errs = append(errs, reel.Export(context.Background(), tl, p))
-	}
-	for _, snap := range snapshots {
-		errs = append(errs, writeSnapshot(snap.path, snap.text))
-	}
-	return errors.Join(errs...)
-}
-
-// snapFile is a ".snap" still to write.
-type snapFile struct{ path, text string }
-
-// planStills returns the stills of marks: a [reel.File] with its Marks for
-// each image still, and each ".snap" still's snapshots. Snapshot paths are
-// resolved, then expanded with vars and {mark}, as reel does for its
-// outputs, so a variable cannot move one out of the directory; two at one
-// path are an error.
-func planStills(stills []hookStill, marks []hookMark, vars map[string]string, resolve func(string) string) ([]reel.File, []snapFile, error) {
-	var files []reel.File
-	var snapshots []snapFile
-	// reel's Export checks the paths of image stills.
-	seen := make(map[string]bool)
-	vars = maps.Clone(vars)
-	for _, s := range stills {
-		var at []hookMark
-		for _, m := range marks {
-			if slices.Contains(s.events, m.event) {
-				at = append(at, m)
-			}
-		}
-		if len(at) == 0 {
-			continue
-		}
-		if !s.isSnap() {
-			f := s.file
-			for _, m := range at {
-				f.Marks = append(f.Marks, m.label)
-			}
-			files = append(files, f)
-			continue
-		}
-		template := resolve(s.file.Path)
-		for _, m := range at {
-			vars[varMark] = m.label
-			path, err := reel.ExpandPath(template, vars)
-			if err != nil {
-				return nil, nil, err
-			}
-			path = filepath.Clean(path)
-			if seen[path] {
-				return nil, nil, fmt.Errorf("two outputs write %q", path)
-			}
-			seen[path] = true
-			snapshots = append(snapshots, snapFile{path: path, text: m.snap})
-		}
-	}
-	return files, snapshots, nil
-}
-
-// marksUpTo returns the hook marks up to and including the one labeled end,
-// or all of them if there is none.
-func (h *Harness) marksUpTo(end string) []hookMark {
-	h.marksMu.Lock()
-	defer h.marksMu.Unlock()
-	for i, m := range h.marks {
-		if m.label == end {
-			return slices.Clone(h.marks[:i+1])
-		}
-	}
-	return slices.Clone(h.marks)
-}
-
-func writeSnapshot(path, text string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-		return fmt.Errorf("snapshot %q: %w", path, err)
-	}
-	return nil
+	// The test's context is canceled by the time cleanups run.
+	return reel.Export(context.Background(), tl, p)
 }
 
 // testStatus returns whether the test has failed or is panicking, and

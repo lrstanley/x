@@ -5,10 +5,7 @@
 package steep
 
 import (
-	"fmt"
-	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -88,12 +85,13 @@ func applyExportEnv(tb testing.TB, cfg *options) {
 
 	var patch reel.Profile
 	if v := os.Getenv("STEEP_EXPORT"); v != "" {
-		outputs, stills, err := parseExport(v)
+		outputs, err := reel.ParseFiles(v)
 		if err != nil {
 			tb.Fatalf("steep: STEEP_EXPORT: %v", err)
 		}
-		patch.Outputs = outputs
-		cfg.stills = stills
+		// Not nil, so it replaces the profile's outputs even when empty.
+		patch.Outputs = append([]reel.File{}, outputs...)
+		cfg.stills = nil
 	}
 	if v := os.Getenv("STEEP_EXPORT_FPS"); v != "" {
 		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
@@ -133,106 +131,4 @@ func parseExportMode(raw string) (exportPolicy, bool) {
 		return exportOff, true
 	}
 	return exportOff, false
-}
-
-// parseExport parses STEEP_EXPORT, a comma-separated list of outputs (see
-// [parseOutput]). The outputs are never nil, so they replace the profile's
-// in [reel.Profile.Merge] even when empty.
-func parseExport(raw string) ([]reel.File, []hookStill, error) {
-	outputs := []reel.File{}
-	var stills []hookStill
-	for part := range strings.SplitSeq(raw, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		f, events, hook, err := parseOutput(part)
-		switch {
-		case err != nil:
-			return nil, nil, err
-		case !hook:
-			outputs = append(outputs, f)
-			continue
-		case len(events) == 0:
-			events = captureEvents
-		}
-		if stills, err = addStill(stills, hookStill{file: f}, events); err != nil {
-			return nil, nil, fmt.Errorf("output %q: %w", part, err)
-		}
-	}
-	return outputs, stills, nil
-}
-
-// parseOutput parses one output in [reel.ParseFile]'s syntax. One whose
-// path holds {mark} and that has no marks parameter is a hook still, at the
-// events of its events parameters, as is a ".snap" output, which takes no
-// other parameters.
-func parseOutput(part string) (f reel.File, events []HookEvent, hook bool, err error) {
-	path, query, _ := strings.Cut(part, "?")
-	events, rest, err := cutEvents(query)
-	if err != nil {
-		return f, nil, false, fmt.Errorf("output %q: %w", part, err)
-	}
-	if isSnapPath(path) {
-		if rest != "" {
-			return f, nil, false, fmt.Errorf("output %q: a .snap output takes only events parameters", part)
-		}
-		if f.Path, err = reel.FilePath(path); err != nil {
-			return f, nil, false, err
-		}
-		if !strings.Contains(f.Path, markVar) {
-			return f, nil, false, fmt.Errorf("output %q: a .snap path must hold %s", part, markVar)
-		}
-		return f, events, true, nil
-	}
-	// Without events, reel parses (and reports) the output as written.
-	raw := part
-	if len(events) > 0 {
-		raw = path
-		if rest != "" {
-			raw += "?" + rest
-		}
-	}
-	if f, err = reel.ParseFile(raw); err != nil {
-		return f, nil, false, err
-	}
-	hook = strings.Contains(f.Path, markVar) && len(f.Marks) == 0
-	switch {
-	case hook && strings.EqualFold(filepath.Ext(f.Path), ".cast"):
-		return f, nil, false, fmt.Errorf("output %q: a .cast path cannot hold %s", part, markVar)
-	case !hook && len(events) > 0:
-		return f, nil, false, fmt.Errorf("output %q: events parameters need a path holding %s and no marks", part, markVar)
-	}
-	return f, events, hook, nil
-}
-
-// cutEvents removes the events parameters from query, returning their hook
-// events and the rest of query.
-func cutEvents(query string) ([]HookEvent, string, error) {
-	values, err := url.ParseQuery(query)
-	if err != nil {
-		return nil, "", err
-	}
-	var events []HookEvent
-	for _, name := range values["events"] {
-		ev, ok := parseHookEvent(name)
-		if !ok {
-			return nil, "", fmt.Errorf("unknown hook event %q", name)
-		}
-		if !slices.Contains(events, ev) {
-			events = append(events, ev)
-		}
-	}
-	values.Del("events")
-	return events, values.Encode(), nil
-}
-
-// parseHookEvent returns the event [HookEvent.String] names name.
-func parseHookEvent(name string) (HookEvent, bool) {
-	for ev := HookInput; ev <= HookCapture; ev++ {
-		if ev.String() == name {
-			return ev, true
-		}
-	}
-	return 0, false
 }

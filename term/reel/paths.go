@@ -76,7 +76,7 @@ func ExpandPath(path string, vars map[string]string) (string, error) {
 			case varDuration:
 				return "", fmt.Errorf("reel: path %q: {%s} is only known once a recording ends; use Export", path, name)
 			case varMark:
-				return "", fmt.Errorf("reel: path %q: {%s} is only set in an output with Marks", path, name)
+				return "", fmt.Errorf("reel: path %q: {%s} is only set in an output with Marks or MarkMatch", path, name)
 			}
 			return "", fmt.Errorf("reel: path %q: unknown variable {%s}", path, name)
 		}

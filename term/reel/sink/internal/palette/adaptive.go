@@ -213,7 +213,7 @@ func (p *Adaptive) writeSpan(span int, dst *image.Paletted, px rgbaPixels, area 
 
 			idx := TransparentIndex
 			if w>>24 != 0 {
-				r, g, b := uint8(w), uint8(w>>8), uint8(w>>16)
+				r, g, b := uint8(w&0xff), uint8(w>>8&0xff), uint8(w>>16&0xff)
 				if a := uint8(w >> 24); px.premultiplied && a != 0xff {
 					r, g, b = unpremultiply(r, a), unpremultiply(g, a), unpremultiply(b, a)
 				}

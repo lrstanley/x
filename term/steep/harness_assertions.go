@@ -5,12 +5,14 @@
 package steep
 
 import (
+	"context"
 	"errors"
 	"iter"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/term/reel"
 )
 
 // WaitFinished waits for the [tea.Program] to finish. It fails the test if
@@ -31,9 +33,8 @@ func (h *Harness) WaitFinished(opts ...Option) {
 func (h *Harness) waitFinished(cfg options, w *waitRecord) {
 	h.tb.Helper()
 
-	timer := time.NewTimer(cfg.timeout)
-	defer timer.Stop()
-
+	ctx, cancel := context.WithTimeoutCause(cfg.ctx, cfg.timeout, errWaitTimeout)
+	defer cancel()
 	select {
 	case <-h.done:
 		h.resultMu.RLock()
@@ -47,12 +48,9 @@ func (h *Harness) waitFinished(cfg options, w *waitRecord) {
 		if wrapper, ok := result.model.(*observer); ok {
 			h.observer.replace(wrapper.currentModel())
 		}
-	case <-timer.C:
-		w.ended(outcomeTimeout)
-		h.tb.Fatalf("timeout waiting for bubble tea program to finish after %s", cfg.timeout)
-	case <-cfg.ctx.Done():
-		w.ended(outcomeCanceled)
-		h.tb.Fatalf("test context canceled waiting for bubble tea program to finish: %v", cfg.ctx.Err())
+	case <-ctx.Done():
+		w.ended(doneOutcome(ctx))
+		h.tb.Fatalf("waiting for the bubble tea program to finish: %v", context.Cause(ctx))
 	}
 }
 
@@ -83,22 +81,36 @@ func (h *Harness) Sleep(d time.Duration, opts ...Option) *Harness {
 }
 
 // WaitSettle waits until [Harness.View] has not changed for the settle
-// timeout ([WithSettle]).
+// timeout ([WithSettle]) (see [reel.Session.WaitSettle]).
 //
 // See also [Harness.WaitSettleMessages].
 func (h *Harness) WaitSettle(opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookWait, WaitMeta{Kind: WaitKindSettle})()
-	WaitSettle(h.tb, h.View, h.mergedOpts(opts...)...)
+	meta := WaitMeta{Kind: WaitKindSettle}
+	defer h.hook(HookWait, meta)()
+	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
+	w := cfg.startWait(waitNote{WaitMeta: meta, SettleMS: cfg.settleTimeout.Milliseconds()})
+	defer w.finish()
+	ctx, cancel := context.WithTimeoutCause(cfg.ctx, cfg.timeout, errWaitTimeout)
+	defer cancel()
+	if _, err := h.session.WaitSettle(ctx, cfg.settleTimeout); err != nil {
+		w.ended(doneOutcome(ctx))
+		cfg.Fatalf(h.tb, "%v (for %s)\nlast output:\n%s", err, cfg.settleTimeout, waitLast(err))
+	}
+	w.ended(outcomeSatisfied)
 	return h
 }
 
-// WaitFunc waits until condition returns true for the latest view output.
-// T is the view type passed to condition: string or []byte.
-func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opts ...Option) *Harness {
+// WaitFor waits until cond holds for the screen (see [reel.Session.Wait]),
+// such as [reel.Matches] for a regular expression, [reel.ScreenFunc] for a
+// condition of the test's own on the screen's text, or [reel.OnCursorLine]
+// for one on the cursor's line. cond is checked whenever the screen
+// changes.
+func (h *Harness) WaitFor(cond reel.Condition, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookWait, WaitMeta{Kind: WaitKindFunc})()
-	WaitViewFunc(h.tb, h.View, condition, h.mergedOpts(opts...)...)
+	note := waitNote{WaitMeta: WaitMeta{Kind: WaitKindCondition}, Condition: cond.String()}
+	defer h.hook(HookWait, note.WaitMeta)()
+	h.waitScreen(cond, note, opts)
 	return h
 }
 
@@ -106,8 +118,9 @@ func (h *Harness) WaitFunc[T ~string | ~[]byte](condition func(view T) bool, opt
 // []byte sequence, or every string in a []string.
 func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookWait, WaitMeta{Kind: WaitKindText})()
-	Wait(h.tb, h.View, contents, h.mergedOpts(opts...)...)
+	note := waitNote{WaitMeta: WaitMeta{Kind: WaitKindText}, Text: texts(contents)}
+	defer h.hook(HookWait, note.WaitMeta)()
+	h.waitScreen(reel.Contains(note.Text...), note, append(opts, withReason("Wait(%q)", contents)))
 	return h
 }
 
@@ -115,26 +128,57 @@ func (h *Harness) Wait[T string | []byte | []string](contents T, opts ...Option)
 // string, a []byte sequence, or any string in a []string.
 func (h *Harness) WaitNot[T string | []byte | []string](contents T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookWait, WaitMeta{Kind: WaitKindNotText})()
-	WaitNot(h.tb, h.View, contents, h.mergedOpts(opts...)...)
+	note := waitNote{WaitMeta: WaitMeta{Kind: WaitKindNotText}, Text: texts(contents)}
+	defer h.hook(HookWait, note.WaitMeta)()
+	h.waitScreen(reel.NotContains(note.Text...), note, append(opts, withReason("WaitNot(%q)", contents)))
 	return h
 }
 
-// WaitMatch waits until the latest view output matches the regular expression
-// pattern. An invalid pattern fails the test immediately.
-func (h *Harness) WaitMatch(pattern string, opts ...Option) *Harness {
+// waitScreen records note and waits for cond with [reel.Session.Wait],
+// recording its end, and fails the test if the timeout ([WithTimeout])
+// passes first.
+func (h *Harness) waitScreen(cond reel.Condition, note waitNote, opts []Option) {
 	h.tb.Helper()
-	defer h.hook(HookWait, WaitMeta{Kind: WaitKindMatch})()
-	WaitMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
+	cfg := collectOptions(h.tb, h.mergedOpts(opts...)...)
+	w := cfg.startWait(note)
+	defer w.finish()
+	ctx, cancel := context.WithTimeoutCause(cfg.ctx, cfg.timeout, errWaitTimeout)
+	defer cancel()
+	res, err := h.session.Wait(ctx, cond)
+	if err != nil {
+		w.ended(doneOutcome(ctx))
+		cfg.Fatalf(h.tb, "%v\nlast output:\n%s", err, waitLast(err))
+	}
+	w.satisfied(res.Matches)
+}
+
+// waitLast returns the last screen a failed [reel.Session] wait saw.
+func waitLast(err error) string {
+	var werr *reel.WaitError
+	if errors.As(err, &werr) {
+		return werr.Last
+	}
+	return ""
+}
+
+// AssertFor reports an error unless cond holds for the screen, such as
+// [reel.Matches] for a regular expression or [reel.OnCursorLine] for a
+// condition on the cursor's line.
+func (h *Harness) AssertFor(cond reel.Condition, opts ...Option) *Harness {
+	h.tb.Helper()
+	n := conditionNote(cond, false)
+	defer h.hook(HookAssert, n.AssertMeta)()
+	h.assertScreen(cond, n, opts)
 	return h
 }
 
-// WaitNotMatch waits until the latest view output does not match the regular
-// expression pattern. An invalid pattern fails the test immediately.
-func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
+// RequireFor is [Harness.AssertFor], failing the test immediately unless
+// cond holds.
+func (h *Harness) RequireFor(cond reel.Condition, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookWait, WaitMeta{Kind: WaitKindNotMatch})()
-	WaitNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
+	n := conditionNote(cond, true)
+	defer h.hook(HookAssert, n.AssertMeta)()
+	h.assertScreen(cond, n, opts)
 	return h
 }
 
@@ -142,8 +186,9 @@ func (h *Harness) WaitNotMatch(pattern string, opts ...Option) *Harness {
 // string or every string in a []string.
 func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindContains})()
-	Assert(h.tb, h.View, content, h.mergedOpts(opts...)...)
+	n := textNote(AssertKindContains, texts(content), false)
+	defer h.hook(HookAssert, n.AssertMeta)()
+	h.assertScreen(reel.Contains(n.Text...), n, opts)
 	return h
 }
 
@@ -151,8 +196,9 @@ func (h *Harness) Assert[T string | []string](content T, opts ...Option) *Harnes
 // content is a string or every string in a []string.
 func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindContains, Required: true})()
-	Require(h.tb, h.View, content, h.mergedOpts(opts...)...)
+	n := textNote(AssertKindContains, texts(content), true)
+	defer h.hook(HookAssert, n.AssertMeta)()
+	h.assertScreen(reel.Contains(n.Text...), n, opts)
 	return h
 }
 
@@ -160,8 +206,9 @@ func (h *Harness) Require[T string | []string](content T, opts ...Option) *Harne
 // string or any string in a []string.
 func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotContains})()
-	AssertNot(h.tb, h.View, content, h.mergedOpts(opts...)...)
+	n := textNote(AssertKindNotContains, texts(content), false)
+	defer h.hook(HookAssert, n.AssertMeta)()
+	h.assertScreen(reel.NotContains(n.Text...), n, opts)
 	return h
 }
 
@@ -169,45 +216,21 @@ func (h *Harness) AssertNot[T string | []string](content T, opts ...Option) *Har
 // content is a string or any string in a []string.
 func (h *Harness) RequireNot[T string | []string](content T, opts ...Option) *Harness {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotContains, Required: true})()
-	RequireNot(h.tb, h.View, content, h.mergedOpts(opts...)...)
+	n := textNote(AssertKindNotContains, texts(content), true)
+	defer h.hook(HookAssert, n.AssertMeta)()
+	h.assertScreen(reel.NotContains(n.Text...), n, opts)
 	return h
 }
 
-// AssertMatch reports an error unless view output matches the regular expression
-// pattern.
-func (h *Harness) AssertMatch(pattern string, opts ...Option) *Harness {
+// assertScreen is [checkAssert] of the screen, cursor included.
+func (h *Harness) assertScreen(cond reel.Condition, n assertNote, opts []Option) {
 	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindMatch})()
-	AssertMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
-	return h
-}
-
-// RequireMatch fails the test immediately unless view output matches the regular
-// expression pattern.
-func (h *Harness) RequireMatch(pattern string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindMatch, Required: true})()
-	RequireMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
-	return h
-}
-
-// AssertNotMatch reports an error if view output matches the regular expression
-// pattern.
-func (h *Harness) AssertNotMatch(pattern string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotMatch})()
-	AssertNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
-	return h
-}
-
-// RequireNotMatch fails the test immediately if view output matches the regular
-// expression pattern.
-func (h *Harness) RequireNotMatch(pattern string, opts ...Option) *Harness {
-	h.tb.Helper()
-	defer h.hook(HookAssert, AssertMeta{Kind: AssertKindNotMatch, Required: true})()
-	RequireNotMatch(h.tb, h.View, pattern, h.mergedOpts(opts...)...)
-	return h
+	screen, err := h.session.ScreenText()
+	if err != nil {
+		h.check(err)
+		return
+	}
+	checkAssert(h.tb, collectOptions(h.tb, h.mergedOpts(opts...)...), screen, cond, n)
 }
 
 // AssertHeight reports an error unless view output has height rows. It allows

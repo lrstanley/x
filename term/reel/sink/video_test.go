@@ -189,11 +189,13 @@ func writeTestVideo(t *testing.T, format Format, w, h int, opts ...Option) strin
 		t.Fatal(err)
 	}
 	for i, c := range videoTestColors {
-		if err := enc.WriteFrame(Frame{Image: solidNRGBA(w, h, c), Delay: videoTestDelays[i]}); err != nil {
+		err = enc.WriteFrame(Frame{Image: solidNRGBA(w, h, c), Delay: videoTestDelays[i]})
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := enc.Close(); err != nil {
+	err = enc.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	assertOnlyFile(t, path)
@@ -278,11 +280,13 @@ func TestVideoWebPMergedFrames(t *testing.T) {
 		img   image.Image
 		delay time.Duration
 	}{{a, 200 * time.Millisecond}, {b, 300 * time.Millisecond}, {b, 400 * time.Millisecond}, {b, 500 * time.Millisecond}} {
-		if err := enc.WriteFrame(Frame{Image: f.img, Delay: f.delay}); err != nil {
+		err = enc.WriteFrame(Frame{Image: f.img, Delay: f.delay})
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := enc.Close(); err != nil {
+	err = enc.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	delays, _ := webpDelays(t, path)
@@ -352,11 +356,13 @@ func TestVideoCanvasFollowsFirstFrame(t *testing.T) {
 		image.NewGray(image.Rect(0, 0, 32, 32)),
 	}
 	for _, img := range frames {
-		if err := enc.WriteFrame(Frame{Image: img, Delay: 100 * time.Millisecond}); err != nil {
+		err = enc.WriteFrame(Frame{Image: img, Delay: 100 * time.Millisecond})
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := enc.Close(); err != nil {
+	err = enc.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	got := decodeRGB(t, info, path, 32, 32)
@@ -424,7 +430,8 @@ func TestVideoNoFramesWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.Close(); err != nil {
+	err = enc.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
@@ -444,13 +451,16 @@ func TestVideoDiscardKeepsExistingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.WriteFrame(Frame{Image: solidNRGBA(16, 16, videoTestColors[0]), Delay: time.Second}); err != nil {
+	err = enc.WriteFrame(Frame{Image: solidNRGBA(16, 16, videoTestColors[0]), Delay: time.Second})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.Discard(); err != nil {
+	err = enc.Discard()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.WriteFrame(Frame{Image: solidNRGBA(16, 16, videoTestColors[0]), Delay: time.Second}); err == nil {
+	err = enc.WriteFrame(Frame{Image: solidNRGBA(16, 16, videoTestColors[0]), Delay: time.Second})
+	if err == nil {
 		t.Fatal("expected error writing after Discard")
 	}
 	if data, _ := os.ReadFile(path); string(data) != "previous" {
@@ -500,7 +510,8 @@ func TestVideoMissingEncoder(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("dir holds %d entries, want none", len(entries))
 	}
-	if err := CheckVideo(FormatMP4, fake); err != nil {
+	err = CheckVideo(FormatMP4, fake)
+	if err != nil {
 		t.Fatalf("CheckVideo(mp4) with libx264 = %v", err)
 	}
 }

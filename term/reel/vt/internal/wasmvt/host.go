@@ -32,5 +32,5 @@ func (m *Module) Table() []any { return m.t0 }
 // idle: the table is not safe for concurrent use.
 func (m *Module) Bind(fn any) int32 {
 	m.t0 = append(m.t0, fn)
-	return wasmLen(len(m.t0) - 1)
+	return Int32(len(m.t0) - 1)
 }

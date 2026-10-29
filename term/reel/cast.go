@@ -72,12 +72,15 @@ func (t *Timeline) WriteTo(w io.Writer) (int64, error) {
 // The header holds the size, title, and first event's time. Its colors,
 // including the 16-color palette (nil entries filled with reel's defaults)
 // and cursor color, are written only when [Header.Theme] has Fg and Bg set.
-// [Header.SkipPristine] is written as reel's own "skip_pristine" field.
+// [Header.SkipPristine] and [Header.Scrollback] are written as reel's own
+// "skip_pristine" and "scrollback" fields, the latter unless it is
+// [vt.DefaultScrollback].
 //
 // Events use asciicast's codes: output "o", input "i", resize "r"
 // ("COLSxROWS"), marker "m", and exit "x" (standard in v3, reel's own in v2).
 // Reel adds focus "f" ("1" or "0"), scroll "s" (the rows the viewport is
-// scrolled up from the bottom), theme "t"
+// scrolled up from the bottom), scrollback size "h" (the lines of history
+// kept), theme "t"
 // ("fg=#rrggbb,bg=#rrggbb,cursor=#rrggbb", omitting nil colors), and
 // [Annotation] "R". Other readers ignore reel's own fields and events.
 //
@@ -132,8 +135,11 @@ func (t *Timeline) cut() (*Timeline, error) {
 			if aerr := r.apply(ev); aerr != nil {
 				return nil, aerr
 			}
-			if th, ok := ev.(Theme); ok {
-				theme = &th
+			switch ev := ev.(type) {
+			case Theme:
+				theme = &ev
+			case ScrollbackSize:
+				h.Scrollback = ev.Lines
 			}
 		}
 		redraw, err := r.term.Redraw()
@@ -167,6 +173,9 @@ func castHeaderOf(h Header, start time.Time, v CastVersion) asciicast.Header {
 	ch := asciicast.Header{
 		Version: int(v), Cols: h.Cols, Rows: h.Rows, Term: castTermType,
 		Timestamp: start, Title: h.Title, SkipPristine: h.SkipPristine,
+	}
+	if h.Scrollback != vt.DefaultScrollback {
+		ch.Scrollback = &h.Scrollback
 	}
 	if h.Theme.Fg != nil && h.Theme.Bg != nil {
 		ch.Theme = &asciicast.Theme{Colors: asciicast.Colors(h.Theme), Palette: castPalette(h.Palette)}
@@ -220,6 +229,8 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 			}
 		case Scroll:
 			code, data = "s", strconv.Itoa(ev.Offset)
+		case ScrollbackSize:
+			code, data = "h", strconv.Itoa(ev.Lines)
 		case Theme:
 			code, data = "t", asciicast.FormatColors(asciicast.Colors(ev.Colors))
 		case Exit:
@@ -273,7 +284,13 @@ func ReadTimeline(r io.Reader) (*Timeline, error) {
 		return nil, fmt.Errorf("reel: %w", err)
 	}
 	ch := cr.Header
-	h := Header{Cols: ch.Cols, Rows: ch.Rows, Title: ch.Title, SkipPristine: ch.SkipPristine}
+	h := Header{
+		Cols: ch.Cols, Rows: ch.Rows, Title: ch.Title,
+		SkipPristine: ch.SkipPristine, Scrollback: vt.DefaultScrollback,
+	}
+	if ch.Scrollback != nil {
+		h.Scrollback = *ch.Scrollback
+	}
 	if ch.Theme != nil {
 		h.Theme, h.Palette = Colors(ch.Theme.Colors), ch.Theme.Palette
 	}
@@ -331,6 +348,13 @@ var castDecoders = map[string]func(data string) (Event, error){
 			return nil, fmt.Errorf("scroll offset %q is not a row count", data)
 		}
 		return Scroll{Offset: offset}, nil
+	},
+	"h": func(data string) (Event, error) {
+		lines, err := strconv.Atoi(data)
+		if err != nil || lines < 0 {
+			return nil, fmt.Errorf("scrollback size %q is not a line count", data)
+		}
+		return ScrollbackSize{Lines: lines}, nil
 	},
 	"t": func(data string) (Event, error) {
 		c, err := asciicast.ParseColors(data)

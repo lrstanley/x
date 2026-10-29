@@ -129,6 +129,10 @@ type Header struct {
 	// for programs that write capability queries before their first paint,
 	// as Bubble Tea programs do.
 	SkipPristine bool
+	// Scrollback is how many lines of history the terminal keeps. Zero
+	// keeps none. A session's is [vt.DefaultScrollback] unless opened
+	// [WithScrollback], as is that of a file that does not say.
+	Scrollback int
 }
 
 // Colors is a foreground, background, and cursor color. Non-nil colors are
@@ -138,7 +142,8 @@ type Colors struct {
 }
 
 // Event is one entry in a [Timeline]: [Output], [Input], [Resize], [Mark],
-// [Focus], [Scroll], [Theme], [Exit], or [Annotation]. The set is closed.
+// [Focus], [Scroll], [ScrollbackSize], [Theme], [Exit], or [Annotation]. The
+// set is closed.
 type Event interface {
 	// At is the event's offset from the first event in its timeline.
 	At() time.Duration
@@ -201,6 +206,15 @@ type Scroll struct {
 	Offset int
 }
 
+// ScrollbackSize is the host changing how many lines of history the terminal
+// keeps. It is not sent to the program.
+type ScrollbackSize struct {
+	event
+	// Lines is the most lines of history kept after the change. Zero keeps
+	// none.
+	Lines int
+}
+
 // Theme is the host changing the terminal's colors.
 type Theme struct {
 	event
@@ -216,14 +230,15 @@ type Exit struct {
 	Status int
 }
 
-func (e Output) stamp(at time.Duration) Event { e.at = at; return e }
-func (e Input) stamp(at time.Duration) Event  { e.at = at; return e }
-func (e Resize) stamp(at time.Duration) Event { e.at = at; return e }
-func (e Mark) stamp(at time.Duration) Event   { e.at = at; return e }
-func (e Focus) stamp(at time.Duration) Event  { e.at = at; return e }
-func (e Scroll) stamp(at time.Duration) Event { e.at = at; return e }
-func (e Theme) stamp(at time.Duration) Event  { e.at = at; return e }
-func (e Exit) stamp(at time.Duration) Event   { e.at = at; return e }
+func (e Output) stamp(at time.Duration) Event         { e.at = at; return e }
+func (e Input) stamp(at time.Duration) Event          { e.at = at; return e }
+func (e Resize) stamp(at time.Duration) Event         { e.at = at; return e }
+func (e Mark) stamp(at time.Duration) Event           { e.at = at; return e }
+func (e Focus) stamp(at time.Duration) Event          { e.at = at; return e }
+func (e Scroll) stamp(at time.Duration) Event         { e.at = at; return e }
+func (e ScrollbackSize) stamp(at time.Duration) Event { e.at = at; return e }
+func (e Theme) stamp(at time.Duration) Event          { e.at = at; return e }
+func (e Exit) stamp(at time.Duration) Event           { e.at = at; return e }
 
 func (e Annotation) stamp(at time.Duration) Event { e.at = at; return e }
 

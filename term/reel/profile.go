@@ -77,8 +77,14 @@ type Profile struct {
 type File struct {
 	// Path is where the file is written; it may contain variables (see
 	// [Export]). The extension picks the format: ".cast" for asciicast,
+	// ".snap" for the screen's text, ".json" for the screen as a [Screen],
 	// otherwise any format [sink.File] supports, such as ".gif" or ".mp4".
 	// Missing directories are created.
+	//
+	// A ".snap" or ".json" output is the screen at the end of the window,
+	// or with Marks or MarkMatch at each mark, from the replay. Effects do
+	// not change it, so it shows what a [Concealer] such as a redaction
+	// hides. It takes no Options.
 	Path string
 	// Options are added to [Profile.Encode] for this output.
 	Options []sink.Option
@@ -88,6 +94,12 @@ type File struct {
 	// [NoMarkError] once the other outputs are written. Stills run through
 	// only [Concealer] and [StillEffect] effects.
 	Marks []string
+	// MarkMatch, like Marks, makes the output one still per mark whose
+	// label matches one of these [path.Match] patterns, such as "input-*",
+	// after those of Marks, oldest first. A pattern that matches no mark is
+	// not an error. A matched label must be a file name, without slashes.
+	// Only [Export] can match marks, since [Record] starts before them.
+	MarkMatch []string
 	// Cast is the asciicast version for a ".cast" Path; zero means
 	// [CastV2]. Setting it on other paths is an error.
 	Cast CastVersion

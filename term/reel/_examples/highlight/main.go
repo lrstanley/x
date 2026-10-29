@@ -36,7 +36,7 @@ func main() {
 			return err
 		}
 		for _, f := range files {
-			fmt.Println(f)
+			fmt.Println(f) //nolint:forbidigo // The example lists the files it wrote.
 		}
 		return nil
 	})

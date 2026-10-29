@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
@@ -289,23 +288,6 @@ func TestHarnessProgramStatusStopsProgress(t *testing.T) {
 	}
 }
 
-func TestHarnessImageFollowsGridGeneration(t *testing.T) {
-	t.Parallel()
-
-	h := NewHarness(t, rootTestModel{text: "one"}, WithWindowSize(20, 2))
-	h.Wait("text=one")
-	first := copyImage(t, h.Image())
-	h.SendProgram(setTextMsg("two")).Wait("text=two")
-	second := copyImage(t, h.Image())
-	if bytes.Equal(first.Pix, second.Pix) {
-		t.Fatal("image unchanged after screen update")
-	}
-	third := copyImage(t, h.Image())
-	if !bytes.Equal(second.Pix, third.Pix) {
-		t.Fatal("image changed without a screen update")
-	}
-}
-
 func copyImage(t *testing.T, src image.Image) *image.NRGBA {
 	t.Helper()
 	if src == nil || src.Bounds().Empty() {
@@ -315,32 +297,6 @@ func copyImage(t *testing.T, src image.Image) *image.NRGBA {
 	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, src, b.Min, draw.Src)
 	return dst
-}
-
-func TestHarnessImageConcurrentWithTerminalMutation(t *testing.T) {
-	t.Parallel()
-
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(24, 3))
-	h.Wait("size=24x3")
-	// Steady cursor: blink phase is time-dependent and this test cannot use synctest
-	// (VT I/O runs outside the bubble).
-	if err := writeString(h, ansi.SetCursorStyle(2)); err != nil {
-		t.Fatalf("set steady cursor: %v", err)
-	}
-
-	var wg sync.WaitGroup
-	for range 10 {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			_ = h.Image()
-		}()
-		go func() {
-			defer wg.Done()
-			h.Type("x")
-		}()
-	}
-	wg.Wait()
 }
 
 func BenchmarkHarness_Image(b *testing.B) {

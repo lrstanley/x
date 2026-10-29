@@ -169,7 +169,8 @@ func Start(path string, args []string) (*Job, error) {
 	stderr := &tailBuffer{limit: stderrLimit}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	if err != nil {
 		return nil, fmt.Errorf("sink: starting %s: %w", path, err)
 	}
 	return &Job{cmd: cmd, stdin: stdin, stderr: stderr}, nil

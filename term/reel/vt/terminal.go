@@ -17,8 +17,11 @@ import (
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
 
+// DefaultScrollback is how many lines of history a terminal keeps unless
+// [WithScrollbackLines] says otherwise.
+const DefaultScrollback = 1000
+
 const (
-	defaultScrollback = 1000
 	defaultCellWidth  = 10
 	defaultCellHeight = 20
 	scratchSize       = 8192
@@ -288,27 +291,28 @@ func (t *Terminal) Close() error {
 	t.mod.Xghostty_terminal_reset(t.term)
 	t.resetStateLocked()
 	t.clearPooledLocked()
-	t.reapplyLocked()
+	err := t.reapplyLocked()
 	t.idle = true
 	replies := t.replies
 	t.mu.Unlock()
 	replies.Close()
-	t.rt.put(t)
-	return nil
+	// One that could not be set up again is not reused.
+	t.rt.put(t, err == nil)
+	return err
 }
 
 // Reset performs a full terminal reset and restores the forced linefeed
 // mode and scrollback cap.
-func (t *Terminal) Reset() {
+func (t *Terminal) Reset() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.idle {
-		return
+		return nil
 	}
 	t.mod.Xghostty_terminal_reset(t.term)
 	t.resetStateLocked()
-	t.reapplyLocked()
 	t.gridFresh = false
+	return t.reapplyLocked()
 }
 
 func (t *Terminal) resetStateLocked() {
@@ -356,7 +360,7 @@ func (t *Terminal) Resize(cols, rows int) error {
 // are the pixel size used by mouse encoding and in-band size reports.
 // They are not changed here.
 func (t *Terminal) resizeLocked(cols, rows int) error {
-	rc := t.mod.Xghostty_terminal_resize(t.term, int32(cols), int32(rows), int32(t.cellW), int32(t.cellH))
+	rc := t.mod.Xghostty_terminal_resize(t.term, wasmvt.Int32(cols), wasmvt.Int32(rows), wasmvt.AsI32(t.cellW), wasmvt.AsI32(t.cellH))
 	if err := wasmvt.Result("resize", rc); err != nil {
 		return err
 	}
@@ -686,7 +690,7 @@ func firstColor(a, b color.Color) color.Color {
 
 func colorNRGBA(c color.Color) color.NRGBA {
 	r, g, b, a := c.RGBA()
-	return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: uint8(a >> 8)}
+	return color.NRGBA{R: uint8(r >> 8 & 0xff), G: uint8(g >> 8 & 0xff), B: uint8(b >> 8 & 0xff), A: uint8(a >> 8 & 0xff)}
 }
 
 // Mode reports whether mode is set. ok is false when the terminal does not
@@ -795,7 +799,7 @@ func (t *Terminal) applyScrollbackLocked() error {
 		}
 		t.scrollbackOff = false
 	}
-	return t.mod.SetU32Option(t.term, wasmvt.TerminalOptionScrollbackMaxLines, uint32(t.scrollbackLines))
+	return t.mod.SetU32Option(t.term, wasmvt.TerminalOptionScrollbackMaxLines, wasmvt.Uint32(t.scrollbackLines))
 }
 
 // ClearScrollback erases retained history.
@@ -838,7 +842,7 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	}
 	t.mod.Put(t.version, ver)
 	t.term, err = t.mod.Ctor(func(slot int32) int32 {
-		return t.mod.Xghostty_terminal_new(0, slot, int32(cols), int32(rows))
+		return t.mod.Xghostty_terminal_new(0, slot, wasmvt.Int32(cols), wasmvt.Int32(rows))
 	})
 	if err != nil {
 		return err
@@ -886,13 +890,16 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	if err != nil {
 		return err
 	}
-	if err := t.installCallbacks(); err != nil {
+	err = t.installCallbacks()
+	if err != nil {
 		return err
 	}
-	if err := t.resizeLocked(cols, rows); err != nil {
+	err = t.resizeLocked(cols, rows)
+	if err != nil {
 		return err
 	}
-	if err := t.reapplyLocked(); err != nil {
+	err = t.reapplyLocked()
+	if err != nil {
 		return err
 	}
 	t.fg = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}

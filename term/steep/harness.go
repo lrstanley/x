@@ -6,7 +6,6 @@ package steep
 
 import (
 	"context"
-	"image"
 	"iter"
 	"os"
 	"os/signal"
@@ -19,8 +18,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/lrstanley/x/term/reel"
-	"github.com/lrstanley/x/term/reel/render"
-	"github.com/lrstanley/x/term/reel/vt"
 )
 
 type runResult struct {
@@ -41,10 +38,11 @@ var _ MessageCollector = (*Harness)(nil)
 //     [testing.TB.Fatalf] if [WithTimeout] passes or the context is canceled
 //     first.
 //
-// Most methods return the harness for chaining. The package-level
-// functions of the same names check any [Viewable] or [MessageCollector]
-// and return a result instead: whether an Assert* passed, or the view or
-// message that satisfied a Wait*.
+// Most methods return the harness for chaining. Waits on the screen are
+// built on [reel.Session.Wait]. The package-level Assert*, Require*, and
+// message Wait* functions of the same names check any [Viewable] or
+// [MessageCollector] and return a result instead: whether an Assert*
+// passed, or the message that satisfied a Wait*.
 type Harness struct {
 	tb       testing.TB
 	failures *failureTB
@@ -58,23 +56,16 @@ type Harness struct {
 	result   *runResult
 	done     chan struct{}
 
-	imageRenderer *render.Renderer
-	// imageScreen is the last viewport clone drawn by Image. Close drops
-	// it so a later draw cannot reuse a grid from before reset.
-	imageScreen *vt.Buffer
-	// image is the buffer [Harness.Image] draws into and returns.
-	image *image.NRGBA
-	// start is when the harness was created; blink and animation phases in
-	// images are drawn relative to it.
+	// imager draws [Harness.Image] and [Harness.ImageInto].
+	imager *reel.Imager
+	// start is when the harness was created, for [Result.Duration].
 	start       time.Time
-	imageMu     sync.Mutex
 	hooks       []Hook
 	readyHooked bool
 
-	// marksMu guards markCount and marks.
+	// marksMu guards markCount.
 	marksMu   sync.Mutex
 	markCount map[HookEvent]int
-	marks     []hookMark
 	closed    atomic.Bool
 	// waits numbers recorded waits, for their annotation ids.
 	waits atomic.Int64
@@ -98,35 +89,34 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		cfg = collectOptions(tb, opts...)
 	}
 
-	// Built before the session, whose terminal holds a pool slot, so a
-	// failure here leaves no slot taken.
-	imageRenderer, err := render.New(cfg.recording.Render...)
-	if err != nil {
-		tb.Fatal(err)
-	}
 	// Bubble Tea writes capability queries before its first paint, so the
 	// recording starts on that paint rather than on the blank terminal.
 	session, err := reel.Open(
 		tb.Context(), max(cfg.width, 1), max(cfg.height, 1),
 		reel.WithTitle(tb.Name()), reel.WithSkipPristine(),
-		reel.WithScrollOnInput(cfg.scrollOnInput),
+		reel.WithScrollOnInput(cfg.scrollOnInput), reel.WithTypingDelay(cfg.typingDelay),
 	)
 	if err != nil {
 		tb.Fatal(err)
 	}
+	imager, err := reel.NewImager(session, cfg.recording.Render...)
+	if err != nil {
+		_ = session.Close()
+		tb.Fatal(err)
+	}
 
 	h := &Harness{
-		tb:            tb,
-		failures:      failures,
-		session:       session,
-		observer:      newObserver(tb, model),
-		done:          make(chan struct{}),
-		opts:          append([]Option(nil), opts...),
-		cfg:           cfg,
-		imageRenderer: imageRenderer,
-		start:         time.Now(),
-		hooks:         append([]Hook(nil), cfg.hooks...),
-		markCount:     make(map[HookEvent]int),
+		tb:        tb,
+		failures:  failures,
+		session:   session,
+		observer:  newObserver(tb, model),
+		done:      make(chan struct{}),
+		opts:      append([]Option(nil), opts...),
+		cfg:       cfg,
+		imager:    imager,
+		start:     time.Now(),
+		hooks:     append([]Hook(nil), cfg.hooks...),
+		markCount: make(map[HookEvent]int),
 	}
 	// Clipped, so one call's appends cannot write into another's.
 	h.opts = slices.Clip(append(h.opts, withHarness(h)))
@@ -182,14 +172,11 @@ func (h *Harness) Close() {
 		return
 	}
 	// These run even when a hook or stopping the program fails the test. The
-	// terminal returns to the pool after the After hooks, and the retained
-	// screen is dropped first so a later draw cannot paint the previous
-	// checkout's grid.
+	// terminal returns to the pool after the After hooks and the imager.
 	defer h.session.Close()
-	defer h.dropImageScreen()
 	defer func() {
-		if err := h.imageRenderer.Close(); err != nil {
-			h.tb.Errorf("failed to close image renderer: %v", err)
+		if err := h.imager.Close(); err != nil {
+			h.tb.Errorf("failed to close the imager: %v", err)
 		}
 	}()
 	defer h.hook(HookClose, nil)()

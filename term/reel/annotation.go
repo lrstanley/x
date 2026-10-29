@@ -196,16 +196,18 @@ func validateAnnotation(data []byte) error {
 		return fmt.Errorf("reel: annotation schema: %w", err)
 	}
 	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
+	err = json.Unmarshal(data, &v)
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidAnnotation, err)
 	}
 	rs := ks.other
 	if obj, ok := v.(map[string]any); ok {
-		if kind, ok := obj["kind"].(string); ok && ks.kinds[kind] != nil {
+		if kind, isString := obj["kind"].(string); isString && ks.kinds[kind] != nil {
 			rs = ks.kinds[kind]
 		}
 	}
-	if err := rs.Validate(v); err != nil {
+	err = rs.Validate(v)
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidAnnotation, err)
 	}
 	return nil

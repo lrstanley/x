@@ -225,8 +225,8 @@ func weightItalicFromStyle(style string) (weight int, italic bool) {
 			s = strings.ReplaceAll(s, word, "")
 		}
 	}
-	if weight, ok := styleWeights[s]; ok {
-		return weight, italic
+	if w, ok := styleWeights[s]; ok {
+		return w, italic
 	}
 	return 400, italic
 }

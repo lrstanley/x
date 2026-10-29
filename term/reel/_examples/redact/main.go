@@ -27,7 +27,7 @@ import (
 )
 
 // tokenEnv is the environment variable that holds the token.
-const tokenEnv = "REEL_DEMO_TOKEN"
+const tokenEnv = "REEL_DEMO_TOKEN" //nolint:gosec // The name of a variable, not a credential.
 
 // Flags are the command's flags.
 type Flags struct {
@@ -47,7 +47,7 @@ func main() {
 			return err
 		}
 		for _, f := range files {
-			fmt.Println(f)
+			fmt.Println(f) //nolint:forbidigo // The example lists the files it wrote.
 		}
 		return nil
 	})
@@ -61,7 +61,8 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		return nil, err
 	}
 	p := profile(dir)
-	if err = reel.Export(ctx, tl, p); err != nil {
+	err = reel.Export(ctx, tl, p)
+	if err != nil {
 		return nil, err
 	}
 	return []string{p.Outputs[0].Path}, nil
@@ -81,21 +82,24 @@ func record(ctx context.Context, token string) (*reel.Timeline, error) {
 	step := func(pause time.Duration, typed, out string) error {
 		time.Sleep(pause)
 		if typed != "" {
-			if err := s.Type(typed); err != nil {
-				return err
+			if typeErr := s.Type(typed); typeErr != nil {
+				return typeErr
 			}
 		}
-		_, err := s.Write([]byte(out))
-		return err
+		_, writeErr := s.Write([]byte(out))
+		return writeErr
 	}
-	if err = step(0, "", "\x1b]2;reel redact\x07\x1b[1;36m$\x1b[0m "); err != nil {
+	err = step(0, "", "\x1b]2;reel redact\x07\x1b[1;36m$\x1b[0m ")
+	if err != nil {
 		return nil, err
 	}
-	if err = step(300*time.Millisecond, "login\r", "login\r\nToken: "); err != nil {
+	err = step(300*time.Millisecond, "login\r", "login\r\nToken: ")
+	if err != nil {
 		return nil, err
 	}
 	for _, r := range token {
-		if err = step(70*time.Millisecond, string(r), string(r)); err != nil {
+		err = step(70*time.Millisecond, string(r), string(r))
+		if err != nil {
 			return nil, err
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/steep/snapshot"
 )
 
@@ -82,9 +83,9 @@ func TestComponentHarnessReplacementUpdate(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, replacementViewModel{}, WithWindowSize(80, 1))
 
-	h.Type("go").WaitSettle().SendProgram(appendMsg("!")).WaitFunc(func(bts []byte) bool {
-		return strings.Contains(string(bts), "text=go!")
-	})
+	h.Type("go").WaitSettle().SendProgram(appendMsg("!")).WaitFor(reel.ScreenFunc(func(text string) bool {
+		return strings.Contains(text, "text=go!")
+	}))
 }
 
 func TestComponentHarnessMutateMutableModel(t *testing.T) {

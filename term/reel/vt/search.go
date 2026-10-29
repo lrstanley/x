@@ -163,7 +163,8 @@ func (s *Search) Tick() (SearchStatus, error) {
 		return 0, err
 	}
 	defer s.t.mod.Free(out, 4)
-	if err = wasmvt.Result("search tick", s.t.mod.Xghostty_search_tick(s.ptr, out)); err != nil {
+	err = wasmvt.Result("search tick", s.t.mod.Xghostty_search_tick(s.ptr, out))
+	if err != nil {
 		return 0, err
 	}
 	return SearchStatus(s.t.mod.I32(out, 0)), nil
@@ -188,7 +189,8 @@ func (s *Search) Needle() ([]byte, error) {
 		return nil, err
 	}
 	defer s.t.mod.Free(ptr, n)
-	if err = wasmvt.Result("search needle", s.t.mod.Xghostty_search_get(s.ptr, wasmvt.SearchDataNeedle, ptr)); err != nil {
+	err = wasmvt.Result("search needle", s.t.mod.Xghostty_search_get(s.ptr, wasmvt.SearchDataNeedle, ptr))
+	if err != nil {
 		return nil, err
 	}
 	return append([]byte(nil), []byte(s.t.mod.String(ptr, 0))...), nil
@@ -255,7 +257,8 @@ func (s *Search) SelectedMatch() (Selection, error) {
 	defer s.t.mod.Free(raw, n)
 	s.t.mod.Zero(raw, n)
 	s.t.mod.SetU32(raw, 0, uint32(n))
-	if err = wasmvt.Result("search match", s.t.mod.Xghostty_search_get(s.ptr, wasmvt.SearchDataSelectedMatch, raw)); err != nil {
+	err = wasmvt.Result("search match", s.t.mod.Xghostty_search_get(s.ptr, wasmvt.SearchDataSelectedMatch, raw))
+	if err != nil {
 		return Selection{}, err
 	}
 	return s.t.selectionFrom(raw)
@@ -304,16 +307,18 @@ func (s *Search) selections(data int32) ([]Selection, error) {
 		return nil, err
 	}
 	defer s.t.mod.Free(raw, count*selN)
-	s.t.mod.SetU32(buf, wasmvt.SelectionBufferPtrOff, uint32(raw))
-	s.t.mod.SetU32(buf, wasmvt.SelectionBufferCapOff, uint32(count))
+	s.t.mod.SetI32(buf, wasmvt.SelectionBufferPtrOff, raw)
+	s.t.mod.SetU32(buf, wasmvt.SelectionBufferCapOff, wasmvt.Uint32(count))
 	s.t.mod.SetU32(buf, wasmvt.SelectionBufferLenOff, 0)
-	if err = wasmvt.Result("search matches", s.t.mod.Xghostty_search_get(s.ptr, data, buf)); err != nil {
+	err = wasmvt.Result("search matches", s.t.mod.Xghostty_search_get(s.ptr, data, buf))
+	if err != nil {
 		return nil, err
 	}
 	n := int(s.t.mod.U32(buf, wasmvt.SelectionBufferLenOff))
 	out := make([]Selection, 0, n)
 	for i := range n {
-		sel, err := s.t.selectionFrom(raw + int32(i*selN))
+		var sel Selection
+		sel, err = s.t.selectionFrom(raw + wasmvt.Int32(i*selN))
 		if err != nil {
 			return nil, err
 		}
@@ -340,7 +345,7 @@ func (s *Search) getU32(data int32) (uint32, error) {
 
 func (s *Search) getI32(data int32) (int32, error) {
 	v, err := s.getWord(data)
-	return int32(v), err
+	return wasmvt.AsI32(v), err
 }
 
 // getWord reads one u32 GhosttySearchData value. getU32 and getI32
@@ -357,7 +362,8 @@ func (s *Search) getWord(data int32) (uint32, error) {
 		return 0, err
 	}
 	defer s.t.mod.Free(ptr, 4)
-	if err = wasmvt.Result("search get", s.t.mod.Xghostty_search_get(s.ptr, data, ptr)); err != nil {
+	err = wasmvt.Result("search get", s.t.mod.Xghostty_search_get(s.ptr, data, ptr))
+	if err != nil {
 		return 0, err
 	}
 	return s.t.mod.U32(ptr, 0), nil

@@ -24,7 +24,8 @@ func writeEmbeddedAs(t *testing.T, dir string, stems ...string) []string {
 			t.Fatal(err)
 		}
 		p := filepath.Join(dir, "unrelated-"+string(rune('a'+i))+".ttf")
-		if err := os.WriteFile(p, raw, 0o600); err != nil {
+		err = os.WriteFile(p, raw, 0o600)
+		if err != nil {
 			t.Fatal(err)
 		}
 		paths = append(paths, p)
@@ -34,6 +35,8 @@ func writeEmbeddedAs(t *testing.T, dir string, stems ...string) []string {
 
 // buildCollection packs fonts into a single TTC, rewriting each table
 // directory so offsets stay absolute within the collection.
+//
+//nolint:makezero // out starts as the collection header, filled in place.
 func buildCollection(t *testing.T, fonts [][]byte) []byte {
 	t.Helper()
 	headerLen := 12 + 4*len(fonts)
@@ -277,7 +280,8 @@ func TestLoadFamily_NotFound(t *testing.T) {
 		}
 	}
 
-	if _, err := LoadFamily("  "); err == nil || errors.Is(err, ErrFamilyNotFound) {
+	_, err = LoadFamily("  ")
+	if err == nil || errors.Is(err, ErrFamilyNotFound) {
 		t.Errorf("empty name should be a distinct error, got %v", err)
 	}
 }

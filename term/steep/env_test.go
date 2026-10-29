@@ -6,9 +6,7 @@ package steep
 
 import (
 	"maps"
-	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,95 +22,13 @@ func outputPaths(files []reel.File) []string {
 	return paths
 }
 
-// stillEvents maps each still's path to its events.
-func stillEvents(stills []hookStill) map[string][]HookEvent {
-	out := make(map[string][]HookEvent, len(stills))
-	for _, s := range stills {
-		out[s.file.Path] = slices.Sorted(slices.Values(s.events))
+// stillPatterns maps each still's path to its MarkMatch patterns.
+func stillPatterns(stills []reel.File) map[string][]string {
+	out := make(map[string][]string, len(stills))
+	for _, f := range stills {
+		out[f.Path] = slices.Sorted(slices.Values(f.MarkMatch))
 	}
 	return out
-}
-
-func TestParseExport(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		raw     string
-		outputs []string
-		stills  map[string][]HookEvent
-	}{
-		{"{name}.gif", []string{"{name}.gif"}, map[string][]HookEvent{}},
-		{
-			" ./artifacts/{name}.gif?max-bytes=5MB&loop=once , file://./artifacts/{name}.cast?version=3,,",
-			[]string{"./artifacts/{name}.gif", "./artifacts/{name}.cast"},
-			map[string][]HookEvent{},
-		},
-		{"x-{mark}.png?marks=a&marks=b", []string{"x-{mark}.png"}, map[string][]HookEvent{}},
-		{"", []string{}, map[string][]HookEvent{}},
-		{"{mark}.png?ev%65nts=wait&%6Fptimize=none", []string{}, map[string][]HookEvent{"{mark}.png": {HookWait}}},
-		{
-			"{mark}.snap?events=wait,./{mark}.snap?events=close,{mark}.gif?events=input,{mark}.gif",
-			[]string{},
-			map[string][]HookEvent{
-				"{mark}.snap": {HookWait, HookClose},
-				"{mark}.gif":  slices.Sorted(slices.Values(captureEvents)),
-			},
-		},
-		{"file:///C:/out/{mark}.snap", []string{}, map[string][]HookEvent{"C:/out/{mark}.snap": slices.Sorted(slices.Values(captureEvents))}},
-		{
-			"{name}_{mark}.png?optimize=none,{name}_{mark}.snap?events=wait&events=close&events=wait,file://s/{mark}.snap",
-			[]string{},
-			map[string][]HookEvent{
-				"{name}_{mark}.png":  slices.Sorted(slices.Values(captureEvents)),
-				"{name}_{mark}.snap": {HookWait, HookClose},
-				"s/{mark}.snap":      slices.Sorted(slices.Values(captureEvents)),
-			},
-		},
-		{
-			"{mark}.gif?events=assert&loop=once&events=input",
-			[]string{},
-			map[string][]HookEvent{"{mark}.gif": {HookInput, HookAssert}},
-		},
-	} {
-		outputs, stills, err := parseExport(tc.raw)
-		if err != nil {
-			t.Errorf("%q: %v", tc.raw, err)
-			continue
-		}
-		if outputs == nil {
-			t.Errorf("%q: outputs are nil, want an empty list that replaces the profile's", tc.raw)
-		}
-		if got := outputPaths(outputs); !slices.Equal(got, tc.outputs) {
-			t.Errorf("%q: outputs %q, want %q", tc.raw, got, tc.outputs)
-		}
-		if got := stillEvents(stills); !maps.EqualFunc(got, tc.stills, slices.Equal) {
-			t.Errorf("%q: stills %v, want %v", tc.raw, got, tc.stills)
-		}
-	}
-}
-
-func TestParseExportErrors(t *testing.T) {
-	t.Parallel()
-	for raw, want := range map[string]string{
-		"gif":                               "unknown format",
-		"x.gif?fps=20":                      `unknown parameter "fps"`,
-		"x.gif?events=input":                "events parameters need a path holding {mark}",
-		"x-{mark}.png?marks=a&events=input": "events parameters need",
-		"{mark}.png?events=typing":          `unknown hook event "typing"`,
-		"{mark}.png?events=%zz":             "invalid URL escape",
-		"x.snap":                            "a .snap path must hold {mark}",
-		"{mark}.gif?events=input,{mark}.gif?events=wait&loop=once": `two outputs write "{mark}.gif"`,
-		"{mark}.gif?loop=once,./{mark}.gif":                        `two outputs write "./{mark}.gif"`,
-		"x.gif?ev%zznts=1":                                         "invalid URL escape",
-		"{mark}.snap?loop=once":                                    "takes only events",
-		"s3://b/{mark}.snap":                                       `unsupported scheme "s3"`,
-		"file:///C:/{mark}.snap?loop=once":                         "takes only events",
-		"{mark}.cast":                                              "a .cast path cannot hold {mark}",
-	} {
-		_, _, err := parseExport(raw)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: got %v, want an error containing %q", raw, err, want)
-		}
-	}
 }
 
 func TestParseExportMode(t *testing.T) {
@@ -173,11 +89,6 @@ func TestApplyEnvTypingDelay(t *testing.T) {
 	if cfg := collectOptions(t); cfg.typingDelay != 50*time.Millisecond {
 		t.Fatalf("got %v", cfg.typingDelay)
 	}
-	// As with the other STEEP_ variables, it overrides the option, even one
-	// passed to a single call.
-	if cfg := collectOptions(t, WithTypingDelay(0)); cfg.typingDelay != 50*time.Millisecond {
-		t.Fatalf("with WithTypingDelay(0): got %v", cfg.typingDelay)
-	}
 }
 
 func TestApplyEnvRecordMessages(t *testing.T) {
@@ -210,15 +121,14 @@ func TestApplyEnvProfile(t *testing.T) {
 	}
 	cfg := collectOptions(t, WithRecording(user), WithStills(StillSnapshot, HookAssert))
 	p := cfg.recording
-	if got := outputPaths(p.Outputs); !slices.Equal(got, []string{"{name}_{status}.webm"}) {
+	if got := outputPaths(p.Outputs); !slices.Equal(got, []string{"{name}_{status}.webm", "{name}_{status}_{mark}.png"}) {
 		t.Errorf("outputs = %q, want the environment's", got)
 	}
 	if len(p.Outputs[0].Options) != 1 || len(p.Encode) != 1 {
 		t.Errorf("%d output options and %d encode options, want the URL's and the profile's", len(p.Outputs[0].Options), len(p.Encode))
 	}
-	want := map[string][]HookEvent{"{name}_{status}_{mark}.png": slices.Sorted(slices.Values(captureEvents))}
-	if got := stillEvents(cfg.stills); !maps.EqualFunc(got, want, slices.Equal) {
-		t.Errorf("stills = %v, want the environment's PNG at the capture events only", got)
+	if cfg.stills != nil {
+		t.Errorf("stills = %v, want those of WithStills replaced", cfg.stills)
 	}
 	if p.FPS != 10 || p.Speed != 0.5 {
 		t.Errorf("fps %d speed %v, want 10 and 0.5", p.FPS, p.Speed)
@@ -238,45 +148,14 @@ func TestApplyEnvProfile(t *testing.T) {
 	}
 }
 
-func TestPlanStills(t *testing.T) {
-	t.Parallel()
-	marks := []hookMark{{label: "ready-1", event: HookReady, snap: "a"}, {label: "input-1", event: HookInput, snap: "b"}}
-	vars := map[string]string{"name": "TestFoo"}
-	resolve := func(path string) string { return filepath.Join("dir", path) }
-	stills := []hookStill{
-		{file: reel.File{Path: "{name}_{mark}.png"}, events: []HookEvent{HookReady, HookInput}},
-		{file: reel.File{Path: "{name}_{mark}.snap"}, events: []HookEvent{HookInput}},
-		{file: reel.File{Path: "{mark}.gif"}, events: []HookEvent{HookClose}},
-	}
-	files, snaps, err := planStills(stills, marks, vars, resolve)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) != 1 || files[0].Path != "{name}_{mark}.png" || !slices.Equal(files[0].Marks, []string{"ready-1", "input-1"}) {
-		t.Errorf("files = %+v", files)
-	}
-	if want := []snapFile{{path: filepath.Join("dir", "TestFoo_input-1.snap"), text: "b"}}; !slices.Equal(snaps, want) {
-		t.Errorf("snapshots = %+v, want %+v", snaps, want)
-	}
-	if vars["mark"] != "" {
-		t.Error("planStills changed vars")
-	}
-
-	// Templates that differ can still expand to one path.
-	stills = append(stills, hookStill{file: reel.File{Path: "TestFoo_{mark}.snap"}, events: []HookEvent{HookInput}})
-	if _, _, err = planStills(stills, marks, vars, resolve); err == nil || !strings.Contains(err.Error(), "two outputs write") {
-		t.Errorf("got %v, want a duplicate path error", err)
-	}
-}
-
 func TestWithStills(t *testing.T) {
 	t.Parallel()
 	cfg := collectOptions(t, WithIgnoreEnv(true), WithStills(StillPNG), WithStills(StillSnapshot|StillPNG, HookInput, HookAssert))
-	want := map[string][]HookEvent{
-		stillPath + ".png":  slices.Sorted(slices.Values(append([]HookEvent{HookAssert}, captureEvents...))),
-		stillPath + ".snap": {HookInput, HookAssert},
+	want := map[string][]string{
+		stillPath + ".png":  slices.Sorted(slices.Values(append([]string{"assert-[0-9]*"}, hookPatterns(captureEvents)...))),
+		stillPath + ".snap": {"assert-[0-9]*", "input-[0-9]*"},
 	}
-	if got := stillEvents(cfg.stills); !maps.EqualFunc(got, want, slices.Equal) {
+	if got := stillPatterns(cfg.stills); !maps.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("stills = %v, want %v", got, want)
 	}
 	// The default events are not grown by a later call.

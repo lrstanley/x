@@ -21,6 +21,7 @@ import (
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
 	"github.com/lrstanley/x/term/reel/sink"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // recordFrames is an [Effect] that appends every frame it sees to frames and
@@ -929,7 +930,7 @@ func (e startFunc) Start(ctx *Context) (Stage, error) {
 
 func TestExportReplaysScroll(t *testing.T) {
 	t.Parallel()
-	tl := newTimeline(Header{Cols: 6, Rows: 2})
+	tl := newTimeline(Header{Cols: 6, Rows: 2, Scrollback: vt.DefaultScrollback})
 	tl.appendAt(Output{Data: []byte("a\r\nb\r\nc\r\nd\r\ne")}, 0)
 	tl.appendAt(Scroll{Offset: 2}, time.Second)
 	tl.appendAt(Scroll{Offset: 0}, 2*time.Second)
@@ -954,7 +955,7 @@ func TestExportReplaysScroll(t *testing.T) {
 func TestExportScrollClamps(t *testing.T) {
 	t.Parallel()
 	// The event was recorded against more scrollback than the replay has.
-	tl := newTimeline(Header{Cols: 6, Rows: 2})
+	tl := newTimeline(Header{Cols: 6, Rows: 2, Scrollback: vt.DefaultScrollback})
 	tl.appendAt(Output{Data: []byte("a\r\nb\r\nc\r\nd")}, 0)
 	tl.appendAt(Scroll{Offset: 500}, time.Second)
 
@@ -971,7 +972,7 @@ func TestExportScrollClamps(t *testing.T) {
 
 func TestCutKeepsScrolledViewport(t *testing.T) {
 	t.Parallel()
-	tl := newTimeline(Header{Cols: 6, Rows: 2})
+	tl := newTimeline(Header{Cols: 6, Rows: 2, Scrollback: vt.DefaultScrollback})
 	tl.appendAt(Output{Data: []byte("a\r\nb\r\nc\r\nd\r\ne")}, 0)
 	tl.appendAt(Scroll{Offset: 2}, time.Second)
 	tl.appendAt(Mark{Label: "here"}, 2*time.Second)

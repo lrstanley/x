@@ -62,7 +62,8 @@ func TestPNGIgnoresGIFOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); err != nil {
+	_, err = os.Stat(path)
+	if err != nil {
 		t.Fatal(err)
 	}
 }

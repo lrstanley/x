@@ -7,6 +7,8 @@ package reel
 import (
 	"cmp"
 	"context"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"image"
@@ -31,7 +33,7 @@ import (
 // is at the end.
 //
 // Output paths may contain {name} variables: those of
-// [Timeline.PathVars], {mark} for outputs with Marks, and any name in
+// [Timeline.PathVars], {mark} for outputs with Marks or MarkMatch, and any name in
 // [Profile.Vars]. Unknown names and
 // duplicate paths are errors. All outputs are checked and created before
 // any frame is drawn, so a missing ffmpeg fails at once. Each output is
@@ -42,8 +44,9 @@ import (
 // such as one a test failed before it reached, does not stop the export:
 // the outputs are written as a [Record] of the timeline would write them,
 // whose marks never came (see Record), and Export then returns a
-// [NoMarkError] for each. See [File] for what an asciicast output holds;
-// when every output is asciicast, nothing is drawn.
+// [NoMarkError] for each. See [File] for what asciicast, ".snap", and
+// ".json" outputs hold; when every output is one of those, nothing is
+// drawn.
 //
 // Canceling ctx stops the export, which then writes nothing.
 func Export(ctx context.Context, tl *Timeline, p Profile) error {
@@ -118,7 +121,11 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if err != nil {
 		return nil, err
 	}
-	outs, err := planOutputs(p, vars)
+	var matchIn *Timeline
+	if !live {
+		matchIn = tl
+	}
+	outs, err := planOutputs(p, vars, matchIn)
 	if err != nil {
 		return nil, err
 	}
@@ -146,36 +153,45 @@ func newRecorder(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p
 	if len(outs.files) == 0 {
 		return r, nil
 	}
-	if opts, err = p.fitRender(tl.header, opts); err != nil {
-		return nil, err
-	}
-	if err = r.openDrawn(ctx, rt, tl, live, p, opts, title); err != nil {
+	if err = r.open(ctx, rt, tl, live, p, opts, title); err != nil {
 		r.abort()
 		return nil, err
 	}
 	return r, nil
 }
 
-// openDrawn builds the rasterizer, opens the frame outputs, and starts the
-// replay and pipeline.
-func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p Profile, opts []render.Option, title string) error {
-	r.rast = p.Rasterizer
-	if r.rast == nil {
-		rend, err := render.New(opts...)
+// open starts the replay the file outputs are written from. For drawn
+// outputs, it also builds the rasterizer, opens them, and starts the
+// effects and pipeline.
+func (r *recorder) open(ctx context.Context, rt *vt.Runtime, tl *Timeline, live bool, p Profile, opts []render.Option, title string) error {
+	var err error
+	if r.outs.hasDrawn() {
+		if opts, err = p.fitRender(tl.header, opts); err != nil {
+			return err
+		}
+		r.rast = p.Rasterizer
+		if r.rast == nil {
+			var rend *render.Renderer
+			if rend, err = render.New(opts...); err != nil {
+				return err
+			}
+			r.rast, r.closeRast = rend, true
+		}
+		err = r.outs.open()
 		if err != nil {
 			return err
 		}
-		r.rast, r.closeRast = rend, true
-	}
-	if err := r.outs.open(); err != nil {
-		return err
 	}
 	from, _ := tl.Window()
-	replay, err := newReplay(ctx, rt, tl.header, max(tl.from, 0), from)
-	if err != nil {
+	if r.replay, err = newReplay(ctx, rt, tl.header, max(tl.from, 0), from); err != nil {
 		return err
 	}
-	r.replay = replay
+	if r.outs.hasStills(false) {
+		r.replay.mark = r.still
+	}
+	if r.rast == nil {
+		return nil
+	}
 	if live {
 		r.src, r.view = tl, newTimeline(tl.header)
 		tl = r.view
@@ -193,8 +209,7 @@ func (r *recorder) openDrawn(ctx context.Context, rt *vt.Runtime, tl *Timeline, 
 			Meta:       p.Meta,
 		}
 	}
-	if r.outs.hasStills() {
-		r.replay.mark = r.still
+	if r.outs.hasStills(true) {
 		if fx := stillEffects(p.Effects); len(fx) > 0 {
 			ctx := newContext()
 			r.stills = &stillChain{ctx: ctx, span: time.Duration(float64(r.s.step) * r.s.speed)}
@@ -342,10 +357,20 @@ func (r *recorder) apply(ev Event) error {
 }
 
 // still writes the terminal at m to the unwritten stills for its label.
-// With still effects, it is held until the timeline is known past the
-// still's span, so effects see the marks in it as they would for a frame.
+// With still effects, a drawn still is held until the timeline is known
+// past the still's span, so effects see the marks in it as they would for
+// a frame.
 func (r *recorder) still(m Mark) error {
-	sinks := r.outs.stillsAt(m.Label)
+	stills := r.outs.take(func(f *fileOutput) bool { return f.still && f.mark == m.Label })
+	if err := r.captureScreens(stills); err != nil {
+		return err
+	}
+	var sinks []sink.Sink
+	for _, f := range stills {
+		if f.sink != nil {
+			sinks = append(sinks, f.sink)
+		}
+	}
 	if len(sinks) == 0 {
 		return nil
 	}
@@ -420,12 +445,42 @@ func runAlone(stages []Stage, f Frame) (Frame, bool) {
 	return frames[0], true
 }
 
+// captureScreens sets the data of the screen outputs among files from the
+// replay's terminal.
+func (r *recorder) captureScreens(files []*fileOutput) error {
+	var text, screen []byte
+	for _, f := range files {
+		if f.format == formatSnap {
+			if text == nil {
+				text = []byte(r.replay.term.Text())
+			}
+			f.data = text
+		}
+		if f.format != formatJSON {
+			continue
+		}
+		if screen == nil {
+			data, err := json.Marshal(screenOf(r.replay.term, r.replay.focused), jsontext.Multiline(true))
+			if err != nil {
+				return fmt.Errorf("reel: output %q: %w", f.path, err)
+			}
+			data = append(data, '\n')
+			screen = data
+		}
+		f.data = screen
+	}
+	return nil
+}
+
 // end flushes the recording at offset end.
 func (r *recorder) end(end time.Duration) error {
 	if r.replay == nil {
 		return nil
 	}
 	if err := r.replay.finish(); err != nil {
+		return err
+	}
+	if err := r.captureScreens(r.outs.take(func(f *fileOutput) bool { return !f.still && f.isScreen() })); err != nil {
 		return err
 	}
 	if err := r.writeHeld(0, true); err != nil {

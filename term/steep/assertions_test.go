@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/lrstanley/x/term/reel"
 )
 
 func TestAssertStringWithStripANSI(t *testing.T) {
@@ -154,38 +156,40 @@ func (m *delayedPingModel) Init() tea.Cmd {
 
 func (m *delayedPingModel) Update(uv.Event) tea.Cmd { return nil }
 
-func TestWaitViewFunc(t *testing.T) {
-	t.Parallel()
-	got := WaitViewFunc(t, func() string { return "hello" }, func(s string) bool {
-		return strings.HasPrefix(s, "hel")
-	}, WithTimeout(100*time.Millisecond))
-	if got != "hello" {
-		t.Fatalf("view = %q", got)
-	}
-}
-
-func TestWaitString_WaitBytes_package(t *testing.T) {
+func TestWaitFor(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "hi"}, WithWindowSize(80, 1))
-	Wait(t, h.View, "text=hi", WithTimeout(2*time.Second))
-	out := Wait(t, h.View, []byte("text=hi"), WithTimeout(2*time.Second))
-	if !strings.Contains(out, "text=hi") {
-		t.Fatalf("bytes view = %q", out)
-	}
+	h.WaitFor(reel.ScreenFunc(func(s string) bool { return strings.HasPrefix(s, "text=hi") }),
+		WithTimeout(2*time.Second)).
+		WaitFor(reel.OnCursorLine(reel.Contains("text=")), WithTimeout(2*time.Second))
 }
 
-func TestWaitString_withStripANSI(t *testing.T) {
+func TestWaitString_WaitBytes(t *testing.T) {
 	t.Parallel()
-	out := Wait(t, func() string { return "\x1b[31mred\x1b[0m" }, "red", WithANSI(false), WithTimeout(50*time.Millisecond))
-	if strings.TrimSpace(out) != "red" {
-		t.Fatalf("output = %q", out)
-	}
+	h := NewComponentHarness(t, &mutableViewModel{text: "hi"}, WithWindowSize(80, 1))
+	h.Wait("text=hi", WithTimeout(2*time.Second)).Wait([]byte("text=hi"), WithTimeout(2*time.Second))
+}
+
+func TestWait_timeout(t *testing.T) {
+	t.Parallel()
+	tb := &captureFatalTB{TB: t}
+	h := NewComponentHarness(tb, &mutableViewModel{text: "hi"}, WithWindowSize(80, 1), WithIgnoreEnv(true))
+	h.Wait("text=hi")
+	defer func() {
+		if _, ok := recover().(fatalSentinelType); !ok {
+			t.Fatal("expected a fatal failure")
+		}
+		if !strings.Contains(tb.msg, `Wait("nope")`) || !strings.Contains(tb.msg, "text=hi") {
+			t.Fatalf("fatalf = %q, want the reason and the last screen", tb.msg)
+		}
+	}()
+	h.Wait("nope", WithTimeout(20*time.Millisecond))
 }
 
 func TestWaitStrings(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &mutableViewModel{text: "ab"}, WithWindowSize(80, 1))
-	Wait(t, h.View, []string{"text=", "ab"}, WithTimeout(2*time.Second))
+	h.Wait([]string{"text=", "ab"}, WithTimeout(2*time.Second))
 }
 
 func TestWaitNotString_WaitNotBytes(t *testing.T) {
@@ -203,37 +207,19 @@ func TestWaitNotStrings(t *testing.T) {
 		WaitNot([]string{"foo", "bar"}, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
 }
 
-func TestWaitMatch_WaitNotMatch_package(t *testing.T) {
+func TestWaitFor_matches(t *testing.T) {
 	t.Parallel()
+	bad := regexp.MustCompile(`BAD`)
 	h := NewComponentHarness(t, &swapViewModel{}, WithWindowSize(80, 1))
-	h.WaitMatch(`BAD`, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond)).
+	h.WaitFor(reel.Matches(bad), WithTimeout(2*time.Second)).
 		SendProgram(appendMsg("flip")).
-		WaitNotMatch(`BAD`, WithTimeout(2*time.Second), WithCheck(5*time.Millisecond))
+		WaitFor(reel.NotMatches(bad), WithTimeout(2*time.Second))
 }
 
-func TestWaitMatch_invalidRegexp(t *testing.T) {
-	t.Parallel()
-	tb := &captureFatalTB{TB: t}
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic from Fatalf")
-		}
-		if _, ok := r.(fatalSentinelType); !ok {
-			panic(r)
-		}
-		if !strings.Contains(tb.msg, "invalid regexp") {
-			t.Fatalf("fatalf = %q", tb.msg)
-		}
-	}()
-	WaitMatch(tb, func() string { return "x" }, "[")
-}
-
-func TestWaitSettleView_package(t *testing.T) {
+func TestWaitSettleView(t *testing.T) {
 	t.Parallel()
 	h := NewComponentHarness(t, &viewSettleStableModel{}, WithWindowSize(80, 1))
-	Wait(t, h.View, "stable")
-	WaitSettle(t, h.View,
+	h.Wait("stable").WaitSettle(
 		WithSettle(25*time.Millisecond),
 		WithTimeout(2*time.Second),
 		WithCheck(5*time.Millisecond),
@@ -287,25 +273,20 @@ func TestAssertNotStrings_fail(t *testing.T) {
 	}
 }
 
-func TestAssertMatch_fail(t *testing.T) {
+func TestAssertFor_fail(t *testing.T) {
 	t.Parallel()
-	st := &softTB{TB: t}
-	if AssertMatch(st, func() string { return "abc" }, `^\d+$`) {
-		t.Fatal("expected false")
-	}
-	if st.nErrors != 1 {
-		t.Fatalf("error calls = %d, want 1", st.nErrors)
-	}
-}
-
-func TestAssertNotMatch_fail(t *testing.T) {
-	t.Parallel()
-	st := &softTB{TB: t}
-	if AssertNotMatch(st, func() string { return "abc123" }, `\d`) {
-		t.Fatal("expected false")
-	}
-	if st.nErrors != 1 {
-		t.Fatalf("error calls = %d, want 1", st.nErrors)
+	for _, cond := range []reel.Condition{
+		reel.Matches(regexp.MustCompile(`^\d+$`)),
+		reel.NotMatches(regexp.MustCompile(`\d`)),
+		reel.OnCursorLine(reel.Contains("abc")),
+	} {
+		st := &softTB{TB: t}
+		if AssertFor(st, func() string { return "abc123" }, cond) {
+			t.Fatalf("%s held", cond)
+		}
+		if st.nErrors != 1 {
+			t.Fatalf("%s: error calls = %d, want 1", cond, st.nErrors)
+		}
 	}
 }
 
@@ -341,10 +322,10 @@ func TestPackageRequireString_andAssertHelpers_ok(t *testing.T) {
 	if !AssertNot(t, v, "gamma") || !AssertNot(t, v, []string{"nope"}) {
 		t.Fatal("negative asserts should pass")
 	}
-	RequireMatch(t, v, `b.t`)
-	RequireNotMatch(t, v, `^\d`)
-	if !AssertMatch(t, v, `alpha`) || !AssertNotMatch(t, v, `^\d+$`) {
-		t.Fatal("match asserts should pass")
+	RequireFor(t, v, reel.Matches(regexp.MustCompile(`b.t`)))
+	RequireFor(t, v, reel.NotMatches(regexp.MustCompile(`^\d`)))
+	if !AssertFor(t, v, reel.Matches(regexp.MustCompile(`alpha`))) {
+		t.Fatal("condition asserts should pass")
 	}
 }
 

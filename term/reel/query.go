@@ -299,7 +299,7 @@ func csiRequest(s ctlSeq) (Query, bool) {
 	case s.final == 't' && s.marker == "" && s.inter == "":
 		switch op := s.firstParam(); op {
 		case "11", "13", "14", "15", "16", "18", "19", "20", "21":
-			return Query{Query: "xtwinops", Param: op}, true
+			return Query{Query: "xtwinops", Param: op}, true //nolint:goconst // A query name, as the others are written.
 		}
 	case s.final == 'y' && s.inter == "*" && s.marker == "":
 		return Query{Query: "decrqcra"}, true

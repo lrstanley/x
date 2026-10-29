@@ -6,6 +6,8 @@ package snapshot
 
 import (
 	"testing"
+
+	"github.com/lrstanley/x/term/reel"
 )
 
 // WriteJSON writes the JSON representation of the provided string to a file,
@@ -15,8 +17,7 @@ import (
 // It will fail the test if there are i/o errors.
 func WriteJSON(tb testing.TB, v, path string, opts ...Option) {
 	tb.Helper()
-	snap := &ScreenSnapshot{}
-	snap.WithScreenBuffer(tb, AsScreenBuffer(tb, v, opts...), opts...)
+	snap := reel.NewScreen(AsScreenBuffer(tb, v, opts...))
 	if path == "" {
 		cfg := collectOptions(tb, opts...)
 		path = snapshotPath(tb, cfg.suffix, ".snap", cfg)
@@ -25,19 +26,18 @@ func WriteJSON(tb testing.TB, v, path string, opts ...Option) {
 }
 
 // AssertJSONEqual compares the provided string against the JSON representation of
-// a [ScreenSnapshot], reporting errors without stopping the test immediately (in
+// a [reel.Screen], reporting errors without stopping the test immediately (in
 // most cases).
 func AssertJSONEqual(tb testing.TB, v string, opts ...Option) bool {
 	tb.Helper()
 
-	snap := &ScreenSnapshot{}
-	snap.WithScreenBuffer(tb, AsScreenBuffer(tb, v, opts...), opts...)
+	snap := reel.NewScreen(AsScreenBuffer(tb, v, opts...))
 
 	return AssertScreenEqual(tb, snap, opts...)
 }
 
 // RequireJSONEqual compares the provided string against the JSON representation of
-// a [ScreenSnapshot], failing the test immediately if the snapshot does not match.
+// a [reel.Screen], failing the test immediately if the snapshot does not match.
 func RequireJSONEqual(tb testing.TB, v string, opts ...Option) {
 	tb.Helper()
 

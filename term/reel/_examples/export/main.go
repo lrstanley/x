@@ -49,7 +49,7 @@ func main() {
 			return err
 		}
 		for _, f := range files {
-			fmt.Println(f)
+			fmt.Println(f) //nolint:forbidigo // The example lists the files it wrote.
 		}
 		return nil
 	})
@@ -82,7 +82,8 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	for _, step := range script {
 		time.Sleep(step.pause)
 		if step.typed != "" {
-			if err = s.Type(step.typed); err != nil {
+			err = s.Type(step.typed)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -90,7 +91,8 @@ func run(ctx context.Context, dir string) ([]string, error) {
 			return nil, err
 		}
 		if step.mark != "" {
-			if err = s.Mark(step.mark); err != nil {
+			err = s.Mark(step.mark)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -102,7 +104,8 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		Marks: []string{"built"},
 	})
 	fx := []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.Pause()}
-	if err = reel.Export(ctx, s.Timeline(), profile(outputs, fx)); err != nil {
+	err = reel.Export(ctx, s.Timeline(), profile(outputs, fx))
+	if err != nil {
 		return nil, err
 	}
 	return append(files, filepath.Join(dir, "demo-built.png")), nil
@@ -125,7 +128,8 @@ func runCast(ctx context.Context, dir, path string) ([]string, error) {
 		return nil, err
 	}
 	files := recordings(dir, "cast")
-	if err = reel.Export(ctx, tl, profile(reel.MustFiles(files...), fx)); err != nil {
+	err = reel.Export(ctx, tl, profile(reel.MustFiles(files...), fx))
+	if err != nil {
 		return nil, err
 	}
 	return files, nil

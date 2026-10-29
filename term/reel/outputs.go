@@ -8,8 +8,10 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,13 +19,28 @@ import (
 	"github.com/lrstanley/x/term/reel/sink"
 )
 
-// castExt is the extension of asciicast outputs.
-const castExt = ".cast"
+// Formats of the outputs reel writes itself rather than through
+// [sink.File], named as sink names its own: by extension.
+const (
+	formatCast sink.Format = "cast"
+	formatSnap sink.Format = "snap"
+	formatJSON sink.Format = "json"
+)
+
+// formatOf returns the format of an output at path, by its extension.
+func formatOf(name string) (sink.Format, error) {
+	f := sink.Format(strings.ToLower(strings.TrimPrefix(filepath.Ext(name), ".")))
+	if f == formatCast || f == formatSnap || f == formatJSON {
+		return f, nil
+	}
+	return sink.FormatOf(name)
+}
 
 // outputs are a profile's outputs, with paths expanded, for one recording.
 type outputs struct {
 	casts []castOutput
-	// files are the recordings and the per-mark stills.
+	// files are the recordings, the per-mark stills, and the screen
+	// outputs.
 	files []fileOutput
 	// sink tees to every recording once open.
 	sink sink.Sink
@@ -35,76 +52,147 @@ type castOutput struct {
 }
 
 type fileOutput struct {
-	path string
-	opts []sink.Option
+	path   string
+	format sink.Format
+	opts   []sink.Option
 	// still is set for the still of the first mark labeled mark.
 	still   bool
 	mark    string
 	written bool
-	sink    sink.Sink
+	// sink is a drawn output's, once open; data is a screen output's.
+	sink sink.Sink
+	data []byte
 }
+
+// isScreen reports whether f holds the screen's text or [Screen] rather than
+// images.
+func (f *fileOutput) isScreen() bool { return isScreenFormat(f.format) }
+
+func isScreenFormat(f sink.Format) bool { return f == formatSnap || f == formatJSON }
 
 func (f *fileOutput) errNoMark() error {
 	return fmt.Errorf("%w for %s", &NoMarkError{Label: f.mark}, f.path)
 }
 
-// planOutputs expands the paths of p's outputs with vars.
-func planOutputs(p Profile, vars map[string]string) (*outputs, error) {
+// planOutputs expands the paths of p's outputs with vars. tl is the
+// timeline [File.MarkMatch] patterns match the marks of, or nil for a
+// recording of a timeline still growing, which cannot have them.
+func planOutputs(p Profile, vars map[string]string, tl *Timeline) (*outputs, error) {
 	if len(p.Outputs) == 0 {
 		return nil, errors.New("reel: profile has no outputs")
 	}
 	o := &outputs{}
 	seen := make(map[string]bool, len(p.Outputs))
-	add := func(path string) error {
-		clean := filepath.Clean(path)
+	add := func(dst string) error {
+		clean := filepath.Clean(dst)
 		if seen[clean] {
-			return fmt.Errorf("reel: two outputs write %q", path)
+			return fmt.Errorf("reel: two outputs write %q", dst)
 		}
 		seen[clean] = true
 		return nil
 	}
 	for _, out := range p.Outputs {
-		opts := append(slices.Clip(p.Encode), out.Options...)
-		isCast := strings.EqualFold(filepath.Ext(out.Path), castExt)
-		switch {
-		case out.Cast != 0 && !isCast:
-			return nil, fmt.Errorf("reel: output %q: Cast is set on a path that is not %s", out.Path, castExt)
-		case len(out.Marks) > 0 && isCast:
-			return nil, fmt.Errorf("reel: output %q: a %s output cannot have Marks", out.Path, castExt)
-		case len(out.Marks) > 0 && !strings.Contains(out.Path, "{"+varMark+"}"):
-			return nil, fmt.Errorf("reel: output %q: a path with Marks must hold {%s}", out.Path, varMark)
+		format, err := formatOf(out.Path)
+		if err != nil {
+			return nil, fmt.Errorf("reel: output %q: %w", out.Path, err)
 		}
-		if len(out.Marks) == 0 {
-			path, err := ExpandPath(out.Path, vars)
+		err = out.checkMarkPath()
+		if err != nil {
+			return nil, err
+		}
+		perMark := len(out.Marks) > 0 || len(out.MarkMatch) > 0
+		switch {
+		case out.Cast != 0 && format != formatCast:
+			return nil, fmt.Errorf("reel: output %q: Cast is set on a path that is not .%s", out.Path, formatCast)
+		case perMark && format == formatCast:
+			return nil, fmt.Errorf("reel: output %q: a .%s output cannot have Marks or MarkMatch", out.Path, formatCast)
+		case len(out.MarkMatch) > 0 && tl == nil:
+			return nil, fmt.Errorf("reel: output %q: MarkMatch needs a finished timeline; use Export", out.Path)
+		case isScreenFormat(format) && len(out.Options) > 0:
+			return nil, fmt.Errorf("reel: output %q: a .%s output takes no Options", out.Path, format)
+		}
+		opts := append(slices.Clip(p.Encode), out.Options...)
+		if !perMark {
+			var dst string
+			dst, err = ExpandPath(out.Path, vars)
 			if err != nil {
 				return nil, err
 			}
-			err = add(path)
+			err = add(dst)
 			if err != nil {
 				return nil, err
 			}
-			if isCast {
-				o.casts = append(o.casts, castOutput{path: path, version: cmp.Or(out.Cast, CastV2)})
+			if format == formatCast {
+				o.casts = append(o.casts, castOutput{path: dst, version: cmp.Or(out.Cast, CastV2)})
 			} else {
-				o.files = append(o.files, fileOutput{path: path, opts: opts})
+				o.files = append(o.files, fileOutput{path: dst, format: format, opts: opts})
 			}
 			continue
 		}
+		labels, err := markLabels(out, tl)
+		if err != nil {
+			return nil, err
+		}
 		markVars := maps.Clone(vars)
-		for _, label := range out.Marks {
+		for _, label := range labels {
 			markVars[varMark] = label
-			path, err := ExpandPath(out.Path, markVars)
+			var dst string
+			dst, err = ExpandPath(out.Path, markVars)
 			if err != nil {
 				return nil, err
 			}
-			err = add(path)
+			err = add(dst)
 			if err != nil {
 				return nil, err
 			}
-			o.files = append(o.files, fileOutput{path: path, opts: opts, still: true, mark: label})
+			o.files = append(o.files, fileOutput{path: dst, format: format, opts: opts, still: true, mark: label})
 		}
 	}
 	return o, nil
+}
+
+// checkMarkPath reports an error if f has Marks or MarkMatch but its path
+// does not hold {mark}.
+func (f File) checkMarkPath() error {
+	if (len(f.Marks) > 0 || len(f.MarkMatch) > 0) && !strings.Contains(f.Path, "{"+varMark+"}") {
+		return fmt.Errorf("reel: output %q: a path with Marks or MarkMatch must hold {%s}", f.Path, varMark)
+	}
+	return nil
+}
+
+// markLabels returns the labels of out's stills: its Marks, then the labels
+// of tl's window that its MarkMatch patterns match, oldest first, each once.
+// A matched label must be a file name, so it cannot move the still out of
+// its directory.
+func markLabels(out File, tl *Timeline) ([]string, error) {
+	labels := slices.Clone(out.Marks)
+	if len(out.MarkMatch) == 0 {
+		return labels, nil
+	}
+	for _, pattern := range out.MarkMatch {
+		if _, err := path.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("reel: output %q: MarkMatch %q: %w", out.Path, pattern, err)
+		}
+	}
+	seen := make(map[string]bool, len(labels))
+	for _, label := range labels {
+		seen[label] = true
+	}
+	for ev := range tl.EventsFrom(max(tl.from, 0)) {
+		m, ok := ev.(Mark)
+		if !ok || m.Label == "" || seen[m.Label] || !slices.ContainsFunc(out.MarkMatch, func(p string) bool {
+			matched, _ := path.Match(p, m.Label)
+			return matched
+		}) {
+			continue
+		}
+		if m.Label == "." || m.Label == ".." || strings.ContainsAny(m.Label, `/\`) {
+			return nil, fmt.Errorf("reel: output %q: mark %q matches MarkMatch, but is not a file name", out.Path, m.Label)
+		}
+		seen[m.Label] = true
+		labels = append(labels, m.Label)
+	}
+	return labels, nil
 }
 
 // checkEffects enforces the ordering and output rules of [Concealer] and
@@ -169,19 +257,28 @@ func stillEffects(effects []Effect) []Effect {
 // hasRecording reports whether any output is a recording rather than a
 // still.
 func (o *outputs) hasRecording() bool {
-	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return !f.still })
+	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return !f.still && !f.isScreen() })
 }
 
-// hasStills reports whether any output is a still.
-func (o *outputs) hasStills() bool {
-	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return f.still })
+// hasDrawn reports whether any output is drawn.
+func (o *outputs) hasDrawn() bool {
+	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return !f.isScreen() })
 }
 
-// open creates every recording and still. On error, the caller discards o.
+// hasStills reports whether any output is a still, drawn or not when drawn
+// is false.
+func (o *outputs) hasStills(drawn bool) bool {
+	return slices.ContainsFunc(o.files, func(f fileOutput) bool { return f.still && (!drawn || !f.isScreen()) })
+}
+
+// open creates every drawn output. On error, the caller discards o.
 func (o *outputs) open() error {
 	var recordings []sink.Sink
 	for i := range o.files {
 		f := &o.files[i]
+		if f.isScreen() {
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(f.path), 0o750); err != nil {
 			return err
 		}
@@ -198,27 +295,32 @@ func (o *outputs) open() error {
 	return nil
 }
 
-// stillsAt returns the stills of label not yet written, marking them
-// written.
-func (o *outputs) stillsAt(label string) []sink.Sink {
-	var out []sink.Sink
+// take returns the outputs not yet written for which match reports true,
+// marking them written.
+func (o *outputs) take(match func(*fileOutput) bool) []*fileOutput {
+	var out []*fileOutput
 	for i := range o.files {
-		if f := &o.files[i]; f.still && f.mark == label && !f.written {
+		if f := &o.files[i]; !f.written && match(f) {
 			f.written = true
-			out = append(out, f.sink)
+			out = append(out, f)
 		}
 	}
 	return out
 }
 
-// close finishes every open output. Stills whose mark never came write
-// nothing, and are reported as a [NoMarkError] each.
+// close finishes every output, writing the screen outputs. Stills whose
+// mark never came write nothing, and are reported as a [NoMarkError] each.
 func (o *outputs) close() error {
 	var errs []error
 	for i := range o.files {
 		f := &o.files[i]
-		if f.sink != nil {
+		switch {
+		case f.sink != nil:
 			errs = append(errs, f.sink.Close())
+		case f.isScreen() && f.written:
+			if err := writeFileAtomic(f.path, f.data); err != nil {
+				errs = append(errs, fmt.Errorf("reel: output %q: %w", f.path, err))
+			}
 		}
 		if f.still && !f.written {
 			errs = append(errs, f.errNoMark())
@@ -271,20 +373,39 @@ func (o *outputs) writeCasts(tl *Timeline, h Header, effects []Annotation) error
 	return nil
 }
 
-func writeCastFile(path string, tl *Timeline, v CastVersion) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+func writeCastFile(name string, tl *Timeline, v CastVersion) error {
+	return writeFileWith(name, func(w io.Writer) error {
+		_, err := tl.WriteCast(w, v)
+		return err
+	})
+}
+
+// writeFileAtomic writes data to name.
+func writeFileAtomic(name string, data []byte) error {
+	return writeFileWith(name, func(w io.Writer) error {
+		_, err := w.Write(data)
+		return err
+	})
+}
+
+// writeFileWith writes name with write, through a temporary file renamed
+// into place, so a failure leaves an existing file untouched.
+//
+//nolint:gosec // name is an output path its caller chose to write.
+func writeFileWith(name string, write func(io.Writer) error) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0o750); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	f, err := os.CreateTemp(filepath.Dir(name), "."+filepath.Base(name)+".*.tmp")
 	if err != nil {
 		return err
 	}
-	_, err = tl.WriteCast(f, v)
+	err = write(f)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(f.Name(), path)
+		err = os.Rename(f.Name(), name)
 	}
 	if err != nil {
 		_ = os.Remove(f.Name())

@@ -389,11 +389,11 @@ func TestHarness_TerminalKey_accumulatesPrintableText(t *testing.T) {
 	h.Key("a").Key("b").Key("space").Wait("text=ab").Require("text=ab")
 }
 
-func TestHarness_TerminalTypingDelay_pausesAfterEachKey(t *testing.T) {
-	t.Parallel()
+func TestHarness_TerminalTypingDelay_env(t *testing.T) {
+	t.Setenv("STEEP_TYPING_DELAY", "20ms")
 	const delay = 20 * time.Millisecond
-	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3), WithIgnoreEnv(true), WithTypingDelay(delay))
-	h.Type("ab").Key("space").Type("cd", WithTypingDelay(0)).Wait("text=ab cd")
+	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3))
+	h.Type("ab").Key("space").Type("cd", reel.Delay(0)).Wait("text=ab cd")
 
 	inputs := inputEvents(h)
 	var got []string
@@ -411,7 +411,7 @@ func TestHarness_TerminalTypingDelay_perCall(t *testing.T) {
 	t.Parallel()
 	const delay = 20 * time.Millisecond
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(80, 3), WithIgnoreEnv(true))
-	h.Type("ab", WithTypingDelay(delay)).KeyBackspace(WithTypingDelay(delay)).Wait("text=a")
+	h.Type("ab", reel.Delay(delay)).KeyBackspace(reel.Delay(delay)).Wait("text=a")
 
 	inputs := inputEvents(h)
 	if len(inputs) != 3 {
@@ -520,7 +520,7 @@ func TestHarness_TerminalLeftMiddleRightClick_buttons(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		fn   func(*Harness, int, int) *Harness
+		fn   func(*Harness, int, int, ...reel.InputOption) *Harness
 		want tea.MouseButton
 	}{
 		{name: "left", fn: (*Harness).LeftClick, want: tea.MouseLeft},
@@ -672,9 +672,9 @@ func TestProgramStatusProtocol(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("records = %+v", got)
 	}
-	want := ansi.ProgramStatus{
-		State: ansi.ProgramStateBlocked, Kind: ansi.ProgramStatusKindQuestion,
-		Progress: 42, HasProgress: true, App: "agent", ID: "job",
+	want := vt.ProgramStatus{
+		State: vt.ProgramBlocked, Kind: vt.ProgramKindQuestion,
+		Progress: 42, App: "agent", ID: "job",
 		Title: "Title", Message: "Hello",
 	}
 	if got[0] != want {
@@ -682,10 +682,10 @@ func TestProgramStatusProtocol(t *testing.T) {
 	}
 
 	cloned := h.ProgramStatuses()
-	cloned[0].State = ansi.ProgramStateError
+	cloned[0].State = vt.ProgramError
 	writeVT(t, h, osc7501("state=done:id=job"))
 	got = h.ProgramStatuses()
-	want = ansi.ProgramStatus{State: ansi.ProgramStateDone, ID: "job"}
+	want = vt.ProgramStatus{State: vt.ProgramDone, ID: "job", Progress: -1}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("replacement retained fields: %+v", got)
 	}
@@ -725,7 +725,7 @@ func TestProgramStatusLifecycle(t *testing.T) {
 	writeVT(t, h, osc7501("state=working:id=w")+osc7501("state=blocked:id=b")+osc7501("state=error:id=e"))
 	writeVT(t, h, "\x1b]133;A\x1b\\")
 	got = h.ProgramStatuses()
-	if len(got) != 3 || got[2].State != ansi.ProgramStateError {
+	if len(got) != 3 || got[2].State != vt.ProgramError {
 		t.Fatalf("prompt: %+v", got)
 	}
 
@@ -747,6 +747,9 @@ func TestProgramStatusLifecycle(t *testing.T) {
 	}
 }
 
+// programStatusMaxRecords is how many OSC 7501 records the terminal keeps.
+const programStatusMaxRecords = 256
+
 func TestProgramStatusBoundedEviction(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 1)
@@ -767,13 +770,13 @@ func TestProgramStatusBoundedEviction(t *testing.T) {
 			t.Fatal("least recently updated record survived")
 		}
 	}
-	var updated ansi.ProgramStatus
+	var updated vt.ProgramStatus
 	for _, s := range got {
 		if s.ID == "j000" {
 			updated = s
 		}
 	}
-	if updated.State != ansi.ProgramStateDone {
+	if updated.State != vt.ProgramDone {
 		t.Fatalf("updated record = %+v", updated)
 	}
 }
@@ -782,7 +785,7 @@ func TestProgramStatusInSnapshot(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 1)
 	writeVT(t, h, osc7501("state=working:id=job:progress=0:app=demo"))
-	snap := screenSnapshot(t, h.session)
+	snap := h.session.Screen()
 	if len(snap.ProgramStatus) != 1 || snap.ProgramStatus[0].State != "working" {
 		t.Fatalf("snapshot status = %+v", snap.ProgramStatus)
 	}

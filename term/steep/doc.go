@@ -27,8 +27,9 @@
 // A harness runs its program in a [reel.Session], whose [reel.Timeline]
 // records everything the program wrote and the test did. Recordings are made
 // from the timeline, so a test never slows down to be recorded; [WithSlow] is
-// only for programs that need real time between actions, and
-// [WithTypingDelay] for recordings that should show text being typed.
+// only for programs that need real time between actions, and [reel.Delay],
+// passed to [Harness.Type] and the like, for recordings that should show text
+// being typed.
 //
 // The timeline also holds [reel.Annotation] events, described by reel's
 // annotation.schema.json, of what the test did and found: its configuration
@@ -80,9 +81,11 @@
 // is set, so any test can be recorded or tuned without changing it.
 // Unparsable values are ignored, except in STEEP_EXPORT.
 //
-//   - STEEP_TIMEOUT, STEEP_CHECK, STEEP_SETTLE, STEEP_SLOW,
-//     STEEP_TYPING_DELAY: durations for [WithTimeout], [WithCheck],
-//     [WithSettle], [WithSlow], and [WithTypingDelay].
+//   - STEEP_TIMEOUT, STEEP_CHECK, STEEP_SETTLE, STEEP_SLOW: durations for
+//     [WithTimeout], [WithCheck], [WithSettle], and [WithSlow].
+//   - STEEP_TYPING_DELAY: a duration to pause after each key press of
+//     [Harness.Type] and [Harness.Key] ([reel.WithTypingDelay]), unless a
+//     call passes [reel.Delay].
 //   - STEEP_LOG: true or 1 adds the hook of [WithLog].
 //   - STEEP_RECORD_MESSAGES: a boolean for [WithRecordMessages].
 //   - STEEP_SNAPSHOT_DIR: the default snapshot directory
@@ -92,13 +95,12 @@
 //     for neither.
 //   - STEEP_EXPORT_DIR: the directory of [WithArtifacts].
 //   - STEEP_EXPORT: replaces the outputs and stills with a comma-separated
-//     list of outputs, each a path with optional query parameters (see
-//     [reel.ParseFile]), such as "{name}_{status}.gif?max-bytes=5MB". A
-//     path that holds {mark}, with no marks parameter, is instead a still at
-//     each hook mark (see [WithStills]); "events" parameters, such as
-//     "?events=input&events=wait", pick the hook events, by default those of
-//     WithStills. A ".snap" path is such a still of [Harness.View], with no
-//     other parameters. An output that does not parse fails the test.
+//     list of outputs (see [reel.ParseFiles]), each a path with optional
+//     query parameters, such as "{name}_{status}.gif?max-bytes=5MB" or
+//     "{name}_{mark}.snap?match=input-*". A path that holds {mark} with no
+//     marks or match parameter is a still at each hook mark of the events
+//     [WithStills] uses by default. An output that does not parse fails the
+//     test.
 //   - STEEP_EXPORT_FPS, STEEP_EXPORT_SPEED: replace [reel.Profile.FPS] and
 //     [reel.Profile.Speed].
 //   - STEEP_RENDERER_SCALE, STEEP_RENDERER_FONT_FAMILY: appended to
@@ -106,5 +108,5 @@
 //
 // For example:
 //
-//	STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.mp4,{name}_{mark}.png?events=wait' go test -artifacts ./...
+//	STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.mp4,{name}_{mark}.png?match=wait-*' go test -artifacts ./...
 package steep

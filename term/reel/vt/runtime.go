@@ -15,12 +15,14 @@ import (
 )
 
 // Runtime is a pool of emulator instances owned by the caller. Live
-// terminals never exceed the capacity passed to [NewRuntime].
+// terminals never exceed the capacity passed to [NewRuntime], if any.
 // [Runtime.Open] blocks until [Terminal.Close] when the pool is full.
 type Runtime struct {
-	// sem counts live checkouts. Send blocks when the pool is at capacity.
-	// Close receives one token.
+	// sem counts live checkouts, or is nil for a pool without a limit.
+	// Send blocks when the pool is at capacity. Close receives one token.
 	sem chan struct{}
+	// keep is how many idle instances the pool keeps for reuse.
+	keep int
 	// mu guards idle.
 	mu sync.Mutex
 	// idle holds reset instances waiting for the next Open. Each still
@@ -28,13 +30,23 @@ type Runtime struct {
 	idle []*Terminal
 }
 
-// NewRuntime returns a pool that lends at most n instances. n less than 1
-// uses max(1, GOMAXPROCS).
+// NewRuntime returns a pool that lends at most n instances. Zero uses
+// max(1, GOMAXPROCS).
+//
+// A negative n sets no limit, for terminals their callers hold for as long
+// as they choose: with a limit, callers that each hold a terminal while
+// opening another, such as parallel tests, can take every slot and wait on
+// each other forever. Such a pool keeps up to max(1, GOMAXPROCS) closed
+// instances for reuse and lets the rest be collected.
 func NewRuntime(n int) *Runtime {
-	if n < 1 {
-		n = max(1, runtime.GOMAXPROCS(0))
+	procs := max(1, runtime.GOMAXPROCS(0))
+	switch {
+	case n < 0:
+		return &Runtime{keep: procs}
+	case n == 0:
+		n = procs
 	}
-	return &Runtime{sem: make(chan struct{}, n)}
+	return &Runtime{sem: make(chan struct{}, n), keep: n}
 }
 
 // Option configures [Runtime.Open].
@@ -62,16 +74,14 @@ func (r *Runtime) Open(ctx context.Context, cols, rows int, opts ...Option) (*Te
 	if cols <= 0 || rows <= 0 {
 		return nil, fmt.Errorf("vt: size %dx%d", cols, rows)
 	}
-	cfg := openConfig{scrollback: defaultScrollback}
+	cfg := openConfig{scrollback: DefaultScrollback}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
-	select {
-	case r.sem <- struct{}{}:
-	case <-ctx.Done():
-		return nil, fmt.Errorf("vt: open: %w", ctx.Err())
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
 	}
 	term := r.take()
 	var err error
@@ -81,10 +91,31 @@ func (r *Runtime) Open(ctx context.Context, cols, rows int, opts ...Option) (*Te
 		err = term.checkout(cols, rows, cfg.scrollback)
 	}
 	if err != nil {
-		<-r.sem
+		r.release()
 		return nil, err
 	}
 	return term, nil
+}
+
+// acquire takes a slot of a limited pool, waiting until one is free or ctx
+// is done.
+func (r *Runtime) acquire(ctx context.Context) error {
+	if r.sem == nil {
+		return nil
+	}
+	select {
+	case r.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("vt: open: %w", ctx.Err())
+	}
+}
+
+// release frees the slot acquire took.
+func (r *Runtime) release() {
+	if r.sem != nil {
+		<-r.sem
+	}
 }
 
 func (r *Runtime) take() *Terminal {
@@ -98,11 +129,15 @@ func (r *Runtime) take() *Terminal {
 	return term
 }
 
-func (r *Runtime) put(term *Terminal) {
+// put returns a closed term to the pool, keeping it for reuse if reuse is
+// set and the pool keeps fewer than its share.
+func (r *Runtime) put(term *Terminal, reuse bool) {
 	r.mu.Lock()
-	r.idle = append(r.idle, term)
+	if reuse && len(r.idle) < r.keep {
+		r.idle = append(r.idle, term)
+	}
 	r.mu.Unlock()
-	<-r.sem
+	r.release()
 }
 
 func newTerminal(rt *Runtime, cols, rows, scrollback int) (*Terminal, error) {

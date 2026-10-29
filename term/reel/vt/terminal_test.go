@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand/v2"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -139,6 +140,46 @@ func TestXtversionReply(t *testing.T) {
 	}
 }
 
+// TestUnlimitedRuntime checks that a pool without a limit lends more
+// terminals than GOMAXPROCS at once, so callers holding several never wait
+// on each other, and keeps only GOMAXPROCS of them once closed.
+func TestUnlimitedRuntime(t *testing.T) {
+	t.Parallel()
+	rt := NewRuntime(-1)
+	keep := max(1, runtime.GOMAXPROCS(0))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	terms := make([]*Terminal, keep+3)
+	for i := range terms {
+		term, err := rt.Open(ctx, 4, 1)
+		if err != nil {
+			t.Fatalf("open %d of %d: %v", i+1, len(terms), err)
+		}
+		terms[i] = term
+	}
+	for _, term := range terms {
+		if err := term.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rt.mu.Lock()
+	idle := len(rt.idle)
+	rt.mu.Unlock()
+	if idle != keep {
+		t.Fatalf("pool keeps %d closed terminals, want %d", idle, keep)
+	}
+	term, err := rt.Open(ctx, 4, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if len(rt.idle) != keep-1 {
+		t.Fatalf("open did not reuse a kept terminal: %d idle, want %d", len(rt.idle), keep-1)
+	}
+}
+
 func TestLiveInstancesNeverExceedCap(t *testing.T) {
 	t.Parallel()
 	const capN = 2
@@ -219,7 +260,8 @@ func TestResetOnCloseReusesInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := first.Write([]byte("hello")); err != nil {
+	_, err = first.Write([]byte("hello"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	first.Close()
@@ -243,7 +285,8 @@ func BenchmarkWriteOnly(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := term.Write(payload); err != nil {
+		_, err = term.Write(payload)
+		if err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -256,7 +299,8 @@ func BenchmarkScreenOnly(b *testing.B) {
 	}
 	b.Cleanup(func() { _ = term.Close() })
 	payload := []byte("hello \x1b[1;32mworld\x1b[0m\n")
-	if _, err := term.Write(payload); err != nil {
+	_, err = term.Write(payload)
+	if err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
@@ -279,7 +323,8 @@ func BenchmarkWriteAndText(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := term.Write(payload); err != nil {
+		_, err = term.Write(payload)
+		if err != nil {
 			b.Fatal(err)
 		}
 		_ = term.Text()
@@ -296,7 +341,8 @@ func BenchmarkWriteAndScreen(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := term.Write(payload); err != nil {
+		_, err = term.Write(payload)
+		if err != nil {
 			b.Fatal(err)
 		}
 		if term.Screen() == nil {
@@ -723,7 +769,10 @@ func BenchmarkProgramStatusView(b *testing.B) {
 }
 
 // testRuntime is this package's pool. Tests do not use a process-wide one.
-var testRuntime = NewRuntime(0)
+// testRuntime has no limit: tests hold several terminals at once, such as
+// one per case until the test ends, and a limited pool deadlocks once every
+// slot is held by a parallel test waiting for another.
+var testRuntime = NewRuntime(-1)
 
 func TestGridGenerationMatchesScreen(t *testing.T) {
 	t.Parallel()
@@ -852,8 +901,8 @@ func TestStateMatchesAccessors(t *testing.T) {
 	if _, err := term.Write([]byte("C")); err != nil {
 		t.Fatal(err)
 	}
-	if got := term.State(); got.Generation != held.Generation || got.Cursor != held.Cursor {
-		t.Fatalf("state during hold = %+v, want generation %d cursor %+v", got, held.Generation, held.Cursor)
+	if during := term.State(); during.Generation != held.Generation || during.Cursor != held.Cursor {
+		t.Fatalf("state during hold = %+v, want generation %d cursor %+v", during, held.Generation, held.Cursor)
 	}
 }
 
@@ -909,7 +958,7 @@ func TestScreenGenerationSurvivesCleanRefresh(t *testing.T) {
 	}
 	_ = term.Cursor()
 	scr := term.Screen()
-	if scr == nil || len(scr.Text()) == 0 || scr.Text()[0] != 'A' {
+	if scr == nil || scr.Text() == "" || scr.Text()[0] != 'A' {
 		t.Fatalf("text = %q", scr.Text())
 	}
 	for _, row := range scr.Dirty {

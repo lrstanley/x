@@ -5,8 +5,11 @@
 package reel
 
 import (
+	"image"
 	"slices"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/lrstanley/x/term/reel/vt"
 )
@@ -218,4 +221,71 @@ func TestStrokesSkipsOtherInput(t *testing.T) {
 	if got := vt.DecodeInput(nil); got != nil {
 		t.Fatalf("empty input strokes = %+v", got)
 	}
+}
+
+func TestDragPath(t *testing.T) {
+	t.Parallel()
+	pt := image.Pt
+	for name, tc := range map[string]struct {
+		from, to image.Point
+		want     []image.Point
+	}{
+		"same":       {pt(2, 2), pt(2, 2), []image.Point{}},
+		"right":      {pt(0, 1), pt(3, 1), []image.Point{pt(1, 1), pt(2, 1), pt(3, 1)}},
+		"up":         {pt(1, 3), pt(1, 1), []image.Point{pt(1, 2), pt(1, 1)}},
+		"diagonal":   {pt(3, 3), pt(1, 1), []image.Point{pt(2, 2), pt(1, 1)}},
+		"shallow":    {pt(0, 0), pt(5, 2), []image.Point{pt(1, 0), pt(2, 1), pt(3, 1), pt(4, 2), pt(5, 2)}},
+		"steep":      {pt(0, 0), pt(1, 3), []image.Point{pt(0, 1), pt(1, 2), pt(1, 3)}},
+		"steep back": {pt(2, 4), pt(1, 0), []image.Point{pt(2, 3), pt(1, 2), pt(1, 1), pt(1, 0)}},
+	} {
+		got := dragPath(tc.from, tc.to)
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: dragPath(%v, %v) = %v, want %v", name, tc.from, tc.to, got, tc.want)
+		}
+		for i, p := range got {
+			prev := tc.from
+			if i > 0 {
+				prev = got[i-1]
+			}
+			if d := p.Sub(prev); abs(d.X) > 1 || abs(d.Y) > 1 {
+				t.Errorf("%s: step %v to %v skips a cell", name, prev, p)
+			}
+		}
+	}
+}
+
+func TestSessionMouseGestures(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s := openTest(t, 20, 4)
+		// SGR mouse reports with motion while a button is held.
+		write(t, s, "\x1b[?1002h\x1b[?1006h")
+		if err := s.Click(vt.MouseLeft, 1, 0, Repeat(2), Delay(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Drag(vt.MouseLeft, image.Pt(0, 0), image.Pt(2, 1), Delay(100*time.Millisecond)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Key("a", Repeat(3)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Type("bc", Repeat(2)); err != nil {
+			t.Fatal(err)
+		}
+		assertEvents(t, s.Timeline(),
+			`0 output "\x1b[?1002h\x1b[?1006h"`,
+			`0 input "\x1b[<0;2;1M"`,
+			`0 input "\x1b[<0;2;1m"`,
+			`1000 input "\x1b[<0;2;1M"`,
+			`1000 input "\x1b[<0;2;1m"`,
+			`2000 input "\x1b[<0;1;1M"`,
+			`2000 input "\x1b[<32;2;2M"`,
+			`2100 input "\x1b[<32;3;2M"`,
+			`2200 input "\x1b[<0;3;2m"`,
+			`2200 input "a"`,
+			`2200 input "a"`,
+			`2200 input "a"`,
+			`2200 input "bcbc"`,
+		)
+	})
 }

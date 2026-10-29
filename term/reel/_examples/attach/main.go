@@ -68,7 +68,7 @@ func main() {
 			return err
 		}
 		for _, f := range files {
-			fmt.Println(f)
+			fmt.Println(f) //nolint:forbidigo // The example lists the files it wrote.
 		}
 		return nil
 	})
@@ -82,7 +82,8 @@ func run(ctx context.Context, dir string, cols, rows int, ts, tm io.Reader) ([]s
 		return nil, err
 	}
 	defer s.Close()
-	if err = reel.Attach(ctx, s, ts, reel.WithTiming(tm)); err != nil {
+	err = reel.Attach(ctx, s, ts, reel.WithTiming(tm))
+	if err != nil {
 		return nil, err
 	}
 

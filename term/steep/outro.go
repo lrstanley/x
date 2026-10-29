@@ -18,15 +18,15 @@ import (
 )
 
 // Outro returns an effect that shows a card for d after the last frame of a
-// recording. With lines, the card shows them. Without, it shows the
-// *[Result] in [reel.Context.Meta], which a [Harness] export sets: PASS or
-// FAIL, the test name, and the first line of as many failures as fit. Without
-// lines or a *Result, or with a d of zero or less, it shows nothing. Playback
-// speed does not scale d.
+// recording (see [effects.OutroFunc]). With lines, the card shows them.
+// Without, it shows the *[Result] in [reel.Context.Meta], which a [Harness]
+// export sets: PASS or FAIL, the test name, and the first line of as many
+// failures as fit. Without lines or a *Result, or with a d of zero or less,
+// it shows nothing. Playback speed does not scale d.
 //
-// For a failed test, the last frame before the card plays for at least 3s, so
-// the failing screen can be read. List [effects.Pause] before Outro to badge
-// that frame.
+// For a failed test, the last frame before the card plays for at least 3s
+// ([effects.HoldLast]), so the failing screen can be read. List
+// [effects.Pause] before Outro to badge that frame.
 func Outro(d time.Duration, lines ...effects.Line) reel.Effect {
 	return outro{d: d, lines: lines}
 }
@@ -38,29 +38,24 @@ type outro struct {
 
 func (e outro) Start(ctx *reel.Context) (reel.Stage, error) {
 	result, _ := ctx.Meta.(*Result)
-	if e.d <= 0 || (len(e.lines) == 0 && result == nil) {
+	if len(e.lines) == 0 && result == nil {
 		return nil, nil //nolint:nilnil // A nil stage leaves the recording alone.
 	}
-	cards, err := effects.NewCardRenderer(ctx)
+	card, err := effects.OutroFunc(e.d, func(cols, rows int) []effects.Line {
+		if len(e.lines) > 0 {
+			return e.lines
+		}
+		return resultLines(result, cols, rows)
+	}).Start(ctx)
+	if err != nil || card == nil || result == nil || !result.Failed {
+		return card, err
+	}
+	hold, err := effects.HoldLast(failureHold).Start(ctx)
 	if err != nil {
 		return nil, err
 	}
-	failed := result != nil && result.Failed
 	return func(f reel.Frame, emit func(reel.Frame)) {
-		if !f.Last {
-			emit(f)
-			return
-		}
-		if failed && f.Cells != nil {
-			f.Delay = max(f.Delay, failureHold)
-		}
-		emit(f)
-		lines := e.lines
-		if len(lines) == 0 {
-			cols, rows := cards.Grid(f.Cells)
-			lines = resultLines(result, cols, rows)
-		}
-		emit(reel.Frame{Image: cards.Card(f.Cells, lines...), Delay: e.d, Isolated: true})
+		hold(f, func(f reel.Frame) { card(f, emit) })
 	}, nil
 }
 

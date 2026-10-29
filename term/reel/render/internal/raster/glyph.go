@@ -159,7 +159,7 @@ func DrawGlyph(ctx GlyphContext, img draw.Image, area image.Rectangle, cell *vt.
 
 // layoutMaskPixels resolves layout to its destination rectangle and alpha mask.
 func layoutMaskPixels(ctx GlyphContext, layout *Layout, cache *glyphMaskCache) (dr image.Rectangle, pix []uint8, stride int, ok bool) {
-	if mask, ok := layoutSpriteMask(ctx, layout); ok {
+	if mask, sprite := layoutSpriteMask(ctx, layout); sprite {
 		return mask.dr, mask.alpha.Pix, mask.alpha.Stride, true
 	}
 	mask, ok := glyphLayoutMask(layout, cache)
@@ -196,7 +196,7 @@ func accumulateGlyphMask(cov *Coverage, dr image.Rectangle, pix []uint8, stride 
 			ga := row[xi]
 			if ga != 0 {
 				i := rowBase + xi
-				if ga > uint8(pixels[i]) {
+				if uint32(ga) > pixels[i]&0xff {
 					pixels[i] = packCoveragePixel(ga, fg)
 					x := xOrigin + xi
 					if !rowDirty {

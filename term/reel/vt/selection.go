@@ -180,7 +180,8 @@ func (t *Terminal) SelectionOrder(sel Selection) (SelectionOrder, error) {
 		return 0, err
 	}
 	defer t.mod.Free(out, 4)
-	if err = wasmvt.Result("selection order", t.mod.Xghostty_terminal_selection_order(t.term, raw, out)); err != nil {
+	err = wasmvt.Result("selection order", t.mod.Xghostty_terminal_selection_order(t.term, raw, out))
+	if err != nil {
 		return 0, err
 	}
 	return SelectionOrder(t.mod.I32(out, 0)), nil
@@ -210,7 +211,8 @@ func (t *Terminal) SelectionContains(sel Selection, at Point) (bool, error) {
 		return false, err
 	}
 	defer t.mod.Free(out, 1)
-	if err = wasmvt.Result("selection contains", t.mod.Xghostty_terminal_selection_contains(t.term, raw, pt, out)); err != nil {
+	err = wasmvt.Result("selection contains", t.mod.Xghostty_terminal_selection_contains(t.term, raw, pt, out))
+	if err != nil {
 		return false, err
 	}
 	return t.mod.U8(out, 0) != 0, nil
@@ -228,7 +230,8 @@ func (t *Terminal) SelectionAdjust(sel Selection, adj SelectionAdjust) (Selectio
 		return Selection{}, err
 	}
 	defer t.mod.Free(raw, n)
-	if err = wasmvt.Result("selection adjust", t.mod.Xghostty_terminal_selection_adjust(t.term, raw, int32(adj))); err != nil {
+	err = wasmvt.Result("selection adjust", t.mod.Xghostty_terminal_selection_adjust(t.term, raw, int32(adj)))
+	if err != nil {
 		return Selection{}, err
 	}
 	return t.selectionFrom(raw)
@@ -256,8 +259,8 @@ func (t *Terminal) selectAt(op string, optN, refOff int, at Point, call func(ter
 	}
 	defer t.mod.Free(opt, optN)
 	t.mod.Zero(opt, optN)
-	t.mod.SetU32(opt, 0, uint32(optN))
-	copy(t.mod.Slice(opt+int32(refOff), refN), t.mod.Slice(ref, refN))
+	t.mod.SetU32(opt, 0, wasmvt.Uint32(optN))
+	copy(t.mod.Slice(opt+wasmvt.Int32(refOff), refN), t.mod.Slice(ref, refN))
 	return t.selectionCall(op, func(out int32) int32 {
 		return call(t.term, opt, out)
 	})
@@ -274,7 +277,8 @@ func (t *Terminal) selectionCall(op string, call func(out int32) int32) (Selecti
 	defer t.mod.Free(raw, n)
 	t.mod.Zero(raw, n)
 	t.mod.SetU32(raw, 0, uint32(n))
-	if err = wasmvt.Result(op, call(raw)); err != nil {
+	err = wasmvt.Result(op, call(raw))
+	if err != nil {
 		return Selection{}, err
 	}
 	return t.selectionFrom(raw)
@@ -306,7 +310,7 @@ func (t *Terminal) selectionFrom(raw int32) (Selection, error) {
 // stageSelection copies a previously captured GhosttySelection back
 // into Wasm. The caller frees the pointer. A selection that was not
 // produced by this terminal has no raw bytes and returns [ErrNoValue].
-func (t *Terminal) stageSelection(sel Selection) (int32, int, error) {
+func (t *Terminal) stageSelection(sel Selection) (ptr int32, size int, err error) {
 	n := wasmvt.SizeSelection
 	if len(sel.raw) != n {
 		return 0, 0, fmt.Errorf("vt: selection: %w", ErrNoValue)
@@ -338,7 +342,7 @@ func (t *Terminal) selectionTextLocked(sel Selection) (string, error) {
 	t.mod.Zero(opt, optN)
 	t.mod.SetU32(opt, 0, uint32(optN))
 	t.mod.SetI32(opt, wasmvt.TerminalSelectionFormatOptionsEmitOff, wasmvt.FormatterFormatPlain)
-	t.mod.SetU32(opt, wasmvt.TerminalSelectionFormatOptionsSelectionOff, uint32(raw))
+	t.mod.SetI32(opt, wasmvt.TerminalSelectionFormatOptionsSelectionOff, raw)
 	lenPtr, err := t.mod.Alloc(4)
 	if err != nil {
 		return "", err
@@ -358,7 +362,8 @@ func (t *Terminal) selectionTextLocked(sel Selection) (string, error) {
 		return "", err
 	}
 	defer t.mod.Free(buf, need)
-	if err = wasmvt.Result("selection text", t.mod.Xghostty_terminal_selection_format_buf(t.term, opt, buf, int32(need), lenPtr)); err != nil {
+	err = wasmvt.Result("selection text", t.mod.Xghostty_terminal_selection_format_buf(t.term, opt, buf, wasmvt.Int32(need), lenPtr))
+	if err != nil {
 		return "", err
 	}
 	wrote := int(t.mod.U32(lenPtr, 0))
@@ -371,7 +376,7 @@ func (t *Terminal) selectionTextLocked(sel Selection) (string, error) {
 // gridRefLocked converts a Go point into a sized GhosttyGridRef via
 // ghostty_terminal_grid_ref. The caller frees the ref. The temporary
 // point is freed here.
-func (t *Terminal) gridRefLocked(at Point) (int32, int, error) {
+func (t *Terminal) gridRefLocked(at Point) (gridRef int32, size int, err error) {
 	refN := wasmvt.SizeGridRef
 	ref, err := t.mod.Alloc(refN)
 	if err != nil {
@@ -405,7 +410,8 @@ func (t *Terminal) pointFromRef(ref int32, tag PointTag) (Point, error) {
 	}
 	defer t.mod.Free(pt, n)
 	t.mod.Zero(pt, n)
-	if err = wasmvt.Result("point", t.mod.Xghostty_terminal_point_from_grid_ref(t.term, ref, int32(tag), pt)); err != nil {
+	err = wasmvt.Result("point", t.mod.Xghostty_terminal_point_from_grid_ref(t.term, ref, int32(tag), pt))
+	if err != nil {
 		return Point{}, err
 	}
 	return Point{
@@ -423,6 +429,6 @@ func (t *Terminal) writePoint(ptr int32, p Point) {
 	t.mod.Zero(ptr, n)
 	t.mod.SetI32(ptr, wasmvt.PointTagOff, int32(p.Tag))
 	coord := wasmvt.PointValueOff
-	t.mod.SetU16(ptr, coord+wasmvt.PointCoordinateXOff, uint16(p.X))
-	t.mod.SetU32(ptr, coord+wasmvt.PointCoordinateYOff, uint32(p.Y))
+	t.mod.SetU16(ptr, coord+wasmvt.PointCoordinateXOff, wasmvt.Uint16(p.X))
+	t.mod.SetU32(ptr, coord+wasmvt.PointCoordinateYOff, wasmvt.Uint32(p.Y))
 }

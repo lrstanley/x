@@ -93,7 +93,7 @@ func (c *Coverage) ensure() {
 // so the floor is 0 or 1. (v+1+(v>>8))>>8 = q+floor((q+r+1)/256), which is
 // the same correction: 1 exactly when q+r >= 255.
 func div255(v int) uint8 {
-	return uint8((v + 1 + (v >> 8)) >> 8)
+	return uint8(((v + 1 + (v >> 8)) >> 8) & 0xff)
 }
 
 // markRow records an inclusive ink span on y. x0 and x1 are absolute pixels.
@@ -130,7 +130,7 @@ func (c *Coverage) Accumulate(x, y int, alpha uint8, fg color.NRGBA) {
 		return
 	}
 	i := c.index(x, y)
-	if alpha > uint8(c.pixels[i]) {
+	if uint32(alpha) > c.pixels[i]&0xff {
 		c.pixels[i] = packCoveragePixel(alpha, fg)
 		c.markRow(y, x, x)
 	}
@@ -172,7 +172,7 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 		pixels := c.pixels
 		for k := 0; k < n; {
 			p := pixels[i]
-			a := uint8(p)
+			a := uint8(p & 0xff)
 			if a == 0 {
 				i++
 				off += 4
@@ -189,8 +189,8 @@ func (c *Coverage) Composite(dst *image.NRGBA) {
 			} else {
 				inv := 255 - int(a)
 				ai := int(a)
-				pix[off] = div255(int(uint8(p>>8))*ai + int(pix[off])*inv)
-				pix[off+1] = div255(int(uint8(p>>16))*ai + int(pix[off+1])*inv)
+				pix[off] = div255(int(uint8(p>>8&0xff))*ai + int(pix[off])*inv)
+				pix[off+1] = div255(int(uint8(p>>16&0xff))*ai + int(pix[off+1])*inv)
 				pix[off+2] = div255(int(uint8(p>>24))*ai + int(pix[off+2])*inv)
 				pix[off+3] = 255
 			}

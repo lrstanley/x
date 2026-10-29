@@ -140,7 +140,7 @@ func TestAnnotations(t *testing.T) {
 		Assert([]string{"size", "text=ab"}).
 		Assert("missing").
 		RequireNot("missing").
-		AssertMatch(`text=\w+`).
+		AssertFor(reel.Matches(regexp.MustCompile(`text=\w+`))).
 		AssertDimensions(20, 4).
 		SendProgram(setTextMsg("x")).WaitMessage[setTextMsg]()
 	h.AssertHasMessage[setTextMsg]()
@@ -161,7 +161,7 @@ func TestAnnotations(t *testing.T) {
 		kindAssert, kindAssert, kindAssert,
 		kindProgram, kindWaitStart, kindWaitEnd,
 		kindAssert,
-		kindTerminal, kindTerminal, kindTerminal,
+		kindTerminal,
 		kindProgram,
 		kindWaitStart, kindWaitEnd,
 		kindProgram,
@@ -201,7 +201,7 @@ func TestAnnotations(t *testing.T) {
 	findNote(t, got, kindAssert, map[string]any{"assert": "contains", "pass": false, "text": []any{"missing"}})
 	findNote(t, got, kindAssert, map[string]any{"assert": "not_contains", "required": true, "pass": true})
 	findNote(t, got, kindAssert, map[string]any{
-		"assert": "match", "pass": true, "pattern": `text=\w+`,
+		"assert": "condition", "pass": true, "condition": `matches "text=\\w+"`,
 		"matches": []any{map[string]any{"text": "text=ab", "row": 1, "col": 0}},
 	})
 	findNote(t, got, kindAssert, map[string]any{
@@ -212,9 +212,9 @@ func TestAnnotations(t *testing.T) {
 	findNote(t, got, kindProgram, map[string]any{"action": "send", "type": "steep.setTextMsg", "value": "x"})
 	findNote(t, got, kindWaitEnd, map[string]any{"wait": "message", "outcome": "satisfied", "type": "steep.setTextMsg"})
 	findNote(t, got, kindAssert, map[string]any{"assert": "has_message", "pass": true, "type": "steep.setTextMsg"})
-	findNote(t, got, kindTerminal, map[string]any{"action": "clipboard", "text": "clip"})
-	findNote(t, got, kindTerminal, map[string]any{"action": "scrollback_size", "lines": 10})
-	findNote(t, got, kindTerminal, map[string]any{"action": "clear_scrollback"})
+	if n := findNote(t, got, kindTerminal, map[string]any{"action": "clipboard"}); n.fields["text"] != nil {
+		t.Errorf("clipboard note holds its text: %v", n.fields)
+	}
 	findNote(t, got, kindProgram, map[string]any{"action": "mutate", "type": "steep.rootTestModel"})
 	findNote(t, got, kindWaitStart, map[string]any{"wait": "sleep", "duration_ms": 1})
 	findNote(t, got, kindProgram, map[string]any{"action": "quit"})
@@ -275,7 +275,6 @@ func TestAnnotationsWaitOutcomes(t *testing.T) {
 		{"timeout", func(h *Harness) { h.Wait("never", WithTimeout(30*time.Millisecond)) }, outcomeTimeout},
 		{"canceled", func(h *Harness) { h.WaitSettle(WithContext(canceled)) }, outcomeCanceled},
 		{"canceled with no timeout left", func(h *Harness) { h.Wait("never", WithContext(canceled), WithTimeout(time.Nanosecond)) }, outcomeTimeout},
-		{"failed", func(h *Harness) { h.WaitMatch("(") }, outcomeFailed},
 		{"message timeout", func(h *Harness) { h.WaitLiveMessage[setTextMsg](WithTimeout(30 * time.Millisecond)) }, outcomeTimeout},
 		{"message canceled", func(h *Harness) { h.WaitLiveMessage[setTextMsg](WithContext(canceled)) }, outcomeCanceled},
 		{"settle messages canceled", func(h *Harness) { h.WaitSettleMessages(WithContext(canceled)) }, outcomeCanceled},
@@ -294,6 +293,25 @@ func TestAnnotationsWaitOutcomes(t *testing.T) {
 			findNote(t, got[n-2:], kindFailure, map[string]any{})
 			findNote(t, got[n-1:], kindWaitEnd, map[string]any{"outcome": string(tc.outcome)})
 		})
+	}
+}
+
+// TestDoneOutcome checks how a wait's context says it ended: a wait that
+// ended for another reason, such as the session closing, failed.
+func TestDoneOutcome(t *testing.T) {
+	t.Parallel()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	timedOut, cancel := context.WithTimeoutCause(context.Background(), 0, errWaitTimeout)
+	defer cancel()
+	for ctx, want := range map[context.Context]outcome{
+		context.Background(): outcomeFailed,
+		canceled:             outcomeCanceled,
+		timedOut:             outcomeTimeout,
+	} {
+		if got := doneOutcome(ctx); got != want {
+			t.Errorf("doneOutcome = %q, want %q", got, want)
+		}
 	}
 }
 
@@ -384,14 +402,15 @@ func TestHookMetaAnnotations(t *testing.T) {
 		}),
 	)
 	short := WithTimeout(20 * time.Millisecond)
-	h.Wait("size=20x4").WaitNot("missing").WaitMatch(`size`).WaitNotMatch(`missing`).
-		WaitFunc(func(string) bool { return true }).WaitSettle().
+	h.Wait("size=20x4").WaitNot("missing").
+		WaitFor(reel.Matches(regexp.MustCompile(`size`))).WaitFor(reel.NotMatches(regexp.MustCompile(`missing`))).
+		WaitFor(reel.ScreenFunc(func(string) bool { return true })).WaitSettle().
 		Type("ab").Key("enter").Paste("p").
 		Mouse(vt.MousePress, vt.MouseLeft, 1, 1).MouseClick(vt.MouseMiddle, 1, 2).
 		LeftClick(0, 0).RightClick(0, 0).MiddleClick(0, 0).
 		MouseDrag(vt.MouseRight, 0, 0, 1, 1).LeftDrag(0, 0, 1, 1).
 		Assert("size").Require("size").AssertNot("missing").RequireNot("missing").
-		AssertMatch(`size`).RequireMatch(`size`).AssertNotMatch(`missing`).RequireNotMatch(`missing`).
+		AssertFor(reel.Matches(regexp.MustCompile(`size`))).RequireFor(reel.OnCursorLine(reel.NotContains("missing"))).
 		AssertWidth(20).RequireWidth(20).AssertHeight(4).RequireHeight(4).
 		AssertDimensions(20, 4).RequireDimensions(20, 4).
 		SendProgram(setTextMsg("x")).WaitMessage[setTextMsg]()
@@ -425,7 +444,8 @@ func TestHookMetaAnnotations(t *testing.T) {
 			t.Fatal(err)
 		}
 		var fields map[string]any
-		if err := json.Unmarshal(b, &fields); err != nil {
+		err = json.Unmarshal(b, &fields)
+		if err != nil {
 			t.Fatal(err)
 		}
 		for k, v := range fields {
@@ -444,17 +464,6 @@ func TestAnnotationsExit(t *testing.T) {
 	h.program.Kill()
 	runFailing(func() { h.WaitFinished() })
 	findNote(t, notes(t, h.Timeline()), kindExit, map[string]any{"killed": true})
-}
-
-func TestMatchAt(t *testing.T) {
-	t.Parallel()
-	view := "ab\n日本x"
-	if got := matchAt(view, strings.Index(view, "x"), len(view)); got != (match{Text: "x", cell: cell{Row: 1, Col: 4}}) {
-		t.Fatalf("matchAt = %+v", got)
-	}
-	if got := patternMatches(regexp.MustCompile(`b\n日`), view); len(got) != 1 || got[0].cell != (cell{Row: 0, Col: 1}) {
-		t.Fatalf("patternMatches = %+v", got)
-	}
 }
 
 // TestNoteClip checks that a note's text is cut when it is recorded, and the
@@ -480,14 +489,13 @@ func TestAnnotationSchema(t *testing.T) {
 		&inputNote{InputMeta: InputMeta{Kind: InputKindKey, Key: "ctrl+c"}},
 		&inputNote{InputMeta: InputMeta{Kind: InputKindMouse, Mouse: "press", Button: "left"}, At: &cell{Row: 1, Col: 2}},
 		&inputNote{InputMeta: InputMeta{Kind: InputKindDrag, Button: "right"}, At: &cell{}, To: &cell{Row: 3, Col: 4}},
-		&terminalNote{Action: "scrollback_size", Lines: new(0)},
-		&terminalNote{Action: "clipboard", Text: "x", Truncated: true},
+		&terminalNote{Action: "clipboard"},
 		&programNote{Action: "send", Type: "tea.KeyPressMsg", Value: "a"},
 		&programNote{Action: "quit"},
 		&waitNote{ID: 1, WaitMeta: WaitMeta{Kind: WaitKindText}, Text: []string{"a"}, TimeoutMS: 100},
 		&waitNote{ID: 2, WaitMeta: WaitMeta{Kind: WaitKindMessage, Live: true}, Type: "tea.Msg", TimeoutMS: 100},
 		&waitNote{ID: 3, WaitMeta: WaitMeta{Kind: WaitKindSleep}, DurationMS: 5},
-		&waitEndNote{ID: 1, Wait: WaitKindMatch, Outcome: outcomeSatisfied, Matches: []match{{Text: "a", cell: cell{Row: 0, Col: 1}}}},
+		&waitEndNote{ID: 1, Wait: WaitKindText, Outcome: outcomeSatisfied, Matches: []reel.Match{{Text: "a", Row: 0, Col: 1}}},
 		&assertNote{AssertMeta: AssertMeta{Kind: AssertKindContains}, Pass: true, Text: []string{"a"}},
 		&assertNote{AssertMeta: AssertMeta{Kind: AssertKindWidth, Required: true}, Expected: &dims{Width: &one}, Actual: &dims{Width: &two, Height: &one}},
 		&assertNote{AssertMeta: AssertMeta{Kind: AssertKindHasMessage}, Type: "tea.QuitMsg"},
@@ -499,7 +507,7 @@ func TestAnnotationSchema(t *testing.T) {
 		&resultNote{Test: "TestX", Failed: true, Panicked: true, Failures: 0, DurationMS: 9, Stack: "panic(...)"},
 		// Values a newer steep may write.
 		&readyNote{Outcome: "late"},
-		&waitEndNote{ID: 1, Wait: WaitKindFunc, Outcome: "maybe"},
+		&waitEndNote{ID: 1, Wait: WaitKindCondition, Outcome: "maybe"},
 		&snapshotNote{CaptureMeta: CaptureMeta{Kind: "png"}, Path: "x"},
 	}
 	for _, n := range valid {
@@ -516,17 +524,19 @@ func TestAnnotationSchema(t *testing.T) {
 		kind string
 		v    any
 	}{
-		"start without test":      {kindStart, map[string]any{"cols": 1, "rows": 1, "timeout_ms": 1, "check_ms": 1, "settle_ms": 1, "ansi": true, "export": "off"}},
-		"input click without at":  {kindInput, inputNote{InputMeta: InputMeta{Kind: InputKindClick, Button: "left"}}},
-		"terminal size no lines":  {kindTerminal, terminalNote{Action: "scrollback_size"}},
-		"program send no type":    {kindProgram, programNote{Action: "send"}},
-		"wait start bad id":       {kindWaitStart, waitNote{WaitMeta: WaitMeta{Kind: WaitKindFunc}}},
-		"wait text without text":  {kindWaitStart, waitNote{ID: 1, WaitMeta: WaitMeta{Kind: WaitKindText}}},
-		"assert dims no actual":   {kindAssert, assertNote{AssertMeta: AssertMeta{Kind: AssertKindHeight}, Expected: &dims{Height: &one}}},
-		"failure without message": {kindFailure, map[string]any{"text": "x"}},
-		"message without value":   {kindMessage, map[string]any{"type": "x"}},
-		"exit killed false":       {kindExit, map[string]any{"killed": false}},
-		"result negative failure": {kindResult, resultNote{Test: "x", Failures: -1}},
+		"start without test":       {kindStart, map[string]any{"cols": 1, "rows": 1, "timeout_ms": 1, "check_ms": 1, "settle_ms": 1, "ansi": true, "export": "off"}},
+		"input click without at":   {kindInput, inputNote{InputMeta: InputMeta{Kind: InputKindClick, Button: "left"}}},
+		"terminal no action":       {kindTerminal, map[string]any{}},
+		"program send no type":     {kindProgram, programNote{Action: "send"}},
+		"wait start bad id":        {kindWaitStart, waitNote{WaitMeta: WaitMeta{Kind: WaitKindCondition}}},
+		"wait text without text":   {kindWaitStart, waitNote{ID: 1, WaitMeta: WaitMeta{Kind: WaitKindText}}},
+		"wait condition unnamed":   {kindWaitStart, waitNote{ID: 1, WaitMeta: WaitMeta{Kind: WaitKindCondition}}},
+		"assert condition unnamed": {kindAssert, assertNote{AssertMeta: AssertMeta{Kind: AssertKindCondition}, Pass: true}},
+		"assert dims no actual":    {kindAssert, assertNote{AssertMeta: AssertMeta{Kind: AssertKindHeight}, Expected: &dims{Height: &one}}},
+		"failure without message":  {kindFailure, map[string]any{"text": "x"}},
+		"message without value":    {kindMessage, map[string]any{"type": "x"}},
+		"exit killed false":        {kindExit, map[string]any{"killed": false}},
+		"result negative failure":  {kindResult, resultNote{Test: "x", Failures: -1}},
 	} {
 		if _, err := reel.NewAnnotation(tc.kind, tc.v); !errors.Is(err, reel.ErrInvalidAnnotation) {
 			t.Errorf("%s: NewAnnotation = %v, want ErrInvalidAnnotation", name, err)

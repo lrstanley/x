@@ -14,10 +14,8 @@ import (
 	"testing"
 )
 
-var harnessHookExcluded map[string]bool
-
-func init() {
-	harnessHookExcluded = map[string]bool{}
+var harnessHookExcluded = func() map[string]bool {
+	excluded := map[string]bool{}
 	for _, name := range []string{
 		"View", "Title", "LastBellAt", "Bounds", "IsAltScreen", "ModeSetting",
 		"Width", "Height", "Dimensions", "IsFocused", "FgColor", "BgColor",
@@ -25,17 +23,17 @@ func init() {
 		"ProgramStatuses",
 		"Progress", "Notifications", "Clipboard", "WorkingDirectory", "Prompt", "ResizeRequest",
 		"Scrollback", "ScrollbackCount", "ScrollbackOffset", "MessageHistory", "Messages", "LiveMessages",
-		"FinalModel", "FinalModelAs", "mergedOpts", "keyDelay", "requireProgram", "waitStarted", "snapshotOpts", "textSnapshotOpts",
+		"FinalModel", "FinalModelAs", "mergedOpts", "requireProgram", "waitStarted", "snapshotOpts", "textSnapshotOpts",
 		"FilterMessagesType", "FilterMessagesFunc",
-		"drawImage", "drawImageInto", "imageViewport", "dropImageScreen",
-		"check", "waitFinished",
+		"check", "waitFinished", "waitScreen", "assertScreen",
 		"LeftClick", "MiddleClick", "RightClick", "LeftDrag",
 		"KeyUp", "KeyDown", "KeyLeft", "KeyRight", "KeyEsc", "KeyDelete",
 		"KeyBackspace", "KeyCtrlC", "KeyCtrlD",
 	} {
-		harnessHookExcluded[name] = true
+		excluded[name] = true
 	}
-}
+	return excluded
+}()
 
 func TestHookInstrumentation(t *testing.T) {
 	t.Helper()

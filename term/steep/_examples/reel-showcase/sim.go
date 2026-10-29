@@ -77,6 +77,7 @@ type service struct {
 	trend []float64
 }
 
+//nolint:goconst // Sample data.
 func newServices() []service {
 	svcs := []service{
 		{name: "api-gateway", version: "v2.41.0", region: "us-east", rps: 1240, p99: 88},
@@ -128,7 +129,7 @@ type logLine struct {
 
 var (
 	logPaths = []string{"/v1/orders", "/v1/session", "/v2/search", "/v1/invoices", "/healthz", "/v1/media/thumb", "/v1/users/me"}
-	logVerbs = []string{"GET", "GET", "GET", "POST", "PUT", "DELETE"}
+	logVerbs = []string{"GET", "GET", "GET", "POST", "PUT", "DELETE"} //nolint:goconst // Sample data.
 )
 
 // ambientLog returns a plausible line of background traffic.

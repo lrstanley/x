@@ -97,7 +97,7 @@ var EmptyCell = Cell{Content: " ", Width: 1}
 
 func indexedRGB(i uint8) (r, g, b uint8) {
 	if i < 16 {
-		base := [...][3]uint8{
+		base := [16][3]uint8{
 			{0, 0, 0},
 			{205, 0, 0},
 			{0, 205, 0},
@@ -115,10 +115,10 @@ func indexedRGB(i uint8) (r, g, b uint8) {
 			{0, 255, 255},
 			{255, 255, 255},
 		}
-		return base[i][0], base[i][1], base[i][2]
+		return base[i][0], base[i][1], base[i][2] //nolint:gosec // i < 16, the length of base.
 	}
 	if i >= 232 {
-		v := uint8(8 + (int(i)-232)*10)
+		v := uint8((8 + (int(i)-232)*10) & 0xff)
 		return v, v, v
 	}
 	i -= 16

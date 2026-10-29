@@ -46,6 +46,8 @@ func bootPct(t float64) float64 {
 
 // Letters of the wordmark as 8x10 pixel bitmaps. Two pixel rows share a
 // cell, drawn with half blocks, so the pixels come out close to square.
+//
+//nolint:goconst // Bitmap rows.
 var pixelFont = map[rune][]string{
 	'A': {
 		"..####..",

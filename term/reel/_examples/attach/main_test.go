@@ -21,8 +21,8 @@ func TestRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range files {
-		if fi, err := os.Stat(f); err != nil || fi.Size() == 0 {
-			t.Errorf("%s: %v", f, err)
+		if fi, statErr := os.Stat(f); statErr != nil || fi.Size() == 0 {
+			t.Errorf("%s: %v", f, statErr)
 		}
 	}
 

@@ -69,7 +69,7 @@ func (t *Terminal) installCallbacks() error {
 // emulator wants written to the pty. The bytes are copied onto
 // [Terminal.Read] before the callback returns, and while
 // [Terminal.WriteReplies] runs, onto what it returns.
-func (t *Terminal) onWritePty(_, _ int32, data, n int32) {
+func (t *Terminal) onWritePty(_, _, data, n int32) {
 	if n <= 0 || data == 0 || t.replies == nil {
 		return
 	}
@@ -113,8 +113,8 @@ func (t *Terminal) onXtversion(sret, _, _ int32) {
 // for this build (u16, u16, u32, u32). Returns 1 so Ghostty keeps
 // the report.
 func (t *Terminal) onSize(_, _, out int32) int32 {
-	t.mod.SetU16(out, 0, uint16(t.rows))
-	t.mod.SetU16(out, 2, uint16(t.cols))
+	t.mod.SetU16(out, 0, wasmvt.Uint16(t.rows))
+	t.mod.SetU16(out, 2, wasmvt.Uint16(t.cols))
 	t.mod.SetU32(out, 4, t.cellW)
 	t.mod.SetU32(out, 8, t.cellH)
 	return 1
@@ -165,7 +165,7 @@ func (t *Terminal) onNotification(_, _, req int32) {
 // signed byte, so the u8 load is converted through int8.
 func (t *Terminal) onProgress(_, _, req int32) {
 	state := t.mod.I32(req, wasmvt.TerminalProgressReportStateOff)
-	pct := int(int8(t.mod.U8(req, wasmvt.TerminalProgressReportProgressOff)))
+	pct := int(t.mod.I8(req, wasmvt.TerminalProgressReportProgressOff))
 	t.progress = Progress{Reported: true, State: progressState(state), Percent: pct}
 }
 
@@ -175,7 +175,7 @@ func (t *Terminal) onProgress(_, _, req int32) {
 func (t *Terminal) onProgramStatus(_, _, req int32) {
 	state := t.mod.I32(req, wasmvt.TerminalProgramStatusStateOff)
 	kind := t.mod.I32(req, wasmvt.TerminalProgramStatusKindOff)
-	progress := int(int8(t.mod.U8(req, wasmvt.TerminalProgramStatusProgressOff)))
+	progress := int(t.mod.I8(req, wasmvt.TerminalProgramStatusProgressOff))
 	id := t.mod.String(req, wasmvt.TerminalProgramStatusIdOff)
 	if state == programClear {
 		t.setProgramStatusesLocked(deleteProgramStatus(t.statuses, id), true)
@@ -277,7 +277,7 @@ func (t *Terminal) onResizeWindow(_, _, req int32) {
 // request and returns the text/plain payload. An empty mime is
 // treated as plain text. Strings are copied by [wasmvt.Module.String].
 func (t *Terminal) clipboardText(req int32) string {
-	contents := int32(t.mod.U32(req, wasmvt.ClipboardWriteContentsOff))
+	contents := t.mod.I32(req, wasmvt.ClipboardWriteContentsOff)
 	n := int(t.mod.U32(req, wasmvt.ClipboardWriteContentsLenOff))
 	if contents == 0 || n <= 0 {
 		return ""
@@ -288,8 +288,8 @@ func (t *Terminal) clipboardText(req int32) string {
 	var plain string
 	for i := range n {
 		base := int(contents) + i*stride
-		mime := t.mod.String(int32(base), mimeOff)
-		data := t.mod.String(int32(base), dataOff)
+		mime := t.mod.String(wasmvt.Int32(base), mimeOff)
+		data := t.mod.String(wasmvt.Int32(base), dataOff)
 		if mime == "" || strings.HasPrefix(mime, "text/plain") {
 			plain = data
 			if mime != "" {
@@ -305,7 +305,7 @@ func (t *Terminal) clipboardText(req int32) string {
 // reports ClipboardWriteResultSuccess. Allocation failure drops
 // the reply. Ghostty then sees an unanswered request.
 func (t *Terminal) replyClipboardWrite(req int32) {
-	replyIdx := int32(t.mod.U32(req, wasmvt.ClipboardWriteReplyOff))
+	replyIdx := t.mod.I32(req, wasmvt.ClipboardWriteReplyOff)
 	n := wasmvt.SizeClipboardWriteReply
 	ptr, err := t.mod.Alloc(n)
 	if err != nil {
@@ -325,7 +325,7 @@ func (t *Terminal) replyClipboardWrite(req int32) {
 // bytes must stay allocated until Call2 returns. Ghostty reads them during
 // that call.
 func (t *Terminal) onClipboardRead(_, _, req int32) {
-	replyIdx := int32(t.mod.U32(req, wasmvt.ClipboardReadReplyOff))
+	replyIdx := t.mod.I32(req, wasmvt.ClipboardReadReplyOff)
 	text := t.clipRead
 	var content int32
 	if text != "" {

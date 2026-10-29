@@ -15,13 +15,12 @@ import (
 // asciiRunes holds interned one-byte strings for codepoints 1 through 127.
 // rawCell uses them for the common single-rune ASCII path. Codepoint 0
 // stays the " " literal, matching a blank cell.
-var asciiRunes [128]string
-
-func init() {
-	for i := 1; i < len(asciiRunes); i++ {
-		asciiRunes[i] = string(rune(i))
+var asciiRunes = func() (runes [128]string) {
+	for i := 1; i < len(runes); i++ {
+		runes[i] = string(rune(i))
 	}
-}
+	return runes
+}()
 
 // The grid is a snapshot of GhosttyRenderState, not a live view of Wasm
 // memory. refreshLocked calls ghostty_render_state_update, then walks
@@ -77,7 +76,7 @@ func (t *Terminal) refreshLocked() *Buffer {
 	} else {
 		t.grid.ClearDirty()
 	}
-	t.mod.SetU32(t.scratch, 0, uint32(t.rowsIt))
+	t.mod.SetI32(t.scratch, 0, t.rowsIt)
 	if err := wasmvt.Result("row iterator", t.mod.Xghostty_render_state_get(
 		t.render, wasmvt.RenderStateDataRowIterator, t.scratch,
 	)); err != nil {
@@ -130,7 +129,7 @@ func (t *Terminal) decodeRow(y int) bool {
 	)); err != nil {
 		return true
 	}
-	ptr := int32(t.mod.U32(view, 0))
+	ptr := t.mod.I32(view, 0)
 	n := int(t.mod.U32(view, 4))
 	if n > t.cols {
 		n = t.cols
@@ -159,38 +158,46 @@ func (t *Terminal) decodeRow(y int) bool {
 		t.rowFlags[i] = f
 		needs |= f
 	}
-	if needs != 0 {
-		t.mod.SetU32(t.scratch, 0, uint32(t.cells))
-		if err := wasmvt.Result("row cells", t.mod.Xghostty_render_state_row_get(
-			t.rowsIt, wasmvt.RenderStateRowDataCells, t.scratch,
-		)); err != nil {
-			return true
-		}
-		for x := range n {
-			word := t.rowFlags[x]
-			if word == 0 {
-				continue
-			}
-			if t.mod.Xghostty_render_state_row_cells_select(t.cells, int32(x)) != 0 {
-				continue
-			}
-			if word&flagGrapheme != 0 {
-				if text := t.cellUTF8(); text != "" {
-					c := t.grid.CellAt(x, y)
-					if c != nil {
-						c.Content = text
-					}
-				}
-			}
-			if word&flagStyled != 0 {
-				t.applyStyle(x, y)
-			}
-			if word&flagLink != 0 {
-				t.applyLink(x, y)
-			}
-		}
+	if needs != 0 && !t.decodeRowCells(y, n) {
+		return true
 	}
 	t.storeRowWords(y, raw)
+	return true
+}
+
+// decodeRowCells reads the graphemes, styles, and links of the first n cells
+// of row y whose words in t.rowFlags say they have them. It reports false
+// if the read failed.
+func (t *Terminal) decodeRowCells(y, n int) bool {
+	t.mod.SetI32(t.scratch, 0, t.cells)
+	if err := wasmvt.Result("row cells", t.mod.Xghostty_render_state_row_get(
+		t.rowsIt, wasmvt.RenderStateRowDataCells, t.scratch,
+	)); err != nil {
+		return false
+	}
+	for x := range n {
+		flags := t.rowFlags[x]
+		if flags == 0 {
+			continue
+		}
+		if t.mod.Xghostty_render_state_row_cells_select(t.cells, int32(x)) != 0 {
+			continue
+		}
+		if flags&flagGrapheme != 0 {
+			if text := t.cellUTF8(); text != "" {
+				c := t.grid.CellAt(x, y)
+				if c != nil {
+					c.Content = text
+				}
+			}
+		}
+		if flags&flagStyled != 0 {
+			t.applyStyle(x, y)
+		}
+		if flags&flagLink != 0 {
+			t.applyLink(x, y)
+		}
+	}
 	return true
 }
 
@@ -298,7 +305,7 @@ func rawCell(b []byte, dst *Cell) byte {
 		bg = Indexed(content & 0xff)
 	case 3:
 		text = " "
-		bg = color.NRGBA{R: uint8(content), G: uint8(content >> 8), B: uint8(content >> 16), A: 0xff}
+		bg = color.NRGBA{R: uint8(content & 0xff), G: uint8(content >> 8 & 0xff), B: uint8(content >> 16 & 0xff), A: 0xff}
 	}
 	if styleID != 0 {
 		flags |= flagStyled
@@ -316,7 +323,7 @@ func (t *Terminal) cellUTF8() string {
 	const capN = 64
 	data := t.scratch + 32
 	t.mod.Zero(t.scratch, 16)
-	t.mod.SetU32(t.scratch, 0, uint32(data))
+	t.mod.SetI32(t.scratch, 0, data)
 	t.mod.SetU32(t.scratch, 4, capN)
 	rc := t.mod.Xghostty_render_state_row_cells_get(
 		t.cells, wasmvt.RenderStateRowCellsDataGraphemesUtf8, t.scratch,
@@ -408,8 +415,8 @@ func (t *Terminal) applyLink(x, y int) {
 	t.mod.Zero(point, wasmvt.SizePoint)
 	t.mod.SetI32(point, wasmvt.PointTagOff, wasmvt.PointTagViewport)
 	coord := wasmvt.PointValueOff
-	t.mod.SetU16(point, coord+wasmvt.PointCoordinateXOff, uint16(x))
-	t.mod.SetU32(point, coord+wasmvt.PointCoordinateYOff, uint32(y))
+	t.mod.SetU16(point, coord+wasmvt.PointCoordinateXOff, wasmvt.Uint16(x))
+	t.mod.SetU32(point, coord+wasmvt.PointCoordinateYOff, wasmvt.Uint32(y))
 	t.mod.Zero(ref, wasmvt.SizeGridRef)
 	t.mod.SetU32(ref, 0, uint32(wasmvt.SizeGridRef))
 	if t.mod.Xghostty_terminal_grid_ref(t.term, point, ref) != 0 {

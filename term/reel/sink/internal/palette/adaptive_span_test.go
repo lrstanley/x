@@ -135,7 +135,10 @@ func BenchmarkAdaptiveWriteSpan(b *testing.B) {
 			ap := NewAdaptive(true, false)
 			dst := image.NewPaletted(src.Bounds(), ap.pal)
 			ap.Palettize(dst, src)
-			px := src.(*image.NRGBA)
+			px, ok := src.(*image.NRGBA)
+			if !ok {
+				b.Fatalf("frame is a %T, want *image.NRGBA", src)
+			}
 			rp := rgbaPixels{pix: px.Pix, stride: px.Stride, rect: px.Rect}
 			area := px.Rect.Intersect(dst.Bounds())
 			ap.resetSpans(1)

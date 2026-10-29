@@ -25,7 +25,7 @@ const (
 
 	// DefaultTimeout is the default timeout used by [Harness] blocking waits.
 	DefaultTimeout = 2 * time.Second
-	// DefaultCheckInterval is the default polling interval used by [Harness] waits.
+	// DefaultCheckInterval is the default [WithCheck] interval.
 	DefaultCheckInterval = 10 * time.Millisecond
 	// DefaultSettleTimeout is the default settle timeout used by [Harness] settle
 	// waits. Settle timeouts are capped at 80% of the [WithTimeout] timeout.
@@ -53,8 +53,6 @@ type options struct {
 	// harness is the harness whose timeline waits and assertions record
 	// into, or nil to record nothing.
 	harness *Harness
-	// required marks an assertion as a requirement in its record.
-	required bool
 
 	envVars []string
 	// color is 0 to leave envVars as they are.
@@ -68,7 +66,7 @@ type options struct {
 	// artifacts is empty for [testing.TB.ArtifactDir].
 	artifacts string
 	policy    exportPolicy
-	stills    []hookStill
+	stills    []reel.File
 
 	recordMessages bool
 
@@ -165,13 +163,6 @@ func withHarness(h *Harness) Option {
 	}
 }
 
-// withRequired records an assertion as a requirement.
-func withRequired() Option {
-	return func(cfg *options) {
-		cfg.required = true
-	}
-}
-
 // WithWindowSize configures the starting terminal size.
 //
 // See also [DefaultTermWidth] and [DefaultTermHeight].
@@ -216,9 +207,11 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithCheck configures how often polling waits re-check their condition.
-// Defaults to [DefaultCheckInterval]. While exporting, it also paces action
-// marks (see [Harness.Mark]).
+// WithCheck configures how often [Harness.WaitSettleMessages] re-checks
+// for messages. Waits on the screen do not poll: they check it whenever it
+// changes. Defaults to [DefaultCheckInterval]. While exporting, it is also
+// how long the program's output must stay quiet before an action is marked
+// (see [Harness.Mark]).
 //
 // Environment: STEEP_CHECK (overrides this option unless [WithIgnoreEnv] is set).
 func WithCheck(interval time.Duration) Option {
@@ -265,8 +258,9 @@ func WithScrollOnInput(enable bool) Option {
 }
 
 // WithANSI determines whether ANSI sequences are kept (the default) in the
-// output that waits, assertions, and [Harness.AssertSnapshot] compare. It does
-// not change JSON snapshots, images, or recordings.
+// output that assertions and [Harness.AssertSnapshot] compare. It does not
+// change JSON snapshots, images, or recordings, or the screen text waits
+// check, which has none.
 func WithANSI(enable bool) Option {
 	return func(cfg *options) {
 		cfg.stripANSI = !enable
@@ -297,18 +291,6 @@ func WithIgnoreEnv(ignore bool) Option {
 func WithSlow(d time.Duration) Option {
 	return func(cfg *options) {
 		cfg.slow = d
-	}
-}
-
-// WithTypingDelay makes [Harness.Type] and [Harness.Key] pause for d after
-// each key press (see [reel.WithTypingDelay]), so recordings show text being
-// typed. Unlike [WithSlow], it only slows input. Passed to Type or Key, it
-// sets the pause for that call.
-//
-// Environment: STEEP_TYPING_DELAY.
-func WithTypingDelay(d time.Duration) Option {
-	return func(cfg *options) {
-		cfg.typingDelay = d
 	}
 }
 

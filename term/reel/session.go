@@ -23,8 +23,10 @@ import (
 var ErrClosed = errors.New("reel: session is closed")
 
 // defaultRuntime is the emulator pool sessions open from unless
-// [WithRuntime] names another. Its size follows GOMAXPROCS.
-var defaultRuntime = vt.NewRuntime(0)
+// [WithRuntime] names another. It has no limit: a session is held for as
+// long as its caller chooses, so with one, callers that each hold a
+// session while opening another could wait on each other forever.
+var defaultRuntime = vt.NewRuntime(-1)
 
 var _ io.ReadWriter = (*Session)(nil)
 
@@ -51,6 +53,8 @@ type Session struct {
 	// can read them without mu.
 	closed  atomic.Bool
 	focused atomic.Bool
+	// done is closed by Close, to end waits.
+	done chan struct{}
 	// pty is the [Exec] process's pseudo-terminal, resized by Resize until
 	// it hangs up. running is set from Exec until the exit is recorded.
 	// Both are guarded by mu.
@@ -68,8 +72,9 @@ type Session struct {
 type SessionOption func(*sessionConfig)
 
 type sessionConfig struct {
-	runtime       *vt.Runtime
-	vtOpts        []vt.Option
+	runtime *vt.Runtime
+	// scrollback is [Header.Scrollback].
+	scrollback    int
 	title         string
 	skipPristine  bool
 	scrollOnInput bool
@@ -78,7 +83,7 @@ type sessionConfig struct {
 }
 
 // WithRuntime opens the session's terminal from rt instead of the default
-// pool, which lends at most GOMAXPROCS terminals at once.
+// pool, which has no limit on the terminals it lends, such as to cap them.
 func WithRuntime(rt *vt.Runtime) SessionOption {
 	return func(cfg *sessionConfig) {
 		if rt != nil {
@@ -88,10 +93,13 @@ func WithRuntime(rt *vt.Runtime) SessionOption {
 }
 
 // WithScrollback sets how many lines of history the terminal keeps. Zero keeps
-// none. A negative count keeps the default of 1000.
+// none. A negative count keeps the default of 1000. It is recorded in the
+// timeline's [Header]; [Session.SetScrollbackSize] changes it later.
 func WithScrollback(lines int) SessionOption {
 	return func(cfg *sessionConfig) {
-		cfg.vtOpts = append(cfg.vtOpts, vt.WithScrollbackLines(lines))
+		if lines >= 0 {
+			cfg.scrollback = lines
+		}
 	}
 }
 
@@ -124,49 +132,24 @@ func WithoutQueries() SessionOption {
 
 // WithTypingDelay makes [Session.Type] and [Session.Key] pause for d after
 // each key press, so a recording shows text being typed. Zero or less (the
-// default) sends keys with no pause. [KeyDelay] overrides it for one call.
+// default) sends keys with no pause. [Delay] overrides it for one call.
 // The pause is a [time.Sleep], so it costs no real time inside a
 // [testing/synctest] bubble.
 func WithTypingDelay(d time.Duration) SessionOption {
 	return func(cfg *sessionConfig) { cfg.typingDelay = d }
 }
 
-// KeyOption configures one call to [Session.Type] or [Session.Key].
-type KeyOption func(*keyConfig)
-
-type keyConfig struct {
-	delay time.Duration
-}
-
-// KeyDelay pauses for d after each key press of the call, instead of the
-// [WithTypingDelay] delay. Zero or less sends the keys with no pause.
-func KeyDelay(d time.Duration) KeyOption {
-	return func(cfg *keyConfig) { cfg.delay = d }
-}
-
-// keyDelay returns the pause after each key press: the session's, unless
-// opts set one.
-func (s *Session) keyDelay(opts []KeyOption) time.Duration {
-	cfg := keyConfig{delay: s.typingDelay}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
-	return cfg.delay
-}
-
 // Open starts a session on a cols by rows terminal. It blocks until the
 // pool has room or ctx is canceled. The session starts focused. Close it to
 // return the terminal to the pool.
 func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session, error) {
-	cfg := sessionConfig{runtime: defaultRuntime, scrollOnInput: true}
+	cfg := sessionConfig{runtime: defaultRuntime, scrollOnInput: true, scrollback: vt.DefaultScrollback}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
-	term, err := cfg.runtime.Open(ctx, cols, rows, cfg.vtOpts...)
+	term, err := cfg.runtime.Open(ctx, cols, rows, vt.WithScrollbackLines(cfg.scrollback))
 	if err != nil {
 		return nil, err
 	}
@@ -174,9 +157,12 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 	if c, ok := term.CursorColor(); ok {
 		theme.Cursor = c
 	}
-	h := Header{Cols: cols, Rows: rows, Theme: theme, Title: cfg.title, SkipPristine: cfg.skipPristine}
+	h := Header{
+		Cols: cols, Rows: rows, Theme: theme, Title: cfg.title,
+		SkipPristine: cfg.skipPristine, Scrollback: cfg.scrollback,
+	}
 	s := &Session{
-		term: term, timeline: newTimeline(h),
+		term: term, timeline: newTimeline(h), done: make(chan struct{}),
 		scrollOnInput: cfg.scrollOnInput, noQueries: cfg.noQueries,
 		typingDelay: cfg.typingDelay,
 	}
@@ -254,6 +240,7 @@ func (s *Session) Close() error {
 	if closed {
 		return nil
 	}
+	close(s.done)
 	return s.term.Close()
 }
 
@@ -274,106 +261,6 @@ func (s *Session) change(fn func() (Event, error)) error {
 		s.timeline.append(ev)
 	}
 	return nil
-}
-
-// send sends the program encode's bytes and appends them as an [Input]
-// event. Nothing happens when encode returns no bytes. With snap, a
-// scrolled viewport first goes back to the bottom (unless
-// [WithScrollOnInput] is off), appending a [Scroll] event.
-func (s *Session) send(encode func() ([]byte, error), snap bool) error {
-	return s.change(func() (Event, error) {
-		data, err := encode()
-		if err != nil || len(data) == 0 {
-			return nil, err
-		}
-		if snap && s.scrollOnInput && s.term.ScrollbackOffset() != 0 {
-			if err = s.term.ScrollToBottom(); err != nil {
-				return nil, err
-			}
-			s.timeline.append(Scroll{})
-		}
-		return Input{Data: data}, s.term.SendInput(data)
-	})
-}
-
-// Type sends text as one key press per character. Characters are pressed as
-// on a US layout, with shift for upper case and shifted symbols; others,
-// including control characters such as "\n", are sent as is. For keys with
-// modifiers, use [Session.Key]. A scrolled viewport goes back to the bottom
-// first (see [WithScrollOnInput]).
-//
-// Without a delay ([WithTypingDelay], [KeyDelay]), the text is one [Input]
-// event, sent only if every key encodes. With one, each key press is its own
-// [Input] event followed by the pause, and the keys before one that fails to
-// encode have been sent.
-func (s *Session) Type(text string, opts ...KeyOption) error {
-	d := s.keyDelay(opts)
-	if d <= 0 {
-		return s.send(func() ([]byte, error) { return s.encodeText(text) }, true)
-	}
-	for _, r := range text {
-		if err := s.send(func() ([]byte, error) { return s.encodeText(string(r)) }, true); err != nil {
-			return err
-		}
-		time.Sleep(d)
-	}
-	return nil
-}
-
-// encodeText encodes each character of text as the key press that types it.
-func (s *Session) encodeText(text string) ([]byte, error) {
-	var data []byte
-	for _, r := range text {
-		b, err := s.term.EncodeKey(vt.RuneKey(r))
-		if err != nil {
-			return nil, err
-		}
-		data = append(data, b...)
-	}
-	return data, nil
-}
-
-// Key sends one key press, named as [vt.ParseKey] accepts, such as "enter",
-// "ctrl+c", "shift+tab", "f5", or "a". An unknown name is an error.
-//
-// The key is encoded per the program's keyboard mode, such as the kitty
-// keyboard protocol. A combination the mode cannot encode (such as
-// ctrl+shift+a without kitty) is an error and sends nothing. A scrolled
-// viewport goes back to the bottom first (see [WithScrollOnInput]). Key
-// pauses after the press for the [WithTypingDelay] or [KeyDelay] delay.
-func (s *Session) Key(name string, opts ...KeyOption) error {
-	key, perr := vt.ParseKey(name)
-	if perr != nil {
-		return perr
-	}
-	d := s.keyDelay(opts)
-	err := s.send(func() ([]byte, error) {
-		data, err := s.term.EncodeKey(key)
-		if err == nil && len(data) == 0 {
-			err = fmt.Errorf("reel: key %q has no encoding in the program's keyboard mode", name)
-		}
-		return data, err
-	}, true)
-	if err == nil {
-		time.Sleep(d)
-	}
-	return err
-}
-
-// Paste sends text as a paste, bracketed when the program has enabled
-// bracketed paste mode. A scrolled viewport goes back to the bottom first (see
-// [WithScrollOnInput]).
-func (s *Session) Paste(text string) error {
-	return s.send(func() ([]byte, error) { return s.term.EncodePaste(text) }, true)
-}
-
-// Mouse sends a mouse event at zero-based cell (x, y). Nothing is sent
-// unless the program enabled a mouse tracking mode that reports the event.
-// Unlike keys, it leaves a scrolled viewport where it is.
-func (s *Session) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) error {
-	return s.send(func() ([]byte, error) {
-		return s.term.EncodeMouse(vt.MouseEvent{Action: action, Button: button, X: x, Y: y})
-	}, false)
 }
 
 // Focus sets whether the terminal window has focus and appends a [Focus]
@@ -426,6 +313,36 @@ func (s *Session) scroll(move func() error) error {
 			return nil, nil
 		}
 		return Scroll{Offset: after}, nil
+	})
+}
+
+// SetScrollbackSize sets how many lines of history the terminal keeps, as
+// [WithScrollback] does when opening, and appends a [ScrollbackSize] event.
+// Zero or less keeps none. Lowering it drops the oldest lines. The program is
+// not told.
+func (s *Session) SetScrollbackSize(lines int) error {
+	lines = max(lines, 0)
+	return s.change(func() (Event, error) {
+		if err := s.term.SetScrollbackMaxLines(lines); err != nil {
+			return nil, err
+		}
+		return ScrollbackSize{Lines: lines}, nil
+	})
+}
+
+// clearScrollback is ED 3 (erase saved lines), which clears a terminal's
+// history.
+const clearScrollback = "\x1b[3J"
+
+// ClearScrollback erases the terminal's history and appends it as the
+// [Output] the terminal would get from a program doing the same, so players
+// of the recording clear theirs too. The program is not told.
+func (s *Session) ClearScrollback() error {
+	return s.change(func() (Event, error) {
+		if err := s.term.ClearScrollback(); err != nil {
+			return nil, err
+		}
+		return Output{Data: []byte(clearScrollback)}, nil
 	})
 }
 

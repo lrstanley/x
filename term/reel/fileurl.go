@@ -12,6 +12,7 @@ import (
 	"maps"
 	"math"
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -24,8 +25,7 @@ import (
 // fileParam is a query parameter of [ParseFile].
 type fileParam struct {
 	name string
-	// cast is set for a ".cast" parameter; formats lists the others'.
-	cast    bool
+	// formats are the output formats it applies to (see [formatOf]).
 	formats []sink.Format
 	repeat  bool
 	apply   func(f *File, values []string) error
@@ -34,7 +34,7 @@ type fileParam struct {
 // fileParams are the query parameters of [ParseFile], in the order their
 // options are added.
 var fileParams = []fileParam{
-	{name: "version", cast: true, apply: func(f *File, v []string) error {
+	{name: "version", formats: []sink.Format{formatCast}, apply: func(f *File, v []string) error {
 		switch v[0] {
 		case "2":
 			f.Cast = CastV2
@@ -45,11 +45,20 @@ var fileParams = []fileParam{
 		}
 		return nil
 	}},
-	{name: "marks", formats: []sink.Format{sink.FormatGIF, sink.FormatPNG, sink.FormatMP4, sink.FormatWebM, sink.FormatWebP}, repeat: true, apply: func(f *File, v []string) error {
+	{name: "marks", formats: stillFormats, repeat: true, apply: func(f *File, v []string) error {
 		if slices.Contains(v, "") {
 			return errors.New("a mark label is empty")
 		}
 		f.Marks = v
+		return nil
+	}},
+	{name: "match", formats: stillFormats, repeat: true, apply: func(f *File, v []string) error {
+		for _, pattern := range v {
+			if _, err := path.Match(pattern, ""); err != nil || pattern == "" {
+				return fmt.Errorf("%q is not a pattern", pattern)
+			}
+		}
+		f.MarkMatch = v
 		return nil
 	}},
 	{name: "optimize", formats: []sink.Format{sink.FormatGIF, sink.FormatPNG}, repeat: true, apply: func(f *File, v []string) error {
@@ -116,6 +125,11 @@ var fileParams = []fileParam{
 	}},
 }
 
+// stillFormats are the formats that can be stills at marks.
+var stillFormats = []sink.Format{
+	sink.FormatGIF, sink.FormatPNG, sink.FormatMP4, sink.FormatWebM, sink.FormatWebP, formatSnap, formatJSON,
+}
+
 // schemeRe matches a URL scheme. One letter is a Windows drive, not a
 // scheme.
 var schemeRe = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.-]+)://`)
@@ -139,7 +153,10 @@ var fileDriveRe = regexp.MustCompile(`^/[A-Za-z]:/`)
 // as is an unknown or repeated one ("marks" and "optimize" repeat):
 //
 //   - version=2|3: [File.Cast] (".cast").
-//   - marks=label: adds to [File.Marks]; the path must hold {mark}.
+//   - marks=label: adds to [File.Marks]; the path must hold {mark}. Not
+//     for ".cast".
+//   - match=pattern: adds to [File.MarkMatch], such as "input-*"; the path
+//     must hold {mark}. Not for ".cast".
 //   - optimize=none|all|frames|dirty|quantize: [sink.WithOptimize], the
 //     flags OR'd together (".gif", ".png").
 //   - max-frames=n: [sink.WithMaxFrames] (".gif").
@@ -159,19 +176,16 @@ var fileDriveRe = regexp.MustCompile(`^/[A-Za-z]:/`)
 // For outputs written in code, see [MustFiles].
 func ParseFile(raw string) (File, error) {
 	var f File
-	path, query, _ := strings.Cut(raw, "?")
-	path, err := FilePath(path)
+	name, query, _ := strings.Cut(raw, "?")
+	name, err := FilePath(name)
 	if err != nil {
 		return f, err
 	}
-	f.Path = path
+	f.Path = name
 
-	var format sink.Format
-	isCast := strings.EqualFold(filepath.Ext(path), castExt)
-	if !isCast {
-		if format, err = sink.FormatOf(path); err != nil {
-			return f, fmt.Errorf("reel: output %q: %w", raw, err)
-		}
+	format, err := formatOf(name)
+	if err != nil {
+		return f, fmt.Errorf("reel: output %q: %w", raw, err)
 	}
 
 	values, err := url.ParseQuery(query)
@@ -188,8 +202,8 @@ func ParseFile(raw string) (File, error) {
 		if !ok {
 			continue
 		}
-		if p.cast != isCast || !isCast && !slices.Contains(p.formats, format) {
-			return f, fmt.Errorf("reel: output %q: parameter %q does not apply to %s files", raw, p.name, filepath.Ext(path))
+		if !slices.Contains(p.formats, format) {
+			return f, fmt.Errorf("reel: output %q: parameter %q does not apply to %s files", raw, p.name, filepath.Ext(name))
 		}
 		if len(v) > 1 && !p.repeat {
 			return f, fmt.Errorf("reel: output %q: parameter %q is repeated", raw, p.name)
@@ -198,32 +212,48 @@ func ParseFile(raw string) (File, error) {
 			return f, fmt.Errorf("reel: output %q: %s: %w", raw, p.name, err)
 		}
 	}
-	if len(f.Marks) > 0 && !strings.Contains(path, "{"+varMark+"}") {
-		return f, fmt.Errorf("reel: output %q: a path with marks must hold {%s}", raw, varMark)
+	return f, f.checkMarkPath()
+}
+
+// ParseFiles parses a comma-separated list of outputs, each as [ParseFile]
+// does, skipping empty items and the spaces around each, such as
+// "{name}.gif, {name}_{mark}.snap?match=input-*". An output with a comma in
+// its path cannot be written this way.
+func ParseFiles(raw string) ([]File, error) {
+	var files []File
+	for part := range strings.SplitSeq(raw, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		f, err := ParseFile(part)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
 	}
-	return f, nil
+	return files, nil
 }
 
 // FilePath returns the path of an output written as a path or "file://" URL
 // (see [ParseFile]), with no query.
 func FilePath(raw string) (string, error) {
-	path := raw
-	if m := schemeRe.FindStringSubmatch(path); m != nil {
+	name := raw
+	if m := schemeRe.FindStringSubmatch(name); m != nil {
 		if !strings.EqualFold(m[1], "file") {
 			return "", fmt.Errorf("reel: path %q: unsupported scheme %q", raw, m[1])
 		}
 		var err error
-		if path, err = url.PathUnescape(path[len(m[0]):]); err != nil {
+		if name, err = url.PathUnescape(name[len(m[0]):]); err != nil {
 			return "", fmt.Errorf("reel: path %q: %w", raw, err)
 		}
-		if fileDriveRe.MatchString(path) {
-			path = path[1:]
+		if fileDriveRe.MatchString(name) {
+			name = name[1:]
 		}
 	}
-	if path == "" {
+	if name == "" {
 		return "", fmt.Errorf("reel: path %q is empty", raw)
 	}
-	return path, nil
+	return name, nil
 }
 
 // parseOptimize ORs together optimize parameter values.

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -18,7 +17,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/vt"
 	"github.com/lrstanley/x/term/steep/snapshot"
@@ -164,7 +162,9 @@ func (*inputNote) kind() string { return kindInput }
 func (n *inputNote) clip()      { n.Text = reel.ClipText(n.Text, &n.Truncated) }
 
 // mouseNames and buttonNames are the annotation names of mouse actions and
-// buttons.
+// buttons. Others are named by mouseName and buttonName's fallbacks.
+//
+//nolint:exhaustive // Only the actions and buttons steep sends have names.
 var (
 	mouseNames  = map[vt.MouseAction]string{vt.MousePress: "press", vt.MouseRelease: "release", vt.MouseMotion: "motion"}
 	buttonNames = map[vt.MouseButton]string{vt.MouseLeft: "left", vt.MouseRight: "right", vt.MouseMiddle: "middle"}
@@ -175,7 +175,7 @@ func mouseName(action vt.MouseAction) string {
 	if name, ok := mouseNames[action]; ok {
 		return name
 	}
-	return "unknown"
+	return unknownName
 }
 
 // buttonName returns the annotation name of b, or "none", such as for
@@ -188,16 +188,14 @@ func buttonName(b vt.MouseButton) string {
 }
 
 // terminalNote is a "steep.terminal" annotation, for terminal changes no
-// other timeline event records.
+// other timeline event records. It leaves out the clipboard's text, which
+// may be a secret.
 type terminalNote struct {
-	Action    string `json:"action"`
-	Lines     *int   `json:"lines,omitzero"`
-	Text      string `json:"text,omitzero"`
-	Truncated bool   `json:"truncated,omitzero"`
+	Action string `json:"action"`
 }
 
 func (*terminalNote) kind() string { return kindTerminal }
-func (n *terminalNote) clip()      { n.Text = reel.ClipText(n.Text, &n.Truncated) }
+func (*terminalNote) clip()        {}
 
 // programNote is a "steep.program" annotation, for actions on the program
 // that bypass its terminal.
@@ -216,45 +214,10 @@ func valueNote(v any) (typ, value string) {
 	return fmt.Sprintf("%T", v), fmt.Sprintf("%+v", v)
 }
 
-// match is where text was found on the screen.
-type match struct {
-	Text string `json:"text"`
-	cell
-}
-
-// matchAt returns the match of view[i:j], positioned in cells.
-func matchAt(view string, i, j int) match {
-	line := strings.LastIndexByte(view[:i], '\n') + 1
-	return match{
-		Text: view[i:j],
-		cell: cell{Row: strings.Count(view[:line], "\n"), Col: ansi.StringWidth(view[line:i])},
-	}
-}
-
-func clipMatches(matches []match, truncated *bool) {
+func clipMatches(matches []reel.Match, truncated *bool) {
 	for i := range matches {
 		matches[i].Text = reel.ClipText(matches[i].Text, truncated)
 	}
-}
-
-// textMatches returns where each of texts first appears in view, skipping
-// those that do not.
-func textMatches(view string, texts []string) []match {
-	var out []match
-	for _, text := range texts {
-		if i := strings.Index(view, text); i >= 0 && text != "" {
-			out = append(out, matchAt(view, i, i+len(text)))
-		}
-	}
-	return out
-}
-
-// patternMatches returns where re first matches view, if it does.
-func patternMatches(re *regexp.Regexp, view string) []match {
-	if loc := re.FindStringIndex(view); loc != nil {
-		return []match{matchAt(view, loc[0], loc[1])}
-	}
-	return nil
 }
 
 func typeName[T any]() string {
@@ -266,7 +229,7 @@ type waitNote struct {
 	ID int64 `json:"id"`
 	WaitMeta
 	Text       []string `json:"text,omitzero"`
-	Pattern    string   `json:"pattern,omitzero"`
+	Condition  string   `json:"condition,omitzero"`
 	Type       string   `json:"type,omitzero"`
 	TimeoutMS  int64    `json:"timeout_ms,omitzero"`
 	SettleMS   int64    `json:"settle_ms,omitzero"`
@@ -278,18 +241,18 @@ func (*waitNote) kind() string { return kindWaitStart }
 
 func (n *waitNote) clip() {
 	n.Text = clipAll(n.Text, &n.Truncated)
-	n.Pattern = reel.ClipText(n.Pattern, &n.Truncated)
+	n.Condition = reel.ClipText(n.Condition, &n.Truncated)
 }
 
 // waitEndNote is a "steep.wait.end" annotation.
 type waitEndNote struct {
-	ID        int64    `json:"id"`
-	Wait      WaitKind `json:"wait"`
-	Outcome   outcome  `json:"outcome"`
-	ElapsedMS int64    `json:"elapsed_ms"`
-	Matches   []match  `json:"matches,omitzero"`
-	Type      string   `json:"type,omitzero"`
-	Truncated bool     `json:"truncated,omitzero"`
+	ID        int64        `json:"id"`
+	Wait      WaitKind     `json:"wait"`
+	Outcome   outcome      `json:"outcome"`
+	ElapsedMS int64        `json:"elapsed_ms"`
+	Matches   []reel.Match `json:"matches,omitzero"`
+	Type      string       `json:"type,omitzero"`
+	Truncated bool         `json:"truncated,omitzero"`
 }
 
 func (*waitEndNote) kind() string { return kindWaitEnd }
@@ -329,15 +292,12 @@ func (w *waitRecord) ended(o outcome) {
 	}
 }
 
-// foundOn sets the wait as satisfied by view. find, if not nil, locates
-// what the wait waited for.
-func (w *waitRecord) foundOn(view string, find func(view string) []match) {
-	if w == nil {
-		return
-	}
-	w.end.Outcome = outcomeSatisfied
-	if find != nil {
-		w.end.Matches = find(view)
+// satisfied sets the wait as satisfied, where matches locate what it
+// waited for.
+func (w *waitRecord) satisfied(matches []reel.Match) {
+	if w != nil {
+		w.end.Outcome = outcomeSatisfied
+		w.end.Matches = matches
 	}
 }
 
@@ -359,16 +319,18 @@ func (w *waitRecord) finish() {
 	w.h.annotate(&w.end)
 }
 
-// errWaitTimeout is the context cause of a message wait that timed out.
-var errWaitTimeout = errors.New("steep: wait timed out")
+// errWaitTimeout is the context cause of a wait that timed out.
+var errWaitTimeout = errors.New("steep: timeout")
 
-// doneOutcome returns how a message wait on ctx, a context with
-// errWaitTimeout as its timeout cause, ended without a match.
+// doneOutcome returns how a wait on ctx, a context with errWaitTimeout as
+// its timeout cause, ended without a match. A wait whose timeout passed timed
+// out, even if its parent was canceled too.
 func doneOutcome(ctx context.Context) outcome {
+	deadline, ok := ctx.Deadline()
 	switch {
 	case ctx.Err() == nil:
 		return outcomeFailed
-	case errors.Is(context.Cause(ctx), errWaitTimeout):
+	case errors.Is(context.Cause(ctx), errWaitTimeout), ok && !time.Now().Before(deadline):
 		return outcomeTimeout
 	default:
 		return outcomeCanceled
@@ -384,35 +346,30 @@ type dims struct {
 // assertNote is a "steep.assert" annotation.
 type assertNote struct {
 	AssertMeta
-	Pass      bool     `json:"pass"`
-	Text      []string `json:"text,omitzero"`
-	Pattern   string   `json:"pattern,omitzero"`
-	Type      string   `json:"type,omitzero"`
-	Expected  *dims    `json:"expected,omitzero"`
-	Actual    *dims    `json:"actual,omitzero"`
-	Matches   []match  `json:"matches,omitzero"`
-	Truncated bool     `json:"truncated,omitzero"`
+	Pass      bool         `json:"pass"`
+	Text      []string     `json:"text,omitzero"`
+	Condition string       `json:"condition,omitzero"`
+	Type      string       `json:"type,omitzero"`
+	Expected  *dims        `json:"expected,omitzero"`
+	Actual    *dims        `json:"actual,omitzero"`
+	Matches   []reel.Match `json:"matches,omitzero"`
+	Truncated bool         `json:"truncated,omitzero"`
 }
 
 func (*assertNote) kind() string { return kindAssert }
 
 func (n *assertNote) clip() {
 	n.Text = clipAll(n.Text, &n.Truncated)
-	n.Pattern = reel.ClipText(n.Pattern, &n.Truncated)
+	n.Condition = reel.ClipText(n.Condition, &n.Truncated)
 	clipMatches(n.Matches, &n.Truncated)
 }
 
-// noteAssert records n for the options' harness, if any. find, if not nil,
-// returns where a passing assertion found what it asserted.
-func (o options) noteAssert(kind AssertKind, n assertNote, find func() []match) {
+// noteAssert records n for the options' harness, if any.
+func (o options) noteAssert(n assertNote) {
 	if o.harness == nil {
 		return
 	}
 	o.harness.tb.Helper()
-	n.AssertMeta = AssertMeta{Kind: kind, Required: o.required}
-	if n.Pass && find != nil {
-		n.Matches = find()
-	}
 	o.harness.annotate(&n)
 }
 

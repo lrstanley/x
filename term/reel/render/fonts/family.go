@@ -228,11 +228,15 @@ func loadFace(f face) (*opentype.Font, error) {
 
 	load, ok := faceCache.Load(key)
 	if !ok {
-		load, _ = faceCache.LoadOrStore(key, sync.OnceValues(faceLoader(func() (*opentype.Font, error) {
+		load, _ = faceCache.LoadOrStore(key, sync.OnceValues(func() (*opentype.Font, error) {
 			return parseFace(f)
-		})))
+		}))
 	}
-	font, err := load.(faceLoader)()
+	loader, ok := load.(faceLoader)
+	if !ok {
+		return nil, fmt.Errorf("fonts: face cache holds a %T", load)
+	}
+	font, err := loader()
 	if err != nil {
 		faceCache.Delete(key) // Don't cache failures; a later attempt may succeed.
 	}

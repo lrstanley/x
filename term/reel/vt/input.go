@@ -68,7 +68,7 @@ func (t *Terminal) EncodeKey(key Key) ([]byte, error) {
 		}
 		defer t.mod.Free(textPtr, len(raw))
 		t.mod.Put(textPtr, raw)
-		t.mod.Xghostty_key_event_set_utf8(t.keyEv, textPtr, int32(len(raw)))
+		t.mod.Xghostty_key_event_set_utf8(t.keyEv, textPtr, wasmvt.Int32(len(raw)))
 	} else {
 		t.mod.Xghostty_key_event_set_utf8(t.keyEv, 0, 0)
 	}
@@ -99,9 +99,9 @@ func (t *Terminal) encode(what string, capN int, fn func(buf, capN, lenPtr int32
 		return nil, err
 	}
 	defer t.mod.Free(buf, capN+4)
-	lenPtr := buf + int32(capN)
+	lenPtr := buf + wasmvt.Int32(capN)
 	t.mod.Zero(lenPtr, 4)
-	rc := fn(buf, int32(capN), lenPtr)
+	rc := fn(buf, wasmvt.Int32(capN), lenPtr)
 	if rc == wasmvt.ResultOutOfSpace {
 		return nil, fmt.Errorf("vt: %s needs %d bytes", what, t.mod.U32(lenPtr, 0))
 	}
@@ -174,7 +174,7 @@ func (t *Terminal) EncodePaste(text string) ([]byte, error) {
 		flag = 1
 	}
 	return t.encode("paste encode", len(raw)+16, func(buf, capN, lenPtr int32) int32 {
-		return t.mod.Xghostty_paste_encode(data, int32(len(raw)), flag, buf, capN, lenPtr)
+		return t.mod.Xghostty_paste_encode(data, wasmvt.Int32(len(raw)), flag, buf, capN, lenPtr)
 	})
 }
 
@@ -246,8 +246,8 @@ func (t *Terminal) configureMouse() error {
 	defer t.mod.Free(size, n)
 	t.mod.Zero(size, n)
 	t.mod.SetU32(size, 0, uint32(n))
-	t.mod.SetU32(size, wasmvt.MouseEncoderSizeScreenWidthOff, uint32(t.cols)*t.cellW)
-	t.mod.SetU32(size, wasmvt.MouseEncoderSizeScreenHeightOff, uint32(t.rows)*t.cellH)
+	t.mod.SetU32(size, wasmvt.MouseEncoderSizeScreenWidthOff, wasmvt.Uint32(t.cols)*t.cellW)
+	t.mod.SetU32(size, wasmvt.MouseEncoderSizeScreenHeightOff, wasmvt.Uint32(t.rows)*t.cellH)
 	t.mod.SetU32(size, wasmvt.MouseEncoderSizeCellWidthOff, t.cellW)
 	t.mod.SetU32(size, wasmvt.MouseEncoderSizeCellHeightOff, t.cellH)
 	t.mod.Xghostty_mouse_encoder_setopt(t.mice, wasmvt.MouseEncoderOptionSize, size)

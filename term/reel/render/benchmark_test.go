@@ -34,7 +34,8 @@ func benchmarkTerminalScreen() testScreen {
 	bg := color.NRGBA{A: 0xff}
 	for y := range benchmarkTermRows {
 		for x := range benchmarkTermCols {
-			if (x*31+y*17)%25 >= 13 { // 13/25 = 52% fill
+			// Leave 12 of 25 cells blank, so 52% are filled.
+			if (x*31+y*17)%25 >= 13 {
 				continue
 			}
 			style := vt.Style{Fg: fg, Bg: bg}
@@ -108,7 +109,8 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 		cursorVisible = !cursorVisible
 
 		d.Draw(frame, scr, focused, 0)
-		if err := enc.WriteFrame(sink.Frame{Image: frame, Delay: time.Millisecond}); err != nil {
+		err = enc.WriteFrame(sink.Frame{Image: frame, Delay: time.Millisecond})
+		if err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -125,7 +127,8 @@ func BenchmarkRenderAndExportFrame(b *testing.B) {
 		cursorVisible = !cursorVisible
 
 		d.Draw(frame, scr, focused, 0)
-		if err := enc.WriteFrame(sink.Frame{Image: frame, Delay: time.Millisecond}); err != nil {
+		err = enc.WriteFrame(sink.Frame{Image: frame, Delay: time.Millisecond})
+		if err != nil {
 			b.Fatal(err)
 		}
 	}

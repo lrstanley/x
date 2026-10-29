@@ -46,6 +46,9 @@ type Header struct {
 	// SkipPristine is reel's own "skip_pristine", which other readers
 	// ignore.
 	SkipPristine bool
+	// Scrollback is reel's own "scrollback", which other readers ignore,
+	// or nil when the file does not say. A [Reader] rejects a negative one.
+	Scrollback *int
 }
 
 // Theme is the colors a terminal starts with. Fg and Bg are set. Cursor is
@@ -87,6 +90,7 @@ type castHeader struct {
 	Env          map[string]any `json:"env,omitzero"`
 	Theme        *castTheme     `json:"theme,omitzero"`
 	SkipPristine bool           `json:"skip_pristine,omitzero"`
+	Scrollback   *int           `json:"scrollback,omitzero"`
 }
 
 type castTerm struct {

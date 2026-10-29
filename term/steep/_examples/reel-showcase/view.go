@@ -219,6 +219,7 @@ func (m model) servicesView(st *styles, w, h int) string {
 	for i, s := range m.services {
 		dot, status := st.ok.Render("●"), st.muted.Render("healthy")
 		switch s.health {
+		case healthy:
 		case degraded:
 			dot, status = st.warn.Render("●"), st.warn.Render("degraded")
 		case deploying:
@@ -426,6 +427,7 @@ func pipelineBody(st *styles, d *deploy, svc service, now float64, w, h int) []s
 		to = st.ok.Render(d.to)
 	case deployFailed, deployRolledBack:
 		to = st.err.Render(d.to)
+	case deployRunning, deployAwaiting:
 	}
 	lines = append(lines,
 		pad(spread(st.bold.Render(d.name), st.muted.Render(d.from)+arrow+to, inner)),
@@ -450,7 +452,7 @@ func pipelineBody(st *styles, d *deploy, svc service, now float64, w, h int) []s
 		case ansi.ProgramStateWorking:
 			icon, name = st.accent.Render(spinnerFrame(now)), st.bright.Render(s.name)
 			detail = st.muted.Render(stageDetail(i, d.within(now)))
-		default:
+		case ansi.ProgramStateIdle, ansi.ProgramStateClear:
 			icon, name = st.subtle.Render("·"), st.subtle.Render(s.name)
 		}
 		lines = append(lines, pad(spread(icon+"  "+name, detail, inner)))
@@ -465,6 +467,7 @@ func pipelineBody(st *styles, d *deploy, svc service, now float64, w, h int) []s
 		label = st.err.Render("failed")
 	case deployRolledBack:
 		label = st.warn.Render("rolled back")
+	case deployRunning, deployAwaiting:
 	}
 	bar := meter(st.pal, pct, inner-lipgloss.Width(label)-1)
 	lines = append(lines, "", pad(bar+" "+label))

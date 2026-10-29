@@ -6,6 +6,7 @@ package vt
 
 import (
 	"image/color"
+	"math"
 	"slices"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
@@ -31,7 +32,8 @@ func (t *Terminal) modeKnownLocked(mode Mode) (on, ok bool, err error) {
 	if rc == wasmvt.ResultInvalidValue || rc == wasmvt.ResultNoValue {
 		return false, false, nil
 	}
-	if err = wasmvt.Result("mode", rc); err != nil {
+	err = wasmvt.Result("mode", rc)
+	if err != nil {
 		return false, false, err
 	}
 	return t.mod.U8(t.scratch, wasmvt.TerminalModeConfigValueOff) != 0, true, nil
@@ -59,7 +61,7 @@ func (t *Terminal) setModeLocked(mode Mode, on bool) error {
 // stores it. The high bit is the ANSI/DEC private marker. The low 15
 // bits are the mode number.
 func packMode(mode Mode) uint16 {
-	v := uint16(mode.Number) & 0x7fff
+	v := wasmvt.Uint16(mode.Number & 0x7fff)
 	if mode.ANSI {
 		v |= 0x8000
 	}
@@ -94,10 +96,11 @@ func (t *Terminal) applyColorLocked(opt int32, c color.Color) error {
 		return err
 	}
 	defer t.mod.Free(ptr, 3)
-	t.mod.SetU8(ptr, 0, uint8(r>>8))
-	t.mod.SetU8(ptr, 1, uint8(g>>8))
-	t.mod.SetU8(ptr, 2, uint8(b>>8))
-	if err := t.mod.SetOption(t.term, opt, ptr); err != nil {
+	t.mod.SetU8(ptr, 0, uint8(r>>8&0xff))
+	t.mod.SetU8(ptr, 1, uint8(g>>8&0xff))
+	t.mod.SetU8(ptr, 2, uint8(b>>8&0xff))
+	err = t.mod.SetOption(t.term, opt, ptr)
+	if err != nil {
 		return err
 	}
 	t.gridFresh = false
@@ -162,7 +165,11 @@ func (t *Terminal) viewportRowLocked() (row int, ok bool) {
 	if t.mod.Get(t.term, wasmvt.TerminalDataScrollbar, ptr) != nil {
 		return 0, false
 	}
-	return int(t.mod.U64(ptr, wasmvt.TerminalScrollbarOffsetOff)), true
+	offset := t.mod.U64(ptr, wasmvt.TerminalScrollbarOffsetOff)
+	if offset > math.MaxInt {
+		return 0, false
+	}
+	return int(offset), true
 }
 
 // viewportLocked returns the number of scrollback rows n, and how many rows
@@ -208,7 +215,7 @@ func (t *Terminal) scrollRow(row int) {
 	t.mod.Zero(t.scratch, n)
 	t.mod.SetI32(t.scratch, wasmvt.TerminalScrollViewportTagOff, wasmvt.TerminalScrollViewportTagRow)
 	value := wasmvt.TerminalScrollViewportValueOff
-	t.mod.SetU32(t.scratch, value, uint32(row))
+	t.mod.SetU32(t.scratch, value, wasmvt.Uint32(row))
 	t.mod.Xghostty_terminal_scroll_viewport(t.term, t.scratch)
 }
 

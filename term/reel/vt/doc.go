@@ -4,9 +4,9 @@
 
 // Package vt is a terminal emulator backed by a checked-in libghostty-vt
 // build. One WASM module is one concurrency domain. The caller owns a
-// [Runtime] and lends instances from it. [NewRuntime] with a size less
-// than 1 uses GOMAXPROCS. The generated runtime builds with the standard
-// Go toolchain.
+// [Runtime] and lends instances from it. [NewRuntime] with a size of 0
+// uses GOMAXPROCS, and a negative size sets no limit. The generated runtime
+// builds with the standard Go toolchain.
 //
 // Linear memory, the C type manifest, and GhosttyResult live in
 // [github.com/lrstanley/x/term/reel/vt/internal/wasmvt]. This package turns

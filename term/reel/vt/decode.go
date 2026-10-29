@@ -139,6 +139,8 @@ func decodeEvent(b []byte) (int, Stroke) {
 
 // decodeEsc decodes input starting with ESC: a sequence, alt with a key, or
 // the escape key.
+//
+//nolint:goconst // Ghostty key codes in decoding tables.
 func decodeEsc(b []byte) (int, Stroke) {
 	if len(b) == 1 {
 		return 1, keyStroke(Key{Code: "ESCAPE"})
@@ -407,7 +409,7 @@ func (c csiSeq) kittyKey(mods Mods) Stroke {
 		for len(p) > 0 {
 			var r int
 			r, p = nextSubParam(p, -1)
-			if r > 0 && utf8.ValidRune(rune(r)) {
+			if r > 0 && r <= utf8.MaxRune && utf8.ValidRune(rune(r)) {
 				text = utf8.AppendRune(text, rune(r))
 			}
 		}
@@ -450,12 +452,11 @@ func codeKey(code int, mods Mods) (Key, bool) {
 	if key, ok := kittyCodes[code]; ok {
 		return key.with(mods), true
 	}
-	r := rune(code)
 	switch {
 	case code >= 0 && code < ansi.SP:
 		return controlKey(byte(code)).with(mods), true
-	case utf8.ValidRune(r) && unicode.IsGraphic(r):
-		return runeKey(r, mods), true
+	case code > 0 && code <= utf8.MaxRune && utf8.ValidRune(rune(code)) && unicode.IsGraphic(rune(code)):
+		return runeKey(rune(code), mods), true
 	}
 	return Key{}, false
 }
@@ -463,6 +464,8 @@ func codeKey(code int, mods Mods) (Key, bool) {
 // controlKey is the key a control character stands for: ctrl with a letter
 // or symbol, or a key such as enter or tab. DEL is backspace and BS is
 // ctrl+h, as terminals send them by default.
+//
+//nolint:goconst // Ghostty key codes in decoding tables.
 func controlKey(c byte) Key {
 	switch c {
 	case ansi.NUL:
@@ -536,6 +539,8 @@ func mouseStroke(b, x, y int, release bool) Stroke {
 
 // csiKeys maps the final byte of a CSI key to the key. A final byte that is
 // no key has no code.
+//
+//nolint:goconst // Ghostty key codes in decoding tables.
 var csiKeys = [utf8.RuneSelf]Key{
 	'A': {Code: "ARROW_UP"},
 	'B': {Code: "ARROW_DOWN"},
@@ -596,6 +601,8 @@ var ss3Keys = [utf8.RuneSelf]Key{
 }
 
 // tildeKeys maps the number of a key ending in "~" to the key.
+//
+//nolint:goconst // Ghostty key codes in decoding tables.
 var tildeKeys = func() map[int]string {
 	keys := map[int]string{
 		1:     "HOME",
@@ -618,6 +625,8 @@ var tildeKeys = func() map[int]string {
 // character, mostly in the private use area, to the keys. The keypad's keys
 // map to the keys they match. Codes for keys the terminal has none for,
 // such as F26 and hyper, are left out.
+//
+//nolint:goconst // Ghostty key codes in decoding tables.
 var kittyCodes = func() map[int]Key {
 	keys := map[int]Key{
 		ansi.BS:  {Code: "BACKSPACE"},

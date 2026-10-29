@@ -15,12 +15,14 @@ import (
 )
 
 // Replays use their own terminal pools so they never wait on running
-// sessions, and exports and cuts never wait on running recordings:
-// replayRuntime lends terminals for one export, recordRuntime for the life
-// of a [Record].
+// sessions, and exports and cuts never wait on running recordings.
+// replayRuntime lends terminals for one export, which holds no other while
+// it waits, so its limit cannot deadlock. recordRuntime lends them for the
+// life of a [Record], which its caller holds for as long as it chooses, so
+// it has no limit, as sessions do.
 var (
 	replayRuntime = vt.NewRuntime(0)
-	recordRuntime = vt.NewRuntime(0)
+	recordRuntime = vt.NewRuntime(-1)
 )
 
 // replay feeds a timeline's events into a fresh terminal one at a time and
@@ -66,7 +68,7 @@ type replay struct {
 // newReplay opens a terminal from rt for a timeline with header h whose
 // window starts at event index start, offset from.
 func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from time.Duration) (*replay, error) {
-	term, err := rt.Open(ctx, h.Cols, h.Rows)
+	term, err := rt.Open(ctx, h.Cols, h.Rows, vt.WithScrollbackLines(h.Scrollback))
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +133,8 @@ func (r *replay) apply(ev Event) error {
 		// The scrollback of a replay that started mid-timeline may be shorter
 		// than the one the event was recorded against, so the offset clamps.
 		err = r.term.ScrollTo(ev.Offset)
+	case ScrollbackSize:
+		err = r.term.SetScrollbackMaxLines(ev.Lines)
 	case Theme:
 		err = r.setColors(ev.Colors)
 	case Mark:

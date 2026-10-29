@@ -38,7 +38,7 @@ func (m *Module) Alloc(n int) (int32, error) {
 	if n <= 0 {
 		return 0, nil
 	}
-	ptr := m.Xghostty_wasm_alloc(wasmLen(n))
+	ptr := m.Xghostty_wasm_alloc(Int32(n))
 	if ptr == 0 {
 		return 0, fmt.Errorf("vt: alloc %d bytes", n)
 	}
@@ -55,7 +55,7 @@ func (m *Module) Free(ptr int32, n int) {
 	if ptr == 0 || n <= 0 {
 		return
 	}
-	m.Xghostty_wasm_free(ptr, wasmLen(n))
+	m.Xghostty_wasm_free(ptr, Int32(n))
 }
 
 // Slice returns n bytes of linear memory at ptr.
@@ -114,6 +114,12 @@ func (m *Module) U8(ptr int32, off int) byte {
 	return b[0]
 }
 
+// I8 reads the byte at ptr+off as a signed int8, as a C int8_t field
+// holds it. An out-of-range address reads as zero.
+func (m *Module) I8(ptr int32, off int) int8 {
+	return int8(m.U8(ptr, off)) //nolint:gosec // G115: bitcast of an int8_t
+}
+
 // SetU8 writes v at ptr+off. An out-of-range address is ignored.
 func (m *Module) SetU8(ptr int32, off int, v byte) {
 	b := m.view(ptr, off, 1)
@@ -168,7 +174,7 @@ func (m *Module) SetU32(ptr int32, off int, v uint32) {
 // side, a 4-byte integer in the manifest). An out-of-range address
 // reads as zero.
 func (m *Module) I32(ptr int32, off int) int32 {
-	return asI32(m.U32(ptr, off))
+	return AsI32(m.U32(ptr, off))
 }
 
 // SetI32 writes a little-endian int32 at ptr+off.
@@ -187,14 +193,27 @@ func (m *Module) U64(ptr int32, off int) uint64 {
 	return binary.LittleEndian.Uint64(b)
 }
 
-// wasmLen converts a host length to the wasm32 size type. The pinned
-// build's size_t is 4 bytes. Callers must pass a length that fits.
-func wasmLen(n int) int32 {
-	return int32(n) //nolint:gosec // G115: wasm size_t is i32 on the pinned build
+// Int32 converts a host int to a wasm i32: a length (the pinned build's
+// size_t is 4 bytes), an offset, or a terminal size. Callers must pass a
+// value that fits.
+func Int32(n int) int32 {
+	return int32(n) //nolint:gosec // G115: the caller's value fits a wasm i32
 }
 
-// asI32 bitcasts a wasm i32 that was read as a uint32.
-func asI32(v uint32) int32 {
+// Uint32 converts a host int to an unsigned 32-bit field, such as a count
+// or a grid row. Callers must pass a value that fits.
+func Uint32(n int) uint32 {
+	return uint32(n) //nolint:gosec // G115: the caller's value fits a u32 field
+}
+
+// Uint16 converts a host int to an unsigned 16-bit field, such as a grid
+// column or a terminal size. Callers must pass a value that fits.
+func Uint16(n int) uint16 {
+	return uint16(n) //nolint:gosec // G115: the caller's value fits a u16 field
+}
+
+// AsI32 bitcasts a wasm i32 that was read as a uint32.
+func AsI32(v uint32) int32 {
 	return int32(v) //nolint:gosec // G115: bitcast of a wasm i32
 }
 

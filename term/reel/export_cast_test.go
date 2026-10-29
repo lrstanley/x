@@ -208,7 +208,7 @@ func TestExportEffectMarks(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "a.cast")
 		p := Profile{Outputs: MustFiles(path), Effects: effects}
-		err := Export(t.Context(), cut, p)
+		err = Export(t.Context(), cut, p)
 		switch labels, rest := MissingMarks(err); {
 		case !tc.ok && (rest != nil || !slices.Equal(labels, []string{"a"})):
 			t.Errorf("%s: Export = %v, want a NoMarkError for \"a\"", name, err)
@@ -217,9 +217,9 @@ func TestExportEffectMarks(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
 		}
 		if described := strings.Contains(string(data), `\"effect\":\"keys\"`); described != tc.ok {
 			t.Errorf("%s: the file describes the effect: %v, want %v", name, described, tc.ok)

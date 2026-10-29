@@ -161,9 +161,9 @@ func TestFallbackGlyphScaledStretchOverdraw(t *testing.T) {
 	}
 
 	for _, size := range []struct{ w, h int }{{9, 20}, {18, 40}, {36, 80}, {72, 160}} {
-		face, err := fonts.NewFace(tf, &opentype.FaceOptions{Size: float64(size.h) / 2, DPI: 72})
-		if err != nil {
-			t.Fatalf("new face: %v", err)
+		face, faceErr := fonts.NewFace(tf, &opentype.FaceOptions{Size: float64(size.h) / 2, DPI: 72})
+		if faceErr != nil {
+			t.Fatalf("new face: %v", faceErr)
 		}
 		target := image.Rect(size.w*2, size.h*2, size.w*3, size.h*3)
 		dst := image.NewNRGBA(image.Rect(0, 0, size.w*5, size.h*5))

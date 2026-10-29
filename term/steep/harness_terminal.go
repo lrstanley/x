@@ -235,86 +235,81 @@ func (h *Harness) ScrollToBottom() *Harness {
 	return h
 }
 
-// SetScrollbackSize sets the most scrollback lines the terminal keeps.
+// SetScrollbackSize sets the most scrollback lines the terminal keeps (see
+// [reel.Session.SetScrollbackSize]).
 func (h *Harness) SetScrollbackSize(maxLines int) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	h.annotate(&terminalNote{Action: "scrollback_size", Lines: &maxLines})
-	h.check(h.session.Terminal().SetScrollbackMaxLines(maxLines))
+	h.check(h.session.SetScrollbackSize(maxLines))
 	return h
 }
 
-// ClearScrollback clears the terminal's scrollback.
+// ClearScrollback clears the terminal's scrollback (see
+// [reel.Session.ClearScrollback]).
 func (h *Harness) ClearScrollback() *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	h.annotate(&terminalNote{Action: "clear_scrollback"})
-	h.check(h.session.Terminal().ClearScrollback())
+	h.check(h.session.ClearScrollback())
 	return h
 }
 
-// Type sends s to the terminal as key presses. Use [Harness.Key] for
-// modifier combinations such as ctrl+a.
+// Type sends s to the terminal as key presses (see [reel.Session.Type]).
+// Use [Harness.Key] for modifier combinations such as ctrl+a.
 //
 // Input goes through the terminal, so mixing it with [Harness.SendProgram]
 // can deliver events to the program in a different order than the calls.
-// Pass [WithTypingDelay] to pause after each key press of this call.
-func (h *Harness) Type(s string, opts ...Option) *Harness {
+// Pass [reel.Delay] to pause after each key press of this call.
+func (h *Harness) Type(s string, opts ...reel.InputOption) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindType, Text: s}
 	defer h.hook(HookInput, meta)()
 	h.annotate(&inputNote{InputMeta: meta})
-	h.check(h.session.Type(s, h.keyDelay(opts)))
+	h.check(h.session.Type(s, opts...))
 	return h
 }
 
 // Key sends a single key press to the terminal, such as "ctrl+a", "enter",
 // "shift+tab", or "space" (see [reel.Session.Key]).
 // An unknown name fails the test. Like [Harness.Type], it can be reordered
-// against [Harness.SendProgram]. Pass [WithTypingDelay] to pause after the
-// key press.
-func (h *Harness) Key(key string, opts ...Option) *Harness {
+// against [Harness.SendProgram]. Pass [reel.Delay] to pause after the key
+// press, or [reel.Repeat] to press it more than once.
+func (h *Harness) Key(key string, opts ...reel.InputOption) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindKey, Key: key}
 	defer h.hook(HookInput, meta)()
 	h.annotate(&inputNote{InputMeta: meta})
-	h.check(h.session.Key(key, h.keyDelay(opts)))
+	h.check(h.session.Key(key, opts...))
 	return h
 }
 
-// keyDelay returns the harness's [WithTypingDelay], overridden by any in
-// opts.
-func (h *Harness) keyDelay(opts []Option) reel.KeyOption {
-	h.tb.Helper()
-	return reel.KeyDelay(collectOptions(h.tb, h.mergedOpts(opts...)...).typingDelay)
-}
-
 // KeyUp sends an up-arrow key press to the terminal emulator.
-func (h *Harness) KeyUp(opts ...Option) *Harness { return h.Key("up", opts...) }
+func (h *Harness) KeyUp(opts ...reel.InputOption) *Harness { return h.Key("up", opts...) }
 
 // KeyDown sends a down-arrow key press to the terminal emulator.
-func (h *Harness) KeyDown(opts ...Option) *Harness { return h.Key("down", opts...) }
+func (h *Harness) KeyDown(opts ...reel.InputOption) *Harness { return h.Key("down", opts...) }
 
 // KeyLeft sends a left-arrow key press to the terminal emulator.
-func (h *Harness) KeyLeft(opts ...Option) *Harness { return h.Key("left", opts...) }
+func (h *Harness) KeyLeft(opts ...reel.InputOption) *Harness { return h.Key("left", opts...) }
 
 // KeyRight sends a right-arrow key press to the terminal emulator.
-func (h *Harness) KeyRight(opts ...Option) *Harness { return h.Key("right", opts...) }
+func (h *Harness) KeyRight(opts ...reel.InputOption) *Harness { return h.Key("right", opts...) }
 
 // KeyEsc sends an escape key press to the terminal emulator.
-func (h *Harness) KeyEsc(opts ...Option) *Harness { return h.Key("esc", opts...) }
+func (h *Harness) KeyEsc(opts ...reel.InputOption) *Harness { return h.Key("esc", opts...) }
 
 // KeyDelete sends a delete (forward-delete) key press to the terminal emulator.
-func (h *Harness) KeyDelete(opts ...Option) *Harness { return h.Key("delete", opts...) }
+func (h *Harness) KeyDelete(opts ...reel.InputOption) *Harness { return h.Key("delete", opts...) }
 
 // KeyBackspace sends a backspace key press to the terminal emulator.
-func (h *Harness) KeyBackspace(opts ...Option) *Harness { return h.Key("backspace", opts...) }
+func (h *Harness) KeyBackspace(opts ...reel.InputOption) *Harness {
+	return h.Key("backspace", opts...)
+}
 
 // KeyCtrlC sends ctrl+c to the terminal emulator.
-func (h *Harness) KeyCtrlC(opts ...Option) *Harness { return h.Key("ctrl+c", opts...) }
+func (h *Harness) KeyCtrlC(opts ...reel.InputOption) *Harness { return h.Key("ctrl+c", opts...) }
 
 // KeyCtrlD sends ctrl+d to the terminal emulator.
-func (h *Harness) KeyCtrlD(opts ...Option) *Harness { return h.Key("ctrl+d", opts...) }
+func (h *Harness) KeyCtrlD(opts ...reel.InputOption) *Harness { return h.Key("ctrl+d", opts...) }
 
 // Mouse sends a mouse event through the terminal. As with a real terminal,
 // it is dropped unless the program enabled mouse tracking.
@@ -327,64 +322,47 @@ func (h *Harness) Mouse(action vt.MouseAction, button vt.MouseButton, x, y int) 
 	return h
 }
 
-// MouseClick sends a press and release at (x, y).
-func (h *Harness) MouseClick(button vt.MouseButton, x, y int) *Harness {
+// MouseClick sends a press and release at (x, y) (see
+// [reel.Session.Click]). Pass [reel.Repeat] for a double click.
+func (h *Harness) MouseClick(button vt.MouseButton, x, y int, opts ...reel.InputOption) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindClick, Button: buttonName(button)}
 	defer h.hook(HookInput, meta)()
 	h.annotate(&inputNote{InputMeta: meta, At: &cell{Row: y, Col: x}})
-	h.check(h.session.Mouse(vt.MousePress, button, x, y))
-	h.check(h.session.Mouse(vt.MouseRelease, button, x, y))
+	h.check(h.session.Click(button, x, y, opts...))
 	return h
 }
 
 // LeftClick is [Harness.MouseClick] with the left mouse button.
-func (h *Harness) LeftClick(x, y int) *Harness { return h.MouseClick(vt.MouseLeft, x, y) }
+func (h *Harness) LeftClick(x, y int, opts ...reel.InputOption) *Harness {
+	return h.MouseClick(vt.MouseLeft, x, y, opts...)
+}
 
 // MiddleClick is [Harness.MouseClick] with the middle mouse button.
-func (h *Harness) MiddleClick(x, y int) *Harness { return h.MouseClick(vt.MouseMiddle, x, y) }
+func (h *Harness) MiddleClick(x, y int, opts ...reel.InputOption) *Harness {
+	return h.MouseClick(vt.MouseMiddle, x, y, opts...)
+}
 
 // RightClick is [Harness.MouseClick] with the right mouse button.
-func (h *Harness) RightClick(x, y int) *Harness { return h.MouseClick(vt.MouseRight, x, y) }
+func (h *Harness) RightClick(x, y int, opts ...reel.InputOption) *Harness {
+	return h.MouseClick(vt.MouseRight, x, y, opts...)
+}
 
-// MouseDrag sends a press at (x1, y1), motion through each cell toward
-// (x2, y2), and a release there.
-func (h *Harness) MouseDrag(button vt.MouseButton, x1, y1, x2, y2 int) *Harness {
+// MouseDrag sends a press at (x1, y1), motion through each cell of the
+// straight line to (x2, y2), and a release there (see
+// [reel.Session.Drag]). Pass [reel.Delay] to pause after each step.
+func (h *Harness) MouseDrag(button vt.MouseButton, x1, y1, x2, y2 int, opts ...reel.InputOption) *Harness {
 	h.tb.Helper()
 	meta := InputMeta{Kind: InputKindDrag, Button: buttonName(button)}
 	defer h.hook(HookInput, meta)()
 	h.annotate(&inputNote{InputMeta: meta, At: &cell{Row: y1, Col: x1}, To: &cell{Row: y2, Col: x2}})
-	h.check(h.session.Mouse(vt.MousePress, button, x1, y1))
-	dx, dy := 0, 0
-	switch {
-	case x2 > x1:
-		dx = 1
-	case x2 < x1:
-		dx = -1
-	}
-	switch {
-	case y2 > y1:
-		dy = 1
-	case y2 < y1:
-		dy = -1
-	}
-	x, y := x1, y1
-	for x != x2 || y != y2 {
-		if x != x2 {
-			x += dx
-		}
-		if y != y2 {
-			y += dy
-		}
-		h.check(h.session.Mouse(vt.MouseMotion, button, x, y))
-	}
-	h.check(h.session.Mouse(vt.MouseRelease, button, x2, y2))
+	h.check(h.session.Drag(button, image.Pt(x1, y1), image.Pt(x2, y2), opts...))
 	return h
 }
 
 // LeftDrag is [Harness.MouseDrag] with the left mouse button.
-func (h *Harness) LeftDrag(x1, y1, x2, y2 int) *Harness {
-	return h.MouseDrag(vt.MouseLeft, x1, y1, x2, y2)
+func (h *Harness) LeftDrag(x1, y1, x2, y2 int, opts ...reel.InputOption) *Harness {
+	return h.MouseDrag(vt.MouseLeft, x1, y1, x2, y2, opts...)
 }
 
 // Progress returns the latest OSC 9;4 progress report.
@@ -400,7 +378,7 @@ func (h *Harness) Clipboard() string { return h.session.Terminal().Clipboard() }
 func (h *Harness) SetClipboard(text string) *Harness {
 	h.tb.Helper()
 	defer h.hook(HookTerminal, nil)()
-	h.annotate(&terminalNote{Action: "clipboard", Text: text})
+	h.annotate(&terminalNote{Action: "clipboard"})
 	h.session.Terminal().SetClipboard(text)
 	return h
 }
@@ -417,33 +395,8 @@ func (h *Harness) ResizeRequest() (cols, rows int, ok bool) {
 	return h.session.Terminal().ResizeRequest()
 }
 
-const programStatusMaxRecords = 256
-
 // ProgramStatuses returns the current OSC 7501 records (see
 // [vt.Terminal.ProgramStatuses]). At most 256 are kept.
-func (h *Harness) ProgramStatuses() []ansi.ProgramStatus {
-	return programStatuses(h.session.Terminal())
-}
-
-func programStatuses(term *vt.Terminal) []ansi.ProgramStatus {
-	in := term.ProgramStatuses()
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]ansi.ProgramStatus, len(in))
-	for i, s := range in {
-		out[i] = ansi.ProgramStatus{
-			ID:      s.ID,
-			State:   ansi.ProgramState(s.State.String()),
-			Kind:    ansi.ProgramStatusKind(s.Kind.String()),
-			App:     s.App,
-			Title:   s.Title,
-			Message: s.Message,
-		}
-		if s.Progress >= 0 {
-			out[i].Progress = s.Progress
-			out[i].HasProgress = true
-		}
-	}
-	return out
+func (h *Harness) ProgramStatuses() []vt.ProgramStatus {
+	return h.session.Terminal().ProgramStatuses()
 }

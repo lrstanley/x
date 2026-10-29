@@ -209,7 +209,10 @@ func parseHeader(hl castHeader) (Header, error) {
 	if h.Cols <= 0 || h.Rows <= 0 || h.Cols > MaxSize || h.Rows > MaxSize {
 		return h, fmt.Errorf("asciicast line 1: header: terminal size %dx%d", h.Cols, h.Rows)
 	}
-	h.Title, h.SkipPristine = hl.Title, hl.SkipPristine
+	h.Title, h.SkipPristine, h.Scrollback = hl.Title, hl.SkipPristine, hl.Scrollback
+	if h.Scrollback != nil && *h.Scrollback < 0 {
+		return h, fmt.Errorf("asciicast line 1: header: scrollback %d is negative", *h.Scrollback)
+	}
 	if hl.Timestamp > 0 {
 		h.Timestamp = time.Unix(hl.Timestamp, 0)
 	}

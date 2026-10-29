@@ -37,7 +37,7 @@ func main() {
 			return err
 		}
 		for _, f := range files {
-			fmt.Println(f)
+			fmt.Println(f) //nolint:forbidigo // The example lists the files it wrote.
 		}
 		return nil
 	})
@@ -66,7 +66,7 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	}
 	defer s.Close()
 
-	cmd := exec.Command(path, "--norc", "--noprofile", "-i")
+	cmd := exec.CommandContext(ctx, path, "--norc", "--noprofile", "-i")
 	// The host's environment, with a prompt of its own, and no history
 	// written. Exec sets TERM and COLORTERM.
 	cmd.Env = append(os.Environ(), `PS1=\[\e[1;36m\]$\[\e[0m\] `, "HISTFILE=/dev/null")
@@ -75,11 +75,13 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		return nil, err
 	}
 	for i, c := range commands {
-		if err = waitPrompts(ctx, s, i+1); err != nil {
+		err = waitPrompts(ctx, s, i+1)
+		if err != nil {
 			return nil, err
 		}
 		time.Sleep(400 * time.Millisecond)
-		if err = s.Type(c + "\r"); err != nil {
+		err = s.Type(c + "\r")
+		if err != nil {
 			return nil, err
 		}
 	}

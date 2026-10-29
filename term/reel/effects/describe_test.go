@@ -402,12 +402,13 @@ func TestCheckMarks(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: %T is not a reel.MarkChecker", name, tc.effect)
 		}
-		if err := mc.CheckMarks(tl); err != nil {
+		err = mc.CheckMarks(tl)
+		if err != nil {
 			t.Errorf("%s: CheckMarks of the whole timeline = %v", name, err)
 		}
 		path := filepath.Join(t.TempDir(), "a.cast")
 		p := reel.Profile{Outputs: reel.MustFiles(path), Effects: []reel.Effect{tc.effect}}
-		err := reel.Export(t.Context(), cut, p)
+		err = reel.Export(t.Context(), cut, p)
 		if !tc.ok {
 			if cerr := mc.CheckMarks(cut); !errors.Is(cerr, reel.ErrNoMark) {
 				t.Errorf("%s: CheckMarks = %v, want ErrNoMark", name, cerr)
@@ -424,9 +425,9 @@ func TestCheckMarks(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		read, err := FromTimeline(readCastFile(t, path))
-		if err != nil {
-			t.Fatal(err)
+		read, readErr := FromTimeline(readCastFile(t, path))
+		if readErr != nil {
+			t.Fatal(readErr)
 		}
 		p.Outputs[0].Path, p.Effects = filepath.Join(t.TempDir(), "a.cast"), read
 		if err = reel.Export(t.Context(), readCastFile(t, path), p); err != nil {

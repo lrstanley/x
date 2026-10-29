@@ -55,6 +55,7 @@ func (m model) View() tea.View {
 	return view
 }
 
+//nolint:goconst // Sample data.
 func newRankingModel() model {
 	columns := []table.Column{
 		{Title: "Rank", Width: 4},

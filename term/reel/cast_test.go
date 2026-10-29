@@ -137,7 +137,10 @@ func TestCastRoundTrip(t *testing.T) {
 
 func TestCastFormat(t *testing.T) {
 	t.Parallel()
-	tl := newTimeline(Header{Cols: 20, Rows: 4, Title: "t", Theme: Colors{Fg: castFg, Bg: castBg, Cursor: castCursor}})
+	tl := newTimeline(Header{
+		Cols: 20, Rows: 4, Title: "t", Theme: Colors{Fg: castFg, Bg: castBg, Cursor: castCursor},
+		Scrollback: vt.DefaultScrollback,
+	})
 	tl.start = time.Unix(1700000000, 0)
 	for _, ev := range []Event{
 		Output{event: at(0), Data: []byte("a<b>")},
@@ -342,7 +345,7 @@ func TestReadTimelineAsciinema(t *testing.T) {
 	}
 	for _, name := range []string{"asciinema-v3.cast", "asciinema-v2.cast"} {
 		tl := readCastFile(t, name)
-		if h := tl.Header(); h != (Header{Cols: 40, Rows: 6, Title: "fixture"}) {
+		if h := tl.Header(); h != (Header{Cols: 40, Rows: 6, Title: "fixture", Scrollback: vt.DefaultScrollback}) {
 			t.Fatalf("%s: Header = %+v", name, h)
 		}
 		if tl.start.Unix() != 1792962137 {
@@ -364,7 +367,7 @@ func TestReadTimelineSpec(t *testing.T) {
 	// Written by hand from the v3 spec: comments, blank lines, extra header
 	// fields, unknown codes, and intervals in microseconds.
 	tl := readCastFile(t, "spec-v3.cast")
-	want := Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme}
+	want := Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme, Scrollback: vt.DefaultScrollback}
 	want.Palette[0], want.Palette[7], want.Palette[15] = hexNRGBA(0x151515), hexNRGBA(0xd0d0d0), hexNRGBA(0xf5f5f5)
 	if h := tl.Header(); h.Palette[0] != want.Palette[0] || h.Palette[7] != want.Palette[7] || h.Palette[15] != want.Palette[15] {
 		t.Fatalf("v3 palette = %v", h.Palette)
@@ -395,7 +398,7 @@ func TestReadTimelineSpec(t *testing.T) {
 	// And from the v2 spec, with an 8 color palette and an event out of
 	// order, which is raised to the one before.
 	tl = readCastFile(t, "spec-v2.cast")
-	want = Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme}
+	want = Header{Cols: 80, Rows: 24, Title: "Demo", Theme: theme, Scrollback: vt.DefaultScrollback}
 	copy(want.Palette[:8], []color.Color{
 		hexNRGBA(0x151515), hexNRGBA(0xac4142), hexNRGBA(0x7e8e50), hexNRGBA(0xe5b567),
 		hexNRGBA(0x6c99bb), hexNRGBA(0x9f4e85), hexNRGBA(0x7dd6cf), hexNRGBA(0xd0d0d0),
@@ -683,6 +686,83 @@ func TestCastScrollInvalid(t *testing.T) {
 	for _, data := range []string{"-1", "x", ""} {
 		if err := read(data); err == nil {
 			t.Errorf("scroll event %q read without an error", data)
+		}
+	}
+}
+
+func TestCastScrollback(t *testing.T) {
+	t.Parallel()
+	for _, lines := range []int{0, 50, vt.DefaultScrollback} {
+		tl := newTimeline(Header{Cols: 4, Rows: 2, Scrollback: lines})
+		tl.appendAt(ScrollbackSize{Lines: 7}, 0)
+		tl.appendAt(ScrollbackSize{}, time.Second)
+		for _, v := range []CastVersion{CastV2, CastV3} {
+			data := writeCast(t, tl, v)
+			if got := bytes.Contains(data, []byte(`"scrollback"`)); got != (lines != vt.DefaultScrollback) {
+				t.Errorf("v%d header with Scrollback %d writes the field: %v\n%s", v, lines, got, data)
+			}
+			got := readCast(t, data)
+			if s := got.Header().Scrollback; s != lines {
+				t.Errorf("v%d Header.Scrollback = %d, want %d", v, s, lines)
+			}
+			var sizes []int
+			for ev := range got.Events() {
+				if sz, ok := ev.(ScrollbackSize); ok {
+					sizes = append(sizes, sz.Lines)
+				}
+			}
+			if !slices.Equal(sizes, []int{7, 0}) {
+				t.Errorf("v%d ScrollbackSize lines = %v, want [7 0]", v, sizes)
+			}
+		}
+	}
+	cast := `{"version":3,"term":{"cols":4,"rows":2},"scrollback":-1}` + "\n"
+	if _, err := ReadTimeline(strings.NewReader(cast)); err == nil {
+		t.Error("a negative header scrollback read without an error")
+	}
+}
+
+func TestCastScrollbackSizeInvalid(t *testing.T) {
+	t.Parallel()
+	read := func(data string) error {
+		cast := `{"version":3,"term":{"cols":4,"rows":2}}` + "\n" + `[0.1,"h","` + data + `"]` + "\n"
+		_, err := ReadTimeline(strings.NewReader(cast))
+		return err
+	}
+	if err := read("0"); err != nil {
+		t.Fatalf("a valid scrollback size event failed to read: %v", err)
+	}
+	for _, data := range []string{"-1", "x", ""} {
+		if err := read(data); err == nil {
+			t.Errorf("scrollback size event %q read without an error", data)
+		}
+	}
+}
+
+// TestCutKeepsScrollbackSize checks that a cut starts with the scrollback
+// size the events before it left.
+func TestCutKeepsScrollbackSize(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		before []Event
+		want   int
+	}{
+		"header":  {nil, 9},
+		"changed": {[]Event{ScrollbackSize{Lines: 20}}, 20},
+		"none":    {[]Event{ScrollbackSize{Lines: 20}, ScrollbackSize{}}, 0},
+	} {
+		tl := newTimeline(Header{Cols: 4, Rows: 1, Scrollback: 9})
+		tl.appendAt(Output{Data: []byte("a")}, 0)
+		for _, ev := range tc.before {
+			tl.appendAt(ev, 0)
+		}
+		tl.appendAt(Mark{Label: "here"}, time.Second)
+		cut, err := tl.Between("here", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := readCast(t, writeCast(t, cut, CastV3)).Header().Scrollback; got != tc.want {
+			t.Errorf("%s: cut Header.Scrollback = %d, want %d", name, got, tc.want)
 		}
 	}
 }

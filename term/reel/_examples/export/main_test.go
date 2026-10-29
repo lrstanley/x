@@ -21,19 +21,20 @@ func TestRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range files {
-		if fi, err := os.Stat(f); err != nil || fi.Size() == 0 {
-			t.Errorf("%s: %v", f, err)
+		if fi, statErr := os.Stat(f); statErr != nil || fi.Size() == 0 {
+			t.Errorf("%s: %v", f, statErr)
 		}
 	}
 	if _, err = runCast(t.Context(), dir, filepath.Join(dir, "demo.cast")); err != nil {
 		t.Fatal(err)
 	}
 	for _, ext := range []string{".gif", ".cast"} {
-		want, err := os.ReadFile(filepath.Join(dir, "demo"+ext))
+		var want, got []byte
+		want, err = os.ReadFile(filepath.Join(dir, "demo"+ext))
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := os.ReadFile(filepath.Join(dir, "cast"+ext))
+		got, err = os.ReadFile(filepath.Join(dir, "cast"+ext))
 		if err != nil {
 			t.Fatal(err)
 		}

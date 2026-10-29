@@ -84,6 +84,7 @@ func (d *deploy) within(now float64) float64 {
 		return min((now-d.stageStart)/stages[d.stage].dur, 1)
 	case deployAwaiting:
 		return 1
+	case deployDone, deployFailed, deployRolledBack:
 	}
 	return 0
 }
@@ -95,6 +96,7 @@ func (d *deploy) progress(now float64) float64 {
 		return 1
 	case deployAwaiting:
 		return float64(stageCanary+1) / float64(len(stages))
+	case deployRunning, deployFailed, deployRolledBack:
 	}
 	return (float64(d.stage) + d.within(now)) / float64(len(stages))
 }
@@ -156,12 +158,15 @@ func (d *deploy) active() bool {
 	return d != nil && (d.state == deployRunning || d.state == deployAwaiting)
 }
 
+// appName is the application the deploy's OSC 7501 records name.
+const appName = "aurora"
+
 // status is the root OSC 7501 record for the deploy, nil when there is none.
 func (d *deploy) status(now float64) *tea.ProgramStatus {
 	if d == nil {
 		return nil
 	}
-	ps := &tea.ProgramStatus{App: "aurora", Title: "deploy " + d.name}
+	ps := &tea.ProgramStatus{App: appName, Title: "deploy " + d.name}
 	switch d.state {
 	case deployRunning:
 		ps.State = tea.ProgramStateWorking
@@ -209,7 +214,7 @@ func (d *deploy) stageStatuses() string {
 	var sb strings.Builder
 	for i, s := range stages {
 		sb.WriteString(ansi.SetProgramStatus(ansi.ProgramStatus{
-			ID: "deploy." + s.name, App: "aurora", Title: s.name, State: d.stageState(i),
+			ID: "deploy." + s.name, App: appName, Title: s.name, State: d.stageState(i),
 		}))
 	}
 	return sb.String()

@@ -479,21 +479,16 @@
       ]
     },
     "steep.terminal": {
-      "description": "A change the test made to the terminal that no other event records. Resizes, focus changes, scrolls of the viewport, and colors are their own events.",
+      "description": "A change the test made to the terminal that no other event records. Resizes, focus changes, scrolls of the viewport, scrollback size changes and clears, and colors are their own events.",
       "type": "object",
       "required": ["kind", "action"],
       "properties": {
         "kind": {"const": "steep.terminal"},
         "action": {
-          "description": "The change: \"scrollback_size\" set how many lines of history the terminal keeps, \"clear_scrollback\" cleared its history, and \"clipboard\" set the clipboard the terminal answers the program's clipboard reads with.",
-          "type": "string", "examples": ["scrollback_size", "clear_scrollback", "clipboard"]
-        },
-        "lines": {"description": "For \"scrollback_size\": the lines of history kept.", "type": "integer"},
-        "text": {"description": "For \"clipboard\": the clipboard's text. Left out when it is empty.", "type": "string"},
-        "truncated": {"$ref": "#/$defs/steep.truncated"}
-      },
-      "if": {"properties": {"action": {"const": "scrollback_size"}}, "required": ["action"]},
-      "then": {"required": ["lines"]}
+          "description": "The change: \"clipboard\" set the clipboard the terminal answers the program's clipboard reads with. The clipboard's text is left out, since it may be a secret.",
+          "type": "string", "examples": ["clipboard"]
+        }
+      }
     },
     "steep.program": {
       "description": "An action of the test on the program past its terminal, which the program's output may show the effect of.",
@@ -520,11 +515,11 @@
         "kind": {"const": "steep.wait.start"},
         "id": {"description": "The wait's number, counted from 1 for each test, which its steep.wait.end has too.", "type": "integer", "minimum": 1},
         "wait": {
-          "description": "What the test waits for: \"text\" every one of some text to be on the screen, \"not_text\" none of it to be, \"match\" a regular expression to match the screen, \"not_match\" it not to, \"func\" a condition of the test's own on the screen, \"settle\" the screen to stay unchanged for the settle time, \"settle_messages\" the program's model to receive no message for the settle time, \"message\" the program's model to receive a message of a type, \"finished\" the program to end, and \"sleep\" time to pass.",
-          "type": "string", "examples": ["text", "not_text", "match", "not_match", "func", "settle", "settle_messages", "message", "finished", "sleep"]
+          "description": "What the test waits for: \"text\" every one of some text to be on the screen, \"not_text\" none of it to be, \"condition\" another condition on the screen, such as a regular expression to match it, or one of the test's own, \"settle\" the screen to stay unchanged for the settle time, \"settle_messages\" the program's model to receive no message for the settle time, \"message\" the program's model to receive a message of a type, \"finished\" the program to end, and \"sleep\" time to pass.",
+          "type": "string", "examples": ["text", "not_text", "condition", "settle", "settle_messages", "message", "finished", "sleep"]
         },
         "text": {"description": "For \"text\" and \"not_text\": the text.", "type": "array", "items": {"type": "string"}},
-        "pattern": {"description": "For \"match\" and \"not_match\": the regular expression, in Go's RE2 syntax. Left out when it is empty.", "type": "string"},
+        "condition": {"description": "For \"condition\": the condition, as it describes itself, such as \"matches \\\"v[0-9]+\\\"\" or \"contains [\\\"$ \\\"] on the cursor line\".", "type": "string"},
         "type": {"description": "For \"message\": the Go type of message waited for, such as \"tea.WindowSizeMsg\", which may be an interface type.", "type": "string"},
         "live": {"description": "For \"message\": true when only messages received after the wait starts count. Left out otherwise.", "const": true},
         "timeout_ms": {"description": "How long the wait may take before it fails the test. Left out for \"sleep\".", "type": "integer"},
@@ -534,6 +529,7 @@
       },
       "allOf": [
         {"if": {"properties": {"wait": {"enum": ["text", "not_text"]}}, "required": ["wait"]}, "then": {"required": ["text"]}},
+        {"if": {"properties": {"wait": {"const": "condition"}}, "required": ["wait"]}, "then": {"required": ["condition"]}},
         {"if": {"properties": {"wait": {"const": "message"}}, "required": ["wait"]}, "then": {"required": ["type"]}}
       ]
     },
@@ -544,14 +540,14 @@
       "properties": {
         "kind": {"const": "steep.wait.end"},
         "id": {"description": "The wait's number, as its steep.wait.start has it.", "type": "integer", "minimum": 1},
-        "wait": {"description": "What the test waited for, as its steep.wait.start has it.", "type": "string", "examples": ["text", "not_text", "match", "not_match", "func", "settle", "settle_messages", "message", "finished", "sleep"]},
+        "wait": {"description": "What the test waited for, as its steep.wait.start has it.", "type": "string", "examples": ["text", "not_text", "condition", "settle", "settle_messages", "message", "finished", "sleep"]},
         "outcome": {
-          "description": "How the wait ended: \"satisfied\" when what it waited for happened, \"timeout\" when it did not within the timeout, \"canceled\" when the test's context was canceled first, and \"failed\" for another failure, such as an invalid regular expression or a program that ended with an error.",
+          "description": "How the wait ended: \"satisfied\" when what it waited for happened, \"timeout\" when it did not within the timeout, \"canceled\" when the test's context was canceled first, and \"failed\" for another failure, such as the session closing or a program that ended with an error.",
           "type": "string", "examples": ["satisfied", "timeout", "canceled", "failed"]
         },
         "elapsed_ms": {"description": "How long the wait took, in wall-clock time.", "type": "integer", "minimum": 0},
         "matches": {
-          "description": "For a satisfied \"text\" wait: where each of the text first appears on the screen it was satisfied by. For a satisfied \"match\" wait: where the regular expression first matched it. Left out otherwise.",
+          "description": "For a satisfied \"text\" wait: where each of the text first appears on the screen it was satisfied by. For a satisfied \"condition\" wait: what the condition found, such as where a regular expression first matched. Left out otherwise.",
           "type": "array",
           "items": {"$ref": "#/$defs/steep.match"}
         },
@@ -566,18 +562,18 @@
       "properties": {
         "kind": {"const": "steep.assert"},
         "assert": {
-          "description": "What was asserted: \"contains\" every one of some text is on the screen, \"not_contains\" none of it is, \"match\" a regular expression matches the screen, \"not_match\" it does not, \"width\", \"height\", and \"dimensions\" the size of the screen's text, and \"has_message\" the program's model received a message of a type.",
-          "type": "string", "examples": ["contains", "not_contains", "match", "not_match", "width", "height", "dimensions", "has_message"]
+          "description": "What was asserted: \"contains\" every one of some text is on the screen, \"not_contains\" none of it is, \"condition\" another condition holds for it, such as a regular expression matching it, \"width\", \"height\", and \"dimensions\" the size of the screen's text, and \"has_message\" the program's model received a message of a type.",
+          "type": "string", "examples": ["contains", "not_contains", "condition", "width", "height", "dimensions", "has_message"]
         },
         "required": {"description": "Whether a failure stops the test, as steep's Require methods do, rather than letting it go on, as its Assert methods do.", "type": "boolean"},
         "pass": {"description": "Whether the assertion held.", "type": "boolean"},
         "text": {"description": "For \"contains\" and \"not_contains\": the text.", "type": "array", "items": {"type": "string"}},
-        "pattern": {"description": "For \"match\" and \"not_match\": the regular expression, in Go's RE2 syntax. Left out when it is empty.", "type": "string"},
+        "condition": {"description": "For \"condition\": the condition, as it describes itself, such as \"matches \\\"v[0-9]+\\\"\".", "type": "string"},
         "type": {"description": "For \"has_message\": the Go type of message asserted, which may be an interface type.", "type": "string"},
         "expected": {"description": "For \"width\", \"height\", and \"dimensions\": the size asserted.", "$ref": "#/$defs/steep.dims"},
         "actual": {"description": "For \"width\", \"height\", and \"dimensions\": the size of the screen's text, both width and height.", "$ref": "#/$defs/steep.dims"},
         "matches": {
-          "description": "For a passing \"contains\": where each of the text first appears on the screen. For a passing \"match\": where the regular expression first matched it. Left out otherwise.",
+          "description": "For a passing \"contains\": where each of the text first appears on the screen. For a passing \"condition\": what the condition found, such as where a regular expression first matched. Left out otherwise.",
           "type": "array",
           "items": {"$ref": "#/$defs/steep.match"}
         },
@@ -585,6 +581,7 @@
       },
       "allOf": [
         {"if": {"properties": {"assert": {"enum": ["contains", "not_contains"]}}, "required": ["assert"]}, "then": {"required": ["text"]}},
+        {"if": {"properties": {"assert": {"const": "condition"}}, "required": ["assert"]}, "then": {"required": ["condition"]}},
         {"if": {"properties": {"assert": {"enum": ["width", "height", "dimensions"]}}, "required": ["assert"]}, "then": {"required": ["expected", "actual"]}},
         {"if": {"properties": {"assert": {"const": "has_message"}}, "required": ["assert"]}, "then": {"required": ["type"]}}
       ]

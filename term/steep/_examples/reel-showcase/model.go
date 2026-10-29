@@ -44,6 +44,7 @@ type toast struct {
 	text string
 }
 
+//nolint:recvcheck // Bubble Tea updates a copy of the model; pointer methods change that copy.
 type model struct {
 	keys keyMap
 	help help.Model

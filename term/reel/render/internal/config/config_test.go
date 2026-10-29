@@ -37,7 +37,8 @@ func TestParsePositivePx(t *testing.T) {
 	if got.Int() != 5 {
 		t.Fatalf("ParsePositivePx(5) = %d, want 5", got.Int())
 	}
-	if _, err := config.ParsePositivePx(-1, "test"); err == nil {
+	_, err = config.ParsePositivePx(-1, "test")
+	if err == nil {
 		t.Fatal("ParsePositivePx(-1) error = nil, want error")
 	}
 }
@@ -52,10 +53,12 @@ func TestParseRequiredPx(t *testing.T) {
 	if got.Int() != 3 {
 		t.Fatalf("ParseRequiredPx(3) = %d, want 3", got.Int())
 	}
-	if _, err := config.ParseRequiredPx(0, "test"); err == nil {
+	_, err = config.ParseRequiredPx(0, "test")
+	if err == nil {
 		t.Fatal("ParseRequiredPx(0) error = nil, want error")
 	}
-	if _, err := config.ParseRequiredPx(-1, "test"); err == nil {
+	_, err = config.ParseRequiredPx(-1, "test")
+	if err == nil {
 		t.Fatal("ParseRequiredPx(-1) error = nil, want error")
 	}
 }
@@ -92,7 +95,8 @@ func TestParseIconHeightScale(t *testing.T) {
 	if got != 1.5 {
 		t.Fatalf("ParseIconHeightScale(1.5) = %v, want 1.5", got)
 	}
-	if _, err := config.ParseIconHeightScale(-0.1); err == nil {
+	_, err = config.ParseIconHeightScale(-0.1)
+	if err == nil {
 		t.Fatal("ParseIconHeightScale(-0.1) error = nil, want error")
 	}
 }

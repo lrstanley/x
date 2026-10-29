@@ -344,7 +344,7 @@ func TestExportSnapshotVars(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STEEP_EXPORT_MODE", "on")
 	t.Setenv("STEEP_EXPORT_DIR", dir)
-	t.Setenv("STEEP_EXPORT", "{name}_{timestamp}.cast,{name}_{timestamp}_{duration}_{mark}.snap?events=ready,{name}_{status}_{mark}.snap?events=ready")
+	t.Setenv("STEEP_EXPORT", "{name}_{timestamp}.cast,{name}_{timestamp}_{duration}_{mark}.snap?match=ready-*,{name}_{status}_{mark}.snap?match=ready-*")
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(20, 4),
 		WithRecording(reel.Profile{Vars: map[string]string{"name": "/abs"}}))
 	h.Wait("size=20x4")
@@ -378,7 +378,7 @@ func TestExportEnv(t *testing.T) {
 
 	dir = t.TempDir()
 	t.Setenv("STEEP_EXPORT_DIR", dir)
-	t.Setenv("STEEP_EXPORT", "{name}_{status}_{mark}.snap,snaps/{mark}.snap?events=input,{name}-{mark}.png?optimize=none&events=input,{name}.cast")
+	t.Setenv("STEEP_EXPORT", "{name}_{status}_{mark}.snap,snaps/{mark}.snap?match=input-*,{name}-{mark}.png?optimize=none&match=input-*,{name}.cast")
 	h = NewHarness(t, rootTestModel{}, WithWindowSize(20, 4),
 		WithRecording(reel.Profile{Outputs: reel.MustFiles("ignored.gif")}),
 		WithStills(StillPNG, HookClose))
@@ -394,6 +394,17 @@ func TestExportEnv(t *testing.T) {
 	}
 	if got := dirNames(t, dir); !slices.Equal(got, want) {
 		t.Fatalf("files = %q, want %q", got, want)
+	}
+
+	// An empty list writes nothing, without an error.
+	dir = t.TempDir()
+	t.Setenv("STEEP_EXPORT_DIR", dir)
+	t.Setenv("STEEP_EXPORT", " , ")
+	h = NewHarness(t, rootTestModel{}, WithWindowSize(20, 4))
+	h.Wait("size=20x4")
+	h.Close()
+	if got := dirNames(t, dir); len(got) != 0 {
+		t.Fatalf("files = %q, want none", got)
 	}
 }
 

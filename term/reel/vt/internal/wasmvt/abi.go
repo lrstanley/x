@@ -34,7 +34,7 @@ var ErrNoValue = errors.New("no value")
 // Empty strings produced by the library have a non-NULL pointer. A
 // Go empty string here does not preserve that distinction.
 func (m *Module) String(ptr int32, off int) string {
-	sp := asI32(m.U32(ptr, off+StringPtrOff))
+	sp := AsI32(m.U32(ptr, off+StringPtrOff))
 	ln := int(m.U32(ptr, off+StringLenOff))
 	if sp == 0 || ln <= 0 {
 		return ""

@@ -70,15 +70,9 @@ const (
 	// WaitKindNotText waits for text not to be on the screen
 	// ([Harness.WaitNot]).
 	WaitKindNotText WaitKind = "not_text"
-	// WaitKindMatch waits for a regular expression to match the screen
-	// ([Harness.WaitMatch]).
-	WaitKindMatch WaitKind = "match"
-	// WaitKindNotMatch waits for a regular expression not to match the
-	// screen ([Harness.WaitNotMatch]).
-	WaitKindNotMatch WaitKind = "not_match"
-	// WaitKindFunc waits for a condition of the test's own on the screen
-	// ([Harness.WaitFunc]).
-	WaitKindFunc WaitKind = "func"
+	// WaitKindCondition waits for a [reel.Condition] on the screen
+	// ([Harness.WaitFor]).
+	WaitKindCondition WaitKind = "condition"
 	// WaitKindSettle waits for the screen to stay unchanged
 	// ([Harness.WaitSettle]).
 	WaitKindSettle WaitKind = "settle"
@@ -122,12 +116,9 @@ const (
 	// AssertKindNotContains asserts that text is not on the screen
 	// ([Harness.AssertNot] and [Harness.RequireNot]).
 	AssertKindNotContains AssertKind = "not_contains"
-	// AssertKindMatch asserts that a regular expression matches the screen
-	// ([Harness.AssertMatch] and [Harness.RequireMatch]).
-	AssertKindMatch AssertKind = "match"
-	// AssertKindNotMatch asserts that a regular expression does not match
-	// the screen ([Harness.AssertNotMatch] and [Harness.RequireNotMatch]).
-	AssertKindNotMatch AssertKind = "not_match"
+	// AssertKindCondition asserts a [reel.Condition] on the screen
+	// ([Harness.AssertFor] and [Harness.RequireFor]).
+	AssertKindCondition AssertKind = "condition"
 	// AssertKindWidth asserts the width of the screen's text
 	// ([Harness.AssertWidth] and [Harness.RequireWidth]).
 	AssertKindWidth AssertKind = "width"
@@ -224,9 +215,13 @@ func (e HookEvent) String() string {
 	case HookCapture:
 		return "capture"
 	default:
-		return "unknown"
+		return unknownName
 	}
 }
+
+// unknownName names a value outside its type's known set, such as in
+// annotations and hook event names.
+const unknownName = "unknown"
 
 // HookStage is whether a hook runs before or after the harness action.
 type HookStage int
@@ -243,7 +238,7 @@ func (s HookStage) String() string {
 	case HookStageAfter:
 		return "after"
 	}
-	return "unknown"
+	return unknownName
 }
 
 // Hook observes harness actions (see [WithHooks]). Errors fail the test
@@ -288,39 +283,11 @@ func (h *Harness) awaitsPaint(event HookEvent) bool {
 
 // waitForPaint blocks until the terminal has output newer than start and has
 // then stayed idle for one check interval, or until [Harness.paintWait]
-// passes with no new output. Synchronized-output holds do not count as idle:
-// the visible grid is still the previous frame.
+// passes with no new output (see [reel.Session.WaitIdle]).
 func (h *Harness) waitForPaint(start uint64) {
 	h.tb.Helper()
-	quiet := h.cfg.checkInterval
-	if quiet <= 0 {
-		quiet = time.Millisecond
-	}
-	deadline := time.Now().Add(h.paintWait())
-	var idleAt time.Time
-	timer := time.NewTimer(time.Millisecond)
-	defer timer.Stop()
-	for {
-		seq := h.session.Terminal().OutputSeq()
-		held := h.session.Terminal().Held()
-		if seq != start && !held {
-			start = seq
-			idleAt = time.Now().Add(quiet)
-		}
-		now := time.Now()
-		if !idleAt.IsZero() && !held && seq == start && !now.Before(idleAt) {
-			return
-		}
-		if idleAt.IsZero() && !now.Before(deadline) {
-			return
-		}
-		select {
-		case <-h.cfg.ctx.Done():
-			return
-		case <-timer.C:
-			timer.Reset(time.Millisecond)
-		}
-	}
+	quiet := max(h.cfg.checkInterval, time.Millisecond)
+	_ = h.session.WaitIdle(h.cfg.ctx, start, quiet, h.paintWait())
 }
 
 // paintWait is how long an exporting action waits for a program write before

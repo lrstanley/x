@@ -57,6 +57,9 @@ func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle,
 	thickness := metrics.UnderlineThickness.Int()
 	clipX := ctx.GridBounds().Max.X
 	switch style {
+	case vt.UnderlineNone:
+	case vt.UnderlineSingle:
+		Fill(img, image.Rect(area.Min.X, y, area.Max.X, min(area.Max.Y, y+thickness)), c)
 	case vt.UnderlineDouble:
 		Fill(img, image.Rect(area.Min.X, y, area.Max.X, min(area.Max.Y, y+thickness)), c)
 		y2 := min(area.Max.Y-1, y+thickness*2)
@@ -86,7 +89,5 @@ func Underline(ctx config.CellFrameSource, img draw.Image, area image.Rectangle,
 			yy := units.Clamp(y+pat[x%8], area.Min.Y, area.Max.Y-1)
 			Fill(img, image.Rect(x, yy, x+1, min(area.Max.Y, yy+thickness)), c)
 		}
-	default:
-		Fill(img, image.Rect(area.Min.X, y, area.Max.X, min(area.Max.Y, y+thickness)), c)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -135,13 +136,13 @@ func TestSessionTypingDelay(t *testing.T) {
 		if err := s.Key("enter"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Type("ok", KeyDelay(time.Second)); err != nil {
+		if err := s.Type("ok", Delay(time.Second)); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Key("tab", KeyDelay(time.Second)); err != nil {
+		if err := s.Key("tab", Delay(time.Second)); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Type("at once", KeyDelay(0)); err != nil {
+		if err := s.Type("at once", Delay(0)); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.Paste("p"); err != nil {
@@ -443,8 +444,8 @@ func TestSessionScroll(t *testing.T) {
 	}
 
 	// The program is not told, and is not sent anything.
-	if n := len(slices.Collect(s.Timeline().Inputs())); n != 0 {
-		t.Fatalf("scrolling recorded %d inputs", n)
+	if inputs := len(slices.Collect(s.Timeline().Inputs())); inputs != 0 {
+		t.Fatalf("scrolling recorded %d inputs", inputs)
 	}
 }
 
@@ -550,4 +551,110 @@ func TestSessionScrollOnInput(t *testing.T) {
 			t.Fatalf("Scroll offsets = %v, want [2]", got)
 		}
 	})
+}
+
+func TestSessionScrollbackHeader(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		opts []SessionOption
+		want int
+	}{
+		"default":  {nil, vt.DefaultScrollback},
+		"negative": {[]SessionOption{WithScrollback(-1)}, vt.DefaultScrollback},
+		"none":     {[]SessionOption{WithScrollback(0)}, 0},
+		"lines":    {[]SessionOption{WithScrollback(5)}, 5},
+		"last set": {[]SessionOption{WithScrollback(5), WithScrollback(-1)}, 5},
+	} {
+		if got := openTest(t, 4, 2, tc.opts...).Timeline().Header().Scrollback; got != tc.want {
+			t.Errorf("%s: Header.Scrollback = %d, want %d", name, got, tc.want)
+		}
+	}
+}
+
+func TestSessionScrollbackSize(t *testing.T) {
+	t.Parallel()
+	s := openTest(t, 4, 2)
+	for _, n := range []int{3, -2} {
+		if err := s.SetScrollbackSize(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.ClearScrollback(); err != nil {
+		t.Fatal(err)
+	}
+	var got []Event
+	for ev := range s.Timeline().Events() {
+		got = append(got, ev.stamp(0))
+	}
+	want := []Event{ScrollbackSize{Lines: 3}, ScrollbackSize{}, Output{Data: []byte("\x1b[3J")}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %+v, want %+v", got, want)
+	}
+	if n := len(slices.Collect(s.Timeline().Inputs())); n != 0 {
+		t.Fatalf("scrollback changes recorded %d inputs", n)
+	}
+}
+
+// TestSessionReplaysScrollback checks that a replay keeps the scrollback the
+// live terminal kept, through the header's size, a size change, and a clear.
+// libghostty caps history in whole pages, so it compares none with some.
+func TestSessionReplaysScrollback(t *testing.T) {
+	t.Parallel()
+	s := openTest(t, 6, 2, WithScrollback(0))
+	rows := func(from int) {
+		t.Helper()
+		var out strings.Builder
+		for i := range 6 {
+			fmt.Fprintf(&out, "row%d\r\n", from+i)
+		}
+		write(t, s, out.String())
+	}
+	rows(0)
+	if n := s.State().ScrollbackLen; n != 0 {
+		t.Fatalf("ScrollbackLen with none kept = %d, want 0", n)
+	}
+	if err := s.SetScrollbackSize(100); err != nil {
+		t.Fatal(err)
+	}
+	rows(10)
+	if err := s.ScrollToTop(); err != nil {
+		t.Fatal(err)
+	}
+	st := s.State()
+	if st.ScrollbackLen == 0 {
+		t.Fatal("no scrollback after SetScrollbackSize(100)")
+	}
+	liveTop, liveLen := s.Terminal().Text(), st.ScrollbackLen
+	if err := s.ScrollToBottom(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearScrollback(); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.State().ScrollbackLen; n != 0 {
+		t.Fatalf("ScrollbackLen after ClearScrollback = %d, want 0", n)
+	}
+
+	r, err := newReplay(t.Context(), replayRuntime, s.Timeline().Header(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.close()
+	var replayTop string
+	var replayLen int
+	for ev := range s.Timeline().Events() {
+		if err = r.apply(ev); err != nil {
+			t.Fatal(err)
+		}
+		if replayTop == "" && r.term.ScrollbackOffset() > 0 {
+			replayTop, replayLen = r.term.Text(), r.term.ScrollbackLen()
+		}
+	}
+	if replayTop != liveTop || replayLen != liveLen {
+		t.Fatalf("replayed top = %q with %d rows of scrollback, want the live %q with %d",
+			replayTop, replayLen, liveTop, liveLen)
+	}
+	if n := r.term.ScrollbackLen(); n != 0 {
+		t.Fatalf("replay ends with %d rows of scrollback, want 0", n)
+	}
 }

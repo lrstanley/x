@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lrstanley/x/term/reel"
 )
 
 func TestRequireJSONEqualCreatesSnapshot(t *testing.T) {
@@ -21,8 +23,9 @@ func TestRequireJSONEqualCreatesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
 	}
-	var snap ScreenSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	var snap reel.Screen
+	err = json.Unmarshal(data, &snap)
+	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if snap.Rows < 2 || snap.Cols < 1 {
@@ -74,9 +77,10 @@ func TestWriteJSONDefaultPathSnapExtension(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read file: %v", err)
 	}
-	var snap ScreenSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		t.Fatalf("content is not valid ScreenSnapshot JSON: %v", err)
+	var snap reel.Screen
+	err = json.Unmarshal(data, &snap)
+	if err != nil {
+		t.Fatalf("content is not valid reel.Screen JSON: %v", err)
 	}
 	if snap.Rows < 1 {
 		t.Fatalf("expected at least one row")
@@ -97,8 +101,9 @@ func TestWriteJSONExplicitPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var snap ScreenSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	var snap reel.Screen
+	err = json.Unmarshal(data, &snap)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if snap.Rows < 1 {

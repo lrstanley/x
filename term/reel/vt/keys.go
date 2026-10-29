@@ -14,6 +14,8 @@ import (
 
 // keyNames maps the Ghostty keys that are named rather than shown by the
 // character they type to their names.
+//
+//nolint:goconst // Ghostty key codes in naming tables.
 var keyNames = func() map[string]string {
 	names := map[string]string{
 		"ENTER":                "enter",

@@ -119,6 +119,8 @@ func (d *Renderer) drawCursor(dst draw.Image, area image.Rectangle, f *renderFra
 		height := min(metrics.CursorHeight.Int(), area.Dy())
 		area.Min.Y += (area.Dy() - height) / 2
 		area.Max.Y = area.Min.Y + height
+	case vt.CursorBlockHollow:
+		// Drawn as the whole cell.
 	}
 
 	idraw.Fill(dst, area, f.cursorColorNRGBA())
