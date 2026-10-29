@@ -49,6 +49,11 @@ type Header struct {
 	// Scrollback is reel's own "scrollback", which other readers ignore,
 	// or nil when the file does not say. A [Reader] rejects a negative one.
 	Scrollback *int
+	// CellWidth and CellHeight are reel's own "cell_width" and
+	// "cell_height", the terminal's pixel size of one cell, which other
+	// readers ignore. Zero means the file does not say. A [Reader] rejects
+	// one without the other, or a negative one.
+	CellWidth, CellHeight int
 }
 
 // Theme is the colors a terminal starts with. Fg and Bg are set. Cursor is
@@ -91,6 +96,8 @@ type castHeader struct {
 	Theme        *castTheme     `json:"theme,omitzero"`
 	SkipPristine bool           `json:"skip_pristine,omitzero"`
 	Scrollback   *int           `json:"scrollback,omitzero"`
+	CellWidth    int            `json:"cell_width,omitzero"`
+	CellHeight   int            `json:"cell_height,omitzero"`
 }
 
 type castTerm struct {

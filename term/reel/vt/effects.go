@@ -60,6 +60,11 @@ func (t *Terminal) installCallbacks() error {
 			return err
 		}
 	}
+	// The PNG decoder is a process-wide setting of the module, which holds
+	// one terminal.
+	if err := wasmvt.Result("sys set", t.mod.Xghostty_sys_set(wasmvt.SysOptionDecodePng, t.mod.Bind(t.onDecodePNG))); err != nil {
+		return err
+	}
 	t.callbacksOn = true
 	return nil
 }

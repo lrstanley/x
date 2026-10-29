@@ -76,6 +76,7 @@ func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from ti
 	term, err := rt.Open(ctx, h.Cols, h.Rows,
 		vt.WithScrollbackLines(h.Scrollback),
 		vt.WithClock(func() time.Duration { return r.now }),
+		vt.WithCellSize(h.CellWidth, h.CellHeight),
 	)
 	if err != nil {
 		return nil, err
@@ -123,10 +124,18 @@ func (r *replay) setColors(c Colors) error {
 // apply applies the next event and passes on the resulting frame, if any.
 func (r *replay) apply(ev Event) error {
 	inWindow := r.n >= r.start
-	if r.n == r.start && r.early && r.frame != nil {
-		// Capture what the pre-window events left as the opening frame.
-		cf := r.current(r.from)
-		r.opening = &cf
+	if r.n == r.start {
+		if err := r.animate(min(r.from, ev.At()), false); err != nil {
+			return err
+		}
+		if r.early && r.frame != nil {
+			// Capture what the pre-window events left as the opening frame.
+			cf := r.current(r.from)
+			r.opening = &cf
+		}
+	}
+	if err := r.animate(ev.At(), inWindow); err != nil {
+		return err
 	}
 	r.n++
 	r.now = ev.At()
@@ -158,6 +167,24 @@ func (r *replay) apply(ev Event) error {
 		return err
 	}
 	return r.commit(ev.At(), inWindow)
+}
+
+// animate passes on the Kitty animation frames due before until, each at
+// the time it is due.
+func (r *replay) animate(until time.Duration, inWindow bool) error {
+	for {
+		due, ok := r.term.AnimationDue()
+		// The terminal has already ticked at now, so a frame due then or
+		// before is one it showed.
+		if !ok || due >= until || due <= r.now {
+			return nil
+		}
+		r.now = due
+		r.term.Animate()
+		if err := r.commit(due, inWindow); err != nil {
+			return err
+		}
+	}
 }
 
 // state returns the terminal's state with the timeline's focus.
@@ -197,7 +224,7 @@ func (r *replay) commit(at time.Duration, inWindow bool) error {
 // terminal.
 func (r *replay) isPristine(st vt.State, text string) bool {
 	p := r.pristine
-	return strings.TrimSpace(text) == "" &&
+	return strings.TrimSpace(text) == "" && len(r.term.Images()) == 0 &&
 		st.Title == p.Title &&
 		st.ShownProgress() == p.ShownProgress() &&
 		st.ProgramStatusGeneration == p.ProgramStatusGeneration &&

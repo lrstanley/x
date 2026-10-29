@@ -80,6 +80,20 @@ type sessionConfig struct {
 	scrollOnInput bool
 	noQueries     bool
 	typingDelay   time.Duration
+	// cellW and cellH are [Header.CellWidth] and [Header.CellHeight].
+	cellW, cellH int
+}
+
+// WithCellSize sets the terminal's pixel size of one cell, which programs
+// read with a size report, and which sizes Kitty graphics in cells (see
+// [vt.WithCellSize]). It is written to the timeline's header, so replays
+// match. Sizes that are not positive leave vt's default.
+func WithCellSize(width, height int) SessionOption {
+	return func(cfg *sessionConfig) {
+		if width > 0 && height > 0 {
+			cfg.cellW, cfg.cellH = width, height
+		}
+	}
 }
 
 // WithRuntime opens the session's terminal from rt instead of the default
@@ -153,6 +167,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 	term, err := cfg.runtime.Open(ctx, cols, rows,
 		vt.WithScrollbackLines(cfg.scrollback),
 		vt.WithClock(func() time.Duration { return timeline.now() }),
+		vt.WithCellSize(cfg.cellW, cfg.cellH),
 	)
 	if err != nil {
 		return nil, err
@@ -164,6 +179,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 	h := Header{
 		Cols: cols, Rows: rows, Theme: theme, Title: cfg.title,
 		SkipPristine: cfg.skipPristine, Scrollback: cfg.scrollback,
+		CellWidth: cfg.cellW, CellHeight: cfg.cellH,
 	}
 	timeline = newTimeline(h)
 	s := &Session{

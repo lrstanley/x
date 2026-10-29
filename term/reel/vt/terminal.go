@@ -25,6 +25,7 @@ const (
 	defaultCellWidth  = 10
 	defaultCellHeight = 20
 	scratchSize       = 8192
+	kittyScratchSize  = 64
 	feedSize          = 64 * 1024
 )
 
@@ -189,16 +190,25 @@ type Terminal struct {
 	// searches are live GhosttySearch handles. Close frees any that remain.
 	searches []*Search
 
-	// kittyLimit is the direct-payload byte cap. Zero disables storage.
-	// This Wasm build has no filesystem, so file transmissions are ignored.
+	// kittyLimit is the Kitty graphics storage limit last applied. Zero
+	// turns Kitty graphics off.
 	kittyLimit uint64
-	// kittyImages are stored images keyed by protocol id.
-	kittyImages map[uint32]*kittyImage
-	// kittyPlacements are direct placements, oldest first. Col and Row
-	// are the cursor cell at placement time.
-	kittyPlacements []KittyPlacement
-	// kittyScan is the APC parser carried across Write chunks.
-	kittyScan kittyScan
+	// kscratch is scratch for Kitty graphics reads, apart from scratch,
+	// whose offsets the grid readers reserve.
+	kscratch int32
+	// kittyIt is the reusable GhosttyKittyGraphicsPlacementIterator.
+	kittyIt int32
+	// kittyGen is the image storage generation the grid's placements were
+	// read at.
+	kittyGen uint64
+	// kittyPlaceholders is true when a virtual placement exists, so any
+	// cell change can move an image.
+	kittyPlaceholders bool
+	// kittyCache holds decoded images by id, while their generation holds.
+	kittyCache map[uint32]*Image
+	// animDue is when the next animation frame is due, if animOK.
+	animDue time.Duration
+	animOK  bool
 }
 
 // Write feeds VT bytes to the emulator. It never returns a short write.
@@ -250,14 +260,12 @@ func (t *Terminal) OutputSeq() uint64 {
 // writeLocked copies p into the reusable feed buffer and calls
 // ghostty_terminal_vt_write. The feed buffer is feedSize bytes, so
 // large writes are split. The call never fails. Malformed input stays
-// inside the emulator. Kitty graphics are tracked separately because
-// this Wasm build does not export ghostty_kitty_graphics_*.
+// inside the emulator.
 func (t *Terminal) writeLocked(p []byte) error {
 	for len(p) > 0 {
 		n := min(len(p), feedSize)
 		t.mod.Put(t.feed, p[:n])
 		t.mod.Xghostty_terminal_vt_write(t.term, t.feed, int32(n))
-		t.feedKitty(p[:n])
 		p = p[n:]
 	}
 	return nil
@@ -335,13 +343,14 @@ func (t *Terminal) resetStateLocked() {
 	t.invalidateRowWords()
 	t.gridFresh = false
 	t.hasCursor = false
-	t.kittyLimit = 0
-	t.kittyImages = nil
-	t.kittyPlacements = nil
-	t.kittyScan = kittyScan{}
+	t.kittyLimit = DefaultKittyStorage
+	t.kittyGen = 0
+	t.kittyPlaceholders = false
+	t.kittyCache = nil
+	t.animOK = false
 }
 
-// Resize changes the grid. Cell pixels stay at the instance default so
+// Resize changes the grid. Cell pixels stay as [WithCellSize] set them, so
 // size reports stay non-zero.
 func (t *Terminal) Resize(cols, rows int) error {
 	t.mu.Lock()
@@ -372,6 +381,32 @@ func (t *Terminal) resizeLocked(cols, rows int) error {
 	}
 	t.cols, t.rows = cols, rows
 	return nil
+}
+
+// configure applies the options of [Runtime.Open] to a checked-out terminal.
+func (t *Terminal) configure(cfg openConfig) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.clock = cfg.clock
+	w, h := uint32(defaultCellWidth), uint32(defaultCellHeight)
+	if cfg.cellW > 0 {
+		w, h = uint32(cfg.cellW), uint32(cfg.cellH) //nolint:gosec // WithCellSize keeps them positive.
+	}
+	if w == t.cellW && h == t.cellH {
+		return nil
+	}
+	t.cellW, t.cellH = w, h
+	t.grid = nil
+	t.gridFresh = false
+	return t.resizeLocked(t.cols, t.rows)
+}
+
+// CellSize returns the pixel size of one cell, which size reports and
+// Kitty graphics placements use. See [WithCellSize].
+func (t *Terminal) CellSize() (width, height int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return int(t.cellW), int(t.cellH)
 }
 
 // Size returns the grid in cells.
@@ -833,10 +868,14 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	t.cellW = defaultCellWidth
 	t.cellH = defaultCellHeight
 	t.scrollbackLines = scrollback
+	t.kittyLimit = DefaultKittyStorage
 	if t.feed, err = t.mod.Alloc(feedSize); err != nil {
 		return err
 	}
 	if t.scratch, err = t.mod.Alloc(scratchSize); err != nil {
+		return err
+	}
+	if t.kscratch, err = t.mod.Alloc(kittyScratchSize); err != nil {
 		return err
 	}
 	ack := []byte{0x06}
@@ -898,6 +937,12 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	if err != nil {
 		return err
 	}
+	t.kittyIt, err = t.mod.Ctor(func(slot int32) int32 {
+		return t.mod.Xghostty_kitty_graphics_placement_iterator_new(0, slot)
+	})
+	if err != nil {
+		return err
+	}
 	err = t.installCallbacks()
 	if err != nil {
 		return err
@@ -931,7 +976,7 @@ func (t *Terminal) reapplyLocked() error {
 	if err := t.setModeLocked(Mode{Number: 20, ANSI: true}, true); err != nil {
 		return err
 	}
-	return nil
+	return t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, t.kittyLimit)
 }
 
 // clearPooledLocked drops what belongs to the previous checkout: the

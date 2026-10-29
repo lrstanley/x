@@ -161,6 +161,13 @@ func (m *Module) SetU32Option(term, opt int32, v uint32) error {
 	return m.setBytes(term, opt, buf[:])
 }
 
+// SetU64Option sets an 8-byte integer option, such as a uint64_t.
+func (m *Module) SetU64Option(term, opt int32, v uint64) error {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], v)
+	return m.setBytes(term, opt, buf[:])
+}
+
 // SetU8Option sets a 1-byte integer option.
 func (m *Module) SetU8Option(term, opt int32, v byte) error {
 	return m.setBytes(term, opt, []byte{v})

@@ -39,7 +39,10 @@ func NewWriter(w io.Writer, h Header) (*Writer, error) {
 
 // headerOf returns the JSON of h.
 func headerOf(h Header) castHeader {
-	hl := castHeader{Version: h.Version, Title: h.Title, SkipPristine: h.SkipPristine, Scrollback: h.Scrollback}
+	hl := castHeader{
+		Version: h.Version, Title: h.Title, SkipPristine: h.SkipPristine, Scrollback: h.Scrollback,
+		CellWidth: h.CellWidth, CellHeight: h.CellHeight,
+	}
 	if !h.Timestamp.IsZero() {
 		hl.Timestamp = h.Timestamp.Unix()
 	}

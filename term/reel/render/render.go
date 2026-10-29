@@ -221,6 +221,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 
 	d.fgPass.Reset(f.gridBounds.Union(f.chromeBounds))
 	d.drawChrome(dst, f)
+	d.drawImages(dst, scr, f, layerBelowBackground)
 
 	// Only rows and columns that can reach dst: glyphSpill more on each side,
 	// and on the left, the rest of a wide cell that starts there.
@@ -274,15 +275,20 @@ func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 				runX1 = area.Max.X
 				runColor = fill
 			}
-			d.drawCellFg(area, cell, f, fg, fgReady, cellSpansNext(scr, view, x, y, cell))
+			if !isPlaceholder(cell) {
+				d.drawCellFg(area, cell, f, fg, fgReady, cellSpansNext(scr, view, x, y, cell))
+			}
 		}
 		if open {
 			idraw.Fill(dst, image.Rect(runX0, rowY0, runX1, rowY1), runColor)
 		}
 	}
 
+	d.drawImages(dst, scr, f, layerBelowText)
 	d.fgPass.Composite(dst)
 	d.fgPass.DrawPending(f, dst)
+	d.drawImages(dst, scr, f, layerAboveText)
+	d.images.rotate()
 
 	if cur := f.st.Cursor; cur.Visible && idraw.CursorVisible(f, cur) {
 		if cursor := f.cursorBounds(); !cursor.Empty() {

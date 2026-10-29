@@ -15,7 +15,10 @@
 // The emulator fills a cell grid and the terminal state around it, which a
 // renderer reads. A [Screen] is a rectangle of [Cell] values: grapheme,
 // width, colors, attribute bits, underline, and an optional link. Attribute
-// bit positions are stable. A [State] is the rest of what a renderer needs
+// bit positions are stable. A [Buffer] also carries the screen's Kitty
+// graphics placements ([Buffer.Images]), measured in the terminal's cell
+// pixels ([WithCellSize]). A [State] is the rest of what a renderer needs
 // to draw a screen: the title, focus, cursor, default colors, scrollback,
-// OSC 9;4 progress, and OSC 7501 program status.
+// OSC 9;4 progress, OSC 7501 program status, and the program's events, such
+// as the bell, stamped on the terminal's clock ([WithClock]).
 package vt

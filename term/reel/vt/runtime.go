@@ -56,6 +56,20 @@ type Option func(*openConfig)
 type openConfig struct {
 	scrollback int
 	clock      func() time.Duration
+	cellW      int
+	cellH      int
+}
+
+// WithCellSize sets the pixel size of one cell, which a program reads with
+// a size report and which sizes Kitty graphics placements, in cells. A
+// renderer with another cell size scales images to the same cells. The
+// default is 10 by 20. Sizes that are not positive are ignored.
+func WithCellSize(width, height int) Option {
+	return func(cfg *openConfig) {
+		if width > 0 && height > 0 {
+			cfg.cellW, cfg.cellH = width, height
+		}
+	}
 }
 
 // WithClock sets the clock that stamps when program events arrive, such as
@@ -108,9 +122,10 @@ func (r *Runtime) Open(ctx context.Context, cols, rows int, opts ...Option) (*Te
 		start := time.Now()
 		cfg.clock = func() time.Duration { return time.Since(start) }
 	}
-	term.mu.Lock()
-	term.clock = cfg.clock
-	term.mu.Unlock()
+	if err = term.configure(cfg); err != nil {
+		_ = term.Close()
+		return nil, err
+	}
 	return term, nil
 }
 

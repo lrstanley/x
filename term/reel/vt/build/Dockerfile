@@ -21,12 +21,18 @@ RUN curl -fsSL -o /tmp/zig.tar.xz \
 # require GOEXPERIMENT=simd.
 ARG GHOSTTY_REV=e3ebb1d1bf772cf5d1bc70b5ae19e6943e33a110
 
+# Ghostty turns Kitty graphics off for freestanding targets. The patch turns
+# it back on, and refuses the file, temporary-file and shared-memory media,
+# which need a filesystem. Direct payloads work as on any other target.
+COPY kitty-freestanding.patch /kitty-freestanding.patch
+
 RUN mkdir -p /src \
 	&& cd /src \
 	&& git init -q \
 	&& git remote add origin https://github.com/ghostty-org/ghostty.git \
 	&& git fetch --depth 1 origin "${GHOSTTY_REV}" \
 	&& git checkout --detach --quiet FETCH_HEAD \
+	&& git apply /kitty-freestanding.patch \
 	&& zig build -Demit-lib-vt -Dtarget=wasm32-freestanding -Dcpu=generic -Doptimize=ReleaseSmall \
 	&& mv zig-out/bin/ghostty-vt.wasm /ghostty-vt.wasm \
 	&& rm -rf /src

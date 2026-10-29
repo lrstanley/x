@@ -35,6 +35,12 @@
 // unfocused dimming overlay, an antialiased rounding mask on the terminal
 // window, then the OSC 7501 program status outline around it.
 //
+// Kitty graphics ([vt.Buffer.Images]) are drawn in their layers: under the
+// cell backgrounds, between the backgrounds and the text, or over the text.
+// Each is scaled from the terminal's cells to the renderer's, so an image
+// covers the same cells at any font size. Unicode placeholder cells draw
+// their image instead of their text.
+//
 // OSC 7501 program status ([WithProgramStatus], from
 // [vt.State.ProgramStatuses]) is drawn only with window chrome. The most
 // urgent record (see [vt.ProgramState]) replaces the title with its icon,

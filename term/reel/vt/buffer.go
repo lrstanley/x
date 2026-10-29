@@ -39,6 +39,13 @@ type Buffer struct {
 	// gen identifies cell contents. It changes when cells change and stays
 	// put across ClearDirty. Clones copy it.
 	gen uint64
+	// images are the Kitty graphics placements in the viewport, lowest
+	// layer first. They are replaced, never changed in place, so clones
+	// share them. A change to them advances gen.
+	images []Placement
+	// cellSize is the terminal's pixel size of one cell, which images are
+	// measured in.
+	cellSize image.Point
 }
 
 // bufGen issues content generations. Clones share the source generation
@@ -240,7 +247,30 @@ func (b *Buffer) Clone() *Buffer {
 		Dirty:   append([]bool(nil), b.Dirty...),
 		wrapped: append([]bool(nil), b.wrapped...),
 		gen:     b.gen,
+
+		images:   b.images,
+		cellSize: b.cellSize,
 	}
+}
+
+// Images returns the Kitty graphics placements in the viewport, lowest layer
+// first, measured in the terminal's pixels (see [Buffer.CellSize]). The
+// slice and images are shared and must not be modified.
+func (b *Buffer) Images() []Placement {
+	if b == nil {
+		return nil
+	}
+	return b.images
+}
+
+// CellSize is the pixel size of one cell in the terminal the buffer was read
+// from, which [Buffer.Images] are measured in. It is zero for a buffer built
+// with [NewBuffer].
+func (b *Buffer) CellSize() image.Point {
+	if b == nil {
+		return image.Point{}
+	}
+	return b.cellSize
 }
 
 // ClearDirty marks every row unchanged. The next [Buffer.SetCell] marks

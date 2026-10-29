@@ -6,6 +6,7 @@ package vt
 
 import (
 	"bytes"
+	"image"
 	"image/color"
 	"unicode/utf8"
 
@@ -58,6 +59,7 @@ func (t *Terminal) captureFrame() (*Buffer, Cursor) {
 func (t *Terminal) refreshLocked() *Buffer {
 	if rc := t.mod.Xghostty_render_state_update(t.render, t.term); rc != 0 && t.grid == nil {
 		t.grid = NewBuffer(t.cols, t.rows)
+		t.grid.cellSize = image.Pt(int(t.cellW), int(t.cellH))
 		t.invalidateRowWords()
 		t.gridFresh = true
 		return t.grid
@@ -66,12 +68,16 @@ func (t *Terminal) refreshLocked() *Buffer {
 	same := t.grid != nil && t.grid.Width() == t.cols && t.grid.Height() == t.rows
 	if dirty == 0 && same {
 		t.grid.ClearDirty()
+		if t.refreshImagesLocked(false) {
+			t.grid.AdvanceGeneration()
+		}
 		t.gridFresh = true
 		t.alt = t.activeAlt()
 		return t.grid
 	}
 	if !same {
 		t.grid = NewBuffer(t.cols, t.rows)
+		t.grid.cellSize = image.Pt(int(t.cellW), int(t.cellH))
 		t.invalidateRowWords()
 	} else {
 		t.grid.ClearDirty()
@@ -104,7 +110,7 @@ func (t *Terminal) refreshLocked() *Buffer {
 	}
 	// A following refresh may ClearDirty before anyone draws. The
 	// generation still tells that draw the cells are new.
-	if changed {
+	if t.refreshImagesLocked(true) || changed {
 		t.grid.AdvanceGeneration()
 	}
 	t.readCursorLocked()

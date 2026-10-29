@@ -28,10 +28,14 @@ import (
 //   - the foreground, background, and cursor colors the program set
 //   - the OSC 9;4 progress and OSC 7501 program status
 //
+// Kitty graphics placements on the active screen are sent again with their
+// images, as of the current animation frame, cropped to the screen.
+//
 // Left out are the screen that is not active (the primary screen while the
 // alternate screen is shown), the saved cursor, the palette (reel draws
-// indexed colors with its own), kitty graphics, notifications, and which
-// rows were soft-wrapped, so a later resize reflows them as separate lines.
+// indexed colors with its own), Kitty images with no placement on the active
+// screen, notifications, and which rows were soft-wrapped, so a later resize
+// reflows them as separate lines.
 // In synchronized output, the bytes start a hold, but over the screen as it
 // is rather than the screen the hold froze.
 //
@@ -52,6 +56,7 @@ func (t *Terminal) Redraw() ([]byte, error) {
 	// the cursor's blinking, which DECSCUSR also sets.
 	b.WriteString(cursorShape(t.cursorLocked()))
 	b.Write(screenVT)
+	t.redrawImagesLocked(&b)
 	if t.title != "" {
 		b.WriteString(ansi.SetWindowTitle(t.title))
 	}

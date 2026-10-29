@@ -477,6 +477,9 @@ func (r *recorder) end(end time.Duration) error {
 	if r.replay == nil {
 		return nil
 	}
+	if err := r.replay.animate(end, true); err != nil {
+		return err
+	}
 	if err := r.replay.finish(); err != nil {
 		return err
 	}

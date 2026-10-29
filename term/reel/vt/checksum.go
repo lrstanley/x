@@ -4,7 +4,11 @@
 
 package vt
 
-import "github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
+import (
+	"errors"
+
+	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
+)
 
 // ChecksumFlags selects the XTCHECKSUM variant DECRQCRA uses.
 // Zero is the DEC checksum: negate the total, add VT100 video
@@ -50,7 +54,7 @@ func (t *Terminal) SetChecksumFlags(flags ChecksumFlags) error {
 		return errClosed
 	}
 	if flags&^checksumFlagMask != 0 {
-		return errInvalid("checksum flags")
+		return errors.New("vt: invalid checksum flags")
 	}
 	t.checksumFlags = flags
 	return t.mod.SetU8Option(t.term, wasmvt.TerminalOptionXtChecksumExtension, byte(flags))

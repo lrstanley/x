@@ -55,6 +55,11 @@ type Renderer struct {
 	fgPass raster.Pass
 	// prev holds the cells d.frame shows, row-major, for drawIncremental.
 	prev []vt.Cell
+	// frameImages is set when d.frame shows Kitty graphics, which cover
+	// rows other than their own, so the next draw repaints it whole.
+	frameImages bool
+	// images keeps scaled Kitty graphics between frames.
+	images imageCache
 }
 
 // rendererStatus is what program status drawing keeps between frames: the

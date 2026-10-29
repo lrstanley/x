@@ -78,6 +78,7 @@ func (d *Renderer) rememberFrame(scr vt.Screen, st vt.State, lo, hi int, at time
 	}
 	d.frameGen = buf.Generation()
 	d.frameSnap = d.currentSnap(buf.Bounds(), st, at)
+	d.frameImages = hasImages(buf)
 	d.frameReady = true
 }
 
@@ -137,7 +138,8 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 // outside those bands is untouched.
 func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration) bool {
 	buf, ok := scr.(*vt.Buffer)
-	if !ok || !d.frameReady || d.frame == nil || buf.Generation() == 0 || len(d.prev) != buf.Width()*buf.Height() {
+	if !ok || !d.frameReady || d.frame == nil || buf.Generation() == 0 || len(d.prev) != buf.Width()*buf.Height() ||
+		d.frameImages || hasImages(buf) {
 		return false
 	}
 	now, old := d.currentSnap(buf.Bounds(), st, at), d.frameSnap

@@ -133,6 +133,11 @@ type Header struct {
 	// keeps none. A session's is [vt.DefaultScrollback] unless opened
 	// [WithScrollback], as is that of a file that does not say.
 	Scrollback int
+	// CellWidth and CellHeight are the terminal's pixel size of one cell
+	// (see [vt.WithCellSize]), which sizes Kitty graphics in cells, so a
+	// replay places images over the cells they were recorded on. Zero is
+	// vt's default. A session's are set [WithCellSize].
+	CellWidth, CellHeight int
 }
 
 // Colors is a foreground, background, and cursor color. Non-nil colors are

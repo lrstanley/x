@@ -1,0 +1,80 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 517ccce..2fe0a90 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -404,6 +404,7 @@ comptime {
+             @export(&c.kitty_graphics_placement_viewport_pos, .{ .name = "ghostty_kitty_graphics_placement_viewport_pos" });
+             @export(&c.kitty_graphics_placement_source_rect, .{ .name = "ghostty_kitty_graphics_placement_source_rect" });
+             @export(&c.kitty_graphics_placement_render_info, .{ .name = "ghostty_kitty_graphics_placement_render_info" });
++            @export(&c.kitty_graphics_animation_tick, .{ .name = "ghostty_kitty_graphics_animation_tick" });
+         }
+         if (features.grid_introspection) {
+             @export(&c.grid_ref_cell, .{ .name = "ghostty_grid_ref_cell" });
+diff --git a/src/terminal/build_options.zig b/src/terminal/build_options.zig
+index f16cbf4..ffbc3c9 100644
+--- a/src/terminal/build_options.zig
++++ b/src/terminal/build_options.zig
+@@ -272,7 +272,7 @@ pub const Options = struct {
+     /// targets, so it is always disabled there regardless of the
+     /// feature setting.
+     pub fn kittyGraphics(self: Options, target: std.Target) bool {
+-        if (target.os.tag == .freestanding) return false;
++        _ = target;
+         return self.features.kitty_graphics;
+     }
+ 
+diff --git a/src/terminal/c/kitty_graphics.zig b/src/terminal/c/kitty_graphics.zig
+index 2bd5e86..c495080 100644
+--- a/src/terminal/c/kitty_graphics.zig
++++ b/src/terminal/c/kitty_graphics.zig
+@@ -546,6 +546,24 @@ pub const PlacementRenderInfo = extern struct {
+     source_height: u32 = 0,
+ };
+ 
++/// Advance the active screen's running animations to `now_ms`, a
++/// monotonic clock of the caller's choosing. out_delay receives the
++/// milliseconds until the next frame change; NO_VALUE means no running
++/// animation needs another tick.
++pub fn animation_tick(
++    terminal_: terminal_c.Terminal,
++    now_ms: u64,
++    out_delay: ?*u64,
++) callconv(lib.calling_conv) Result {
++    if (comptime !build_options.kitty_graphics) return .no_value;
++
++    const wrapper = terminal_ orelse return .invalid_value;
++    const storage = &wrapper.terminal.screens.active.kitty_images;
++    const delay = storage.animationTick(wrapper.io.io(), now_ms) orelse return .no_value;
++    if (out_delay) |out| out.* = delay;
++    return .success;
++}
++
+ pub fn placement_render_info(
+     iter_: PlacementIterator,
+     image_: ImageHandle,
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 5248c2c..4212737 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -28,6 +28,7 @@ pub const kitty_graphics_placement_grid_size = kitty_graphics.placement_grid_siz
+ pub const kitty_graphics_placement_viewport_pos = kitty_graphics.placement_viewport_pos;
+ pub const kitty_graphics_placement_source_rect = kitty_graphics.placement_source_rect;
+ pub const kitty_graphics_placement_render_info = kitty_graphics.placement_render_info;
++pub const kitty_graphics_animation_tick = kitty_graphics.animation_tick;
+ pub const types = @import("types.zig");
+ pub const modes = @import("modes.zig");
+ pub const osc = @import("osc.zig");
+diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
+index c50e46c..bfba7ea 100644
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -172,6 +172,9 @@ pub const LoadingImage = struct {
+             }
+         }
+ 
++        // Freestanding targets have no filesystem or shared memory.
++        if (comptime builtin.target.os.tag == .freestanding) return error.UnsupportedMedium;
++
+         // Otherwise, the payload data is guaranteed to be a path.
+ 
+         if (comptime builtin.os.tag != .windows) {
