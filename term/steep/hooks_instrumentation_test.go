@@ -17,7 +17,7 @@ import (
 var harnessHookExcluded = func() map[string]bool {
 	excluded := map[string]bool{}
 	for _, name := range []string{
-		"View", "Title", "LastBellAt", "Bounds", "IsAltScreen", "ModeSetting",
+		"View", "Title", "Bell", "Bounds", "IsAltScreen", "ModeSetting",
 		"Width", "Height", "Dimensions", "IsFocused", "FgColor", "BgColor",
 		"CursorColor", "CursorPosition", "CursorVisible", "CursorBlink", "CursorStyle",
 		"ProgramStatuses",

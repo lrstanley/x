@@ -7,7 +7,6 @@ package vt
 import (
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
@@ -81,7 +80,7 @@ func (t *Terminal) onWritePty(_, _, data, n int32) {
 }
 
 func (t *Terminal) onBell(_, _ int32) {
-	t.bell = time.Now()
+	t.bell = Bell{Count: t.bell.Count + 1, At: t.clock()}
 }
 
 // onTitle reads TerminalDataTitle. The GhosttyString is only valid
@@ -146,7 +145,7 @@ func (t *Terminal) onDeviceAttributes(_, _, out int32) int32 {
 // GhosttyClipboardWrite. The reply function pointer is a table index
 // invoked with [wasmvt.Module.Call2] before this returns.
 func (t *Terminal) onClipboardWrite(_, _, req int32) {
-	t.clipWrote = t.clipboardText(req)
+	t.clipWrote = ClipboardWrite{Count: t.clipWrote.Count + 1, Text: t.clipboardText(req), At: t.clock()}
 	t.replyClipboardWrite(req)
 }
 
@@ -156,6 +155,7 @@ func (t *Terminal) onNotification(_, _, req int32) {
 	title := wasmvt.TerminalDesktopNotificationTitleOff
 	body := wasmvt.TerminalDesktopNotificationBodyOff
 	t.notifications = append(t.notifications, Notification{
+		At:    t.clock(),
 		Title: t.mod.String(req, title),
 		Body:  t.mod.String(req, body),
 	})
@@ -220,6 +220,7 @@ func (t *Terminal) setProgramStatusesLocked(next []ProgramStatus, reported bool)
 func (t *Terminal) onPrompt(_, _, req int32) {
 	kind := t.mod.I32(req, wasmvt.TerminalSemanticPromptKindOff)
 	t.prompt.Kind = promptName(kind)
+	t.prompt.At = t.clock()
 	t.prompt.Command = t.mod.String(req, wasmvt.TerminalSemanticPromptCommandOff)
 	has := t.mod.U8(req, wasmvt.TerminalSemanticPromptHasExitCodeOff) != 0
 	t.prompt.HasExitCode = has

@@ -77,6 +77,19 @@ type State struct {
 	// Generation is the content generation of the cell grid read with this
 	// state, see [Buffer.Generation]. Zero means there is no grid.
 	Generation uint64
+
+	// WorkingDirectory is the last OSC 7 working directory.
+	WorkingDirectory string
+	// Bell is the latest BEL.
+	Bell Bell
+	// Notifications are the OSC 9 and OSC 777 desktop notifications since
+	// the last full reset, oldest first. The slice may be shared with the
+	// emulator and other states and must not be modified.
+	Notifications []Notification
+	// Clipboard is the program's latest clipboard write.
+	Clipboard ClipboardWrite
+	// Prompt is the latest OSC 133 semantic-prompt step.
+	Prompt Prompt
 }
 
 // ShownProgress is the OSC 9;4 progress to show for s: none when it is
@@ -91,7 +104,7 @@ func (s State) ShownProgress() Progress {
 }
 
 // Equal reports whether s and o are the same state. Fields compare as with
-// ==, and ProgramStatuses element by element.
+// ==, and ProgramStatuses and Notifications element by element.
 func (s State) Equal(o State) bool {
 	return s.Title == o.Title &&
 		s.Focused == o.Focused &&
@@ -107,22 +120,40 @@ func (s State) Equal(o State) bool {
 		s.ProgramStatusGeneration == o.ProgramStatusGeneration &&
 		s.ProgramStatusReported == o.ProgramStatusReported &&
 		s.Generation == o.Generation &&
-		slices.Equal(s.ProgramStatuses, o.ProgramStatuses)
+		slices.Equal(s.ProgramStatuses, o.ProgramStatuses) &&
+		s.sameEvents(o) &&
+		slices.Equal(s.Notifications, o.Notifications)
 }
 
 // SameCommit reports whether s and o, two states of one terminal, show the
 // same program output: the same grid generation, title, screen, cursor,
-// shown progress, and program status generation. Unlike [State.Equal] it
-// ignores focus, colors, and scrollback, and compares the program status
-// records by generation, without reading them, so it is cheap enough to
-// run on every write to tell a write that changed nothing from one that did.
+// shown progress, program status generation, and program events (working
+// directory, bell, notifications, clipboard write, and prompt step). Unlike
+// [State.Equal] it ignores focus, colors, and scrollback, compares the
+// program status records by generation, and the notifications by count and
+// latest, without reading the rest, so it is cheap enough to run on every
+// write to tell a write that changed nothing from one that did.
 func (s State) SameCommit(o State) bool {
 	return s.Generation == o.Generation &&
 		s.Title == o.Title &&
 		s.AltScreen == o.AltScreen &&
 		s.Cursor == o.Cursor &&
 		s.ShownProgress() == o.ShownProgress() &&
-		s.ProgramStatusGeneration == o.ProgramStatusGeneration
+		s.ProgramStatusGeneration == o.ProgramStatusGeneration &&
+		s.sameEvents(o)
+}
+
+// sameEvents reports whether s and o have the same program events. The
+// notifications are only appended to between resets, so the count and the
+// latest one tell them apart.
+func (s State) sameEvents(o State) bool {
+	n := len(s.Notifications)
+	return s.WorkingDirectory == o.WorkingDirectory &&
+		s.Bell == o.Bell &&
+		s.Clipboard == o.Clipboard &&
+		s.Prompt == o.Prompt &&
+		n == len(o.Notifications) &&
+		(n == 0 || s.Notifications[n-1] == o.Notifications[n-1])
 }
 
 // SameLook reports whether s and o, two states of one terminal, are drawn

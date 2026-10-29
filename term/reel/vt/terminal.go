@@ -103,8 +103,10 @@ type Terminal struct {
 	title string
 	// pwd is the last OSC 7 working directory.
 	pwd string
-	// bell is when the last BEL arrived. The zero time means none yet.
-	bell time.Time
+	// clock stamps program events. See [WithClock].
+	clock func() time.Duration
+	// bell is the latest BEL.
+	bell Bell
 	// alt is true when the alternate screen is active.
 	alt bool
 	// held is true during synchronized output (mode 2026).
@@ -116,12 +118,13 @@ type Terminal struct {
 
 	// progress is the latest OSC 9;4 report.
 	progress Progress
-	// notifications are OSC 9 and OSC 777 messages, oldest first.
+	// notifications are OSC 9 and OSC 777 messages, oldest first. Only
+	// appended to, and replaced on reset, so a [State] can share it.
 	notifications []Notification
 	// clipRead is the host clipboard returned for an OSC 52 read.
 	clipRead string
 	// clipWrote is the last plain text the program wrote to the clipboard.
-	clipWrote string
+	clipWrote ClipboardWrite
 	// prompt is the latest OSC 133 semantic-prompt step.
 	prompt Prompt
 	// statuses are OSC 7501 program-status records in update order, least
@@ -318,13 +321,13 @@ func (t *Terminal) Reset() error {
 func (t *Terminal) resetStateLocked() {
 	t.title = ""
 	t.pwd = ""
-	t.bell = time.Time{}
+	t.bell = Bell{}
 	t.alt = false
 	t.held = false
 	t.frozen = nil
 	t.progress = Progress{}
 	t.notifications = nil
-	t.clipWrote = ""
+	t.clipWrote = ClipboardWrite{}
 	t.prompt = Prompt{}
 	t.setProgramStatusesLocked(nil, false)
 	t.resizeOK = false
@@ -467,6 +470,12 @@ func (t *Terminal) State() State {
 		ProgramStatuses:         t.statusView,
 		ProgramStatusGeneration: t.statusGen,
 		ProgramStatusReported:   t.statusReported,
+
+		WorkingDirectory: t.pwd,
+		Bell:             t.bell,
+		Notifications:    t.notifications[:len(t.notifications):len(t.notifications)],
+		Clipboard:        t.clipWrote,
+		Prompt:           t.prompt,
 	}
 }
 
@@ -492,9 +501,8 @@ func (t *Terminal) WorkingDirectory() string {
 	return t.pwd
 }
 
-// LastBellAt returns the time of the most recent BEL. The zero time means
-// no bell has arrived.
-func (t *Terminal) LastBellAt() time.Time {
+// Bell returns the latest BEL.
+func (t *Terminal) Bell() Bell {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.bell
@@ -534,8 +542,8 @@ func (t *Terminal) Notifications() []Notification {
 	return append([]Notification(nil), t.notifications...)
 }
 
-// Clipboard returns the text the program last wrote.
-func (t *Terminal) Clipboard() string {
+// Clipboard returns the program's latest clipboard write.
+func (t *Terminal) Clipboard() ClipboardWrite {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.clipWrote

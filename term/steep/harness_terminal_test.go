@@ -280,22 +280,22 @@ func TestHarness_terminalTrackedTitle(t *testing.T) {
 func TestHarness_terminalTrackedBell(t *testing.T) {
 	t.Parallel()
 	h := newTerminalHarness(t, 4, 2)
-	if !h.LastBellAt().IsZero() {
-		t.Fatalf("LastBellAt() = %v, want zero time before first bell", h.LastBellAt())
+	if got := h.Bell(); got != (vt.Bell{}) {
+		t.Fatalf("Bell() = %+v, want none before first bell", got)
 	}
 
 	_ = writeString(h, string(rune(ansi.BEL)))
 
-	first := h.LastBellAt()
-	if first.IsZero() {
-		t.Fatal("expected LastBellAt non-zero after BEL")
+	first := h.Bell()
+	if first.Count != 1 {
+		t.Fatalf("Bell().Count = %d after one BEL, want 1", first.Count)
 	}
 
 	_ = writeString(h, string(rune(ansi.BEL)))
 
-	second := h.LastBellAt()
-	if second.Before(first) {
-		t.Fatalf("LastBellAt regressed: %v before %v", second, first)
+	second := h.Bell()
+	if second.Count != 2 || second.At < first.At {
+		t.Fatalf("Bell() = %+v after %+v, want count 2 and no earlier", second, first)
 	}
 }
 

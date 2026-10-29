@@ -7,7 +7,6 @@ package steep
 import (
 	"image"
 	"image/color"
-	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
@@ -44,9 +43,9 @@ func (h *Harness) IsFocused() bool { return h.session.Focused() }
 // Title returns the last known window title.
 func (h *Harness) Title() string { return h.session.Terminal().Title() }
 
-// LastBellAt returns the time of the most recent bell ([ansi.BEL]), or the
-// zero [time.Time] before the first.
-func (h *Harness) LastBellAt() time.Time { return h.session.Terminal().LastBellAt() }
+// Bell returns the latest bell ([ansi.BEL]). Its Count is zero before the
+// first.
+func (h *Harness) Bell() vt.Bell { return h.session.Terminal().Bell() }
 
 // Bounds returns the terminal's current screen bounds.
 func (h *Harness) Bounds() image.Rectangle {
@@ -371,8 +370,8 @@ func (h *Harness) Progress() vt.Progress { return h.session.Terminal().Progress(
 // Notifications returns desktop notifications from OSC 9 and OSC 777.
 func (h *Harness) Notifications() []vt.Notification { return h.session.Terminal().Notifications() }
 
-// Clipboard returns the last text the program wrote to the clipboard.
-func (h *Harness) Clipboard() string { return h.session.Terminal().Clipboard() }
+// Clipboard returns the program's latest clipboard write.
+func (h *Harness) Clipboard() vt.ClipboardWrite { return h.session.Terminal().Clipboard() }
 
 // SetClipboard sets the host clipboard returned for OSC 52 reads.
 func (h *Harness) SetClipboard(text string) *Harness {

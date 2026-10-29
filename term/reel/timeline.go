@@ -258,6 +258,20 @@ func (t *Timeline) append(ev Event) {
 	t.appendLocked(ev, now.Sub(t.start))
 }
 
+// now returns the offset append would stamp an event with now, without
+// starting the clock.
+func (t *Timeline) now() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch {
+	case t.paced:
+		return t.pacedAt
+	case t.start.IsZero():
+		return 0
+	}
+	return time.Since(t.start)
+}
+
 // follow appends src's event ev at its own offset, adopting src's start, so
 // t holds a prefix of src.
 func (t *Timeline) follow(src *Timeline, ev Event) {

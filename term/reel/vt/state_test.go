@@ -5,9 +5,11 @@
 package vt
 
 import (
+	"context"
 	"image/color"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // TestStateEqual checks that Equal notices a change to every field, so a
@@ -41,11 +43,24 @@ func TestStateEqual(t *testing.T) {
 				f.X = 1
 			case *Progress:
 				f.Reported = true
+			case *Bell:
+				f.Count = 1
+			case *ClipboardWrite:
+				f.Count = 1
+			case *Prompt:
+				f.Kind = PromptStart
 			default:
 				t.Fatalf("field %s has type %T the test does not set", typ.Field(i).Name, f)
 			}
 		case reflect.Slice:
-			v.Set(reflect.ValueOf([]ProgramStatus{{Title: "b"}}))
+			switch v.Addr().Interface().(type) {
+			case *[]ProgramStatus:
+				v.Set(reflect.ValueOf([]ProgramStatus{{Title: "b"}}))
+			case *[]Notification:
+				v.Set(reflect.ValueOf([]Notification{{Title: "b"}}))
+			default:
+				t.Fatalf("field %s has a slice type the test does not set", typ.Field(i).Name)
+			}
 		default:
 			t.Fatalf("field %s has kind %v the test does not set", typ.Field(i).Name, v.Kind())
 		}
@@ -74,6 +89,13 @@ func TestStateSameCommit(t *testing.T) {
 		"progress":   func(s *State) { s.Progress.Percent = 20 },
 		"status":     func(s *State) { s.ProgramStatusGeneration = 1 },
 		"reported":   func(s *State) { s.ProgramStatusReported = true },
+		"pwd":        func(s *State) { s.WorkingDirectory = "/tmp" },
+		"bell":       func(s *State) { s.Bell.Count++ },
+		"clipboard":  func(s *State) { s.Clipboard.Count++ },
+		"prompt":     func(s *State) { s.Prompt.At = time.Second },
+		"notification": func(s *State) {
+			s.Notifications = append(s.Notifications, Notification{Title: "n"})
+		},
 	} {
 		b := a
 		change(&b)
@@ -163,5 +185,60 @@ func TestStatusStrings(t *testing.T) {
 		if got := tc.got.String(); got != tc.want {
 			t.Errorf("%T(%d).String() = %q, want %q", tc.got, tc.got, got, tc.want)
 		}
+	}
+}
+
+// TestStateEventTimes checks that program events are stamped with the
+// terminal's clock, that a state keeps the notifications it was taken with,
+// and that a full reset clears them.
+func TestStateEventTimes(t *testing.T) {
+	t.Parallel()
+
+	now := time.Duration(0)
+	term, err := testRuntime.Open(context.Background(), 20, 2, WithClock(func() time.Duration { return now }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = term.Close() })
+	write := func(at time.Duration, s string) State {
+		t.Helper()
+		now = at
+		if _, werr := term.Write([]byte(s)); werr != nil {
+			t.Fatal(werr)
+		}
+		return term.State()
+	}
+
+	st := write(time.Second, "\a")
+	if st.Bell != (Bell{Count: 1, At: time.Second}) {
+		t.Errorf("Bell = %+v after one BEL at 1s", st.Bell)
+	}
+	before := write(2*time.Second, "\x1b]9;hello\x1b\\")
+	if len(before.Notifications) != 1 || before.Notifications[0] != (Notification{At: 2 * time.Second, Body: "hello"}) {
+		t.Errorf("Notifications = %+v", before.Notifications)
+	}
+	st = write(3*time.Second, "\x1b]777;notify;t;b\x1b\\\x1b]52;c;aGk=\x1b\\\x1b]133;A\x1b\\\x1b]7;file:///tmp\x1b\\")
+	if len(before.Notifications) != 1 {
+		t.Errorf("an earlier state's notifications grew to %+v", before.Notifications)
+	}
+	if want := (Notification{At: 3 * time.Second, Title: "t", Body: "b"}); len(st.Notifications) != 2 || st.Notifications[1] != want {
+		t.Errorf("Notifications = %+v, want a second %+v", st.Notifications, want)
+	}
+	if want := (ClipboardWrite{Count: 1, Text: "hi", At: 3 * time.Second}); st.Clipboard != want {
+		t.Errorf("Clipboard = %+v, want %+v", st.Clipboard, want)
+	}
+	if st.Prompt.Kind != PromptStart || st.Prompt.At != 3*time.Second {
+		t.Errorf("Prompt = %+v, want start at 3s", st.Prompt)
+	}
+	if st.WorkingDirectory == "" {
+		t.Error("WorkingDirectory is empty after OSC 7")
+	}
+	if st.SameCommit(before) {
+		t.Error("program events did not make a new commit")
+	}
+
+	st = write(4*time.Second, "\x1bc")
+	if st.Bell != (Bell{}) || st.Notifications != nil || st.Clipboard != (ClipboardWrite{}) || st.Prompt != (Prompt{}) {
+		t.Errorf("RIS left events: %+v", st)
 	}
 }

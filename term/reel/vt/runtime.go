@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
@@ -54,6 +55,15 @@ type Option func(*openConfig)
 
 type openConfig struct {
 	scrollback int
+	clock      func() time.Duration
+}
+
+// WithClock sets the clock that stamps when program events arrive, such as
+// [State.Bell] and [State.Notifications]. A replay passes the timeline
+// offset of the event it is applying, so the times line up with frames.
+// The default is the time since [Runtime.Open].
+func WithClock(now func() time.Duration) Option {
+	return func(cfg *openConfig) { cfg.clock = now }
 }
 
 // WithScrollbackLines sets the retained history cap for this terminal.
@@ -94,6 +104,13 @@ func (r *Runtime) Open(ctx context.Context, cols, rows int, opts ...Option) (*Te
 		r.release()
 		return nil, err
 	}
+	if cfg.clock == nil {
+		start := time.Now()
+		cfg.clock = func() time.Duration { return time.Since(start) }
+	}
+	term.mu.Lock()
+	term.clock = cfg.clock
+	term.mu.Unlock()
 	return term, nil
 }
 

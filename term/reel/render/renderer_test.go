@@ -143,8 +143,11 @@ func TestFrameSnapTracksState(t *testing.T) {
 	t.Parallel()
 
 	// The cells are tracked by the buffer generation, and the records by the
-	// indicators they draw, not by these.
-	ignored := map[string]bool{"Generation": true, "ProgramStatusGeneration": true}
+	// indicators they draw, not by these. The program events are not drawn.
+	ignored := map[string]bool{
+		"Generation": true, "ProgramStatusGeneration": true,
+		"WorkingDirectory": true, "Bell": true, "Notifications": true, "Clipboard": true, "Prompt": true,
+	}
 	red := color.NRGBA{R: 0xff, A: 0xff}
 	changes := map[string]func(*vt.State){
 		"Title":                 func(s *vt.State) { s.Title = "x" },

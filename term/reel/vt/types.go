@@ -4,8 +4,36 @@
 
 package vt
 
+import "time"
+
+// Bell is the latest BEL.
+type Bell struct {
+	// Count is how many BELs have arrived since the last full reset. Zero
+	// means none.
+	Count uint64
+	// At is when the latest arrived, on the terminal's clock (see
+	// [WithClock]).
+	At time.Duration
+}
+
+// ClipboardWrite is the latest text a program wrote to the clipboard, with
+// OSC 52, OSC 1337 Copy, or OSC 5522.
+type ClipboardWrite struct {
+	// Count is how many writes have arrived since the last full reset. Zero
+	// means none.
+	Count uint64
+	// Text is the plain text written. It may be a secret: draw it only on
+	// purpose.
+	Text string
+	// At is when the write arrived, on the terminal's clock.
+	At time.Duration
+}
+
 // Notification is one desktop notification from OSC 9 or OSC 777.
 type Notification struct {
+	// At is when the notification arrived, on the terminal's clock (see
+	// [WithClock]).
+	At time.Duration
 	// Title is the notification title. It may be empty.
 	Title string
 	// Body is the notification body. It may be empty.
@@ -23,6 +51,9 @@ type Prompt struct {
 	ExitCode int
 	// Command is the command line from the prompt, when the shell sent one.
 	Command string
+	// At is when the step arrived, on the terminal's clock (see
+	// [WithClock]).
+	At time.Duration
 }
 
 // PromptKind is one step of a semantic prompt.

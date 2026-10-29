@@ -149,7 +149,11 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 			opt(&cfg)
 		}
 	}
-	term, err := cfg.runtime.Open(ctx, cols, rows, vt.WithScrollbackLines(cfg.scrollback))
+	var timeline *Timeline
+	term, err := cfg.runtime.Open(ctx, cols, rows,
+		vt.WithScrollbackLines(cfg.scrollback),
+		vt.WithClock(func() time.Duration { return timeline.now() }),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +165,9 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		Cols: cols, Rows: rows, Theme: theme, Title: cfg.title,
 		SkipPristine: cfg.skipPristine, Scrollback: cfg.scrollback,
 	}
+	timeline = newTimeline(h)
 	s := &Session{
-		term: term, timeline: newTimeline(h), done: make(chan struct{}),
+		term: term, timeline: timeline, done: make(chan struct{}),
 		scrollOnInput: cfg.scrollOnInput, noQueries: cfg.noQueries,
 		typingDelay: cfg.typingDelay,
 	}

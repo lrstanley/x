@@ -45,6 +45,10 @@ type replay struct {
 	sent     vt.State
 	haveSent bool
 
+	// now is the offset of the event being applied: the terminal's clock,
+	// so program events are stamped on the timeline.
+	now time.Duration
+
 	// start is the index of the window's first event, from its offset.
 	start int
 	from  time.Duration
@@ -68,13 +72,17 @@ type replay struct {
 // newReplay opens a terminal from rt for a timeline with header h whose
 // window starts at event index start, offset from.
 func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from time.Duration) (*replay, error) {
-	term, err := rt.Open(ctx, h.Cols, h.Rows, vt.WithScrollbackLines(h.Scrollback))
+	r := &replay{focused: true, skipPristine: h.SkipPristine, start: start, from: from}
+	term, err := rt.Open(ctx, h.Cols, h.Rows,
+		vt.WithScrollbackLines(h.Scrollback),
+		vt.WithClock(func() time.Duration { return r.now }),
+	)
 	if err != nil {
 		return nil, err
 	}
 	// Nothing reads query replies.
 	term.CloseReader()
-	r := &replay{term: term, focused: true, skipPristine: h.SkipPristine, start: start, from: from}
+	r.term = term
 	if c := h.Theme.Fg; c != nil && nrgba(c) != term.Foreground() {
 		r.base.Fg = c
 	}
@@ -121,6 +129,7 @@ func (r *replay) apply(ev Event) error {
 		r.opening = &cf
 	}
 	r.n++
+	r.now = ev.At()
 	var err error
 	switch ev := ev.(type) {
 	case Output:
