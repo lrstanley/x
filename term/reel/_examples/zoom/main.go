@@ -30,8 +30,7 @@ type Flags struct {
 }
 
 func main() {
-	cli := clix.NewWithDefaults[Flags]()
-	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
+	clix.NewWithDefaults[Flags]().Execute(func(ctx context.Context, cli *clix.CLI[Flags], _ *slog.Logger) error {
 		files, err := run(ctx, cli.Flags.Dir)
 		if err != nil {
 			return err

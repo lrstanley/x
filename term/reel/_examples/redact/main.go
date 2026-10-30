@@ -35,8 +35,7 @@ type Flags struct {
 }
 
 func main() {
-	cli := clix.NewWithDefaults[Flags]()
-	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
+	clix.NewWithDefaults[Flags]().Execute(func(ctx context.Context, cli *clix.CLI[Flags], _ *slog.Logger) error {
 		if os.Getenv(tokenEnv) == "" {
 			if err := os.Setenv(tokenEnv, "ghp_r33lD3m0T0k3n4U"); err != nil {
 				return err

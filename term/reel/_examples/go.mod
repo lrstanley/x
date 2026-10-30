@@ -6,7 +6,7 @@ go 1.27.2
 replace github.com/lrstanley/x/term/reel => ../
 
 require (
-	github.com/lrstanley/clix/v2 v2.0.6
+	github.com/lrstanley/clix/v2 v2.0.7
 	github.com/lrstanley/x/term/reel v0.0.0
 )
 

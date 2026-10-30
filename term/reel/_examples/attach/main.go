@@ -47,8 +47,7 @@ type Flags struct {
 }
 
 func main() {
-	cli := clix.NewWithDefaults[Flags]()
-	cli.Execute(func(ctx context.Context, _ *slog.Logger) error {
+	clix.NewWithDefaults[Flags]().Execute(func(ctx context.Context, cli *clix.CLI[Flags], _ *slog.Logger) error {
 		ts, tm := io.Reader(bytes.NewReader(demoTypescript)), io.Reader(bytes.NewReader(demoTiming))
 		if cli.Flags.Typescript != "" {
 			f, err := os.Open(cli.Flags.Typescript)
