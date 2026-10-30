@@ -47,8 +47,9 @@
 // urgent record (see [vt.ProgramState]) replaces the title with its icon,
 // spinner, or percent, title, and message, and colors a thin outline just
 // outside the window edge. The other records show as dots after the title.
-// Title bar text, the window title and working directory included, is drawn as plain text with
-// controls, bidi overrides, and invisible characters removed.
+// Title bar text, the window title and working directory included, is drawn
+// as plain text with controls, bidi overrides, and invisible characters
+// removed.
 // [Renderer.Animates], [Renderer.Changes], and [Renderer.Repaint] let a
 // recorder keep an animated progress bar or program status moving while the
 // screen holds still.

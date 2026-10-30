@@ -281,6 +281,12 @@ func TestChromeDirectory(t *testing.T) {
 			t.Errorf("chromeDirectory(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
+
+	// A path plainText would cut keeps its end instead.
+	long := chromeDirectory("file:///" + strings.Repeat("漢/", chromeTextMax) + "end")
+	if !strings.HasSuffix(long, "/end") || plainText(long) != long {
+		t.Errorf("chromeDirectory of a long path = %q, want its end kept whole", long)
+	}
 }
 
 func TestFitTextLeft(t *testing.T) {
@@ -294,6 +300,7 @@ func TestFitTextLeft(t *testing.T) {
 		{"/a/b", 4, "/a/b"},
 		{"/home/me/src", 6, "…e/src"},
 		{"/漢字/x", 4, "…/x"},
+		{"漢字漢字", 3, "…字"},
 		{"/abc", 1, ""},
 		{"/abc", 0, ""},
 		{"/abc", -2, ""},

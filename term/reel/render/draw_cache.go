@@ -212,8 +212,9 @@ func (d *Renderer) dirtyRows(buf *vt.Buffer) (lo, hi int, ok bool) {
 	return lo, hi, true
 }
 
-// sansBanded is s without the cursor, title bar text, progress, and program status,
-// which drawIncremental repaints as bands instead of rebuilding the frame.
+// sansBanded is s without the cursor, title bar text, progress, and program
+// status, which drawIncremental repaints as bands instead of rebuilding the
+// frame.
 func (s frameSnap) sansBanded() frameSnap {
 	s.cursor = vt.Cursor{}
 	s.title, s.dir = "", ""

@@ -199,29 +199,31 @@ func fitTextLeft(s string, cells int) (fit string, width int) {
 // chromeDirectory is the path of an OSC 7 working directory report: the
 // path of a file URL, decoded, or of a kitty-shell-cwd URL, which is sent
 // as is. The host is dropped. A bare absolute path is kept, and anything
-// else has no path to show.
+// else has no path to show. Only the last chromeTextMax runes are kept, so
+// [plainText] cuts nothing and the directory's own name survives.
 func chromeDirectory(report string) string {
-	scheme, rest, ok := strings.Cut(report, "://")
-	if !ok {
+	var path string
+	if scheme, rest, ok := strings.Cut(report, "://"); !ok {
 		if strings.HasPrefix(report, "/") {
-			return report
+			path = report
 		}
-		return ""
-	}
-	i := strings.IndexByte(rest, '/')
-	if i < 0 {
-		return ""
-	}
-	switch scheme {
-	case "file":
-		if u, err := url.Parse(report); err == nil {
-			return u.Path
+	} else if i := strings.IndexByte(rest, '/'); i >= 0 {
+		switch scheme {
+		case "file":
+			path = rest[i:] // shown undecoded when it does not parse
+			if u, err := url.Parse(report); err == nil {
+				path = u.Path
+			}
+		case "kitty-shell-cwd":
+			path = rest[i:]
 		}
-		return rest[i:]
-	case "kitty-shell-cwd":
-		return rest[i:]
 	}
-	return ""
+	i := len(path)
+	for n := 0; i > 0 && n < chromeTextMax; n++ {
+		_, size := utf8.DecodeLastRuneInString(path[:i])
+		i -= size
+	}
+	return path[i:]
 }
 
 // chromeSpan is a run of title bar text in one color.
@@ -264,7 +266,8 @@ func (f *renderFrame) titleLabel(spans []chromeSpan, maxCells int) (out []chrome
 		return append(spans, chromeSpan{text: t, col: col}), w
 	}
 	t, w := fitText(title, maxCells)
-	return f.appendSubtitle(append(spans, chromeSpan{text: t, col: col}), w, maxCells-w, dir, fitTextLeft)
+	spans = append(spans, chromeSpan{text: t, col: col})
+	return f.appendSubtitle(spans, w, maxCells-w, dir, fitTextLeft)
 }
 
 // chromeLine is a line of title bar text: where it is drawn, centered on mid,
@@ -351,16 +354,16 @@ func (l *chromeLine) text(x int, s string, fg color.NRGBA, bold bool) int {
 
 // spans draws each span with [chromeLine.text] from x, one after the other,
 // and returns the x after the last.
-func (l *chromeLine) spans(x int, spans []chromeSpan) int {
-	for _, s := range spans {
+func (l *chromeLine) spans(x int, runs []chromeSpan) int {
+	for _, s := range runs {
 		x = l.text(x, s.text, s.col, s.bold)
 	}
 	return x
 }
 
 // drawChrome paints the title bar. The title and working directory, or the
-// OSC 7501 program status in their place, are drawn with the chrome faces, optically centered on the
-// window buttons.
+// OSC 7501 program status in their place, are drawn with the chrome faces,
+// optically centered on the window buttons.
 func (d *Renderer) drawChrome(dst draw.Image, f *renderFrame) {
 	bar := f.chromeBounds
 	if !bar.Overlaps(dst.Bounds()) {
