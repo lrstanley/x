@@ -24,9 +24,9 @@ import (
 func TestSessionScreen(t *testing.T) {
 	t.Parallel()
 	s := openTest(t, 4, 2)
-	write(t, s, "\x1b]0;hi\x07\x1b[31mab\x1b[0m\r\nc")
+	write(t, s, "\x1b]0;hi\x07\x1b[?5h\x1b[31mab\x1b[0m\r\nc")
 	got := s.Screen()
-	if got.Title != "hi" || got.Rows != 2 || got.Cols != 4 || !got.Focused {
+	if got.Title != "hi" || got.Rows != 2 || got.Cols != 4 || !got.Focused || !got.ReverseColors {
 		t.Fatalf("Screen = %+v", got)
 	}
 	if got.Cursor.Position != (ScreenPosition{X: 1, Y: 1}) || !got.Cursor.Visible {

@@ -92,6 +92,20 @@ func drawFresh(d *Renderer, scr vt.Screen, st vt.State, at time.Duration) *image
 	return img
 }
 
+// rowColors draws scr with st on d and samples each cell of its top row. It
+// clears scr's dirty rows first, so d can reuse its last frame.
+func rowColors(t *testing.T, d *Renderer, scr *vt.Buffer, st vt.State) []color.NRGBA {
+	t.Helper()
+	scr.ClearDirty()
+	img := drawAt(t, d, scr, st, 0)
+	f := d.layoutSnapshot(t, image.Point{}, scr)
+	out := make([]color.NRGBA, scr.Width())
+	for x := range out {
+		out[x] = sample(img, f.cellBounds(x, 0))
+	}
+	return out
+}
+
 func sample(img *image.NRGBA, area image.Rectangle) color.NRGBA {
 	p := area.Min.Add(image.Pt(max(0, area.Dx()/2), max(0, area.Dy()/2)))
 	if !p.In(area) {

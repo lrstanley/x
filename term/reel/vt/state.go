@@ -51,6 +51,10 @@ type State struct {
 	// their own. The zero color means the renderer's default.
 	Foreground color.NRGBA
 	Background color.NRGBA
+	// ReverseColors reports whether reverse video (DECSCNM, mode 5) is set,
+	// which the renderer draws by swapping the default foreground and
+	// background. The emulator leaves the cells as they are.
+	ReverseColors bool
 	// Palette is the indexed colors the program set with OSC 4 and has not
 	// reset with OSC 104, which the renderer draws over its own, or nil
 	// when there are none. A color set to the emulator's default for its
@@ -122,6 +126,7 @@ func (s State) Equal(o State) bool {
 		s.CursorColorSet == o.CursorColorSet &&
 		s.Foreground == o.Foreground &&
 		s.Background == o.Background &&
+		s.ReverseColors == o.ReverseColors &&
 		samePalette(s.Palette, o.Palette) &&
 		s.ScrollbackLen == o.ScrollbackLen &&
 		s.ScrollbackOffset == o.ScrollbackOffset &&
@@ -181,6 +186,7 @@ func (s State) SameLook(o State) bool {
 		s.ScrollbackOffset == o.ScrollbackOffset &&
 		s.Foreground == o.Foreground &&
 		s.Background == o.Background &&
+		s.ReverseColors == o.ReverseColors &&
 		samePalette(s.Palette, o.Palette) &&
 		s.CursorColor == o.CursorColor &&
 		s.CursorColorSet == o.CursorColorSet

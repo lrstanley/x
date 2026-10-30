@@ -328,3 +328,40 @@ func TestStatePalette(t *testing.T) {
 		t.Errorf("full reset left palette %v, want nil", p)
 	}
 }
+
+// TestStateReverseColors checks that State reports DECSCNM, which looks
+// different but changes no cell, until the program or a full reset clears
+// it.
+func TestStateReverseColors(t *testing.T) {
+	t.Parallel()
+
+	term := openTest(t, 8, 2)
+	writeTerm(t, term, "\x1b[31mA")
+	before := term.State()
+	cell := *term.Screen().CellAt(0, 0)
+	if before.ReverseColors {
+		t.Fatal("new terminal has reverse colors")
+	}
+	writeTerm(t, term, "\x1b[?5h")
+	st := term.State()
+	if !st.ReverseColors {
+		t.Fatal("mode 5 did not set ReverseColors")
+	}
+	if got := *term.Screen().CellAt(0, 0); got.Style.Attrs != cell.Style.Attrs || got.Style.Fg != cell.Style.Fg {
+		t.Errorf("mode 5 changed the cell to %+v, want %+v", got, cell)
+	}
+	if st.SameLook(before) {
+		t.Error("mode 5 looks the same")
+	}
+	writeTerm(t, term, "\x1b[?5l")
+	if term.State().ReverseColors {
+		t.Error("mode 5 reset left ReverseColors")
+	}
+	writeTerm(t, term, "\x1b[?5h")
+	if err := term.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if term.State().ReverseColors {
+		t.Error("full reset left ReverseColors")
+	}
+}

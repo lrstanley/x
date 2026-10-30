@@ -57,29 +57,41 @@ func ResolveForegroundNRGBA(src config.ColorSource, style *vt.Style) color.NRGBA
 	if style != nil && style.Fg != nil {
 		return NRGBA(ResolvePaletteColor(src, style.Fg))
 	}
-	if fg := src.State().Foreground; fg != (color.NRGBA{}) {
-		return fg
-	}
-	palette := src.Palette()
-	if palette.DefaultForeground != nil {
-		return NRGBA(palette.DefaultForeground)
-	}
-	return defaultForeground
+	fg, _ := defaultColors(src)
+	return fg
 }
 
-// ResolveBackgroundNRGBA returns the cell background color before reverse-video swap.
+// ResolveBackgroundNRGBA returns the cell background color before the SGR 7
+// swap.
 func ResolveBackgroundNRGBA(src config.ColorSource, style *vt.Style) color.NRGBA {
 	if style != nil && style.Bg != nil {
 		return NRGBA(ResolvePaletteColor(src, style.Bg))
 	}
-	if bg := src.State().Background; bg != (color.NRGBA{}) {
-		return bg
+	_, bg := defaultColors(src)
+	return bg
+}
+
+// defaultColors returns the colors of cells that set none: the program's,
+// else the palette's, swapped under reverse video (DECSCNM).
+func defaultColors(src config.ColorSource) (fg, bg color.NRGBA) {
+	st, palette := src.State(), src.Palette()
+	fg, bg = st.Foreground, st.Background
+	if fg == (color.NRGBA{}) {
+		fg = defaultForeground
+		if palette.DefaultForeground != nil {
+			fg = NRGBA(palette.DefaultForeground)
+		}
 	}
-	palette := src.Palette()
-	if palette.DefaultBackground != nil {
-		return NRGBA(palette.DefaultBackground)
+	if bg == (color.NRGBA{}) {
+		bg = defaultBackground
+		if palette.DefaultBackground != nil {
+			bg = NRGBA(palette.DefaultBackground)
+		}
 	}
-	return defaultBackground
+	if st.ReverseColors {
+		fg, bg = bg, fg
+	}
+	return fg, bg
 }
 
 // ResolvePaletteColor maps ANSI basic or indexed colors through the colors
@@ -117,19 +129,11 @@ func ResolveCursorNRGBA(src config.ColorSource, defaultForeground color.NRGBA) c
 	return defaultForeground
 }
 
-// CellHasExplicitBackground reports whether the cell carries an explicit background.
+// CellHasExplicitBackground reports whether the cell carries an explicit
+// background: its own color, or SGR 7, whose fill is the foreground. Like in
+// Ghostty, such cells are drawn opaque.
 func CellHasExplicitBackground(cell *vt.Cell) bool {
-	if cell == nil {
-		return false
-	}
-	style := cell.Style
-	if style.Bg != nil {
-		return true
-	}
-	if style.Attrs&vt.AttrReverse != 0 && style.Fg != nil {
-		return true
-	}
-	return false
+	return cell != nil && (cell.Style.Bg != nil || cell.Style.Attrs&vt.AttrReverse != 0)
 }
 
 // ApplyAlphaNRGBA multiplies the alpha of c by opacity without interface boxing.

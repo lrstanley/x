@@ -5,8 +5,8 @@
 package render
 
 import (
-	"image"
 	"image/color"
+	"slices"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
@@ -34,30 +34,17 @@ func TestDrawStatePalette(t *testing.T) {
 	changed := focused
 	changed.Palette = &pal
 
-	cells := func(st vt.State) [3]color.NRGBA {
-		t.Helper()
-		// A clean buffer lets Draw reuse its last frame when it can.
-		scr.ClearDirty()
-		img := drawAt(t, d, scr, st, 0)
-		f := d.layoutSnapshot(t, image.Point{}, scr)
-		var out [3]color.NRGBA
-		for x := range out {
-			c := f.cellBounds(x, 0)
-			out[x] = img.NRGBAAt((c.Min.X+c.Max.X)/2, (c.Min.Y+c.Max.Y)/2)
-		}
-		return out
-	}
 	stock := color.NRGBAModel.Convert(ansi.IndexedColor(200)).(color.NRGBA)
 	for _, step := range []struct {
 		name string
 		st   vt.State
-		want [3]color.NRGBA
+		want []color.NRGBA
 	}{
-		{"theme", focused, [3]color.NRGBA{theme, theme, stock}},
-		{"program", changed, [3]color.NRGBA{program, program, pink}},
-		{"reset", focused, [3]color.NRGBA{theme, theme, stock}},
+		{"theme", focused, []color.NRGBA{theme, theme, stock}},
+		{"program", changed, []color.NRGBA{program, program, pink}},
+		{"reset", focused, []color.NRGBA{theme, theme, stock}},
 	} {
-		if got := cells(step.st); got != step.want {
+		if got := rowColors(t, d, scr, step.st); !slices.Equal(got, step.want) {
 			t.Errorf("%s: cells = %v, want %v", step.name, got, step.want)
 		}
 	}

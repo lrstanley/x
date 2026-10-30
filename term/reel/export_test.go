@@ -88,10 +88,12 @@ func TestExportReplayRules(t *testing.T) {
 		Focus{event: at(620), On: false},
 		Theme{event: at(650), Colors: Colors{Bg: bg}},
 		Theme{event: at(680), Colors: Colors{Bg: bg}},
-		// So does a program setting a color, or a palette color.
+		// So does a program setting a color, a palette color, or reverse
+		// video.
 		outAt(690, "\x1b]12;rgb:ff/00/00\x1b\\"),
 		outAt(700, "\x1b]4;1;rgb:00/ff/00\x1b\\"),
-		outAt(710, "\r\x1b[K"),
+		outAt(710, "\x1b[?5h"),
+		outAt(720, "\r\x1b[K"),
 		Mark{event: at(800), Label: "m"},
 		Exit{event: at(1000)},
 	)
@@ -103,7 +105,8 @@ func TestExportReplayRules(t *testing.T) {
 		wantFrame{"hi!", 650 * ms, 40 * ms, false},
 		wantFrame{"hi!", 690 * ms, 10 * ms, false},
 		wantFrame{"hi!", 700 * ms, 10 * ms, false},
-		wantFrame{"", 710 * ms, 290 * ms, false},
+		wantFrame{"hi!", 710 * ms, 10 * ms, false},
+		wantFrame{"", 720 * ms, 280 * ms, false},
 	)
 	if frames[0].Cells == nil || frames[0].Cells.At != 100*ms || frames[0].Cells.Screen.Text() == "" {
 		t.Fatalf("frame cells = %+v, want the terminal at 100ms", frames[0].Cells)

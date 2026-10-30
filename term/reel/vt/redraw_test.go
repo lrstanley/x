@@ -86,6 +86,7 @@ func TestRedraw(t *testing.T) {
 		"title, pwd, and colors": "\x1b]2;my title\x07\x1b]7;file:///tmp/dir\x07" +
 			"\x1b]10;#112233\x07\x1b]11;#445566\x07\x1b]12;#778899\x07text",
 		"palette":                "\x1b]4;1;#010203;200;#aabbcc\x07\x1b[31mred\x1b[38;5;200mpink",
+		"reverse colors":         "\x1b[?5h\x1b[31mred",
 		"trailing blank rows":    "a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\n",
 		"blank rows in history":  "a\r\n\r\n\r\nb\r\n\r\nc\r\nd\r\ne\r\n\r\n\r\n",
 		"blank with history":     "\r\n\r\n\r\n\r\n\r\n\r\n",

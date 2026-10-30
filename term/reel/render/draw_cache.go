@@ -29,6 +29,7 @@ type frameSnap struct {
 	scrollback int
 	scrolled   int
 	fg, bg     color.NRGBA
+	reverse    bool
 	cur        color.NRGBA // zero unless the state sets a cursor color
 	curSet     bool
 	palette    *vt.Palette // by pointer: the emulator replaces it only when its colors change
@@ -123,6 +124,7 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 		scrolled:   st.ScrollbackOffset,
 		fg:         st.Foreground,
 		bg:         st.Background,
+		reverse:    st.ReverseColors,
 		palette:    st.Palette,
 	}
 	if d.opts.WindowChrome {

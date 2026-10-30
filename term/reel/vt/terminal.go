@@ -467,6 +467,7 @@ func (t *Terminal) State() State {
 		Background:       t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
 		CursorColor:      cc,
 		CursorColorSet:   hasCursor,
+		ReverseColors:    t.reverseColorsLocked(),
 		Palette:          t.paletteLocked(),
 		ScrollbackLen:    t.scrollbackLenLocked(),
 		ScrollbackOffset: t.scrollbackOffsetLocked(),
@@ -520,6 +521,18 @@ func (t *Terminal) AltScreen() bool {
 	defer t.mu.Unlock()
 	t.alt = t.activeAlt()
 	return t.alt
+}
+
+// ReverseColors reports whether reverse video (DECSCNM, mode 5) is set.
+func (t *Terminal) ReverseColors() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reverseColorsLocked()
+}
+
+func (t *Terminal) reverseColorsLocked() bool {
+	on, _ := t.modeLocked(Mode{Number: 5, ANSI: false})
+	return on
 }
 
 // CloseReader unblocks [Terminal.Read] with EOF. The grid stays available

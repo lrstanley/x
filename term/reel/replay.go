@@ -244,6 +244,7 @@ func (r *replay) isPristine(st vt.State, text string) bool {
 		st.AltScreen == p.AltScreen &&
 		st.Foreground == p.Foreground &&
 		st.Background == p.Background &&
+		st.ReverseColors == p.ReverseColors &&
 		st.Cursor == p.Cursor
 }
 

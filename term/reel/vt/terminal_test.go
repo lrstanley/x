@@ -915,6 +915,9 @@ func assertState(t *testing.T, term *Terminal) {
 	if got.AltScreen != term.AltScreen() {
 		t.Fatalf("AltScreen = %v, want %v", got.AltScreen, term.AltScreen())
 	}
+	if got.ReverseColors != term.ReverseColors() {
+		t.Fatalf("ReverseColors = %v, want %v", got.ReverseColors, term.ReverseColors())
+	}
 	if cur := term.Cursor(); got.Cursor != cur {
 		t.Fatalf("Cursor = %+v, want %+v", got.Cursor, cur)
 	}

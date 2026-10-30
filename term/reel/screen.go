@@ -26,6 +26,7 @@ type Screen struct {
 	Cursor        ScreenCursor    `json:"cursor,omitempty"`
 	FgColor       ScreenColor     `json:"fg_color,omitzero"`
 	BgColor       ScreenColor     `json:"bg_color,omitzero"`
+	ReverseColors bool            `json:"reverse_colors,omitempty"`
 	ProgramStatus []ProgramStatus `json:"program_status,omitempty"`
 	// Cells are the rows of cells, top first. A nil cell is blank: no
 	// content, style, or link.
@@ -181,6 +182,7 @@ func screenOf(term *vt.Terminal, focused bool) *Screen {
 	}
 	s.Title, s.AltScreen, s.Focused = term.Title(), term.AltScreen(), focused
 	s.FgColor, s.BgColor = ScreenColor{term.Foreground()}, ScreenColor{term.Background()}
+	s.ReverseColors = term.ReverseColors()
 	for _, st := range term.ProgramStatuses() {
 		ps := ProgramStatus{
 			ID: st.ID, State: st.State.String(), Kind: st.Kind.String(),
