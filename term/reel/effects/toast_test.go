@@ -6,6 +6,7 @@ package effects
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image"
 	"slices"
 	"strings"
@@ -15,11 +16,17 @@ import (
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/internal/testutil"
 	"github.com/lrstanley/x/term/reel/render"
+	"github.com/lrstanley/x/term/reel/vt"
 )
 
 // osc9 and osc777 are output that sends a desktop notification.
 func osc9(body string) string          { return "\x1b]9;" + body + "\x07" }
 func osc777(title, body string) string { return "\x1b]777;notify;" + title + ";" + body + "\x07" }
+
+// osc52 is output that writes text to the clipboard.
+func osc52(text string) string {
+	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\x07"
+}
 
 func TestToastText(t *testing.T) {
 	t.Parallel()
@@ -249,6 +256,71 @@ func TestToastsPaused(t *testing.T) {
 	}
 }
 
+// TestToastNotifications checks that a clipboard write shows among the
+// notifications by when it arrived, without its text, and only with
+// clipboard toasts.
+func TestToastNotifications(t *testing.T) {
+	t.Parallel()
+	st := vt.State{
+		Notifications: []vt.Notification{{At: 100 * ms, Body: "a"}, {At: 300 * ms, Body: "b"}},
+		Clipboard:     vt.ClipboardWrite{Count: 1, Text: "hunter2", At: 200 * ms},
+	}
+	off := &toastStage{}
+	if got := off.notifications(st); !slices.Equal(got, st.Notifications) {
+		t.Errorf("without clipboard toasts = %+v, want the notifications", got)
+	}
+	on := &toastStage{clipboard: true}
+	want := []vt.Notification{st.Notifications[0], {At: 200 * ms, Title: toastCopied}, st.Notifications[1]}
+	if got := on.notifications(st); !slices.Equal(got, want) {
+		t.Errorf("with clipboard toasts = %+v, want %+v", got, want)
+	}
+	if got := on.notifications(vt.State{Notifications: st.Notifications}); !slices.Equal(got, st.Notifications) {
+		t.Errorf("with no clipboard write = %+v, want the notifications", got)
+	}
+	if st.Notifications[1].Body != "b" {
+		t.Error("notifications modified")
+	}
+}
+
+// TestToastsClipboard checks that a clipboard write shows a toast only with
+// clipboard toasts, and like a notification, not before the window.
+func TestToastsClipboard(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 30, 4, "",
+		output(0, "x"),
+		output(100, osc52("before")),
+		mark(200, "start"),
+		output(300, osc52("hunter2")),
+		mark(1000, "end"),
+	)
+	cut, err := tl.Between("start", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		opts []ToastOption
+		want time.Duration
+	}{
+		{nil, 0},
+		{[]ToastOption{WithClipboardToasts()}, 500 * ms},
+	} {
+		var in []reel.Frame
+		out := exportFrames(t, cut, reel.Profile{
+			Rasterizer: toastRast,
+			Effects:    []reel.Effect{recordFrames{&in}, Toasts(append(tc.opts, WithToastDuration(500*ms))...)},
+		})
+		var shownFor time.Duration
+		for i, shown := range overlaid(in, out) {
+			if shown {
+				shownFor += out[i].Delay
+			}
+		}
+		if shownFor != tc.want {
+			t.Errorf("%d options: toast shown for %v, want %v", len(tc.opts), shownFor, tc.want)
+		}
+	}
+}
+
 // toastRenderOpts are the options of the renderer the golden tests draw
 // with.
 var toastRenderOpts = []render.Option{render.WithWindowChrome(true), render.WithPadding(4)}
@@ -306,4 +378,22 @@ func TestToastsCorner(t *testing.T) {
 		t.Fatalf("no frame at 300ms in %+v", infoOf(out))
 	}
 	assertGolden(t, "toasts-corner", out[i:i+1])
+}
+
+// TestToastsClipboardLook checks the look of a clipboard write's toast, a
+// title alone without the text written, stacked over a notification.
+func TestToastsClipboardLook(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 40, 8, "",
+		output(0, "$ gh auth token | osc-copy"),
+		output(100, osc777("make", "build finished")),
+		output(200, osc52("hunter2")),
+		mark(1000, "end"),
+	)
+	out := toastFrames(t, tl, WithClipboardToasts())
+	i := slices.IndexFunc(out, func(f reel.Frame) bool { return f.At == 300*ms })
+	if i < 0 {
+		t.Fatalf("no frame at 300ms in %+v", infoOf(out))
+	}
+	assertGolden(t, "toasts-clipboard", out[i:i+1])
 }

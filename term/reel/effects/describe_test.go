@@ -72,7 +72,7 @@ func TestDescribeRoundTrip(t *testing.T) {
 		{name: "keys", effect: Keys(500 * ms), want: `{"effect":"keys","shown_ms":500}`},
 		{name: "keys off", effect: Keys(0), want: `{"effect":"keys","shown_ms":0}`},
 		{name: "toasts", effect: Toasts(), want: `{"effect":"toasts"}`},
-		{name: "toasts full", effect: Toasts(WithToastDuration(4000*ms), WithToastCorner(BottomLeft)), want: `{"effect":"toasts","shown_ms":4000,"corner":"bottom_left"}`},
+		{name: "toasts full", effect: Toasts(WithToastDuration(4000*ms), WithToastCorner(BottomLeft), WithClipboardToasts()), want: `{"effect":"toasts","shown_ms":4000,"corner":"bottom_left","clipboard":true}`},
 		{name: "intro title", effect: Intro(300 * ms), want: `{"effect":"intro","duration_ms":300}`},
 		{
 			name: "intro lines",
@@ -323,7 +323,7 @@ func TestExportCastEffects(t *testing.T) {
 			Keys(500 * ms),
 			Intro(200 * ms),
 			Pause(PauseAtMarks(100*ms, "b")),
-			Toasts(WithToastDuration(500*ms), WithToastCorner(BottomRight)),
+			Toasts(WithToastDuration(500*ms), WithToastCorner(BottomRight), WithClipboardToasts()),
 		}
 		first := filepath.Join(dir, "first.cast")
 		p := reel.Profile{

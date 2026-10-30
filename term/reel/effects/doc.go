@@ -7,7 +7,8 @@
 // frame, [Pause] pauses playback at the end or at marks, [Highlight] draws
 // attention to part of the screen, [Zoom] zooms in on it, and [Redact] and
 // [RedactInputs] hide secrets from the frames and from the keys Keys shows.
-// [Toasts] shows the program's desktop notifications as toasts.
+// [Toasts] shows the program's desktop notifications, and optionally its
+// clipboard writes, as toasts.
 // [Hide] cuts stretches out of playback: between marks, or while the screen
 // shows, or does not show, a [Region].
 //

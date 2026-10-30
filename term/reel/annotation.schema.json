@@ -82,6 +82,10 @@
         "corner": {
           "description": "The corner of the terminal's cell grid the toasts are in. Left out, \"top_right\".",
           "type": "string", "examples": ["top_left", "top_right", "bottom_left", "bottom_right"]
+        },
+        "clipboard": {
+          "description": "Whether the program's clipboard writes (OSC 52, OSC 1337 Copy, OSC 5522) also show, as a \"Copied to clipboard\" toast without the text written. Left out, false.",
+          "type": "boolean"
         }
       }
     },

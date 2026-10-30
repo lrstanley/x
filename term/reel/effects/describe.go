@@ -213,8 +213,9 @@ func (d introData) effect() (reel.Effect, error) {
 }
 
 type toastsData struct {
-	ShownMS int64  `json:"shown_ms,omitzero"`
-	Corner  string `json:"corner,omitzero"`
+	ShownMS   int64  `json:"shown_ms,omitzero"`
+	Corner    string `json:"corner,omitzero"`
+	Clipboard bool   `json:"clipboard,omitzero"`
 }
 
 // Describe implements [reel.Describer].
@@ -229,6 +230,7 @@ func (e toasts) Describe() (reel.Annotation, error) {
 	if e.corner != TopRight {
 		d.Corner = cornerNames[e.corner]
 	}
+	d.Clipboard = e.clipboard
 	return describe(effectToasts, d)
 }
 
@@ -240,6 +242,9 @@ func (d toastsData) effect() (reel.Effect, error) {
 			return nil, err
 		}
 		opts = append(opts, WithToastCorner(c))
+	}
+	if d.Clipboard {
+		opts = append(opts, WithClipboardToasts())
 	}
 	return Toasts(opts...), nil
 }

@@ -35,6 +35,8 @@ const (
 	toastOut       = 300 * time.Millisecond
 	toastInLevels  = 3
 	toastOutLevels = 4
+	// toastCopied is the title of a clipboard write's toast.
+	toastCopied = "Copied to clipboard"
 )
 
 // The colors of a toast: a dark blue-grey panel with a lighter edge, a
@@ -62,6 +64,14 @@ func WithToastDuration(d time.Duration) ToastOption {
 	return func(t *toasts) { t.shown = d }
 }
 
+// WithClipboardToasts also shows a "Copied to clipboard" toast when the
+// program writes to the clipboard, with OSC 52, OSC 1337 Copy, or OSC 5522
+// ([vt.State.Clipboard]), without the text written. Only the latest write
+// is known, so a newer write replaces the toast of an older one.
+func WithClipboardToasts() ToastOption {
+	return func(t *toasts) { t.clipboard = true }
+}
+
 // Toasts returns an effect that shows the program's desktop notifications,
 // OSC 9 and OSC 777 ([vt.State.Notifications]), as toasts on the terminal
 // frames: rounded panels with the title in bold over the body, each cut to
@@ -80,8 +90,9 @@ func Toasts(opts ...ToastOption) reel.Effect {
 }
 
 type toasts struct {
-	shown  time.Duration
-	corner Corner
+	shown     time.Duration
+	corner    Corner
+	clipboard bool
 }
 
 func (e toasts) Start(ctx *reel.Context) (reel.Stage, error) {
@@ -97,11 +108,12 @@ func (e toasts) Start(ctx *reel.Context) (reel.Stage, error) {
 		shown = toastShown
 	}
 	s := &toastStage{
-		ctx:    ctx,
-		shown:  max(shown.Round(ctx.Step), ctx.Step),
-		corner: e.corner,
-		cards:  cards,
-		drawn:  make(map[toastKey]toastCard),
+		ctx:       ctx,
+		shown:     max(shown.Round(ctx.Step), ctx.Step),
+		corner:    e.corner,
+		clipboard: e.clipboard,
+		cards:     cards,
+		drawn:     make(map[toastKey]toastCard),
 	}
 	s.from, _ = ctx.Timeline.Window()
 	s.cuts, _ = ctx.Value(cutsKey{}).([]*cuts)
@@ -114,7 +126,9 @@ type toastStage struct {
 	// shown is how long a toast stays, in whole steps.
 	shown  time.Duration
 	corner Corner
-	cards  *CardRenderer
+	// clipboard is whether clipboard writes show as toasts.
+	clipboard bool
+	cards     *CardRenderer
 	// from is the start of the timeline's window: notifications before it
 	// are not shown.
 	from time.Duration
@@ -205,7 +219,7 @@ type toast struct {
 // and arrived at or before f, so whenever an older one shows, the newer
 // ones do too.
 func (s *toastStage) toasts(f reel.Frame) []toast {
-	ns := f.Cells.State.Notifications
+	ns := s.notifications(f.Cells.State)
 	b := f.Cells.Screen.Bounds()
 	var out []toast
 	// seen are the toasts looked at, which keep their cards, even one with
@@ -235,6 +249,22 @@ func (s *toastStage) toasts(f reel.Frame) []toast {
 		}
 	}
 	return out
+}
+
+// notifications returns the notifications of st to show as toasts, oldest
+// first: with clipboard toasts, the latest clipboard write among them.
+func (s *toastStage) notifications(st vt.State) []vt.Notification {
+	ns := st.Notifications
+	if !s.clipboard || st.Clipboard.Count == 0 {
+		return ns
+	}
+	at := st.Clipboard.At
+	i := len(ns)
+	for i > 0 && ns[i-1].At > at {
+		i--
+	}
+	// ns is shared with the emulator, so the write goes into a copy.
+	return slices.Insert(slices.Clone(ns), i, vt.Notification{At: at, Title: toastCopied})
 }
 
 // toastText is untrusted text made one plain line (see [plaintext.Line]),
