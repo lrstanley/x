@@ -18,7 +18,8 @@
 // bit positions are stable. A [Buffer] also carries the screen's Kitty
 // graphics placements ([Buffer.Images]), measured in the terminal's cell
 // pixels ([WithCellSize]). A [State] is the rest of what a renderer needs
-// to draw a screen: the title, focus, cursor, default colors, scrollback,
-// OSC 9;4 progress, OSC 7501 program status, and the program's events, such
-// as the bell, stamped on the terminal's clock ([WithClock]).
+// to draw a screen: the title, focus, cursor, default colors, the palette
+// colors the program set, scrollback, OSC 9;4 progress, OSC 7501 program
+// status, and the program's events, such as the bell, stamped on the
+// terminal's clock ([WithClock]).
 package vt

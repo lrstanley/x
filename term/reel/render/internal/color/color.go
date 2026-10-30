@@ -82,22 +82,25 @@ func ResolveBackgroundNRGBA(src config.ColorSource, style *vt.Style) color.NRGBA
 	return defaultBackground
 }
 
-// ResolvePaletteColor maps ANSI basic or indexed colors through the palette.
+// ResolvePaletteColor maps ANSI basic or indexed colors through the colors
+// the program set, then the palette.
 func ResolvePaletteColor(src config.ColorSource, c color.Color) color.Color {
-	palette := src.Palette()
+	var i uint8
 	switch v := c.(type) {
 	case ansi.BasicColor:
-		if mapped := palette.Indexed[int(v)]; mapped != nil {
-			return mapped
-		}
+		i = uint8(v)
 	case ansi.IndexedColor:
-		if mapped := palette.Indexed[int(v)]; mapped != nil {
-			return mapped
-		}
+		i = uint8(v)
 	case vt.Indexed:
-		if mapped := palette.Indexed[int(v)]; mapped != nil {
-			return mapped
-		}
+		i = uint8(v)
+	default:
+		return c
+	}
+	if mapped, ok := src.State().Palette.Color(i); ok {
+		return mapped
+	}
+	if mapped := src.Palette().Indexed[int(i)]; mapped != nil {
+		return mapped
 	}
 	return c
 }

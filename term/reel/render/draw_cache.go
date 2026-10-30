@@ -31,6 +31,7 @@ type frameSnap struct {
 	fg, bg     color.NRGBA
 	cur        color.NRGBA // zero unless the state sets a cursor color
 	curSet     bool
+	palette    *vt.Palette // by pointer: the emulator replaces it only when its colors change
 }
 
 // reuseFrame reports whether d.frame already shows scr with st at at. Blink
@@ -122,6 +123,7 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 		scrolled:   st.ScrollbackOffset,
 		fg:         st.Foreground,
 		bg:         st.Background,
+		palette:    st.Palette,
 	}
 	if d.opts.WindowChrome {
 		s.title = st.Title

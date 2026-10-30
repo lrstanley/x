@@ -88,9 +88,10 @@ func TestExportReplayRules(t *testing.T) {
 		Focus{event: at(620), On: false},
 		Theme{event: at(650), Colors: Colors{Bg: bg}},
 		Theme{event: at(680), Colors: Colors{Bg: bg}},
-		// So does a program setting a color.
+		// So does a program setting a color, or a palette color.
 		outAt(690, "\x1b]12;rgb:ff/00/00\x1b\\"),
-		outAt(700, "\r\x1b[K"),
+		outAt(700, "\x1b]4;1;rgb:00/ff/00\x1b\\"),
+		outAt(710, "\r\x1b[K"),
 		Mark{event: at(800), Label: "m"},
 		Exit{event: at(1000)},
 	)
@@ -101,7 +102,8 @@ func TestExportReplayRules(t *testing.T) {
 		wantFrame{"hi!", 600 * ms, 50 * ms, false},
 		wantFrame{"hi!", 650 * ms, 40 * ms, false},
 		wantFrame{"hi!", 690 * ms, 10 * ms, false},
-		wantFrame{"", 700 * ms, 300 * ms, false},
+		wantFrame{"hi!", 700 * ms, 10 * ms, false},
+		wantFrame{"", 710 * ms, 290 * ms, false},
 	)
 	if frames[0].Cells == nil || frames[0].Cells.At != 100*ms || frames[0].Cells.Screen.Text() == "" {
 		t.Fatalf("frame cells = %+v, want the terminal at 100ms", frames[0].Cells)
@@ -111,6 +113,9 @@ func TestExportReplayRules(t *testing.T) {
 	}
 	if cursor := frames[4].Cells.State; !cursor.CursorColorSet || cursor.CursorColor != (color.NRGBA{R: 0xff, A: 0xff}) {
 		t.Fatalf("cursor color after OSC 12 = %v (set %v), want red", cursor.CursorColor, cursor.CursorColorSet)
+	}
+	if c, ok := frames[5].Cells.State.Palette.Color(1); !ok || c != (color.NRGBA{G: 0xff, A: 0xff}) {
+		t.Fatalf("color 1 after OSC 4 = %v (set %v), want green", c, ok)
 	}
 }
 

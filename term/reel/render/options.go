@@ -226,7 +226,8 @@ func WithSystemFontFallback(enabled bool) Option {
 // foreground and background, cursor, margin, and progress/status colors used
 // whenever a cell or control sequence doesn't specify one. Fields left unset
 // fall back to built-in defaults. It applies to every frame drawn, whatever the
-// output format.
+// output format. Indexed colors the program set ([vt.State.Palette]) are drawn
+// over it.
 func WithPalette(palette Palette) Option {
 	return func(d *Renderer) error {
 		d.opts.Palette = config.ClonePalette(palette)

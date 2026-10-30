@@ -51,6 +51,13 @@ type State struct {
 	// their own. The zero color means the renderer's default.
 	Foreground color.NRGBA
 	Background color.NRGBA
+	// Palette is the indexed colors the program set with OSC 4 and has not
+	// reset with OSC 104, which the renderer draws over its own, or nil
+	// when there are none. A color set to the emulator's default for its
+	// index does not count. It may be shared with the emulator and other
+	// states and must not be modified: the emulator replaces it rather
+	// than changing it.
+	Palette *Palette
 	// ScrollbackLen is the number of scrollback rows. It is zero on the
 	// alternate screen.
 	ScrollbackLen int
@@ -104,7 +111,8 @@ func (s State) ShownProgress() Progress {
 }
 
 // Equal reports whether s and o are the same state. Fields compare as with
-// ==, and ProgramStatuses and Notifications element by element.
+// ==, Palette by its colors, and ProgramStatuses and Notifications element
+// by element.
 func (s State) Equal(o State) bool {
 	return s.Title == o.Title &&
 		s.Focused == o.Focused &&
@@ -114,6 +122,7 @@ func (s State) Equal(o State) bool {
 		s.CursorColorSet == o.CursorColorSet &&
 		s.Foreground == o.Foreground &&
 		s.Background == o.Background &&
+		samePalette(s.Palette, o.Palette) &&
 		s.ScrollbackLen == o.ScrollbackLen &&
 		s.ScrollbackOffset == o.ScrollbackOffset &&
 		s.Progress == o.Progress &&
@@ -172,6 +181,7 @@ func (s State) SameLook(o State) bool {
 		s.ScrollbackOffset == o.ScrollbackOffset &&
 		s.Foreground == o.Foreground &&
 		s.Background == o.Background &&
+		samePalette(s.Palette, o.Palette) &&
 		s.CursorColor == o.CursorColor &&
 		s.CursorColorSet == o.CursorColorSet
 }

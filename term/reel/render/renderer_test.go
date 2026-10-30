@@ -158,6 +158,7 @@ func TestFrameSnapTracksState(t *testing.T) {
 		"CursorColorSet":        func(s *vt.State) { s.CursorColorSet = true },
 		"Foreground":            func(s *vt.State) { s.Foreground = red },
 		"Background":            func(s *vt.State) { s.Background = red },
+		"Palette":               func(s *vt.State) { s.Palette = new(vt.Palette) },
 		"ScrollbackLen":         func(s *vt.State) { s.ScrollbackLen = 9 },
 		"ScrollbackOffset":      func(s *vt.State) { s.ScrollbackOffset = 3 },
 		"Progress":              func(s *vt.State) { s.Progress.Percent = 6 },

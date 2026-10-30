@@ -192,7 +192,7 @@ func TestHostColorsClearedOnCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Program-set colors are not the next checkout's either.
-	if _, err = first.Write([]byte("\x1b]10;#123456\x07\x1b]11;#654321\x07\x1b]12;#abcdef\x07")); err != nil {
+	if _, err = first.Write([]byte("\x1b]10;#123456\x07\x1b]11;#654321\x07\x1b]12;#abcdef\x07\x1b]4;1;#010203\x07")); err != nil {
 		t.Fatal(err)
 	}
 	fg, bg, _ := first.HostColors()
@@ -215,5 +215,8 @@ func TestHostColorsClearedOnCheckout(t *testing.T) {
 	}
 	if c, ok := second.CursorColor(); ok {
 		t.Fatalf("reused terminal cursor color = %v, want none", c)
+	}
+	if p := second.State().Palette; p != nil {
+		t.Fatalf("reused terminal palette = %v, want nil", p)
 	}
 }

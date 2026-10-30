@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"strings"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
@@ -25,17 +26,16 @@ import (
 //     keyboard flags, and modifyOtherKeys
 //   - the scrolling region and tab stops
 //   - the window title and working directory
-//   - the foreground, background, and cursor colors the program set
+//   - the foreground, background, cursor, and indexed colors the program set
 //   - the OSC 9;4 progress and OSC 7501 program status
 //
 // Kitty graphics placements on the active screen are sent again with their
 // images, as of the current animation frame, cropped to the screen.
 //
 // Left out are the screen that is not active (the primary screen while the
-// alternate screen is shown), the saved cursor, the palette (reel draws
-// indexed colors with its own), Kitty images with no placement on the active
-// screen, notifications, and which rows were soft-wrapped, so a later resize
-// reflows them as separate lines.
+// alternate screen is shown), the saved cursor, Kitty images with no
+// placement on the active screen, notifications, and which rows were
+// soft-wrapped, so a later resize reflows them as separate lines.
 // In synchronized output, the bytes start a hold, but over the screen as it
 // is rather than the screen the hold froze.
 //
@@ -75,6 +75,7 @@ func (t *Terminal) Redraw() ([]byte, error) {
 			b.WriteString(c.set(fmt.Sprintf("#%02x%02x%02x", cur.R, cur.G, cur.B)))
 		}
 	}
+	b.WriteString(paletteVT(t.paletteLocked()))
 	b.WriteString(progressVT(t.progress))
 	if t.statusReported && len(t.statuses) == 0 {
 		b.WriteString(ansi.ClearProgramStatus)
@@ -217,6 +218,22 @@ func progressVT(p Progress) string {
 		seq += fmt.Sprintf(";%d", p.Percent)
 	}
 	return seq + "\x07"
+}
+
+// paletteVT returns the OSC 4 that sets p's colors, or nothing when it has
+// none.
+func paletteVT(p *Palette) string {
+	if p == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\x1b]4")
+	for i := range 256 {
+		if c, ok := p.Color(uint8(i)); ok {
+			fmt.Fprintf(&b, ";%d;#%02x%02x%02x", i, c.R, c.G, c.B)
+		}
+	}
+	return b.String() + "\x07"
 }
 
 // programStatusVT returns the OSC 7501 report of s.

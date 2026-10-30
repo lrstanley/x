@@ -5,6 +5,7 @@
 package vt
 
 import (
+	"bytes"
 	"context"
 	"image/color"
 	"reflect"
@@ -51,6 +52,15 @@ func TestStateEqual(t *testing.T) {
 				f.Kind = PromptStart
 			default:
 				t.Fatalf("field %s has type %T the test does not set", typ.Field(i).Name, f)
+			}
+		case reflect.Pointer:
+			switch v.Addr().Interface().(type) {
+			case **Palette:
+				var p Palette
+				p.Set(1, color.NRGBA{R: 1, A: 0xff})
+				v.Set(reflect.ValueOf(&p))
+			default:
+				t.Fatalf("field %s has a pointer type the test does not set", typ.Field(i).Name)
 			}
 		case reflect.Slice:
 			switch v.Addr().Interface().(type) {
@@ -135,6 +145,7 @@ func TestStateSameLook(t *testing.T) {
 		"background":       func(s *State) { s.Background = color.NRGBA{G: 1, A: 0xff} },
 		"cursor color":     func(s *State) { s.CursorColor = color.NRGBA{B: 1, A: 0xff} },
 		"cursor color set": func(s *State) { s.CursorColorSet = true },
+		"palette":          func(s *State) { s.Palette = new(Palette) },
 	} {
 		b := a
 		change(&b)
@@ -146,6 +157,10 @@ func TestStateSameLook(t *testing.T) {
 	b.ScrollbackLen = 5
 	if !a.SameLook(b) {
 		t.Error("scrollback changed the look")
+	}
+	a.Palette, b.Palette = new(Palette), new(Palette)
+	if !a.SameLook(b) {
+		t.Error("palettes with the same colors changed the look")
 	}
 }
 
@@ -240,5 +255,76 @@ func TestStateEventTimes(t *testing.T) {
 	st = write(4*time.Second, "\x1bc")
 	if st.Bell != (Bell{}) || st.Notifications != nil || st.Clipboard != (ClipboardWrite{}) || st.Prompt != (Prompt{}) {
 		t.Errorf("RIS left events: %+v", st)
+	}
+}
+
+// TestStatePalette checks that State reports the indexed colors the program
+// set with OSC 4 until OSC 104 or a full reset clears them, sharing one
+// Palette while they stay the same.
+func TestStatePalette(t *testing.T) {
+	t.Parallel()
+
+	term := openTest(t, 8, 2)
+	if p := term.State().Palette; p != nil {
+		t.Fatalf("new terminal palette = %v, want nil", p)
+	}
+	// Setting an index to its default color, as the query replies with it,
+	// is not a change.
+	reply, err := term.WriteReplies([]byte("\x1b]4;1;?\x07"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(reply, []byte("\x1b]4;1;rgb:")) {
+		t.Fatalf("OSC 4 query reply = %q", reply)
+	}
+	if _, err = term.Write(reply); err != nil {
+		t.Fatal(err)
+	}
+	if p := term.State().Palette; p != nil {
+		t.Fatalf("palette after setting a default color = %v, want nil", p)
+	}
+	if _, err = term.Write([]byte("\x1b]4;1;#010203;200;rgb:aa/bb/cc\x07")); err != nil {
+		t.Fatal(err)
+	}
+	p := term.State().Palette
+	want := map[uint8]color.NRGBA{
+		1:   {R: 1, G: 2, B: 3, A: 0xff},
+		200: {R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff},
+	}
+	for i := range 256 {
+		c, ok := p.Color(uint8(i))
+		if w, set := want[uint8(i)]; ok != set || c != w {
+			t.Errorf("Palette.Color(%d) = %v, %v, want %v, %v", i, c, ok, w, set)
+		}
+	}
+	if _, err = term.Write([]byte("text")); err != nil {
+		t.Fatal(err)
+	}
+	if again := term.State().Palette; again != p {
+		t.Error("output that changed no color replaced the palette")
+	}
+	if _, err = term.Write([]byte("\x1b]104;1\x07")); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := term.State().Palette.Color(1); ok {
+		t.Errorf("OSC 104;1 left color 1 = %v", c)
+	}
+	if _, err = term.Write([]byte("\x1b]104\x07")); err != nil {
+		t.Fatal(err)
+	}
+	if p = term.State().Palette; p != nil {
+		t.Errorf("OSC 104 left palette %v, want nil", p)
+	}
+	if _, err = term.Write([]byte("\x1b]4;1;#010203\x07")); err != nil {
+		t.Fatal(err)
+	}
+	if term.State().Palette == nil {
+		t.Fatal("OSC 4 set no color")
+	}
+	if err = term.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if p = term.State().Palette; p != nil {
+		t.Errorf("full reset left palette %v, want nil", p)
 	}
 }

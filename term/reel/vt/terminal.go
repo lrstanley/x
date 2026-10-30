@@ -160,6 +160,11 @@ type Terminal struct {
 	cursorDefault color.Color
 	// hasCursor is true when the host or the program set a cursor color.
 	hasCursor bool
+	// palette is the last [Terminal.paletteLocked]. It is replaced, never
+	// changed in place, so a [State] can share it. paletteFresh is true
+	// while no write or reset could have changed it since.
+	palette      *Palette
+	paletteFresh bool
 
 	// grid is the last decoded screen. It does not alias Wasm memory.
 	grid *Buffer
@@ -244,6 +249,7 @@ func (t *Terminal) OutputSeq() uint64 {
 // large writes are split. The call never fails. Malformed input stays
 // inside the emulator.
 func (t *Terminal) writeLocked(p []byte) error {
+	t.paletteFresh = false
 	for len(p) > 0 {
 		n := min(len(p), feedSize)
 		t.mod.Put(t.feed, p[:n])
@@ -326,6 +332,7 @@ func (t *Terminal) resetStateLocked() {
 	t.invalidateRowWords()
 	t.gridFresh = false
 	t.hasCursor = false
+	t.paletteFresh = false
 	t.kitty.reset()
 }
 
@@ -458,6 +465,7 @@ func (t *Terminal) State() State {
 		Background:       t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
 		CursorColor:      cc,
 		CursorColorSet:   hasCursor,
+		Palette:          t.paletteLocked(),
 		ScrollbackLen:    t.scrollbackLenLocked(),
 		ScrollbackOffset: t.scrollbackOffsetLocked(),
 		Progress:         t.progress,
