@@ -47,36 +47,30 @@ tasks:
           cd {{ .PKG }} && curl -sL https://liam.sh/-/gh/g/license-header.sh | bash
           -s
   fmt:
-    desc: run gofumpt
+    desc: run formatters (golangci-lint)
     run: once
     preconditions: [test -f go.mod]
     cmds:
-      - gofumpt -w .
+      - golangci-lint fmt
   fmt:all:
-    desc: run gofumpt for all packages
+    desc: run formatters (golangci-lint) for all packages
     run: once
     deps: [license:all]
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
-        cmd: cd {{ .PKG }} && gofumpt -w .
+        cmd: cd {{ .PKG }} && golangci-lint fmt
   lint:
     desc: run linting
     run: once
     preconditions: [test -f go.mod]
     cmds:
       - go fix ./...
-      - |
-        go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
       - golangci-lint run --fix
   lint:all:
     desc: run linting for all packages
     run: once
     deps: [fmt:all]
     cmds:
-      - for: { var: PACKAGES, as: "PKG" }
-        cmd: |
-          cd {{ .PKG }} \
-            && go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
       - for: { var: PACKAGES, as: "PKG" }
         cmd: cd {{ .PKG }} && golangci-lint run --fix
   prepare:
