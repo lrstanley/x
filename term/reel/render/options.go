@@ -277,14 +277,18 @@ func WithScrollbarWidth(px int) Option {
 }
 
 // WithWindowChrome sets whether to draw a title bar above the terminal grid,
-// with window buttons and [vt.State.Title]. The bar is part of the window,
-// so padding, margin, border radius, and focus dimming apply to it, and it
-// grows the image by [Renderer.Metrics] cell height plus half a cell.
+// with window buttons, [vt.State.Title], and after it the
+// [vt.State.WorkingDirectory] path, dimmer, which also stands in for a title
+// the program did not set. The bar is part of the window, so padding,
+// margin, border radius, and focus dimming apply to it, and it grows the
+// image by [Renderer.Metrics] cell height plus half a cell.
 // Disabled by default, so cell-accurate screenshots do not change.
 //
 // Title bar text is drawn a little smaller than the grid, in the same family,
-// and is optically centered on the buttons. It is drawn as plain text: the
-// title is untrusted, so controls become spaces, and bidi overrides and
+// and is optically centered on the buttons. When room is short the
+// directory is dropped before the title is truncated, and a directory is
+// trimmed from the left, so its own name stays. It is drawn as plain text:
+// it is untrusted, so controls become spaces, and bidi overrides and
 // invisible characters are dropped. Program status ([WithProgramStatus]) is
 // only drawn with window chrome.
 func WithWindowChrome(enabled bool) Option {

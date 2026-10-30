@@ -261,3 +261,100 @@ func TestWindowChromeTitlePlain(t *testing.T) {
 		t.Fatal("a hostile window title draws differently from its visible text")
 	}
 }
+
+func TestChromeDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ in, want string }{
+		{"", ""},
+		{"file:///tmp", "/tmp"},
+		{"file://host/home/me/my%20dir", "/home/me/my dir"},
+		{"file://host/a?q=1#frag", "/a"},
+		{"file://host/bad%zz", "/bad%zz"},
+		{"file://host", ""},
+		{"kitty-shell-cwd://host/x y/100%", "/x y/100%"},
+		{"/plain/path", "/plain/path"},
+		{"relative/path", ""},
+		{"https://example.com/x", ""},
+	} {
+		if got := chromeDirectory(tc.in); got != tc.want {
+			t.Errorf("chromeDirectory(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFitTextLeft(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		in    string
+		cells int
+		want  string
+	}{
+		{"/a/b", 4, "/a/b"},
+		{"/home/me/src", 6, "…e/src"},
+		{"/漢字/x", 4, "…/x"},
+		{"/abc", 1, ""},
+		{"/abc", 0, ""},
+		{"/abc", -2, ""},
+	} {
+		got, w := fitTextLeft(tc.in, tc.cells)
+		if got != tc.want || w > max(tc.cells, 0) {
+			t.Errorf("fitTextLeft(%q, %d) = %q (%d cells), want %q", tc.in, tc.cells, got, w, tc.want)
+		}
+	}
+}
+
+// TestWindowChromeTitleLabel checks how the title and working directory
+// share the title bar.
+func TestWindowChromeTitleLabel(t *testing.T) {
+	t.Parallel()
+
+	d := newRenderer(t, WithWindowChrome(true))
+	f := d.layoutSnapshot(t, image.Point{}, newTestScreen(4, 2))
+	const dir = "file://host/home/me/src/project"
+	for _, tc := range []struct {
+		name  string
+		st    vt.State
+		cells int
+		want  string
+	}{
+		{"title only", vt.State{Title: "vim"}, 40, "vim"},
+		{"directory only", vt.State{WorkingDirectory: dir}, 40, "/home/me/src/project"},
+		{"directory only, trimmed", vt.State{WorkingDirectory: dir}, 10, "…c/project"},
+		{"both", vt.State{Title: "vim", WorkingDirectory: dir}, 40, "vim — /home/me/src/project"},
+		{"both, trimmed", vt.State{Title: "vim", WorkingDirectory: dir}, 18, "vim — …src/project"},
+		{"both, no room", vt.State{Title: "vim", WorkingDirectory: dir}, 14, "vim"},
+		{"hostile directory", vt.State{Title: "t", WorkingDirectory: "file:///a%1b%5b31mb%e2%80%aec"}, 40, "t — /a [31mbc"},
+	} {
+		f.st = tc.st
+		spans, cells := f.titleLabel(nil, tc.cells)
+		var got strings.Builder
+		for _, s := range spans {
+			got.WriteString(s.text)
+		}
+		if got.String() != tc.want || cells > tc.cells {
+			t.Errorf("%s: titleLabel(%d) = %q (%d cells), want %q", tc.name, tc.cells, got.String(), cells, tc.want)
+		}
+	}
+}
+
+// TestWindowChromeWorkingDirectoryIsLive checks that a new working
+// directory repaints the title bar of a screen that did not change.
+func TestWindowChromeWorkingDirectoryIsLive(t *testing.T) {
+	t.Parallel()
+
+	scr := newTestScreen(40, 3)
+	d := newRenderer(t, WithWindowChrome(true))
+
+	first := drawAt(t, d, scr, vt.State{Title: "t", WorkingDirectory: "file:///first"}, 0).Pix
+	if bytes.Equal(first, drawAt(t, d, scr, vt.State{Title: "t", WorkingDirectory: "file:///second"}, 0).Pix) {
+		t.Fatal("changing the working directory did not change the next image")
+	}
+	if !bytes.Equal(first, drawAt(t, d, scr, vt.State{Title: "t", WorkingDirectory: "file:///first"}, 0).Pix) {
+		t.Fatal("restoring the working directory did not restore the image")
+	}
+	if !bytes.Equal(drawFresh(d, scr, vt.State{Title: "t", WorkingDirectory: "file:///first"}, 0).Pix, first) {
+		t.Fatal("an incremental working directory change differs from a full draw")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"net/url"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -30,7 +31,14 @@ const (
 	chromeBarTint      = 0.08
 	chromeHairlineTint = 0.16
 	chromeTitleTint    = 0.7
+	// A subtitle, and the dash before it, are dimmer than the title.
+	chromeSubtitleTint = 0.45
+	chromeDashTint     = 0.3
 )
+
+// chromeSubtitleMin is the fewest cells left for a subtitle before it is
+// dropped instead of truncated.
+const chromeSubtitleMin = 12
 
 // chromeTextScale is the title bar text size relative to the grid font, so
 // the bar reads as a frame around the content rather than another line of it.
@@ -170,6 +178,95 @@ func fitText(s string, cells int) (fit string, width int) {
 	return fit, ansi.StringWidth(fit)
 }
 
+// fitTextLeft is [fitText] for text whose end matters more than its start,
+// such as a path: it keeps the end and puts the ellipsis first.
+func fitTextLeft(s string, cells int) (fit string, width int) {
+	if width = ansi.StringWidth(s); width <= cells {
+		return s, width
+	}
+	if cells < 1 {
+		return "", 0
+	}
+	// TruncateLeft keeps a wide grapheme the cut lands in, so cut one more
+	// cell when it does.
+	for n := width - cells + 1; ; n++ {
+		if fit = ansi.TruncateLeft(s, n, "…"); ansi.StringWidth(fit) <= cells {
+			return fit, ansi.StringWidth(fit)
+		}
+	}
+}
+
+// chromeDirectory is the path of an OSC 7 working directory report: the
+// path of a file URL, decoded, or of a kitty-shell-cwd URL, which is sent
+// as is. The host is dropped. A bare absolute path is kept, and anything
+// else has no path to show.
+func chromeDirectory(report string) string {
+	scheme, rest, ok := strings.Cut(report, "://")
+	if !ok {
+		if strings.HasPrefix(report, "/") {
+			return report
+		}
+		return ""
+	}
+	i := strings.IndexByte(rest, '/')
+	if i < 0 {
+		return ""
+	}
+	switch scheme {
+	case "file":
+		if u, err := url.Parse(report); err == nil {
+			return u.Path
+		}
+		return rest[i:]
+	case "kitty-shell-cwd":
+		return rest[i:]
+	}
+	return ""
+}
+
+// chromeSpan is a run of title bar text in one color.
+type chromeSpan struct {
+	text string
+	col  color.NRGBA
+	bold bool
+}
+
+// appendSubtitle appends sub to spans after a dash, dimmer than the title,
+// fitted with fit into the room cells left after the cells spans already
+// take, and returns spans with their new width. It is dropped when it is
+// empty or fewer than chromeSubtitleMin cells are left, so it goes before
+// the title when room is short.
+func (f *renderFrame) appendSubtitle(spans []chromeSpan, cells, room int, sub string, fit func(string, int) (string, int)) (out []chromeSpan, width int) {
+	const dash = " — "
+	if sub == "" || room < chromeSubtitleMin {
+		return spans, cells
+	}
+	fg, bg := f.foregroundNRGBA(nil), f.backgroundNRGBA(nil)
+	t, w := fit(sub, room-ansi.StringWidth(dash))
+	spans = append(spans,
+		chromeSpan{text: dash, col: icol.BlendNRGBA(bg, fg, chromeDashTint)},
+		chromeSpan{text: t, col: icol.BlendNRGBA(bg, fg, chromeSubtitleTint)},
+	)
+	return spans, cells + ansi.StringWidth(dash) + w
+}
+
+// titleLabel appends the title bar text for the window title to spans, in
+// at most maxCells cells, and returns them with their width in cells. The
+// OSC 7 working directory is the title's subtitle, or stands in for a title
+// the program did not set. It is trimmed from the left, so the directory's
+// own name stays.
+func (f *renderFrame) titleLabel(spans []chromeSpan, maxCells int) (out []chromeSpan, cells int) {
+	col := icol.BlendNRGBA(f.backgroundNRGBA(nil), f.foregroundNRGBA(nil), chromeTitleTint)
+	dir := plainText(chromeDirectory(f.st.WorkingDirectory))
+	title := plainText(f.st.Title)
+	if title == "" {
+		t, w := fitTextLeft(dir, maxCells)
+		return append(spans, chromeSpan{text: t, col: col}), w
+	}
+	t, w := fitText(title, maxCells)
+	return f.appendSubtitle(append(spans, chromeSpan{text: t, col: col}), w, maxCells-w, dir, fitTextLeft)
+}
+
 // chromeLine is a line of title bar text: where it is drawn, centered on mid,
 // and how.
 type chromeLine struct {
@@ -252,8 +349,17 @@ func (l *chromeLine) text(x int, s string, fg color.NRGBA, bold bool) int {
 	return x
 }
 
-// drawChrome paints the title bar. The title, or the OSC 7501 program status
-// in its place, is drawn with the chrome faces, optically centered on the
+// spans draws each span with [chromeLine.text] from x, one after the other,
+// and returns the x after the last.
+func (l *chromeLine) spans(x int, spans []chromeSpan) int {
+	for _, s := range spans {
+		x = l.text(x, s.text, s.col, s.bold)
+	}
+	return x
+}
+
+// drawChrome paints the title bar. The title and working directory, or the
+// OSC 7501 program status in their place, are drawn with the chrome faces, optically centered on the
 // window buttons.
 func (d *Renderer) drawChrome(dst draw.Image, f *renderFrame) {
 	bar := f.chromeBounds
@@ -292,6 +398,7 @@ func (d *Renderer) drawChrome(dst draw.Image, f *renderFrame) {
 		return
 	}
 	cw, _ := d.chromeCtx.cell()
-	title, w := fitText(plainText(f.st.Title), room/cw)
-	line.text(body.Min.X+(body.Dx()-w*cw)/2, title, icol.BlendNRGBA(bg, fg, chromeTitleTint), false)
+	var buf [3]chromeSpan
+	spans, cells := f.titleLabel(buf[:0], room/cw)
+	line.spans(body.Min.X+(body.Dx()-cells*cw)/2, spans)
 }

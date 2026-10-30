@@ -20,8 +20,8 @@ import (
 type frameSnap struct {
 	screen image.Rectangle
 
-	title string     // only tracked with window chrome, which is the only thing that paints it
-	ind   indicators // zero unless a progress bar or program status is drawn
+	title, dir string     // only tracked with window chrome, which is the only thing that paints them
+	ind        indicators // zero unless a progress bar or program status is drawn
 
 	focused    bool
 	alt        bool
@@ -126,7 +126,7 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 		palette:    st.Palette,
 	}
 	if d.opts.WindowChrome {
-		s.title = st.Title
+		s.title, s.dir = st.Title, st.WorkingDirectory
 	}
 	if st.CursorColorSet {
 		s.cur, s.curSet = st.CursorColor, true
@@ -160,7 +160,7 @@ func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration)
 			}
 		}
 	}
-	if now.title != old.title {
+	if now.title != old.title || now.dir != old.dir {
 		// The title bar sits above row 0, whose band reaches the window top.
 		lo, hi = 0, max(hi, 0)
 	}
@@ -212,11 +212,11 @@ func (d *Renderer) dirtyRows(buf *vt.Buffer) (lo, hi int, ok bool) {
 	return lo, hi, true
 }
 
-// sansBanded is s without the cursor, title, progress, and program status,
+// sansBanded is s without the cursor, title bar text, progress, and program status,
 // which drawIncremental repaints as bands instead of rebuilding the frame.
 func (s frameSnap) sansBanded() frameSnap {
 	s.cursor = vt.Cursor{}
-	s.title = ""
+	s.title, s.dir = "", ""
 	s.ind = indicators{}
 	return s
 }

@@ -29,8 +29,9 @@
 // copy of the last image, and repaints only what changed since.
 //
 // [Renderer] owns the full draw pipeline: window background, optional title bar
-// ([WithWindowChrome], showing [vt.State.Title]), cell backgrounds, cell
-// foregrounds (glyphs and decorations), cursor, OSC 9;4 progress bar
+// ([WithWindowChrome], showing [vt.State.Title] and
+// [vt.State.WorkingDirectory]), cell backgrounds, cell foregrounds (glyphs
+// and decorations), cursor, OSC 9;4 progress bar
 // ([WithProgressBar], from [vt.State.ShownProgress]), scrollbar gutter,
 // unfocused dimming overlay, an antialiased rounding mask on the terminal
 // window, then the OSC 7501 program status outline around it.
@@ -46,7 +47,7 @@
 // urgent record (see [vt.ProgramState]) replaces the title with its icon,
 // spinner, or percent, title, and message, and colors a thin outline just
 // outside the window edge. The other records show as dots after the title.
-// Title bar text, the window title included, is drawn as plain text with
+// Title bar text, the window title and working directory included, is drawn as plain text with
 // controls, bidi overrides, and invisible characters removed.
 // [Renderer.Animates], [Renderer.Changes], and [Renderer.Repaint] let a
 // recorder keep an animated progress bar or program status moving while the

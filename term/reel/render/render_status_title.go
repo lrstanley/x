@@ -7,7 +7,6 @@ package render
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"math"
 	"time"
@@ -26,14 +25,6 @@ const (
 	// statusIdleIconTint is how far the idle icon blends from the window
 	// background toward the foreground.
 	statusIdleIconTint = 0.5
-	// How far the message, and the dash before it, blend toward the
-	// foreground. The title uses chromeTitleTint.
-	statusMessageTint = 0.45
-	statusDashTint    = 0.3
-	// statusMessageMin is the fewest cells left for the message before it is
-	// dropped instead of truncated.
-	statusMessageMin = 12
-
 	// statusDotMin is the smallest record dot, in pixels, and statusDotGap
 	// the space between dots.
 	statusDotMin = 4
@@ -74,13 +65,6 @@ func statusIconBox(button int) int {
 	return button + button/2 - 1 + button%2
 }
 
-// statusSpan is a run of title bar text in one color.
-type statusSpan struct {
-	text string
-	col  color.NRGBA
-	bold bool
-}
-
 // statusLead is what the status title starts with: the state icon, the
 // spinner, or the percent, and whether it is an icon.
 func statusLead(drv vt.ProgramStatus, at time.Duration) (lead string, icon bool) {
@@ -112,17 +96,16 @@ func statusLead(drv vt.ProgramStatus, at time.Duration) (lead string, icon bool)
 
 // statusLabel appends the title bar text for drv after lead to spans, in at
 // most maxCells cells past the lead, and returns them with their width in
-// cells. The message goes first when there is not enough room: it is
-// truncated, then dropped, and then the title is truncated. The lead takes
-// the state color, the title the normal title tint, and the message is
-// dimmer, so the bar stays calm.
-func (f *renderFrame) statusLabel(spans []statusSpan, drv vt.ProgramStatus, lead string, maxCells int) (out []statusSpan, cells int) {
+// cells. The message is a subtitle (see [renderFrame.appendSubtitle]): it
+// goes first when there is not enough room, and then the title is
+// truncated. The lead takes the state color.
+func (f *renderFrame) statusLabel(spans []chromeSpan, drv vt.ProgramStatus, lead string, maxCells int) (out []chromeSpan, cells int) {
 	fg, bg := f.foregroundNRGBA(nil), f.backgroundNRGBA(nil)
 	accent := f.statusColor(drv.State)
 	if drv.State == vt.ProgramIdle {
 		accent = icol.BlendNRGBA(bg, fg, statusIdleIconTint)
 	}
-	spans = append(spans, statusSpan{text: lead, col: accent, bold: true})
+	spans = append(spans, chromeSpan{text: lead, col: accent, bold: true})
 	cells = ansi.StringWidth(lead)
 	room := maxCells - cells
 
@@ -130,25 +113,13 @@ func (f *renderFrame) statusLabel(spans []statusSpan, drv vt.ProgramStatus, lead
 	if title == "" {
 		title = plainText(drv.App)
 	}
-	hasTitle := title != "" && room > 3
-	if hasTitle {
-		t, w := fitText(title, room-1)
-		spans = append(spans, statusSpan{text: " "}, statusSpan{text: t, col: icol.BlendNRGBA(bg, fg, chromeTitleTint)})
-		cells, room = cells+1+w, room-1-w
-	}
-	const dash = " — "
-	if !hasTitle || room < statusMessageMin {
+	if title == "" || room <= 3 {
 		return spans, cells
 	}
-	if msg := plainText(drv.Message); msg != "" {
-		m, w := fitText(msg, room-ansi.StringWidth(dash))
-		spans = append(spans,
-			statusSpan{text: dash, col: icol.BlendNRGBA(bg, fg, statusDashTint)},
-			statusSpan{text: m, col: icol.BlendNRGBA(bg, fg, statusMessageTint)},
-		)
-		cells += ansi.StringWidth(dash) + w
-	}
-	return spans, cells
+	t, w := fitText(title, room-1)
+	spans = append(spans, chromeSpan{text: " "}, chromeSpan{text: t, col: icol.BlendNRGBA(bg, fg, chromeTitleTint)})
+	cells += 1 + w
+	return f.appendSubtitle(spans, cells, maxCells-cells, plainText(drv.Message), fitText)
 }
 
 // drawStatusTitle draws the program status in place of the window title on
@@ -181,12 +152,9 @@ func (d *Renderer) drawStatusTitle(l *chromeLine, body image.Rectangle, room, bu
 		dotsW = cw + ndots*(dot+statusDotGap) - statusDotGap
 	}
 
-	var buf [5]statusSpan
+	var buf [5]chromeSpan
 	spans, cells := f.statusLabel(buf[:0], v.drv, lead, (room-dotsW-iconW)/cw)
-	x := body.Min.X + (body.Dx()-cells*cw-iconW-dotsW)/2
-	for _, s := range spans {
-		x = l.text(x, s.text, s.col, s.bold)
-	}
+	x := l.spans(body.Min.X+(body.Dx()-cells*cw-iconW-dotsW)/2, spans)
 	if ndots == 0 {
 		return
 	}
