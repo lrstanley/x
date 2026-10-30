@@ -182,6 +182,9 @@ func (r *replay) apply(ev Event) error {
 // animate passes on the Kitty animation frames due before until, each at
 // the time it is due.
 func (r *replay) animate(until time.Duration, inWindow bool) error {
+	if r.frame == nil {
+		return nil
+	}
 	for {
 		due, ok := r.term.AnimationDue()
 		// The terminal has already ticked at now, so a frame due then or

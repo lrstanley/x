@@ -15,10 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/lrstanley/x/term/reel/vt"
+	"github.com/lrstanley/x/term/reel/internal/kittycmd"
 )
 
 // WithKittyFiles lets the program send Kitty graphics as a file, a temporary
@@ -38,70 +39,78 @@ func WithKittyFiles() SessionOption {
 	return func(cfg *sessionConfig) { cfg.kittyFiles = true }
 }
 
-// kittyFileChunk is how many base64 bytes one chunk of a rewritten
-// transmission carries.
-const kittyFileChunk = 4096
+// maxFileCommand is the longest command held to see whether it sends an
+// image by file. A file command's payload is a path, and its control keys
+// come first, so anything longer is passed on as sent.
+const maxFileCommand = 16 << 10
+
+var (
+	apcStart = []byte("\x1b_G")
+	apcEnd   = []byte("\x1b\\")
+)
 
 // kittyFiles rewrites Kitty graphics commands that send an image by file
 // into commands that send it in the output. Commands may be split across
-// writes, so the start of an unfinished one is held until it ends.
+// writes, so the start of one is held until it is known to send a file,
+// and then until it ends.
 type kittyFiles struct {
 	// limit is the most bytes one image may read.
 	limit int
 	// held is the start of a command, or of what may be one, that the last
 	// write ended in.
 	held []byte
-	// skip is set while passing on the rest of a command too long to hold.
-	skip bool
+	// passing is set inside a command that does not send a file, which is
+	// passed on as it arrives.
+	passing bool
 }
 
 func newKittyFiles(limit uint64) *kittyFiles {
-	if limit == 0 {
-		limit = vt.DefaultKittyStorage
-	}
 	return &kittyFiles{limit: int(min(limit, 1<<30))} //nolint:gosec // capped to fit an int.
 }
 
-// rewrite returns p, with any held bytes before it, as it should reach the
-// terminal: file transmissions rewritten, and the start of an unfinished
-// command held back for the next call.
+// rewrite returns p, after any held bytes, as it should reach the terminal:
+// file transmissions rewritten, and the start of a command that may be one
+// held back for the next call. Output with no command in it is returned as
+// it is.
 func (k *kittyFiles) rewrite(p []byte) []byte {
 	data := p
 	if len(k.held) > 0 {
-		k.held = append(k.held, p...)
-		data, k.held = k.held, nil
+		data = slices.Concat(k.held, p)
+		k.held = nil
 	}
 	var out []byte
 	for len(data) > 0 {
-		if k.skip {
-			end := bytes.Index(data, []byte("\x1b\\"))
+		if k.passing {
+			end := bytes.Index(data, apcEnd)
 			if end < 0 {
 				return append(out, data...)
 			}
-			k.skip = false
-			out, data = append(out, data[:end+2]...), data[end+2:]
+			k.passing = false
+			out, data = append(out, data[:end+len(apcEnd)]...), data[end+len(apcEnd):]
 			continue
 		}
-		start := bytes.Index(data, []byte("\x1b_G"))
+		start := bytes.Index(data, apcStart)
 		if start < 0 {
 			// Hold a trailing ESC or ESC _, which may start a command.
-			keep := partialPrefix(data, "\x1b_G")
-			k.held = append(k.held, data[len(data)-keep:]...)
+			keep := partialPrefix(data, apcStart)
+			k.held = bytes.Clone(data[len(data)-keep:])
+			if out == nil {
+				return data[:len(data)-keep]
+			}
 			return append(out, data[:len(data)-keep]...)
 		}
 		out, data = append(out, data[:start]...), data[start:]
-		end := bytes.Index(data, []byte("\x1b\\"))
-		if end < 0 {
-			if len(data) > k.limit*2 {
-				// Too long for any image we would read: not a file.
-				k.skip = true
-				return append(out, data...)
-			}
-			k.held = append(k.held, data...)
+		end := bytes.Index(data, apcEnd)
+		file, known := sendsFile(data, end)
+		switch {
+		case known && !file, end < 0 && len(data) > maxFileCommand:
+			k.passing = true
+		case end < 0:
+			k.held = bytes.Clone(data)
 			return out
+		default:
+			out, data = append(out, k.command(data[:end+len(apcEnd)])...), data[end+len(apcEnd):]
 		}
-		out = append(out, k.command(data[:end+2])...)
-		data = data[end+2:]
 	}
 	return out
 }
@@ -115,49 +124,92 @@ func (k *kittyFiles) flush() []byte {
 
 // partialPrefix is the length of the longest end of data that starts
 // prefix.
-func partialPrefix(data []byte, prefix string) int {
+func partialPrefix(data, prefix []byte) int {
 	for n := min(len(prefix)-1, len(data)); n > 0; n-- {
-		if string(data[len(data)-n:]) == prefix[:n] {
+		if bytes.HasSuffix(data, prefix[:n]) {
 			return n
 		}
 	}
 	return 0
 }
 
+// sendsFile reports whether the command data starts with, which ends at end
+// or has not ended when end is negative, sends an image by file. known is
+// false while its control keys have not all arrived.
+func sendsFile(data []byte, end int) (file, known bool) {
+	ctrl := data[len(apcStart):]
+	if end >= 0 {
+		ctrl = data[len(apcStart):end]
+	}
+	ctrl, _, cut := bytes.Cut(ctrl, []byte(";"))
+	if !cut && end < 0 {
+		return false, false
+	}
+	switch parseKittyKeys(string(ctrl)).medium {
+	case "f", "t", "s":
+		return true, true
+	}
+	return false, true
+}
+
+// kittyKeys are the control keys of a command, as the rewrite needs them.
+type kittyKeys struct {
+	// medium, offset, and size are t, O, and S.
+	medium       string
+	offset, size int
+	// format, width, height, and zlib are f, s, v, and o=z.
+	format, width, height int
+	zlib                  bool
+	// kept are the keys to send on, all but t, O, and S.
+	kept []string
+}
+
+func parseKittyKeys(ctrl string) kittyKeys {
+	k := kittyKeys{format: 32}
+	for kv := range strings.SplitSeq(ctrl, ",") {
+		key, v, _ := strings.Cut(kv, "=")
+		n, _ := strconv.Atoi(v)
+		switch key {
+		case "t":
+			k.medium = v
+			continue
+		case "O":
+			k.offset = n
+			continue
+		case "S":
+			k.size = n
+			continue
+		case "f":
+			k.format = n
+		case "s":
+			k.width = n
+		case "v":
+			k.height = n
+		case "o":
+			k.zlib = v == "z"
+		}
+		k.kept = append(k.kept, kv)
+	}
+	return k
+}
+
 // command returns cmd, a whole command from ESC _ G to ESC \, as it should
 // reach the terminal: rewritten to send its image in the output if it sent
 // one by file, and as it was otherwise.
 func (k *kittyFiles) command(cmd []byte) []byte {
-	body := cmd[3 : len(cmd)-2]
-	ctrl, payload, _ := bytes.Cut(body, []byte(";"))
-	keys := strings.Split(string(ctrl), ",")
-	medium, offset, size := "", 0, 0
-	kept := keys[:0:0]
-	for _, kv := range keys {
-		key, v, _ := strings.Cut(kv, "=")
-		switch key {
-		case "t":
-			medium = v
-		case "O":
-			offset, _ = strconv.Atoi(v)
-		case "S":
-			size, _ = strconv.Atoi(v)
-		default:
-			kept = append(kept, kv)
-		}
-	}
-	if medium != "f" && medium != "t" && medium != "s" {
-		return cmd
-	}
+	ctrl, payload, _ := bytes.Cut(cmd[len(apcStart):len(cmd)-len(apcEnd)], []byte(";"))
+	keys := parseKittyKeys(string(ctrl))
 	name, err := base64.StdEncoding.DecodeString(string(payload))
 	if err != nil {
 		return cmd
 	}
-	data, err := k.read(medium, string(name), offset, size)
-	if err != nil || checkKittyImage(kept, data) != nil {
+	data, err := k.read(keys.medium, string(name), keys.offset, keys.size)
+	if err != nil || checkKittyImage(keys, data) != nil {
 		return cmd
 	}
-	return directKittyCommand(kept, data)
+	var b bytes.Buffer
+	kittycmd.AppendTransmit(&b, keys.kept, data)
+	return b.Bytes()
 }
 
 // read returns the bytes of the file, temporary file, or shared memory
@@ -229,39 +281,29 @@ func inDir(path, dir string) bool {
 // checkKittyImage reports an error unless data is the image keys describe:
 // a PNG for f=100, or, for raw pixels, s by v pixels of the format, once
 // inflated for o=z.
-func checkKittyImage(keys []string, data []byte) error {
-	format, w, h, zlibbed := 32, 0, 0, false
-	for _, kv := range keys {
-		key, v, _ := strings.Cut(kv, "=")
-		n, _ := strconv.Atoi(v)
-		switch key {
-		case "f":
-			format = n
-		case "s":
-			w = n
-		case "v":
-			h = n
-		case "o":
-			zlibbed = v == "z"
-		}
-	}
+func checkKittyImage(keys kittyKeys, data []byte) error {
 	var r io.Reader = bytes.NewReader(data)
-	if zlibbed {
+	if keys.zlib {
 		zr, err := zlib.NewReader(r)
 		if err != nil {
 			return err
 		}
 		r = zr
 	}
-	if format == 100 {
+	var bpp int
+	switch keys.format {
+	case 100:
 		_, err := png.DecodeConfig(r)
 		return err
+	case 24:
+		bpp = 3
+	case 32:
+		bpp = 4
 	}
-	bpp := map[int]int{24: 3, 32: 4}[format]
-	if bpp == 0 || w <= 0 || h <= 0 {
+	if bpp == 0 || keys.width <= 0 || keys.height <= 0 {
 		return errors.New("unknown image format or size")
 	}
-	want := int64(w) * int64(h) * int64(bpp)
+	want := int64(keys.width) * int64(keys.height) * int64(bpp)
 	n, err := io.Copy(io.Discard, io.LimitReader(r, want+1))
 	if err != nil {
 		return err
@@ -270,25 +312,4 @@ func checkKittyImage(keys []string, data []byte) error {
 		return fmt.Errorf("%d bytes of pixels, want %d", n, want)
 	}
 	return nil
-}
-
-// directKittyCommand returns the command with control keys keys that sends
-// data in the output, in chunks.
-func directKittyCommand(keys []string, data []byte) []byte {
-	enc := base64.StdEncoding.EncodeToString(data)
-	var b bytes.Buffer
-	for first := true; first || enc != ""; first = false {
-		chunk := enc[:min(len(enc), kittyFileChunk)]
-		enc = enc[len(chunk):]
-		more := "m=0"
-		if enc != "" {
-			more = "m=1"
-		}
-		ctrl := more
-		if first {
-			ctrl = strings.Join(append(keys, more), ",")
-		}
-		fmt.Fprintf(&b, "\x1b_G%s;%s\x1b\\", ctrl, chunk)
-	}
-	return b.Bytes()
 }

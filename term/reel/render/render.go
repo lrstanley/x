@@ -275,7 +275,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 				runX1 = area.Max.X
 				runColor = fill
 			}
-			if !isPlaceholder(cell) {
+			if !cell.KittyPlaceholder() {
 				d.drawCellFg(area, cell, f, fg, fgReady, cellSpansNext(scr, view, x, y, cell))
 			}
 		}

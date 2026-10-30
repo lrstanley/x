@@ -213,3 +213,22 @@ func TestKittyFilesHeld(t *testing.T) {
 		t.Errorf("output after close = %q, want the unfinished command passed on", out)
 	}
 }
+
+// TestKittyFilesStreams checks that a command that does not send a file is
+// passed on as it arrives, once its control keys show it, not held.
+func TestKittyFilesStreams(t *testing.T) {
+	t.Parallel()
+	cmd := kittyCmd("a=T,i=1,f=32,s=1,v=1,q=2", 1, 1, kittyRed)
+	cut := strings.Index(cmd, ";") + 2
+	s := writeKittySession(t, []string{"x" + cmd[:6], cmd[6:cut]}, WithKittyFiles())
+	t.Cleanup(func() { _ = s.Close() })
+	if out := timelineOutput(s.Timeline()); out != "x"+cmd[:cut] {
+		t.Errorf("output = %q, want the command's start passed on", out)
+	}
+	if _, err := s.Write([]byte(cmd[cut:])); err != nil {
+		t.Fatal(err)
+	}
+	if imgs := s.Terminal().Images(); len(imgs) != 1 {
+		t.Errorf("got %d placements, want the image", len(imgs))
+	}
+}

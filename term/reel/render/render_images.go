@@ -7,7 +7,6 @@ package render
 import (
 	"image"
 	"math"
-	"strings"
 
 	xdraw "golang.org/x/image/draw"
 
@@ -121,10 +120,4 @@ func (d *Renderer) drawImages(dst *image.NRGBA, scr vt.Screen, f *renderFrame, l
 func hasImages(scr vt.Screen) bool {
 	buf, ok := scr.(*vt.Buffer)
 	return ok && len(buf.Images()) > 0
-}
-
-// isPlaceholder reports whether cell is a Kitty graphics Unicode placeholder,
-// whose image the placements draw instead of its text.
-func isPlaceholder(cell *vt.Cell) bool {
-	return strings.HasPrefix(cell.Content, "\U0010EEEE")
 }

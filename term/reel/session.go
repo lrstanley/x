@@ -6,6 +6,7 @@ package reel
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -202,7 +203,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		typingDelay: cfg.typingDelay,
 	}
 	if cfg.kittyFiles {
-		s.kittyFiles = newKittyFiles(cfg.kittyStorage)
+		s.kittyFiles = newKittyFiles(cmp.Or(cfg.kittyStorage, vt.DefaultKittyStorage))
 	}
 	s.focused.Store(true)
 	return s, nil
