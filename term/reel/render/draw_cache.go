@@ -78,7 +78,7 @@ func (d *Renderer) rememberFrame(scr vt.Screen, st vt.State, lo, hi int, at time
 	}
 	d.frameGen = buf.Generation()
 	d.frameSnap = d.currentSnap(buf.Bounds(), st, at)
-	d.frameImages = hasImages(buf)
+	d.frameImages = len(buf.Images()) > 0
 	d.frameReady = true
 }
 
@@ -139,7 +139,7 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration) bool {
 	buf, ok := scr.(*vt.Buffer)
 	if !ok || !d.frameReady || d.frame == nil || buf.Generation() == 0 || len(d.prev) != buf.Width()*buf.Height() ||
-		d.frameImages || hasImages(buf) {
+		d.frameImages || len(buf.Images()) > 0 {
 		return false
 	}
 	now, old := d.currentSnap(buf.Bounds(), st, at), d.frameSnap

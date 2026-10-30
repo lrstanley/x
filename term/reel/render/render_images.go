@@ -83,29 +83,21 @@ func scaleRect(r image.Rectangle, origin, cell image.Point, cw, ch int) image.Re
 	).Add(origin)
 }
 
-// drawImages draws scr's Kitty graphics placements in layer, scaled from the
+// drawImages draws f's Kitty graphics placements in layer, scaled from the
 // terminal's cells to the frame's and clipped to the grid.
-func (d *Renderer) drawImages(dst *image.NRGBA, scr vt.Screen, f *renderFrame, layer imageLayer) {
-	buf, ok := scr.(*vt.Buffer)
-	if !ok {
-		return
-	}
-	cell := buf.CellSize()
-	if cell.X <= 0 || cell.Y <= 0 {
-		return
-	}
+func (d *Renderer) drawImages(dst *image.NRGBA, f *renderFrame, layer imageLayer) {
 	clip := dst.Bounds().Intersect(f.gridBounds)
-	if clip.Empty() {
+	if len(f.images) == 0 || clip.Empty() {
 		return
 	}
-	for _, p := range buf.Images() {
+	for _, p := range f.images {
 		if layerOf(p) != layer || p.Image == nil || p.Source.Empty() {
 			continue
 		}
-		r := scaleRect(p.Rect, f.gridBounds.Min, cell, f.cellW, f.cellH)
+		r := scaleRect(p.Rect, f.gridBounds.Min, f.imageCell, f.cellW, f.cellH)
 		area := clip
 		if !p.Clip.Empty() {
-			area = area.Intersect(scaleRect(p.Clip, f.gridBounds.Min, cell, f.cellW, f.cellH))
+			area = area.Intersect(scaleRect(p.Clip, f.gridBounds.Min, f.imageCell, f.cellW, f.cellH))
 		}
 		if r.Empty() || !r.Overlaps(area) {
 			continue
@@ -114,10 +106,4 @@ func (d *Renderer) drawImages(dst *image.NRGBA, scr vt.Screen, f *renderFrame, l
 		scaled := d.images.get(p.Image, p.Source, r.Size())
 		xdraw.Draw(sub, r, scaled, image.Point{}, xdraw.Over)
 	}
-}
-
-// hasImages reports whether scr has Kitty graphics placements.
-func hasImages(scr vt.Screen) bool {
-	buf, ok := scr.(*vt.Buffer)
-	return ok && len(buf.Images()) > 0
 }

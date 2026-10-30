@@ -25,7 +25,6 @@ const (
 	defaultCellWidth  = 10
 	defaultCellHeight = 20
 	scratchSize       = 8192
-	kittyScratchSize  = 64
 	feedSize          = 64 * 1024
 )
 
@@ -190,26 +189,8 @@ type Terminal struct {
 	// searches are live GhosttySearch handles. Close frees any that remain.
 	searches []*Search
 
-	// kittyLimit is the Kitty graphics storage limit last applied. Zero
-	// turns Kitty graphics off. kittyDefault is the one a reset restores.
-	kittyLimit   uint64
-	kittyDefault uint64
-	// kscratch is scratch for Kitty graphics reads, apart from scratch,
-	// whose offsets the grid readers reserve.
-	kscratch int32
-	// kittyIt is the reusable GhosttyKittyGraphicsPlacementIterator.
-	kittyIt int32
-	// kittyGen is the image storage generation the grid's placements were
-	// read at.
-	kittyGen uint64
-	// kittyPlaceholders is true when a virtual placement exists, so any
-	// cell change can move an image.
-	kittyPlaceholders bool
-	// kittyCache holds decoded images by id, while their generation holds.
-	kittyCache map[uint32]*Image
-	// animDue is when the next animation frame is due, if animOK.
-	animDue time.Duration
-	animOK  bool
+	// kitty is the Kitty graphics state.
+	kitty kittyState
 }
 
 // Write feeds VT bytes to the emulator. It never returns a short write.
@@ -345,11 +326,7 @@ func (t *Terminal) resetStateLocked() {
 	t.invalidateRowWords()
 	t.gridFresh = false
 	t.hasCursor = false
-	t.kittyLimit = t.kittyDefault
-	t.kittyGen = 0
-	t.kittyPlaceholders = false
-	t.kittyCache = nil
-	t.animOK = false
+	t.kitty.reset()
 }
 
 // Resize changes the grid. Cell pixels stay as [WithCellSize] set them, so
@@ -383,30 +360,6 @@ func (t *Terminal) resizeLocked(cols, rows int) error {
 	}
 	t.cols, t.rows = cols, rows
 	return nil
-}
-
-// configure applies the options of [Runtime.Open] to a checked-out terminal.
-func (t *Terminal) configure(cfg openConfig) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.clock = cfg.clock
-	if cfg.kitty != t.kittyDefault || cfg.kitty != t.kittyLimit {
-		t.kittyDefault, t.kittyLimit = cfg.kitty, cfg.kitty
-		if err := t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, cfg.kitty); err != nil {
-			return err
-		}
-	}
-	w, h := uint32(defaultCellWidth), uint32(defaultCellHeight)
-	if cfg.cellW > 0 {
-		w, h = uint32(cfg.cellW), uint32(cfg.cellH) //nolint:gosec // WithCellSize keeps them positive.
-	}
-	if w == t.cellW && h == t.cellH {
-		return nil
-	}
-	t.cellW, t.cellH = w, h
-	t.grid = nil
-	t.gridFresh = false
-	return t.resizeLocked(t.cols, t.rows)
 }
 
 // CellSize returns the pixel size of one cell, which size reports and
@@ -876,14 +829,14 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	t.cellW = defaultCellWidth
 	t.cellH = defaultCellHeight
 	t.scrollbackLines = scrollback
-	t.kittyLimit, t.kittyDefault = DefaultKittyStorage, DefaultKittyStorage
+	t.kitty = kittyState{limit: DefaultKittyStorage, def: DefaultKittyStorage}
 	if t.feed, err = t.mod.Alloc(feedSize); err != nil {
 		return err
 	}
 	if t.scratch, err = t.mod.Alloc(scratchSize); err != nil {
 		return err
 	}
-	if t.kscratch, err = t.mod.Alloc(kittyScratchSize); err != nil {
+	if t.kitty.scratch, err = t.mod.Alloc(kittyScratchSize); err != nil {
 		return err
 	}
 	ack := []byte{0x06}
@@ -945,7 +898,7 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	if err != nil {
 		return err
 	}
-	t.kittyIt, err = t.mod.Ctor(func(slot int32) int32 {
+	t.kitty.iter, err = t.mod.Ctor(func(slot int32) int32 {
 		return t.mod.Xghostty_kitty_graphics_placement_iterator_new(0, slot)
 	})
 	if err != nil {
@@ -984,7 +937,7 @@ func (t *Terminal) reapplyLocked() error {
 	if err := t.setModeLocked(Mode{Number: 20, ANSI: true}, true); err != nil {
 		return err
 	}
-	return t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, t.kittyLimit)
+	return t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, t.kitty.limit)
 }
 
 // clearPooledLocked drops what belongs to the previous checkout: the

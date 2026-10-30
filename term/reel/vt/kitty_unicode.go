@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi/kitty"
@@ -204,6 +205,5 @@ var kittyDiacritics = func() map[rune]int {
 // KittyPlaceholder reports whether c is a Kitty graphics Unicode placeholder
 // cell, which draws part of an image (see [Buffer.Images]) instead of text.
 func (c *Cell) KittyPlaceholder() bool {
-	r, _ := utf8.DecodeRuneInString(c.Content)
-	return r == kittyPlaceholder
+	return strings.HasPrefix(c.Content, string(kittyPlaceholder))
 }

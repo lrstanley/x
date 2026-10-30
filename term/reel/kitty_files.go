@@ -83,7 +83,10 @@ func (k *kittyFiles) rewrite(p []byte) []byte {
 		if k.passing {
 			end := bytes.Index(data, apcEnd)
 			if end < 0 {
-				return append(out, data...)
+				// Hold a trailing ESC, which may start the terminator.
+				keep := partialPrefix(data, apcEnd)
+				k.held = bytes.Clone(data[len(data)-keep:])
+				return append(out, data[:len(data)-keep]...)
 			}
 			k.passing = false
 			out, data = append(out, data[:end+len(apcEnd)]...), data[end+len(apcEnd):]

@@ -5,20 +5,12 @@
 package vt
 
 import (
-	"bytes"
 	"cmp"
-	"compress/zlib"
-	"fmt"
 	"image"
-	"image/draw"
-	"image/png"
 	"maps"
 	"slices"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
-
-	"github.com/lrstanley/x/term/reel/internal/kittycmd"
 	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
 
@@ -78,6 +70,37 @@ func (p Placement) BelowBackground() bool { return p.Z < -(1 << 30) }
 // the text: a negative z that is not [Placement.BelowBackground].
 func (p Placement) BelowText() bool { return p.Z < 0 && !p.BelowBackground() }
 
+// kittyScratchSize is the size of [kittyState.scratch].
+const kittyScratchSize = 64
+
+// kittyState is a terminal's Kitty graphics state.
+type kittyState struct {
+	// limit is the storage limit last applied. Zero turns Kitty graphics
+	// off. def is the one a full reset restores.
+	limit, def uint64
+	// scratch is scratch for Kitty graphics reads, apart from the
+	// terminal's, whose offsets the grid readers reserve. iter is the
+	// reusable GhosttyKittyGraphicsPlacementIterator. Both live as long as
+	// the instance.
+	scratch, iter int32
+	// gen is the image storage generation the grid's placements were read
+	// at.
+	gen uint64
+	// placeholders is true when a virtual placement exists, so any cell
+	// change can move an image.
+	placeholders bool
+	// cache holds decoded images by id, while their generation holds.
+	cache map[uint32]*Image
+	// animDue is when the next animation frame is due, if animOK.
+	animDue time.Duration
+	animOK  bool
+}
+
+// reset forgets what a full reset clears, and restores the default limit.
+func (k *kittyState) reset() {
+	*k = kittyState{limit: k.def, def: k.def, scratch: k.scratch, iter: k.iter}
+}
+
 // SetKittyImageStorageLimit sets how many bytes of decoded image data Kitty
 // graphics may keep. Zero turns Kitty graphics off and deletes every image.
 // A full reset restores the limit [WithKittyStorage] set.
@@ -87,7 +110,7 @@ func (t *Terminal) SetKittyImageStorageLimit(n uint64) error {
 	if t.idle {
 		return errClosed
 	}
-	t.kittyLimit = n
+	t.kitty.limit = n
 	t.gridFresh = false
 	return t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, n)
 }
@@ -114,7 +137,7 @@ func (t *Terminal) AnimationDue() (at time.Duration, ok bool) {
 	if !t.gridFresh {
 		t.screenLocked()
 	}
-	return t.animDue, t.animOK
+	return t.kitty.animDue, t.kitty.animOK
 }
 
 // Animate moves running Kitty animations to the frame due at the clock's
@@ -137,32 +160,32 @@ func (t *Terminal) Animate() {
 func (t *Terminal) tickAnimationsLocked() {
 	now := t.clock()
 	ms := int64(now / time.Millisecond)
-	out := t.kscratch
+	out := t.kitty.scratch
 	t.mod.Zero(out, 8)
 	if t.mod.Xghostty_kitty_graphics_animation_tick(t.term, ms, out) != 0 {
-		t.animOK = false
+		t.kitty.animOK = false
 		return
 	}
-	t.animDue = time.Duration(ms+int64(t.mod.U64(out, 0))) * time.Millisecond //nolint:gosec // delays are milliseconds.
-	t.animOK = true
+	t.kitty.animDue = time.Duration(ms+int64(t.mod.U64(out, 0))) * time.Millisecond //nolint:gosec // delays are milliseconds.
+	t.kitty.animOK = true
 }
 
 // kittyGraphicsLocked returns the active screen's GhosttyKittyGraphics
 // handle and its storage generation, which is zero until an image is stored.
 // ok is false when Kitty graphics are off.
 func (t *Terminal) kittyGraphicsLocked() (g int32, gen uint64, ok bool) {
-	if t.kittyLimit == 0 {
+	if t.kitty.limit == 0 {
 		return 0, 0, false
 	}
-	t.mod.Zero(t.kscratch, 8)
-	if t.mod.Get(t.term, wasmvt.TerminalDataKittyGraphics, t.kscratch) != nil {
+	t.mod.Zero(t.kitty.scratch, 8)
+	if t.mod.Get(t.term, wasmvt.TerminalDataKittyGraphics, t.kitty.scratch) != nil {
 		return 0, 0, false
 	}
-	g = t.mod.I32(t.kscratch, 0)
-	if g == 0 || t.mod.Xghostty_kitty_graphics_get(g, wasmvt.KittyGraphicsDataGeneration, t.kscratch) != 0 {
+	g = t.mod.I32(t.kitty.scratch, 0)
+	if g == 0 || t.mod.Xghostty_kitty_graphics_get(g, wasmvt.KittyGraphicsDataGeneration, t.kitty.scratch) != 0 {
 		return 0, 0, false
 	}
-	return g, t.mod.U64(t.kscratch, 0), true
+	return g, t.mod.U64(t.kitty.scratch, 0), true
 }
 
 // kittyEntry is one placement in the image storage, as read through the
@@ -187,13 +210,13 @@ type kittyEntry struct {
 // kittyPlacementsLocked reads every placement in g's storage whose image has
 // arrived, and drops decoded images no placement uses from the cache.
 func (t *Terminal) kittyPlacementsLocked(g int32) []kittyEntry {
-	t.mod.SetI32(t.kscratch, 0, t.kittyIt)
-	if t.mod.Xghostty_kitty_graphics_get(g, wasmvt.KittyGraphicsDataPlacementIterator, t.kscratch) != 0 {
+	t.mod.SetI32(t.kitty.scratch, 0, t.kitty.iter)
+	if t.mod.Xghostty_kitty_graphics_get(g, wasmvt.KittyGraphicsDataPlacementIterator, t.kitty.scratch) != 0 {
 		return nil
 	}
 	var out []kittyEntry
-	used := make(map[uint32]bool, len(t.kittyCache))
-	for t.mod.Xghostty_kitty_graphics_placement_next(t.kittyIt) != 0 {
+	used := make(map[uint32]bool, len(t.kitty.cache))
+	for t.mod.Xghostty_kitty_graphics_placement_next(t.kitty.iter) != 0 {
 		id := t.placementU32(wasmvt.KittyGraphicsPlacementDataImageId)
 		h := t.mod.Xghostty_kitty_graphics_image(g, wasmvt.AsI32(id))
 		img := t.kittyImageLocked(h, id)
@@ -216,18 +239,18 @@ func (t *Terminal) kittyPlacementsLocked(g int32) []kittyEntry {
 		}
 		out = append(out, e)
 	}
-	maps.DeleteFunc(t.kittyCache, func(id uint32, _ *Image) bool { return !used[id] })
+	maps.DeleteFunc(t.kitty.cache, func(id uint32, _ *Image) bool { return !used[id] })
 	return out
 }
 
 // readRenderInfoLocked fills e's geometry from the iterator's placement of
 // the image whose handle is h.
 func (t *Terminal) readRenderInfoLocked(h int32, e *kittyEntry) {
-	info := t.kscratch
+	info := t.kitty.scratch
 	n := wasmvt.SizeKittyGraphicsPlacementRenderInfo
 	t.mod.Zero(info, n)
 	t.mod.SetU32(info, wasmvt.KittyGraphicsPlacementRenderInfoSizeOff, uint32(n))
-	if t.mod.Xghostty_kitty_graphics_placement_render_info(t.kittyIt, h, t.term, info) != 0 {
+	if t.mod.Xghostty_kitty_graphics_placement_render_info(t.kitty.iter, h, t.term, info) != 0 {
 		return
 	}
 	u := func(off int) int { return int(t.mod.U32(info, off)) }
@@ -250,7 +273,7 @@ func (t *Terminal) readRenderInfoLocked(h int32, e *kittyEntry) {
 func (t *Terminal) refreshImagesLocked(scrolled bool) bool {
 	// Nothing to tick or draw until an image is stored.
 	if _, gen, ok := t.kittyGraphicsLocked(); !ok || gen == 0 {
-		t.animOK = false
+		t.kitty.animOK = false
 		return t.setImagesLocked(nil)
 	}
 	t.tickAnimationsLocked()
@@ -258,10 +281,10 @@ func (t *Terminal) refreshImagesLocked(scrolled bool) bool {
 	if !ok {
 		return t.setImagesLocked(nil)
 	}
-	if gen == t.kittyGen && !scrolled && !t.kittyPlaceholders {
+	if gen == t.kitty.gen && !scrolled && !t.kitty.placeholders {
 		return false
 	}
-	t.kittyGen = gen
+	t.kitty.gen = gen
 
 	var placed []Placement
 	var virtual []kittyEntry
@@ -281,7 +304,7 @@ func (t *Terminal) refreshImagesLocked(scrolled bool) bool {
 			})
 		}
 	}
-	t.kittyPlaceholders = len(virtual) > 0
+	t.kitty.placeholders = len(virtual) > 0
 	placed = append(placed, placeholderPlacements(t.grid, virtual, cw, ch)...)
 	slices.SortStableFunc(placed, func(a, b Placement) int { return cmp.Compare(a.Z, b.Z) })
 	return t.setImagesLocked(placed)
@@ -300,11 +323,11 @@ func (t *Terminal) setImagesLocked(p []Placement) bool {
 // placementU32 reads 4 bytes of data for the iterator's placement. Bools
 // are their low byte.
 func (t *Terminal) placementU32(data int32) uint32 {
-	t.mod.Zero(t.kscratch, 4)
-	if t.mod.Xghostty_kitty_graphics_placement_get(t.kittyIt, data, t.kscratch) != 0 {
+	t.mod.Zero(t.kitty.scratch, 4)
+	if t.mod.Xghostty_kitty_graphics_placement_get(t.kitty.iter, data, t.kitty.scratch) != 0 {
 		return 0
 	}
-	return t.mod.U32(t.kscratch, 0)
+	return t.mod.U32(t.kitty.scratch, 0)
 }
 
 // kittyImageLocked returns the decoded image of handle h, from the cache
@@ -314,7 +337,7 @@ func (t *Terminal) kittyImageLocked(h int32, id uint32) *Image {
 	if h == 0 {
 		return nil
 	}
-	s := t.kscratch
+	s := t.kitty.scratch
 	// get reads data into the scratch, zeroed for a failed read.
 	get := func(data int32) {
 		t.mod.Zero(s, 8)
@@ -327,7 +350,7 @@ func (t *Terminal) kittyImageLocked(h int32, id uint32) *Image {
 	if gen == 0 {
 		return nil
 	}
-	if img := t.kittyCache[id]; img != nil && img.Generation == gen {
+	if img := t.kitty.cache[id]; img != nil && img.Generation == gen {
 		return img
 	}
 	read := func(data int32) int32 { get(data); return t.mod.I32(s, 0) }
@@ -343,154 +366,9 @@ func (t *Terminal) kittyImageLocked(h int32, id uint32) *Image {
 		return nil
 	}
 	img := &Image{ID: id, Generation: gen, Pixels: pix}
-	if t.kittyCache == nil {
-		t.kittyCache = map[uint32]*Image{}
+	if t.kitty.cache == nil {
+		t.kitty.cache = map[uint32]*Image{}
 	}
-	t.kittyCache[id] = img
+	t.kitty.cache[id] = img
 	return img
-}
-
-// decodeKittyPixels converts raw pixels in a GhosttyKittyImageFormat to an
-// NRGBA image. It returns nil when data is short.
-func decodeKittyPixels(data []byte, format int32, w, h int) *image.NRGBA {
-	var bpp int
-	switch format {
-	case wasmvt.KittyImageFormatRgba:
-		bpp = 4
-	case wasmvt.KittyImageFormatRgb:
-		bpp = 3
-	case wasmvt.KittyImageFormatGrayAlpha:
-		bpp = 2
-	case wasmvt.KittyImageFormatGray:
-		bpp = 1
-	default:
-		return nil
-	}
-	if len(data) < w*h*bpp {
-		return nil
-	}
-	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	if bpp == 4 {
-		copy(img.Pix, data)
-		return img
-	}
-	for i, o := 0, 0; o < len(img.Pix); i, o = i+bpp, o+4 {
-		px, in := img.Pix[o:o+4:o+4], data[i:i+bpp:i+bpp]
-		switch len(in) {
-		case 3:
-			px[0], px[1], px[2], px[3] = in[0], in[1], in[2], 0xff //nolint:gosec // G602: in has len(in) bytes.
-		case 2:
-			px[0], px[1], px[2], px[3] = in[0], in[0], in[0], in[1] //nolint:gosec // G602: in has len(in) bytes.
-		case 1:
-			px[0], px[1], px[2], px[3] = in[0], in[0], in[0], 0xff
-		}
-	}
-	return img
-}
-
-// onDecodePNG is GhosttySysDecodePngFn. It decodes the PNG at data/n into
-// RGBA pixels allocated with alloc, and fills the GhosttySysImage at out.
-// It returns 1 on success.
-func (t *Terminal) onDecodePNG(_, alloc, data, n, out int32) int32 {
-	src, err := png.Decode(bytes.NewReader(t.mod.Slice(data, int(n))))
-	if err != nil {
-		return 0
-	}
-	b := src.Bounds()
-	img := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	draw.Draw(img, img.Bounds(), src, b.Min, draw.Src)
-	size := len(img.Pix)
-	buf := t.mod.Xghostty_alloc(alloc, wasmvt.Int32(size))
-	if buf == 0 {
-		return 0
-	}
-	t.mod.Put(buf, img.Pix)
-	t.mod.SetU32(out, wasmvt.SysImageWidthOff, uint32(b.Dx()))  //nolint:gosec // decoded sizes are positive.
-	t.mod.SetU32(out, wasmvt.SysImageHeightOff, uint32(b.Dy())) //nolint:gosec // decoded sizes are positive.
-	t.mod.SetI32(out, wasmvt.SysImageDataOff, buf)
-	t.mod.SetU32(out, wasmvt.SysImageDataLenOff, uint32(size)) //nolint:gosec // fits the Wasm address space.
-	return 1
-}
-
-// redrawImagesLocked writes Kitty graphics commands that restore the active
-// screen's placements onto a terminal that shows the same text: each placed
-// image once, then its placements, with the cursor saved around them.
-// Placements partly above the screen are cropped to what shows; those
-// entirely in the scrollback, and images with no placement, are left out.
-func (t *Terminal) redrawImagesLocked(b *bytes.Buffer) {
-	g, gen, ok := t.kittyGraphicsLocked()
-	if !ok || gen == 0 {
-		return
-	}
-	offset := t.scrollbackOffsetLocked()
-	sent := map[uint32]bool{}
-	var places bytes.Buffer
-	for _, e := range t.kittyPlacementsLocked(g) {
-		cmd, onScreen := t.placementCommand(e, offset)
-		if !onScreen {
-			continue
-		}
-		if img := e.image; !sent[img.ID] {
-			sent[img.ID] = true
-			var z bytes.Buffer
-			zw := zlib.NewWriter(&z)
-			_, _ = zw.Write(img.Pixels.Pix)
-			_ = zw.Close()
-			r := img.Pixels.Rect
-			kittycmd.AppendTransmit(b, []string{
-				"a=t", "f=32", "o=z", "q=2",
-				fmt.Sprintf("i=%d", img.ID), fmt.Sprintf("s=%d", r.Dx()), fmt.Sprintf("v=%d", r.Dy()),
-			}, z.Bytes())
-		}
-		places.WriteString(cmd)
-	}
-	if places.Len() > 0 {
-		b.WriteString(ansi.SaveCursor)
-		b.Write(places.Bytes())
-		b.WriteString(ansi.RestoreCursor)
-	}
-}
-
-// placementCommand returns the commands that put e back: a cursor move and a
-// put that leaves the cursor in place. offset is how far the viewport is
-// scrolled up. ok is false when e is not on the active screen.
-func (t *Terminal) placementCommand(e kittyEntry, offset int) (string, bool) {
-	keys := []string{"a=p", fmt.Sprintf("i=%d", e.image.ID), "q=2"}
-	add := func(key string, v int) {
-		if v != 0 {
-			keys = append(keys, fmt.Sprintf("%s=%d", key, v))
-		}
-	}
-	add("p", int(e.placement))
-	add("z", int(e.z))
-	if e.virtual {
-		add("c", e.cols)
-		add("r", e.rows)
-		return ansi.KittyGraphics(nil, append(keys, "U=1")...), true
-	}
-	row, rows, yoff, src := e.row-offset, e.rows, e.yoff, e.source
-	if row+e.gridRows <= 0 || row >= t.rows || e.height <= 0 {
-		return "", false
-	}
-	if row < 0 {
-		// Drop the rows above the screen, and the source they showed.
-		cut := (-row*int(t.cellH) - yoff) * src.Dy() / e.height
-		src.Min.Y += cut
-		if rows > 0 {
-			rows += row
-		}
-		row, yoff = 0, 0
-		if src.Empty() {
-			return "", false
-		}
-	}
-	add("x", src.Min.X)
-	add("y", src.Min.Y)
-	add("w", src.Dx())
-	add("h", src.Dy())
-	add("X", e.xoff)
-	add("Y", yoff)
-	add("c", e.cols)
-	add("r", rows)
-	return ansi.CursorPosition(e.col+1, row+1) + ansi.KittyGraphics(nil, append(keys, "C=1")...), true
 }

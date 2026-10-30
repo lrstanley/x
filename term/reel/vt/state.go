@@ -131,8 +131,8 @@ func (s State) Equal(o State) bool {
 // directory, bell, notifications, clipboard write, and prompt step). Unlike
 // [State.Equal] it ignores focus, colors, and scrollback, compares the
 // program status records by generation, and the notifications by count and
-// latest, without reading the rest, so it is cheap enough to run on every
-// write to tell a write that changed nothing from one that did.
+// slice they share, without reading them, so it is cheap enough to run on
+// every write to tell a write that changed nothing from one that did.
 func (s State) SameCommit(o State) bool {
 	return s.Generation == o.Generation &&
 		s.Title == o.Title &&
@@ -140,20 +140,26 @@ func (s State) SameCommit(o State) bool {
 		s.Cursor == o.Cursor &&
 		s.ShownProgress() == o.ShownProgress() &&
 		s.ProgramStatusGeneration == o.ProgramStatusGeneration &&
-		s.sameEvents(o)
+		s.sameEvents(o) &&
+		s.sameNotifications(o)
 }
 
-// sameEvents reports whether s and o have the same program events. The
-// notifications are only appended to between resets, so the count and the
-// latest one tell them apart.
+// sameEvents reports whether s and o have the same program events, but for
+// the notifications.
 func (s State) sameEvents(o State) bool {
-	n := len(s.Notifications)
 	return s.WorkingDirectory == o.WorkingDirectory &&
 		s.Bell == o.Bell &&
 		s.Clipboard == o.Clipboard &&
-		s.Prompt == o.Prompt &&
-		n == len(o.Notifications) &&
-		(n == 0 || s.Notifications[n-1] == o.Notifications[n-1])
+		s.Prompt == o.Prompt
+}
+
+// sameNotifications reports whether s and o, two states of one terminal,
+// have the same notifications. A terminal only appends to them, and starts
+// a new slice on a full reset, so two of its states hold the same ones when
+// they hold as many from the same slice.
+func (s State) sameNotifications(o State) bool {
+	n := len(s.Notifications)
+	return n == len(o.Notifications) && (n == 0 || &s.Notifications[0] == &o.Notifications[0])
 }
 
 // SameLook reports whether s and o, two states of one terminal, are drawn

@@ -171,14 +171,38 @@ func (r *Runtime) take() *Terminal {
 	return term
 }
 
-// put returns a closed term to the pool, keeping it for reuse if reuse is
-// set and the pool keeps fewer than its share.
+// configure applies the options of [Runtime.Open] to a checked-out terminal.
+func (t *Terminal) configure(cfg openConfig) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.clock = cfg.clock
+	if cfg.kitty != t.kitty.def || cfg.kitty != t.kitty.limit {
+		t.kitty.def, t.kitty.limit = cfg.kitty, cfg.kitty
+		if err := t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, cfg.kitty); err != nil {
+			return err
+		}
+	}
+	w, h := uint32(defaultCellWidth), uint32(defaultCellHeight)
+	if cfg.cellW > 0 {
+		w, h = uint32(cfg.cellW), uint32(cfg.cellH) //nolint:gosec // WithCellSize keeps them positive.
+	}
+	if w == t.cellW && h == t.cellH {
+		return nil
+	}
+	t.cellW, t.cellH = w, h
+	t.grid = nil
+	t.gridFresh = false
+	return t.resizeLocked(t.cols, t.rows)
+}
+
 // maxPooledMemory is the most Wasm memory a closed terminal may hold and
 // still go back to its pool. Memory never shrinks, so one that grew past it,
 // such as for large images, is left to the garbage collector. A fresh
 // terminal holds under 2 MiB.
 const maxPooledMemory = 32 << 20
 
+// put returns a closed term to the pool, keeping it for reuse if reuse is
+// set and the pool keeps fewer than its share.
 func (r *Runtime) put(term *Terminal, reuse bool) {
 	r.mu.Lock()
 	if reuse && len(r.idle) < r.keep {

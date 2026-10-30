@@ -232,3 +232,23 @@ func TestKittyFilesStreams(t *testing.T) {
 		t.Errorf("got %d placements, want the image", len(imgs))
 	}
 }
+
+// TestKittyFilesSplitTerminator checks that a command passed on as it
+// arrives still ends when its terminator is split across writes, so a file
+// command after it is rewritten.
+func TestKittyFilesSplitTerminator(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "img.png")
+	if err := os.WriteFile(path, kittyPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	direct := kittyCmd("a=t,i=2,f=32,s=1,v=1,q=2", 1, 1, kittyBlue)
+	s := writeKittySession(t, []string{direct[:len(direct)-1], direct[len(direct)-1:] + fileCmd("t=f,f=100", path)}, WithKittyFiles())
+	t.Cleanup(func() { _ = s.Close() })
+	if out := timelineOutput(s.Timeline()); strings.Contains(out, "t=f") {
+		t.Errorf("the file command after a split terminator was not rewritten: %q", out)
+	}
+	if imgs := s.Terminal().Images(); len(imgs) != 1 || imgs[0].Image.ID != 1 {
+		t.Errorf("placements %+v, want the file's image", imgs)
+	}
+}

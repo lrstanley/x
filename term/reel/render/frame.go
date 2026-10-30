@@ -44,6 +44,11 @@ type renderFrame struct {
 	cursorCell      *vt.Cell
 	cellW           int
 	cellH           int
+	// images are the screen's Kitty graphics placements, measured in cells
+	// of imageCell pixels. They are empty for a screen that is not a
+	// [vt.Buffer].
+	images    []vt.Placement
+	imageCell image.Point
 }
 
 // frameStatus is the OSC 7501 program status a frame draws.
@@ -121,6 +126,10 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr v
 	f.cellW = cell.X
 	f.cellH = cell.Y
 	f.cursorCell = scr.CellAt(screen.Min.X+st.Cursor.X, screen.Min.Y+st.Cursor.Y)
+	f.images, f.imageCell = nil, image.Point{}
+	if buf, ok := scr.(*vt.Buffer); ok && buf.CellSize().X > 0 && buf.CellSize().Y > 0 {
+		f.images, f.imageCell = buf.Images(), buf.CellSize()
+	}
 
 	f.metrics = d.metrics
 	f.palette = d.palette
