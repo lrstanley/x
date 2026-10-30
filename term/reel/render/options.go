@@ -349,7 +349,7 @@ func WithBell(enabled bool) Option {
 }
 
 // WithBellDuration sets how long the 🔔 of [WithBell] stays before the title
-// after each BEL. Defaults to 2s.
+// after each BEL. Defaults to 1s.
 func WithBellDuration(duration time.Duration) Option {
 	return func(d *Renderer) error {
 		if duration <= 0 {

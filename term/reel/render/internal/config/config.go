@@ -32,7 +32,7 @@ const (
 	DefaultFocusDimming     = 0.16
 
 	DefaultProgressBarHeight = units.Px(2)
-	DefaultBellDuration      = 2 * time.Second
+	DefaultBellDuration      = time.Second
 )
 
 // Options is the merged renderer configuration owned by a [Renderer].

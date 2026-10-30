@@ -60,7 +60,7 @@ func TestExportBellFades(t *testing.T) {
 	for _, f := range frames {
 		ats = append(ats, f.At)
 	}
-	want := []time.Duration{0, 250 * ms, 300 * ms, 350 * ms, 400 * ms, 450 * ms, 500 * ms, 550 * ms, 2250 * ms}
+	want := []time.Duration{0, 250 * ms, 300 * ms, 350 * ms, 400 * ms, 450 * ms, 500 * ms, 550 * ms, 1250 * ms}
 	if !slices.Equal(ats, want) {
 		t.Fatalf("frames at %v, want %v", ats, want)
 	}
