@@ -58,6 +58,16 @@ type openConfig struct {
 	clock      func() time.Duration
 	cellW      int
 	cellH      int
+	kitty      uint64
+}
+
+// WithKittyStorage sets how many bytes of decoded Kitty graphics the
+// terminal keeps, which a full reset restores. Zero turns Kitty graphics
+// off. The default is [DefaultKittyStorage]. Images are decoded in the
+// terminal's Wasm memory, which never shrinks, so a terminal whose memory grew
+// past 32 MiB is not returned to its pool when closed.
+func WithKittyStorage(n uint64) Option {
+	return func(cfg *openConfig) { cfg.kitty = n }
 }
 
 // WithCellSize sets the pixel size of one cell, which a program reads with
@@ -98,7 +108,7 @@ func (r *Runtime) Open(ctx context.Context, cols, rows int, opts ...Option) (*Te
 	if cols <= 0 || rows <= 0 {
 		return nil, fmt.Errorf("vt: size %dx%d", cols, rows)
 	}
-	cfg := openConfig{scrollback: DefaultScrollback}
+	cfg := openConfig{scrollback: DefaultScrollback, kitty: DefaultKittyStorage}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
@@ -163,6 +173,12 @@ func (r *Runtime) take() *Terminal {
 
 // put returns a closed term to the pool, keeping it for reuse if reuse is
 // set and the pool keeps fewer than its share.
+// maxPooledMemory is the most Wasm memory a closed terminal may hold and
+// still go back to its pool. Memory never shrinks, so one that grew past it,
+// such as for large images, is left to the garbage collector. A fresh
+// terminal holds under 2 MiB.
+const maxPooledMemory = 32 << 20
+
 func (r *Runtime) put(term *Terminal, reuse bool) {
 	r.mu.Lock()
 	if reuse && len(r.idle) < r.keep {

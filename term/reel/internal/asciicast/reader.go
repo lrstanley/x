@@ -213,7 +213,7 @@ func parseHeader(hl castHeader) (Header, error) {
 	if h.Scrollback != nil && *h.Scrollback < 0 {
 		return h, fmt.Errorf("asciicast line 1: header: scrollback %d is negative", *h.Scrollback)
 	}
-	h.CellWidth, h.CellHeight = hl.CellWidth, hl.CellHeight
+	h.CellWidth, h.CellHeight, h.KittyStorage = hl.CellWidth, hl.CellHeight, hl.KittyStorage
 	if h.CellWidth < 0 || h.CellHeight < 0 || (h.CellWidth == 0) != (h.CellHeight == 0) {
 		return h, fmt.Errorf("asciicast line 1: header: cell size %dx%d", h.CellWidth, h.CellHeight)
 	}

@@ -54,6 +54,10 @@ type Header struct {
 	// readers ignore. Zero means the file does not say. A [Reader] rejects
 	// one without the other, or a negative one.
 	CellWidth, CellHeight int
+	// KittyStorage is reel's own "kitty_storage", the bytes of decoded Kitty
+	// graphics the terminal keeps, which other readers ignore. Zero means
+	// the file does not say.
+	KittyStorage uint64
 }
 
 // Theme is the colors a terminal starts with. Fg and Bg are set. Cursor is
@@ -98,6 +102,7 @@ type castHeader struct {
 	Scrollback   *int           `json:"scrollback,omitzero"`
 	CellWidth    int            `json:"cell_width,omitzero"`
 	CellHeight   int            `json:"cell_height,omitzero"`
+	KittyStorage uint64         `json:"kitty_storage,omitzero"`
 }
 
 type castTerm struct {

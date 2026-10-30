@@ -77,6 +77,7 @@ func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from ti
 		vt.WithScrollbackLines(h.Scrollback),
 		vt.WithClock(func() time.Duration { return r.now }),
 		vt.WithCellSize(h.CellWidth, h.CellHeight),
+		kittyStorage(h.KittyStorage),
 	)
 	if err != nil {
 		return nil, err
@@ -101,6 +102,15 @@ func newReplay(ctx context.Context, rt *vt.Runtime, h Header, start int, from ti
 	}
 	r.pristine = term.State()
 	return r, nil
+}
+
+// kittyStorage is the vt option for [Header.KittyStorage] n, whose zero is
+// vt's default.
+func kittyStorage(n uint64) vt.Option {
+	if n == 0 {
+		return nil
+	}
+	return vt.WithKittyStorage(n)
 }
 
 func nrgba(c color.Color) color.NRGBA {

@@ -180,6 +180,7 @@ func castHeaderOf(h Header, start time.Time, v CastVersion) asciicast.Header {
 	if h.CellWidth > 0 && h.CellHeight > 0 {
 		ch.CellWidth, ch.CellHeight = h.CellWidth, h.CellHeight
 	}
+	ch.KittyStorage = h.KittyStorage
 	if h.Theme.Fg != nil && h.Theme.Bg != nil {
 		ch.Theme = &asciicast.Theme{Colors: asciicast.Colors(h.Theme), Palette: castPalette(h.Palette)}
 	}
@@ -290,7 +291,7 @@ func ReadTimeline(r io.Reader) (*Timeline, error) {
 	h := Header{
 		Cols: ch.Cols, Rows: ch.Rows, Title: ch.Title,
 		SkipPristine: ch.SkipPristine, Scrollback: vt.DefaultScrollback,
-		CellWidth: ch.CellWidth, CellHeight: ch.CellHeight,
+		CellWidth: ch.CellWidth, CellHeight: ch.CellHeight, KittyStorage: ch.KittyStorage,
 	}
 	if ch.Scrollback != nil {
 		h.Scrollback = *ch.Scrollback

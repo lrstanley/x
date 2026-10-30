@@ -138,6 +138,11 @@ type Header struct {
 	// replay places images over the cells they were recorded on. Zero is
 	// vt's default. A session's are set [WithCellSize].
 	CellWidth, CellHeight int
+	// KittyStorage is how many bytes of decoded Kitty graphics the terminal
+	// keeps (see [vt.WithKittyStorage]), so a replay drops the same images
+	// when it runs out. Zero is vt's default. A session's is set
+	// [WithKittyStorage].
+	KittyStorage uint64
 }
 
 // Colors is a foreground, background, and cursor color. Non-nil colors are

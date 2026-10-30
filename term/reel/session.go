@@ -64,6 +64,8 @@ type Session struct {
 	scrollOnInput bool
 	// noQueries disables recording [QueryKind] annotations.
 	noQueries bool
+	// kittyFiles rewrites file transmissions; nil unless [WithKittyFiles].
+	kittyFiles *kittyFiles
 	// typingDelay is how long Type and Key pause after each key press.
 	typingDelay time.Duration
 }
@@ -82,6 +84,17 @@ type sessionConfig struct {
 	typingDelay   time.Duration
 	// cellW and cellH are [Header.CellWidth] and [Header.CellHeight].
 	cellW, cellH int
+	// kittyStorage is [Header.KittyStorage].
+	kittyStorage uint64
+	// kittyFiles is set [WithKittyFiles].
+	kittyFiles bool
+}
+
+// WithKittyStorage sets how many bytes of decoded Kitty graphics the
+// terminal keeps (see [vt.WithKittyStorage]). It is written to the
+// timeline's header, so replays match. Zero leaves vt's default.
+func WithKittyStorage(n uint64) SessionOption {
+	return func(cfg *sessionConfig) { cfg.kittyStorage = n }
 }
 
 // WithCellSize sets the terminal's pixel size of one cell, which programs
@@ -168,6 +181,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		vt.WithScrollbackLines(cfg.scrollback),
 		vt.WithClock(func() time.Duration { return timeline.now() }),
 		vt.WithCellSize(cfg.cellW, cfg.cellH),
+		kittyStorage(cfg.kittyStorage),
 	)
 	if err != nil {
 		return nil, err
@@ -179,13 +193,16 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 	h := Header{
 		Cols: cols, Rows: rows, Theme: theme, Title: cfg.title,
 		SkipPristine: cfg.skipPristine, Scrollback: cfg.scrollback,
-		CellWidth: cfg.cellW, CellHeight: cfg.cellH,
+		CellWidth: cfg.cellW, CellHeight: cfg.cellH, KittyStorage: cfg.kittyStorage,
 	}
 	timeline = newTimeline(h)
 	s := &Session{
 		term: term, timeline: timeline, done: make(chan struct{}),
 		scrollOnInput: cfg.scrollOnInput, noQueries: cfg.noQueries,
 		typingDelay: cfg.typingDelay,
+	}
+	if cfg.kittyFiles {
+		s.kittyFiles = newKittyFiles(cfg.kittyStorage)
 	}
 	s.focused.Store(true)
 	return s, nil
@@ -213,26 +230,43 @@ func (s *Session) State() vt.State {
 // Write appends p as an [Output] event, feeds it to the terminal, then
 // appends a [QueryKind] annotation for each query it holds. It never
 // returns a short write.
+//
+// [WithKittyFiles] rewrites the Kitty graphics p sends by file first, so
+// the event and the terminal see the image itself.
 func (s *Session) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed.Load() {
 		return 0, ErrClosed
 	}
-	if len(p) > 0 {
-		s.timeline.append(Output{Data: bytes.Clone(p)})
+	out := p
+	if s.kittyFiles != nil {
+		out = s.kittyFiles.rewrite(p)
 	}
+	if err := s.writeLocked(out); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// writeLocked is [Session.Write] of p, as the terminal should get it.
+func (s *Session) writeLocked(p []byte) error {
+	if len(p) == 0 {
+		return nil
+	}
+	s.timeline.append(Output{Data: bytes.Clone(p)})
 	if s.noQueries {
-		return s.term.Write(p)
+		_, err := s.term.Write(p)
+		return err
 	}
 	replies, err := s.term.WriteReplies(p)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	for _, q := range queries(p, replies) {
 		s.timeline.append(queryAnnotation(q))
 	}
-	return len(p), nil
+	return nil
 }
 
 // Read reads the program's input, including query replies, blocking until
@@ -256,6 +290,10 @@ func (s *Session) readContext(ctx context.Context, p []byte) (int, error) {
 // once.
 func (s *Session) Close() error {
 	s.mu.Lock()
+	if s.kittyFiles != nil && !s.closed.Load() {
+		// The program ended inside a command: pass it on as sent.
+		_ = s.writeLocked(s.kittyFiles.flush())
+	}
 	closed := s.closed.Swap(true)
 	s.mu.Unlock()
 	if closed {

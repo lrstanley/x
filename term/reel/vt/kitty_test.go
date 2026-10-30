@@ -9,6 +9,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -296,5 +297,45 @@ func TestKittyPlaceholderRows(t *testing.T) {
 		if p.Rect != image.Rect(0, 10, 20, 30) || p.Clip != image.Rect(0, 20*i, 20, 20*(i+1)) {
 			t.Errorf("row %d: rect %v clip %v", i, p.Rect, p.Clip)
 		}
+	}
+}
+
+// TestKittyStorageOption checks that WithKittyStorage sets the limit a full
+// reset restores, and that a terminal grown by images is not pooled.
+func TestKittyStorageOption(t *testing.T) {
+	t.Parallel()
+	rt := NewRuntime(1)
+	term, err := rt.Open(context.Background(), 10, 2, WithKittyStorage(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := kittyAPC("a=T,i=1,f=32,s=1,v=1,q=2", solid(1, 1, color.NRGBA{A: 0xff}))
+	writeTerm(t, term, seq+"\x1bc"+seq)
+	if imgs := term.Images(); len(imgs) != 0 {
+		t.Fatalf("placements with Kitty graphics off after RIS: %+v", imgs)
+	}
+	_ = term.Close()
+
+	// The pooled instance takes the next terminal's options.
+	term, err = rt.Open(context.Background(), 10, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := 2048
+	writeTerm(t, term, kittyAPC(fmt.Sprintf("a=T,i=1,f=32,s=%d,v=%d,q=2", big, big), solid(big, big, color.NRGBA{A: 0xff})))
+	if imgs := term.Images(); len(imgs) != 1 {
+		t.Fatalf("got %d placements with the default storage, want 1", len(imgs))
+	}
+	if len(term.mod.Memory()) <= maxPooledMemory {
+		t.Fatalf("a %dx%d image left memory at %d bytes", big, big, len(term.mod.Memory()))
+	}
+	grown := term
+	_ = term.Close()
+	if term, err = rt.Open(context.Background(), 10, 2); err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	if term == grown {
+		t.Error("a terminal past the pooled memory limit was reused")
 	}
 }

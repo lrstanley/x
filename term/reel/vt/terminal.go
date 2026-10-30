@@ -191,8 +191,9 @@ type Terminal struct {
 	searches []*Search
 
 	// kittyLimit is the Kitty graphics storage limit last applied. Zero
-	// turns Kitty graphics off.
-	kittyLimit uint64
+	// turns Kitty graphics off. kittyDefault is the one a reset restores.
+	kittyLimit   uint64
+	kittyDefault uint64
 	// kscratch is scratch for Kitty graphics reads, apart from scratch,
 	// whose offsets the grid readers reserve.
 	kscratch int32
@@ -307,8 +308,9 @@ func (t *Terminal) Close() error {
 	replies := t.replies
 	t.mu.Unlock()
 	replies.Close()
-	// One that could not be set up again is not reused.
-	t.rt.put(t, err == nil)
+	// One that could not be set up again, or holds too much memory, is not
+	// reused.
+	t.rt.put(t, err == nil && len(t.mod.Memory()) <= maxPooledMemory)
 	return err
 }
 
@@ -343,7 +345,7 @@ func (t *Terminal) resetStateLocked() {
 	t.invalidateRowWords()
 	t.gridFresh = false
 	t.hasCursor = false
-	t.kittyLimit = DefaultKittyStorage
+	t.kittyLimit = t.kittyDefault
 	t.kittyGen = 0
 	t.kittyPlaceholders = false
 	t.kittyCache = nil
@@ -388,6 +390,12 @@ func (t *Terminal) configure(cfg openConfig) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.clock = cfg.clock
+	if cfg.kitty != t.kittyDefault || cfg.kitty != t.kittyLimit {
+		t.kittyDefault, t.kittyLimit = cfg.kitty, cfg.kitty
+		if err := t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, cfg.kitty); err != nil {
+			return err
+		}
+	}
 	w, h := uint32(defaultCellWidth), uint32(defaultCellHeight)
 	if cfg.cellW > 0 {
 		w, h = uint32(cfg.cellW), uint32(cfg.cellH) //nolint:gosec // WithCellSize keeps them positive.
@@ -868,7 +876,7 @@ func (t *Terminal) prepare(cols, rows, scrollback int) error {
 	t.cellW = defaultCellWidth
 	t.cellH = defaultCellHeight
 	t.scrollbackLines = scrollback
-	t.kittyLimit = DefaultKittyStorage
+	t.kittyLimit, t.kittyDefault = DefaultKittyStorage, DefaultKittyStorage
 	if t.feed, err = t.mod.Alloc(feedSize); err != nil {
 		return err
 	}
