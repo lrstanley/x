@@ -55,17 +55,17 @@ var chromeButtons = [...]*image.Uniform{
 // any title bar has room for, so huge titles cost no more than long ones.
 const chromeTextMax = 512
 
-// buildChromeFonts loads the faces title bar text is drawn with, when there
-// is window chrome. They are a second [fontset.Set] at chromeTextScale of the
-// grid size, so the title keeps the grid's family, codepoint map, and
-// fallbacks.
+// buildChromeFonts loads the faces title bar text and prompt mark badges are
+// drawn with, when there is window chrome or there are prompt marks. They are
+// a second [fontset.Set] at chromeTextScale of the grid size, so the text
+// keeps the grid's family, codepoint map, and fallbacks.
 func (d *Renderer) buildChromeFonts() error {
 	old := d.chromeCtx.fonts
 	d.chromeCtx = chromeText{}
 	if err := old.Close(); err != nil {
 		return err
 	}
-	if !d.opts.WindowChrome {
+	if !d.opts.WindowChrome && !d.opts.PromptMarks {
 		return nil
 	}
 	opts := d.opts
@@ -84,7 +84,7 @@ func (d *Renderer) buildChromeFonts() error {
 
 // chromeText is the glyph context for title bar text: a frame, with the
 // chrome faces and their metrics in place of the grid's. Its fonts are nil
-// without window chrome.
+// without window chrome or prompt marks.
 type chromeText struct {
 	*renderFrame
 	fonts   *fontset.Set

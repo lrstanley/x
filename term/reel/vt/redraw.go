@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -28,6 +29,8 @@ import (
 //   - the window title and working directory
 //   - the foreground, background, cursor, and indexed colors the program set
 //   - the OSC 9;4 progress and OSC 7501 program status
+//   - the OSC 133 prompt marks, how their commands ended, and the step the
+//     last one is at, but not which cells were typed input or output
 //
 // Kitty graphics placements on the active screen are sent again with their
 // images, as of the current animation frame, cropped to the screen.
@@ -111,9 +114,11 @@ func (t *Terminal) screenVTLocked() ([]byte, error) {
 	written := bytes.Count(content, []byte("\r\n"))
 	pad := max(t.scrollbackLenLocked()+t.rows-1-written, 0)
 	end := home + 3 + len(content)
-	out := make([]byte, 0, len(full)+2*pad)
-	out = append(out, full[:end]...)
-	out = append(out, bytes.Repeat([]byte("\r\n"), pad)...)
+	marks := t.promptMarksLocked()
+	out := make([]byte, 0, len(full)+2*pad+16*len(marks))
+	out = append(out, full[:home+3]...)
+	body := append(slices.Clip(content), bytes.Repeat([]byte("\r\n"), pad)...)
+	out = appendPromptVT(out, body, marks, t.prompt)
 	return append(out, full[end:]...), nil
 }
 

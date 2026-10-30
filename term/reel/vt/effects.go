@@ -209,7 +209,7 @@ func (t *Terminal) onProgramStatus(_, _, req int32) {
 // the generation. The old view is left alone, since states may share it.
 func (t *Terminal) setProgramStatusesLocked(next []ProgramStatus, reported bool) {
 	t.statusReported = reported
-	if len(next) == len(t.statuses) && (len(next) == 0 || &next[0] == &t.statuses[0]) {
+	if sameSlice(next, t.statuses) {
 		return
 	}
 	t.statuses = next
@@ -235,8 +235,15 @@ func (t *Terminal) onPrompt(_, _, req int32) {
 	} else {
 		t.prompt.ExitCode = 0
 	}
-	if t.prompt.Kind == PromptStart {
+	switch t.prompt.Kind {
+	case PromptStart:
 		t.setProgramStatusesLocked(deleteWorking(t.statuses), t.statusReported)
+		if t.mod.I32(req, wasmvt.TerminalSemanticPromptPromptKindOff) == wasmvt.SemanticPromptPromptKindPrimary {
+			t.trackPromptLocked()
+		}
+	case PromptCommand:
+		t.endPromptLocked()
+	case PromptNone, PromptInput, PromptOutput:
 	}
 }
 

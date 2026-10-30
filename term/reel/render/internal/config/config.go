@@ -84,6 +84,7 @@ type Options struct {
 	FocusDimming           float64
 	CursorBlinkSpeed       time.Duration
 	LinkUnderline          bool
+	PromptMarks            bool
 }
 
 // DefaultOptions returns baseline renderer options.

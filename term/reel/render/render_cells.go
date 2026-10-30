@@ -131,7 +131,7 @@ func (d *Renderer) drawCursor(dst draw.Image, area image.Rectangle, f *renderFra
 }
 
 // drawScrollbar draws the track and the thumb in area, for a state with
-// scrollback.
+// scrollback, and with [WithPromptMarks], a tick for each prompt.
 func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *renderFrame) {
 	screenRows := f.screenBounds.Dy()
 	totalRows := f.st.ScrollbackLen + screenRows
@@ -152,6 +152,20 @@ func (d *Renderer) drawScrollbar(dst draw.Image, area image.Rectangle, f *render
 	thumbArea.Min.Y = area.Min.Y + top
 	thumbArea.Max.Y = thumbArea.Min.Y + thumbHeight
 	idraw.Fill(dst, thumbArea, thumb)
+
+	if !d.opts.PromptMarks {
+		return
+	}
+	// A row goes where the thumb's top would be with it at the top of the
+	// viewport, and rows below the scrollback into the thumb at the bottom,
+	// so the rows shown land in the thumb.
+	tick := icol.BlendNRGBA(bg, fg, promptTickTint)
+	h := max(1, f.cellH/12)
+	for _, m := range f.st.PromptMarks {
+		y := area.Min.Y + (area.Dy()-thumbHeight)*min(m.Row, f.st.ScrollbackLen)/f.st.ScrollbackLen +
+			max(0, m.Row-f.st.ScrollbackLen)*thumbHeight/screenRows
+		idraw.Fill(dst, image.Rect(area.Min.X, y, area.Max.X, min(y+h, area.Max.Y)), tick)
+	}
 }
 
 func cellHasForegroundGlyph(cell *vt.Cell) bool {

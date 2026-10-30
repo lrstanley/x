@@ -129,6 +129,8 @@ type Terminal struct {
 	clipWrote ClipboardWrite
 	// prompt is the latest OSC 133 semantic-prompt step.
 	prompt Prompt
+	// prompts are the OSC 133 primary prompts the shell started.
+	prompts promptMarks
 	// statuses are OSC 7501 program-status records in update order, least
 	// recently updated first, which is the eviction order.
 	statuses []ProgramStatus
@@ -252,6 +254,7 @@ func (t *Terminal) OutputSeq() uint64 {
 // inside the emulator.
 func (t *Terminal) writeLocked(p []byte) error {
 	t.paletteFresh = false
+	t.prompts.written = true
 	for len(p) > 0 {
 		n := min(len(p), feedSize)
 		t.mod.Put(t.feed, p[:n])
@@ -328,6 +331,7 @@ func (t *Terminal) resetStateLocked() {
 	t.notifications = nil
 	t.clipWrote = ClipboardWrite{}
 	t.prompt = Prompt{}
+	t.freePromptMarksLocked()
 	t.setProgramStatusesLocked(nil, false)
 	t.resizeOK = false
 	t.grid = nil
@@ -353,6 +357,7 @@ func (t *Terminal) Resize(cols, rows int) error {
 		return err
 	}
 	t.gridFresh = false
+	t.prompts.moved = true
 	return nil
 }
 
@@ -445,45 +450,6 @@ func (t *Terminal) gridGenerationLocked() uint64 {
 		t.screenLocked()
 	}
 	return t.grid.Generation()
-}
-
-// State returns the state around the viewport grid, read under one lock.
-// Generation is the content generation [Terminal.Screen] would copy, but
-// the grid itself is not copied. Focused is false: the terminal does not
-// track focus, so whoever drives it sets that field; a renderer draws a
-// state left unfocused as a dimmed window.
-func (t *Terminal) State() State {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	cur := t.cursorLocked()
-	gen := t.gridGenerationLocked()
-	t.alt = t.activeAlt()
-	cc, hasCursor := t.cursorColorLocked()
-	return State{
-		Title:            t.title,
-		AltScreen:        t.alt,
-		Cursor:           cur,
-		Foreground:       t.shownColor(t.fgOverride, t.fgDefault, wasmvt.TerminalDataColorForeground, t.fg),
-		Background:       t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
-		CursorColor:      cc,
-		CursorColorSet:   hasCursor,
-		ReverseColors:    t.reverseColorsLocked(),
-		Palette:          t.paletteLocked(),
-		ScrollbackLen:    t.scrollbackLenLocked(),
-		ScrollbackOffset: t.scrollbackOffsetLocked(),
-		Progress:         t.progress,
-		Generation:       gen,
-
-		ProgramStatuses:         t.statusView,
-		ProgramStatusGeneration: t.statusGen,
-		ProgramStatusReported:   t.statusReported,
-
-		WorkingDirectory: t.pwd,
-		Bell:             t.bell,
-		Notifications:    t.notifications[:len(t.notifications):len(t.notifications)],
-		Clipboard:        t.clipWrote,
-		Prompt:           t.prompt,
-	}
 }
 
 // Held reports synchronized-output mode 2026. Image capture skips frames
@@ -816,6 +782,7 @@ func (t *Terminal) SetScrollbackMaxLines(n int) error {
 // byte limit to zero, which is libghostty's no-scrollback switch. A
 // positive cap clears that switch before applying the line limit.
 func (t *Terminal) applyScrollbackLocked() error {
+	t.prompts.moved = true
 	if t.scrollbackLines == 0 {
 		t.scrollbackOff = true
 		return t.mod.SetU32Option(t.term, wasmvt.TerminalOptionScrollbackMaxBytes, 0)

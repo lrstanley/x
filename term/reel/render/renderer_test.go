@@ -168,8 +168,9 @@ func TestFrameSnapTracksState(t *testing.T) {
 		"ProgramStatuses":       func(s *vt.State) { s.ProgramStatuses = []vt.ProgramStatus{{Progress: -1}} },
 		"ProgramStatusReported": func(s *vt.State) { s.ProgramStatusReported = true },
 		"Bell":                  func(s *vt.State) { s.Bell.Count = 1 },
+		"PromptMarks":           func(s *vt.State) { s.PromptMarks = []vt.PromptMark{{Row: 1}} },
 	}
-	d := MustNew(WithWindowChrome(true), WithBell(true))
+	d := MustNew(WithWindowChrome(true), WithBell(true), WithPromptMarks(true))
 	bounds := image.Rect(0, 0, 4, 2)
 	// A progress report, so a report that hides it shows.
 	base := vt.State{Progress: vt.Progress{State: vt.ProgressSet, Percent: 5}}

@@ -32,7 +32,9 @@ type frameSnap struct {
 	reverse    bool
 	cur        color.NRGBA // zero unless the state sets a cursor color
 	curSet     bool
-	palette    *vt.Palette // by pointer: the emulator replaces it only when its colors change
+	palette    *vt.Palette    // by pointer: the emulator replaces it only when its colors change
+	marks      *vt.PromptMark // by first element and count: the emulator replaces them only when they change
+	markCount  int
 }
 
 // reuseFrame reports whether d.frame already shows scr with st at at. Blink
@@ -129,6 +131,9 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 	}
 	if d.opts.WindowChrome {
 		s.title, s.dir = st.Title, st.WorkingDirectory
+	}
+	if d.opts.PromptMarks && len(st.PromptMarks) > 0 {
+		s.marks, s.markCount = &st.PromptMarks[0], len(st.PromptMarks)
 	}
 	if st.CursorColorSet {
 		s.cur, s.curSet = st.CursorColor, true

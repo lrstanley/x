@@ -287,6 +287,18 @@ func WithLinkUnderline(enabled bool) Option {
 	}
 }
 
+// WithPromptMarks sets whether to mark the prompts a shell reports with OSC
+// 133 ([vt.State.PromptMarks]): a failed command's exit status is drawn in a
+// badge over the right end of its prompt row, and with [WithScrollbar], each
+// prompt in the scrollback or on the screen gets a tick on the track.
+// Disabled by default.
+func WithPromptMarks(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.PromptMarks = enabled
+		return nil
+	}
+}
+
 // WithWindowChrome sets whether to draw a title bar above the terminal grid,
 // with window buttons, [vt.State.Title], and after it the
 // [vt.State.WorkingDirectory] path, dimmer, which also stands in for a title

@@ -7,6 +7,8 @@ package vt
 import (
 	"image/color"
 	"slices"
+
+	"github.com/lrstanley/x/term/reel/vt/internal/wasmvt"
 )
 
 // Cursor is the caret of a screen.
@@ -101,6 +103,12 @@ type State struct {
 	Clipboard ClipboardWrite
 	// Prompt is the latest OSC 133 semantic-prompt step.
 	Prompt Prompt
+	// PromptMarks are the primary prompts on the screen and in the
+	// scrollback, oldest first, with how their commands ended. They are
+	// nil on the alternate screen. The slice may be shared with the
+	// emulator and other states and must not be modified: the emulator
+	// replaces it rather than changing it.
+	PromptMarks []PromptMark
 }
 
 // ShownProgress is the OSC 9;4 progress to show for s: none when it is
@@ -136,17 +144,19 @@ func (s State) Equal(o State) bool {
 		s.Generation == o.Generation &&
 		slices.Equal(s.ProgramStatuses, o.ProgramStatuses) &&
 		s.sameEvents(o) &&
-		slices.Equal(s.Notifications, o.Notifications)
+		slices.Equal(s.Notifications, o.Notifications) &&
+		slices.Equal(s.PromptMarks, o.PromptMarks)
 }
 
 // SameCommit reports whether s and o, two states of one terminal, show the
 // same program output: the same grid generation, title, screen, cursor,
 // shown progress, program status generation, and program events (working
-// directory, bell, notifications, clipboard write, and prompt step). Unlike
-// [State.Equal] it ignores focus, colors, and scrollback, compares the
-// program status records by generation, and the notifications by count and
-// slice they share, without reading them, so it is cheap enough to run on
-// every write to tell a write that changed nothing from one that did.
+// directory, bell, notifications, clipboard write, prompt step, and prompt
+// marks). Unlike [State.Equal] it ignores focus, colors, and scrollback,
+// compares the program status records by generation, and the notifications
+// and prompt marks by count and slice they share, without reading them, so
+// it is cheap enough to run on every write to tell a write that changed
+// nothing from one that did.
 func (s State) SameCommit(o State) bool {
 	return s.Generation == o.Generation &&
 		s.Title == o.Title &&
@@ -155,7 +165,8 @@ func (s State) SameCommit(o State) bool {
 		s.ShownProgress() == o.ShownProgress() &&
 		s.ProgramStatusGeneration == o.ProgramStatusGeneration &&
 		s.sameEvents(o) &&
-		s.sameNotifications(o)
+		sameSlice(s.Notifications, o.Notifications) &&
+		sameSlice(s.PromptMarks, o.PromptMarks)
 }
 
 // sameEvents reports whether s and o have the same program events, but for
@@ -167,13 +178,12 @@ func (s State) sameEvents(o State) bool {
 		s.Prompt == o.Prompt
 }
 
-// sameNotifications reports whether s and o, two states of one terminal,
-// have the same notifications. A terminal only appends to them, and starts
-// a new slice on a full reset, so two of its states hold the same ones when
-// they hold as many from the same slice.
-func (s State) sameNotifications(o State) bool {
-	n := len(s.Notifications)
-	return n == len(o.Notifications) && (n == 0 || &s.Notifications[0] == &o.Notifications[0])
+// sameSlice reports whether a and b, slices of two states of one terminal,
+// hold the same elements. A terminal never changes one it gave a state: it
+// appends to it, or replaces it, so two of them hold the same elements when
+// they hold as many from the same array.
+func sameSlice[T any](a, b []T) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
 }
 
 // SameLook reports whether s and o, two states of one terminal, are drawn
@@ -190,4 +200,44 @@ func (s State) SameLook(o State) bool {
 		samePalette(s.Palette, o.Palette) &&
 		s.CursorColor == o.CursorColor &&
 		s.CursorColorSet == o.CursorColorSet
+}
+
+// State returns the state around the viewport grid, read under one lock.
+// Generation is the content generation [Terminal.Screen] would copy, but
+// the grid itself is not copied. Focused is false: the terminal does not
+// track focus, so whoever drives it sets that field; a renderer draws a
+// state left unfocused as a dimmed window.
+func (t *Terminal) State() State {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cur := t.cursorLocked()
+	gen := t.gridGenerationLocked()
+	t.alt = t.activeAlt()
+	cc, hasCursor := t.cursorColorLocked()
+	return State{
+		Title:            t.title,
+		AltScreen:        t.alt,
+		Cursor:           cur,
+		Foreground:       t.shownColor(t.fgOverride, t.fgDefault, wasmvt.TerminalDataColorForeground, t.fg),
+		Background:       t.shownColor(t.bgOverride, t.bgDefault, wasmvt.TerminalDataColorBackground, t.bg),
+		CursorColor:      cc,
+		CursorColorSet:   hasCursor,
+		ReverseColors:    t.reverseColorsLocked(),
+		Palette:          t.paletteLocked(),
+		ScrollbackLen:    t.scrollbackLenLocked(),
+		ScrollbackOffset: t.scrollbackOffsetLocked(),
+		Progress:         t.progress,
+		Generation:       gen,
+
+		ProgramStatuses:         t.statusView,
+		ProgramStatusGeneration: t.statusGen,
+		ProgramStatusReported:   t.statusReported,
+
+		WorkingDirectory: t.pwd,
+		Bell:             t.bell,
+		Notifications:    slices.Clip(t.notifications),
+		Clipboard:        t.clipWrote,
+		Prompt:           t.prompt,
+		PromptMarks:      t.promptMarksLocked(),
+	}
 }

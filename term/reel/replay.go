@@ -245,6 +245,7 @@ func (r *replay) isPristine(st vt.State, text string) bool {
 		st.Foreground == p.Foreground &&
 		st.Background == p.Background &&
 		st.ReverseColors == p.ReverseColors &&
+		len(st.PromptMarks) == len(p.PromptMarks) &&
 		st.Cursor == p.Cursor
 }
 

@@ -18,6 +18,8 @@ func assertSameTerminal(t *testing.T, a, b *Terminal) {
 	sa, sb := a.State(), b.State()
 	sa.Generation, sb.Generation = 0, 0
 	sa.ProgramStatusGeneration, sb.ProgramStatusGeneration = 0, 0
+	// The redraw replays the prompt step, so it arrives later.
+	sa.Prompt.At, sb.Prompt.At = 0, 0
 	if !sa.Equal(sb) {
 		t.Errorf("state:\n%+v\nwant:\n%+v", sb, sa)
 	}
@@ -94,6 +96,10 @@ func TestRedraw(t *testing.T) {
 		"progress":               "\x1b]9;4;3\x07busy",
 		"program status":         "\x1b]7501;state=working:id=build:app=make:progress=40\x07\x1b]7501;state=blocked:kind=question\x07x",
 		"program status cleared": "\x1b]9;4;1;50\x07\x1b]7501;state=working\x07\x1b]7501;state=clear\x07x",
+		"prompt marks running": history.String() + promptCmd("ok", 0) + promptCmd("bad", 2) +
+			"\x1b]133;A\x07$ \x1b]133;B\x07sleep\r\n\x1b]133;C;cmdline_url=sleep%201\x07",
+		"prompt marks typing": promptCmd("x", 0) + "\x1b]133;A\x07$ \x1b]133;B\x07ty",
+		"prompt marks ended":  promptCmd("x", 0) + "\x1b]133;A\x07$ \x1b]133;D\x07" + promptCmd("y", 127),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

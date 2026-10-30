@@ -32,8 +32,10 @@
 // ([WithWindowChrome], showing [vt.State.Title] and
 // [vt.State.WorkingDirectory]), cell backgrounds, cell foregrounds (glyphs
 // and decorations, with an underline under OSC 8 links when
-// [WithLinkUnderline] is set), cursor, OSC 9;4 progress bar
-// ([WithProgressBar], from [vt.State.ShownProgress]), scrollbar gutter,
+// [WithLinkUnderline] is set), exit status badges on the rows of OSC 133
+// prompts whose command failed ([WithPromptMarks], from
+// [vt.State.PromptMarks]), cursor, OSC 9;4 progress bar ([WithProgressBar],
+// from [vt.State.ShownProgress]), scrollbar gutter (with a tick per prompt),
 // unfocused dimming overlay, the bell flash ([WithBell], from
 // [vt.State.Bell]), an antialiased rounding mask on the terminal window, then
 // the OSC 7501 program status outline around it.

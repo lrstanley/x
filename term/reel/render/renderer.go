@@ -44,8 +44,8 @@ type Renderer struct {
 
 	// chromeMask is the window button shape, rebuilt when the diameter changes.
 	chromeMask *image.Alpha
-	// chromeCtx lays title bar text out with its own faces. It is zero
-	// without window chrome.
+	// chromeCtx lays title bar and prompt badge text out with its own faces.
+	// It is zero without window chrome or prompt marks.
 	chromeCtx chromeText
 	// status holds what program status drawing keeps between frames.
 	status rendererStatus

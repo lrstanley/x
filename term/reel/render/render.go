@@ -296,6 +296,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 	d.fgPass.DrawPending(f, dst)
 	d.drawImages(dst, f, layerAboveText)
 	d.images.rotate()
+	d.drawPromptMarks(dst, f)
 
 	if cur := f.st.Cursor; cur.Visible && idraw.CursorVisible(f, cur) {
 		if cursor := f.cursorBounds(); !cursor.Empty() {

@@ -68,6 +68,8 @@ func TestStateEqual(t *testing.T) {
 				v.Set(reflect.ValueOf([]ProgramStatus{{Title: "b"}}))
 			case *[]Notification:
 				v.Set(reflect.ValueOf([]Notification{{Title: "b"}}))
+			case *[]PromptMark:
+				v.Set(reflect.ValueOf([]PromptMark{{Row: 1}}))
 			default:
 				t.Fatalf("field %s has a slice type the test does not set", typ.Field(i).Name)
 			}
@@ -106,6 +108,7 @@ func TestStateSameCommit(t *testing.T) {
 		"notification": func(s *State) {
 			s.Notifications = append(s.Notifications, Notification{Title: "n"})
 		},
+		"prompt marks": func(s *State) { s.PromptMarks = []PromptMark{{Row: 1}} },
 	} {
 		b := a
 		change(&b)
