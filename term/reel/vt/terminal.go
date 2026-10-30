@@ -105,6 +105,8 @@ type Terminal struct {
 	pwd string
 	// clock stamps program events. See [WithClock].
 	clock func() time.Duration
+	// unknown is [WithUnknownSequence], or nil.
+	unknown func(UnknownSequence)
 	// bell is the latest BEL.
 	bell Bell
 	// alt is true when the alternate screen is active.
@@ -949,12 +951,13 @@ func (t *Terminal) reapplyLocked() error {
 }
 
 // clearPooledLocked drops what belongs to the previous checkout: the
-// checksum switches, the host colors, and the colors the program set with
-// OSC 10, 11, and 12, which a full reset keeps. [Terminal.Reset] keeps the
-// host options.
+// checksum switches, the [WithUnknownSequence] callback, the host colors,
+// and the colors the program set with OSC 10, 11, and 12, which a full
+// reset keeps. [Terminal.Reset] keeps the host options.
 func (t *Terminal) clearPooledLocked() {
 	t.checksumReport = false
 	t.checksumFlags = 0
+	t.unknown = nil
 	t.fgOverride, t.bgOverride, t.cursorOverride = nil, nil, nil
 	t.fgDefault, t.bgDefault, t.cursorDefault = nil, nil, nil
 	t.hasCursor = false

@@ -40,6 +40,35 @@ type Notification struct {
 	Body string
 }
 
+// UnknownSequence is an APC or OSC sequence the emulator does not implement,
+// which it otherwise drops. See [WithUnknownSequence].
+type UnknownSequence struct {
+	// Kind is the kind of sequence.
+	Kind SequenceKind
+	// Data is everything between the introducer and the terminator. An OSC
+	// starts with its number, such as "7400;status=busy". It may hold
+	// binary data.
+	Data string
+	// Truncated is true when Data holds only the first
+	// [UnknownSequenceMaxBytes] of the sequence.
+	Truncated bool
+	// At is when the sequence arrived, on the terminal's clock (see
+	// [WithClock]).
+	At time.Duration
+}
+
+// SequenceKind is the introducer of an [UnknownSequence].
+type SequenceKind string
+
+// Kinds of unknown sequence. Names match GhosttyTerminalUnknownSequenceTag
+// in include/ghostty/vt/terminal.h.
+const (
+	// SequenceAPC is an Application Program Command, ESC _.
+	SequenceAPC SequenceKind = "apc"
+	// SequenceOSC is an Operating System Command, ESC ].
+	SequenceOSC SequenceKind = "osc"
+)
+
 // Prompt is the latest OSC 133 step.
 type Prompt struct {
 	// Kind is the latest OSC 133 step. PromptNone means none has arrived.

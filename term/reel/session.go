@@ -89,6 +89,8 @@ type sessionConfig struct {
 	kittyStorage uint64
 	// kittyFiles is set [WithKittyFiles].
 	kittyFiles bool
+	// unknown is [WithUnknownSequence].
+	unknown func(vt.UnknownSequence)
 }
 
 // WithKittyStorage sets how many bytes of decoded Kitty graphics the
@@ -167,6 +169,15 @@ func WithTypingDelay(d time.Duration) SessionOption {
 	return func(cfg *sessionConfig) { cfg.typingDelay = d }
 }
 
+// WithUnknownSequence calls fn with each APC or OSC sequence the terminal
+// does not implement and drops, such as to log what a program sends that a
+// recording will not show (see [vt.WithUnknownSequence]). fn runs while the
+// session writes to its terminal, holding the session's lock, so it must not
+// call the session's methods.
+func WithUnknownSequence(fn func(vt.UnknownSequence)) SessionOption {
+	return func(cfg *sessionConfig) { cfg.unknown = fn }
+}
+
 // Open starts a session on a cols by rows terminal. It blocks until the
 // pool has room or ctx is canceled. The session starts focused. Close it to
 // return the terminal to the pool.
@@ -183,6 +194,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		vt.WithClock(func() time.Duration { return timeline.now() }),
 		vt.WithCellSize(cfg.cellW, cfg.cellH),
 		kittyStorage(cfg.kittyStorage),
+		vt.WithUnknownSequence(cfg.unknown),
 	)
 	if err != nil {
 		return nil, err

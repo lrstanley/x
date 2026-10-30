@@ -59,6 +59,21 @@ type openConfig struct {
 	cellW      int
 	cellH      int
 	kitty      uint64
+	unknown    func(UnknownSequence)
+}
+
+// UnknownSequenceMaxBytes is how much of each sequence
+// [WithUnknownSequence] reports. Longer ones are cut and marked
+// [UnknownSequence.Truncated].
+const UnknownSequenceMaxBytes = 4096
+
+// WithUnknownSequence calls fn with each APC or OSC sequence the terminal
+// does not implement, such as a newer protocol, so a caller can log what it
+// drops. An OSC whose number it implements is never reported, even when
+// malformed. fn runs inside [Terminal.Write] with the terminal locked, so it
+// must not call the terminal's methods.
+func WithUnknownSequence(fn func(UnknownSequence)) Option {
+	return func(cfg *openConfig) { cfg.unknown = fn }
 }
 
 // WithKittyStorage sets how many bytes of decoded Kitty graphics the
@@ -176,6 +191,17 @@ func (t *Terminal) configure(cfg openConfig) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.clock = cfg.clock
+	t.unknown = cfg.unknown
+	var unknownMax uint32
+	if cfg.unknown != nil {
+		unknownMax = UnknownSequenceMaxBytes
+	}
+	// The limit is a size_t, 4 bytes on wasm32. Zero turns reports off. It
+	// belongs to the parser, which a full reset leaves alone, so
+	// reapplyLocked does not set it again.
+	if err := t.mod.SetU32Option(t.term, wasmvt.TerminalOptionUnknownMaxBytes, unknownMax); err != nil {
+		return err
+	}
 	if cfg.kitty != t.kitty.def || cfg.kitty != t.kitty.limit {
 		t.kitty.def, t.kitty.limit = cfg.kitty, cfg.kitty
 		if err := t.mod.SetU64Option(t.term, wasmvt.TerminalOptionKittyImageStorageLimit, cfg.kitty); err != nil {

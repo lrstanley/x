@@ -53,6 +53,7 @@ func (t *Terminal) installCallbacks() error {
 		{wasmvt.TerminalOptionRenderHold, t.onHold},
 		{wasmvt.TerminalOptionReset, t.onReset},
 		{wasmvt.TerminalOptionResizeWindow, t.onResizeWindow},
+		{wasmvt.TerminalOptionUnknownSequence, t.onUnknownSequence},
 	}
 	for _, pair := range pairs {
 		idx := t.mod.Bind(pair.fn)
@@ -277,6 +278,39 @@ func (t *Terminal) onResizeWindow(_, _, req int32) {
 	t.resizeRows = int(t.mod.U16(req, base+rows))
 	t.resizeCols = int(t.mod.U16(req, base+cols))
 	t.resizeOK = true
+}
+
+// onUnknownSequence reads a GhosttyTerminalUnknownSequence tagged union.
+// Tags this build does not know are skipped. Ghostty only calls it while
+// TerminalOptionUnknownMaxBytes is set, which [Runtime.Open] does for
+// [WithUnknownSequence].
+func (t *Terminal) onUnknownSequence(_, _, seq int32) {
+	if t.unknown == nil {
+		return
+	}
+	value := wasmvt.TerminalUnknownSequenceValueOff
+	var kind SequenceKind
+	var content, truncated int
+	switch t.mod.I32(seq, wasmvt.TerminalUnknownSequenceTagOff) {
+	case wasmvt.TerminalUnknownSequenceTagApc:
+		kind = SequenceAPC
+		value += wasmvt.TerminalUnknownSequenceValueApcOff
+		content = wasmvt.TerminalUnknownStringSequenceContentOff
+		truncated = wasmvt.TerminalUnknownStringSequenceTruncatedOff
+	case wasmvt.TerminalUnknownSequenceTagOsc:
+		kind = SequenceOSC
+		value += wasmvt.TerminalUnknownSequenceValueOscOff
+		content = wasmvt.TerminalUnknownOscSequenceContentOff
+		truncated = wasmvt.TerminalUnknownOscSequenceTruncatedOff
+	default:
+		return
+	}
+	t.unknown(UnknownSequence{
+		Kind:      kind,
+		Data:      t.mod.String(seq, value+content),
+		Truncated: t.mod.U8(seq, value+truncated) != 0,
+		At:        t.clock(),
+	})
 }
 
 // clipboardText walks the GhosttyClipboardContent array on a write
