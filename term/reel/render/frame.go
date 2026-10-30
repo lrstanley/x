@@ -122,7 +122,7 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr v
 	}
 	d.layoutProgress(f)
 	d.layoutStatus(f)
-	f.bell = d.shownBell(st, at, !f.status.view.shown)
+	f.bell = d.shownBell(st, at, f.status.view)
 
 	f.screenBounds = screen
 	f.cellW = cell.X

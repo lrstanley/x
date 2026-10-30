@@ -103,10 +103,10 @@ func (d *Renderer) Animates(st vt.State, at time.Duration) bool {
 
 // Changes reports whether the indicators drawn for st may look different at
 // offset to than at from. It is always true while they animate, and for a
-// blocked program status or a fading bell only when its step differs, so a recorder
-// that holds a frame can keep the image it repainted at from instead of
-// calling [Renderer.Repaint] again. It is false for indicators that do not
-// move with the timeline.
+// blocked program status or a fading bell only when its step differs, so a
+// recorder that holds a frame can keep the image it repainted at from
+// instead of calling [Renderer.Repaint] again. It is false for indicators
+// that do not move with the timeline.
 func (d *Renderer) Changes(st vt.State, from, to time.Duration) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -142,8 +142,8 @@ func (d *Renderer) Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, from, a
 }
 
 // indicators are what the OSC 9;4 progress bar, the OSC 7501 program
-// status, and the bell draw. The value is comparable, so the frame cache can tell when they
-// change.
+// status, and the bell draw. The value is comparable, so the frame cache can
+// tell when they change.
 type indicators struct {
 	progress vt.Progress
 	status   statusView
@@ -153,7 +153,7 @@ type indicators struct {
 // shownIndicators are the indicators drawn for st at at.
 func (d *Renderer) shownIndicators(st vt.State, at time.Duration) indicators {
 	status := d.shownStatus(st, at)
-	return indicators{progress: d.shownProgress(st), status: status, bell: d.shownBell(st, at, !status.shown)}
+	return indicators{progress: d.shownProgress(st), status: status, bell: d.shownBell(st, at, status)}
 }
 
 // animates reports whether i looks different at every frame: the sweep of
@@ -190,15 +190,28 @@ func (f *renderFrame) repaintBands(old, now indicators) (b [6]image.Rectangle) {
 // renderBands renders the parts of dst within bands from the background up,
 // so effects that run after the cells (dimming, rounded mask, cursor,
 // scrollbar, outline) apply to fresh pixels. Overlapping bands are each
-// repainted whole, so the overlap comes out the same.
+// repainted whole, so the overlap comes out the same, and a band within
+// another, such as any band within the window while the bell flashes, is
+// skipped.
 func (d *Renderer) renderBands(dst *image.NRGBA, scr vt.Screen, f *renderFrame, bands ...image.Rectangle) {
-	for _, band := range bands {
-		if band = band.Intersect(dst.Rect); band.Empty() {
+	for i, band := range bands {
+		if band = band.Intersect(dst.Rect); band.Empty() || bandCovered(bands, i) {
 			continue
 		}
 		sub, _ := dst.SubImage(band).(*image.NRGBA) // NRGBA.SubImage is always an NRGBA.
 		d.render(sub, scr, f)
 	}
+}
+
+// bandCovered reports whether bands[i] lies within another of bands. Of
+// equal bands, the first is not covered.
+func bandCovered(bands []image.Rectangle, i int) bool {
+	for j, o := range bands {
+		if j != i && !o.Empty() && bands[i].In(o) && (j < i || bands[i] != o) {
+			return true
+		}
+	}
+	return false
 }
 
 // render paints f's part of dst from the background up. Glyphs go through

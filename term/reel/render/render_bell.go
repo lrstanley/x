@@ -15,18 +15,15 @@ import (
 	"github.com/lrstanley/x/term/reel/vt"
 )
 
+// After a BEL, the window flashes bellFlashTint of the way toward the
+// foreground and fades out over bellFlash, in bellFlashSteps levels so
+// frames within one level can be reused. bellTitle goes before the title, as
+// in Ghostty.
 const (
-	// bellFlash is how long the window flash after a BEL takes to fade out.
-	bellFlash = 300 * time.Millisecond
-	// bellFlashSteps is how many levels the flash fades through, so frames
-	// within one level look the same and can be reused.
+	bellFlash      = 300 * time.Millisecond
 	bellFlashSteps = 6
-	// bellFlashTint is how far the flash first blends the window toward the
-	// foreground.
-	bellFlashTint = 0.3
-	// bellTitle is put before the title while the bell shows in the title
-	// bar, as Ghostty does.
-	bellTitle = "🔔"
+	bellFlashTint  = 0.3
+	bellTitle      = "🔔"
 )
 
 // bellView is what the latest BEL draws at some offset: the flash level,
@@ -37,10 +34,9 @@ type bellView struct {
 	title bool
 }
 
-// shownBell is what the latest BEL in st draws at at, with [WithBell].
-// titled is false while a program status takes the title's place, which
-// hides the bell there.
-func (d *Renderer) shownBell(st vt.State, at time.Duration, titled bool) bellView {
+// shownBell is what the latest BEL in st draws at at, with [WithBell]. A
+// shown program status takes the title's place, which hides the bell there.
+func (d *Renderer) shownBell(st vt.State, at time.Duration, status statusView) bellView {
 	age := at - st.Bell.At
 	if !d.opts.Bell || st.Bell.Count == 0 || age < 0 {
 		return bellView{}
@@ -49,12 +45,12 @@ func (d *Renderer) shownBell(st vt.State, at time.Duration, titled bool) bellVie
 	if age < bellFlash {
 		v.flash = uint8(math.Ceil(float64(bellFlash-age) / float64(bellFlash) * bellFlashSteps))
 	}
-	v.title = titled && d.opts.WindowChrome && age < d.opts.BellDuration
+	v.title = !status.shown && d.opts.WindowChrome && age < d.opts.BellDuration
 	return v
 }
 
-// titled is title as the title bar shows it with v.
-func (v bellView) titled(title string) string {
+// titleText is title as the title bar shows it with v.
+func (v bellView) titleText(title string) string {
 	switch {
 	case !v.title:
 		return title

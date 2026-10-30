@@ -52,12 +52,28 @@ func fillSpan(row []byte, pixel uint32) {
 	}
 }
 
-// Overlay blends a solid color over area using [draw.Over].
+// Overlay blends a solid color over area, with the same blending as
+// [OverCoverage] at full coverage. NRGBA is blended directly, many times
+// faster than [draw.Draw].
 func Overlay(img draw.Image, area image.Rectangle, c color.Color) {
-	if area.Empty() {
+	col := icol.NRGBA(c)
+	dst, ok := img.(*image.NRGBA)
+	if !ok {
+		if !area.Empty() {
+			draw.Draw(img, area, Uniform(col), image.Point{}, draw.Over)
+		}
 		return
 	}
-	draw.Draw(img, area, Uniform(icol.NRGBA(c)), image.Point{}, draw.Over)
+	area = area.Intersect(dst.Rect)
+	if area.Empty() || col.A == 0 {
+		return
+	}
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		row := dst.Pix[dst.PixOffset(area.Min.X, y):][:4*area.Dx()]
+		for x := 0; x < len(row); x += 4 {
+			OverPixel(row[x:x+4:x+4], col, 255)
+		}
+	}
 }
 
 // Uniform returns a shared [image.Uniform] of col, so repeated draws in one

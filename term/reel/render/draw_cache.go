@@ -21,7 +21,7 @@ type frameSnap struct {
 	screen image.Rectangle
 
 	title, dir string     // only tracked with window chrome, which is the only thing that paints them
-	ind        indicators // zero unless a progress bar, program status, or bell is drawn
+	ind        indicators // zero unless a progress bar, program status, or bell shows
 
 	focused    bool
 	alt        bool
@@ -171,20 +171,21 @@ func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration)
 	f := d.borrowRenderFrame(image.Point{}, scr, st, at)
 	defer releaseRenderFrame(f)
 	// The changed rows, then the indicator bands.
-	var rows image.Rectangle
+	ind := f.repaintBands(old.ind, now.ind)
+	var bands [1 + len(ind)]image.Rectangle
 	if hi >= lo {
-		rows = f.imageBounds
+		band := f.imageBounds
 		if r0 := max(0, lo-1); r0 > 0 {
-			rows.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
+			band.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
 		}
 		if r1 := min(buf.Height(), hi+2); r1 < buf.Height() {
-			rows.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
+			band.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
 		}
+		bands[0] = band
 	}
-	ind := f.repaintBands(old.ind, now.ind)
+	copy(bands[1:], ind[:])
 	d.frameReady = false
-	d.renderBands(d.frame, scr, f, rows)
-	d.renderBands(d.frame, scr, f, ind[:]...)
+	d.renderBands(d.frame, scr, f, bands[:]...)
 	d.rememberFrame(scr, st, lo, hi, at)
 	return true
 }
