@@ -256,11 +256,14 @@ func (f *renderFrame) appendSubtitle(spans []chromeSpan, cells, room int, sub st
 // at most maxCells cells, and returns them with their width in cells. The
 // OSC 7 working directory is the title's subtitle, or stands in for a title
 // the program did not set. It is trimmed from the left, so the directory's
-// own name stays.
+// own name stays. The bell, while it rings, goes before the title.
 func (f *renderFrame) titleLabel(spans []chromeSpan, maxCells int) (out []chromeSpan, cells int) {
 	col := icol.BlendNRGBA(f.backgroundNRGBA(nil), f.foregroundNRGBA(nil), chromeTitleTint)
 	dir := plainText(chromeDirectory(f.st.WorkingDirectory))
 	title := plainText(f.st.Title)
+	if f.bell.title {
+		title = strings.TrimSuffix(bellTitle+" "+title, " ")
+	}
 	if title == "" {
 		t, w := fitTextLeft(dir, maxCells)
 		return append(spans, chromeSpan{text: t, col: col}), w
@@ -361,9 +364,10 @@ func (l *chromeLine) spans(x int, runs []chromeSpan) int {
 	return x
 }
 
-// drawChrome paints the title bar. The title and working directory, or the
-// OSC 7501 program status in their place, are drawn with the chrome faces,
-// optically centered on the window buttons.
+// drawChrome paints the title bar. The title, with the bell before it while
+// it rings, and working directory, or the OSC 7501 program status in their
+// place, are drawn with the chrome faces, optically centered on the window
+// buttons.
 func (d *Renderer) drawChrome(dst draw.Image, f *renderFrame) {
 	bar := f.chromeBounds
 	if !bar.Overlaps(dst.Bounds()) {

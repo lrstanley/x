@@ -41,6 +41,7 @@ type renderFrame struct {
 	progressBounds  image.Rectangle
 	progress        vt.Progress
 	status          frameStatus
+	bell            bellView
 	cursorCell      *vt.Cell
 	cellW           int
 	cellH           int
@@ -62,7 +63,7 @@ type frameStatus struct {
 
 // indicators are the indicators f draws.
 func (f *renderFrame) indicators() indicators {
-	return indicators{progress: f.progress, status: f.status.view}
+	return indicators{progress: f.progress, status: f.status.view, bell: f.bell}
 }
 
 // renderFramePool recycles per-draw frames on the Draw and Repaint hot path.
@@ -121,6 +122,7 @@ func (d *Renderer) populateRenderFrame(f *renderFrame, origin image.Point, scr v
 	}
 	d.layoutProgress(f)
 	d.layoutStatus(f)
+	f.bell = d.shownBell(st, at)
 
 	f.screenBounds = screen
 	f.cellW = cell.X

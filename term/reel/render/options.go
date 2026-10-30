@@ -335,6 +335,31 @@ func WithProgramStatus(enabled bool) Option {
 	}
 }
 
+// WithBell sets whether to draw the latest BEL from [vt.State.Bell], as of
+// the offset passed to [Renderer.Draw]: the window flashes toward the
+// foreground and fades out over 300ms, and with [WithWindowChrome], a 🔔 is
+// put before the title for [WithBellDuration]. A program status
+// ([WithProgramStatus]) shown in place of the title hides it. Disabled by
+// default, so recordings of programs that ring the bell do not change.
+func WithBell(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.Bell = enabled
+		return nil
+	}
+}
+
+// WithBellDuration sets how long the 🔔 of [WithBell] stays before the title
+// after each BEL. Defaults to 2s.
+func WithBellDuration(duration time.Duration) Option {
+	return func(d *Renderer) error {
+		if duration <= 0 {
+			return fmt.Errorf("render: bell duration must be > 0, got %v", duration)
+		}
+		d.opts.BellDuration = duration
+		return nil
+	}
+}
+
 // WithProgressBarHeight sets the progress bar height in pixels. The default
 // is 2. Colors come from [Palette.Progress], [Palette.ProgressError], and
 // [Palette.ProgressPause].

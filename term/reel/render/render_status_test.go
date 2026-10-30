@@ -452,7 +452,7 @@ func TestRepaintMatchesFullDraw(t *testing.T) {
 
 				got := image.NewNRGBA(base.Rect)
 				copy(got.Pix, base.Pix)
-				d.Repaint(got, scr, st, later)
+				d.Repaint(got, scr, st, at, later)
 				if bytes.Equal(got.Pix, base.Pix) {
 					t.Fatalf("%v: repainting at a later offset changed nothing", recs[0].State)
 				}
@@ -514,7 +514,7 @@ func TestRepaintProgressOnly(t *testing.T) {
 			}
 		}
 	}
-	d.Repaint(got, scr, st, later)
+	d.Repaint(got, scr, st, statusAt, later)
 	for y := got.Rect.Min.Y; y < got.Rect.Max.Y; y++ {
 		for x := got.Rect.Min.X; x < got.Rect.Max.X; x++ {
 			in := image.Pt(x, y).In(band)

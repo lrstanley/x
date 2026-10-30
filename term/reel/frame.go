@@ -80,9 +80,11 @@ type Animator interface {
 	// offsets from and to.
 	Changes(st vt.State, from, to time.Duration) bool
 	// Repaint redraws the time-varying parts of dst, an image of scr with
-	// st, as of offset at.
-	Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration)
+	// st drawn as of offset from, as of offset at.
+	Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, from, at time.Duration)
 }
+
+var _ Animator = (*render.Renderer)(nil)
 
 // Effect transforms a recording's frames between the [Rasterizer] and the
 // sinks, such as a key overlay or a title card. Each export calls Start

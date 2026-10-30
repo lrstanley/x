@@ -160,7 +160,7 @@ func (p *pipeline) sweepHold(f Frame) {
 		if k > 0 {
 			next := p.newImage(base.Rect)
 			copy(next.Pix, base.Pix)
-			p.anim.Repaint(next, cells.Screen, cells.State, cur.At)
+			p.anim.Repaint(next, cells.Screen, cells.State, start, cur.At)
 			at := cells
 			at.At = cur.At
 			cur.Image, cur.Cells = next, &at

@@ -171,7 +171,7 @@ func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration)
 	f := d.borrowRenderFrame(image.Point{}, scr, st, at)
 	defer releaseRenderFrame(f)
 	// The changed rows, then the indicator bands.
-	var bands [6]image.Rectangle
+	var bands [7]image.Rectangle
 	if hi >= lo {
 		band := f.imageBounds
 		if r0 := max(0, lo-1); r0 > 0 {

@@ -35,7 +35,7 @@ func TestRendererCloseSemantics(t *testing.T) {
 		d.Draw(image.NewNRGBA(image.Rect(0, 0, 32, 32)), scr, focused, 0)
 	})
 	assertPanic(t, "Repaint after close", func() {
-		d.Repaint(image.NewNRGBA(image.Rect(0, 0, 32, 32)), scr, focused, 0)
+		d.Repaint(image.NewNRGBA(image.Rect(0, 0, 32, 32)), scr, focused, 0, 0)
 	})
 }
 
@@ -147,7 +147,7 @@ func TestFrameSnapTracksState(t *testing.T) {
 	// drawn.
 	ignored := map[string]bool{
 		"Generation": true, "ProgramStatusGeneration": true,
-		"Bell": true, "Notifications": true, "Clipboard": true, "Prompt": true,
+		"Notifications": true, "Clipboard": true, "Prompt": true,
 	}
 	red := color.NRGBA{R: 0xff, A: 0xff}
 	changes := map[string]func(*vt.State){
@@ -166,8 +166,9 @@ func TestFrameSnapTracksState(t *testing.T) {
 		"Progress":              func(s *vt.State) { s.Progress.Percent = 6 },
 		"ProgramStatuses":       func(s *vt.State) { s.ProgramStatuses = []vt.ProgramStatus{{Progress: -1}} },
 		"ProgramStatusReported": func(s *vt.State) { s.ProgramStatusReported = true },
+		"Bell":                  func(s *vt.State) { s.Bell.Count = 1 },
 	}
-	d := MustNew(WithWindowChrome(true))
+	d := MustNew(WithWindowChrome(true), WithBell(true))
 	bounds := image.Rect(0, 0, 4, 2)
 	// A progress report, so a report that hides it shows.
 	base := vt.State{Progress: vt.Progress{State: vt.ProgressSet, Percent: 5}}
@@ -253,7 +254,7 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 		wg.Go(func() {
 			dst := newImage(d, scr)
 			d.Draw(dst, scr, st, at)
-			d.Repaint(dst, scr, st, at+time.Millisecond)
+			d.Repaint(dst, scr, st, at, at+time.Millisecond)
 		})
 		wg.Go(func() { _ = d.Animates(st) })
 		wg.Go(func() { _ = d.Changes(st, at, at+time.Second) })

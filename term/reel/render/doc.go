@@ -33,8 +33,9 @@
 // [vt.State.WorkingDirectory]), cell backgrounds, cell foregrounds (glyphs
 // and decorations), cursor, OSC 9;4 progress bar
 // ([WithProgressBar], from [vt.State.ShownProgress]), scrollbar gutter,
-// unfocused dimming overlay, an antialiased rounding mask on the terminal
-// window, then the OSC 7501 program status outline around it.
+// unfocused dimming overlay, the bell flash ([WithBell], from
+// [vt.State.Bell]), an antialiased rounding mask on the terminal window, then
+// the OSC 7501 program status outline around it.
 //
 // Kitty graphics ([vt.Buffer.Images]) are drawn in their layers: under the
 // cell backgrounds, between the backgrounds and the text, or over the text.
@@ -51,8 +52,8 @@
 // as plain text with controls, bidi overrides, and invisible characters
 // removed.
 // [Renderer.Animates], [Renderer.Changes], and [Renderer.Repaint] let a
-// recorder keep an animated progress bar or program status moving while the
-// screen holds still.
+// recorder keep an animated progress bar, program status, or bell moving
+// while the screen holds still.
 //
 // Each glyph is drawn from the first font that actually has it: a
 // [WithCodepointMap] range (by default, Nerd Font, Powerline, and symbol ranges

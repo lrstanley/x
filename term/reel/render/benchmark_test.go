@@ -329,11 +329,12 @@ func BenchmarkRepaint(b *testing.B) {
 				frame := newImage(d, scr)
 				d.Draw(frame, scr, tc.state, at)
 				step := func() {
+					from := at
 					at += 50 * time.Millisecond
 					if mode == "draw" {
 						d.Draw(frame, scr, tc.state, at)
 					} else {
-						d.Repaint(frame, scr, tc.state, at)
+						d.Repaint(frame, scr, tc.state, from, at)
 					}
 				}
 				for range benchmarkWarmupIters {

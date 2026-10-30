@@ -91,18 +91,20 @@ func (d *Renderer) scrollbarWidth() int {
 // timeline: the OSC 9;4 progress bar when it is indeterminate or an error with
 // no percent ([WithProgressBar]), and the OSC 7501 program status when its
 // most urgent record is blocked or working with no progress
-// ([WithProgramStatus]). [Renderer.Draw] then repaints them as they move, and
-// a recorder that holds a frame can keep them moving with [Renderer.Repaint].
-// A blinking cursor or blinking text is not an indicator.
+// ([WithProgramStatus]), and the bell once st holds a BEL ([WithBell]), which
+// changes for a while after it. [Renderer.Draw] then repaints them as they
+// move, and a recorder that holds a frame can keep them moving with
+// [Renderer.Repaint]. A blinking cursor or blinking text is not an indicator.
 func (d *Renderer) Animates(st vt.State) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.shownIndicators(st, 0).clocked()
+	// The bell is checked as of its BEL, when it is drawn if at all.
+	return d.shownIndicators(st, st.Bell.At).clocked()
 }
 
 // Changes reports whether the indicators drawn for st may look different at
 // offset to than at from. It is always true while they animate, and for a
-// blocked program status only when its breathing step differs, so a recorder
+// blocked program status or a fading bell only when its step differs, so a recorder
 // that holds a frame can keep the image it repainted at from instead of
 // calling [Renderer.Repaint] again. It is false for indicators that do not
 // move with the timeline.
@@ -113,19 +115,20 @@ func (d *Renderer) Changes(st vt.State, from, to time.Duration) bool {
 	return was.animates() || was != d.shownIndicators(st, to)
 }
 
-// Repaint redraws only the parts of dst the indicators that move with the
-// timeline cover, for st as of offset at: the progress bar's rows, and with
-// program status, the title bar and a few pixels around the window edge. dst
-// must hold an image of scr with st that [Renderer.Draw] drew at dst.Rect.Min
-// with the same renderer, as of any offset. Every other pixel is left alone.
-// It costs a fraction of drawing the whole image, so a recorder that holds a
-// frame can copy it and keep the indicators moving, see
-// [Renderer.Animates]. It does nothing when none of them move.
+// Repaint redraws only the parts of dst the indicators that moved between
+// offsets from and at cover, for st as of at: the progress bar's rows, with
+// program status, the title bar and a few pixels around the window edge,
+// and with the bell, the title bar or, while it flashes, the whole window.
+// dst must hold an image of scr with st that [Renderer.Draw] drew at
+// dst.Rect.Min with the same renderer, as of from. Every other pixel is left
+// alone. It costs a fraction of drawing the whole image, so a recorder that
+// holds a frame can copy it and keep the indicators moving, see
+// [Renderer.Animates]. It does nothing when none of them moved.
 //
 // The parts are drawn as of the same offset as the indicators, so a blinking
 // cursor or blinking text that reaches into them, which can only be the
 // outermost cells of the grid, may differ from the rest of the cell.
-func (d *Renderer) Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, at time.Duration) {
+func (d *Renderer) Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, from, at time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -135,22 +138,22 @@ func (d *Renderer) Repaint(dst *image.NRGBA, scr vt.Screen, st vt.State, at time
 	}
 	f := d.borrowRenderFrame(dst.Rect.Min, scr, st, at)
 	defer releaseRenderFrame(f)
-	now := f.indicators()
-	bands := f.repaintBands(now.sansClock(), now)
+	bands := f.repaintBands(d.shownIndicators(st, from), f.indicators())
 	d.renderBands(dst, scr, f, bands[:]...)
 }
 
-// indicators are what the OSC 9;4 progress bar and the OSC 7501 program
-// status draw. The value is comparable, so the frame cache can tell when they
+// indicators are what the OSC 9;4 progress bar, the OSC 7501 program
+// status, and the bell draw. The value is comparable, so the frame cache can tell when they
 // change.
 type indicators struct {
 	progress vt.Progress
 	status   statusView
+	bell     bellView
 }
 
 // shownIndicators are the indicators drawn for st at at.
 func (d *Renderer) shownIndicators(st vt.State, at time.Duration) indicators {
-	return indicators{progress: d.shownProgress(st), status: d.shownStatus(st, at)}
+	return indicators{progress: d.shownProgress(st), status: d.shownStatus(st, at), bell: d.shownBell(st, at)}
 }
 
 // animates reports whether i looks different at every frame: the sweep of
@@ -161,34 +164,31 @@ func (i indicators) animates() bool {
 }
 
 // clocked reports whether i moves with the clock at all: what animates, and
-// a blocked status, which breathes. Its breath step is part of i, so a frame
-// that shows it is reused until the step changes.
+// a blocked status, which breathes, and a bell, which fades. Their steps are
+// part of i, so a frame that shows them is reused until a step changes.
 func (i indicators) clocked() bool {
-	return i.animates() || i.status.breathes()
-}
-
-// sansClock is i as drawn at an unknown time, which no breath step matches,
-// so [renderFrame.repaintBands] from it repaints everything that moves with
-// the clock.
-func (i indicators) sansClock() indicators {
-	if i.status.breathes() {
-		i.status.breath = -1
-	}
-	return i
+	return i.animates() || i.status.breathes() || i.bell != bellView{}
 }
 
 // repaintBands are the parts of the image to repaint when the indicators
 // drawn go from old to now: the progress bar's band when the bar changed or
-// animates, and the program status bands when the status changed or animates.
-// The others are empty. See [renderFrame.progressBand] and
+// animates, the program status bands when the status changed or animates,
+// and the window while the bell flash fades, or the title bar when only its
+// bell changed. The others are empty. See [renderFrame.progressBand] and
 // [renderFrame.statusBands].
-func (f *renderFrame) repaintBands(old, now indicators) (b [5]image.Rectangle) {
+func (f *renderFrame) repaintBands(old, now indicators) (b [6]image.Rectangle) {
 	if old.progress != now.progress || progressAnimates(now.progress) {
 		b[0] = f.progressBand()
 	}
 	if old.status != now.status || now.status.animates() {
 		sb := f.statusBands()
 		copy(b[1:], sb[:])
+	}
+	switch {
+	case old.bell.flash != now.bell.flash:
+		b[5] = f.windowBounds
+	case old.bell.title != now.bell.title:
+		b[5] = f.chromeBounds
 	}
 	return b
 }
@@ -307,6 +307,7 @@ func (d *Renderer) render(dst *image.NRGBA, scr vt.Screen, f *renderFrame) {
 	if !f.st.Focused {
 		effects.ApplyFocusDimming(f, dst)
 	}
+	drawBellFlash(dst, f)
 
 	effects.ApplyRoundedMask(f, dst)
 

@@ -216,7 +216,7 @@ func TestRepaintProgressMatchesFullDraw(t *testing.T) {
 
 			got := image.NewNRGBA(base.Rect)
 			copy(got.Pix, base.Pix)
-			d.Repaint(got, scr, st, later)
+			d.Repaint(got, scr, st, at, later)
 			if bytes.Equal(got.Pix, base.Pix) {
 				t.Fatal("repainting at a later offset did not move the bar")
 			}
@@ -237,9 +237,10 @@ func TestRepaintAtOrigin(t *testing.T) {
 	st := vt.State{Title: "t", Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
 	size := d.Layout(12, 3).Image.Size()
 	dst := image.NewNRGBA(image.Rectangle{Min: image.Pt(7, 5), Max: image.Pt(7+size.X, 5+size.Y)})
-	d.Draw(dst, scr, st, sweepPhase(0.2))
+	at := sweepPhase(0.2)
+	d.Draw(dst, scr, st, at)
 	later := sweepPhase(0.5)
-	d.Repaint(dst, scr, st, later)
+	d.Repaint(dst, scr, st, at, later)
 
 	want := drawFresh(d, scr, st, later)
 	for y := range size.Y {

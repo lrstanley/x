@@ -32,6 +32,7 @@ const (
 	DefaultFocusDimming     = 0.16
 
 	DefaultProgressBarHeight = units.Px(2)
+	DefaultBellDuration      = 2 * time.Second
 )
 
 // Options is the merged renderer configuration owned by a [Renderer].
@@ -71,6 +72,8 @@ type Options struct {
 	ProgressBar            bool
 	ProgressBarHeight      units.Px
 	ProgramStatus          bool
+	Bell                   bool
+	BellDuration           time.Duration
 	BorderRadius           units.Px
 	Margin                 units.Px
 	MarginFill             color.Color
@@ -97,6 +100,7 @@ func DefaultOptions() Options {
 		ProgressBar:           true,
 		ProgressBarHeight:     DefaultProgressBarHeight,
 		ProgramStatus:         true,
+		BellDuration:          DefaultBellDuration,
 	}
 }
 

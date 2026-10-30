@@ -38,7 +38,7 @@ func (*fakeAnimator) Changes(st vt.State, from, to time.Duration) bool {
 	return st.Title == "spin"
 }
 
-func (*fakeAnimator) Repaint(dst *image.NRGBA, _ vt.Screen, _ vt.State, at time.Duration) {
+func (*fakeAnimator) Repaint(dst *image.NRGBA, _ vt.Screen, _ vt.State, _, at time.Duration) {
 	p := dst.Rect.Max.Sub(image.Pt(1, 1))
 	c := dst.NRGBAAt(p.X, p.Y)
 	c.A = uint8(at / (10 * ms))
