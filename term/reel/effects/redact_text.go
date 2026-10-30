@@ -269,19 +269,35 @@ func (s secrets) scrub(text string) string {
 // scrubStatuses returns statuses with the text of each record scrubbed (see
 // [secrets.scrub]), and whether any changed. statuses is not modified.
 func (s secrets) scrubStatuses(statuses []vt.ProgramStatus) ([]vt.ProgramStatus, bool) {
-	var out []vt.ProgramStatus
-	for i, st := range statuses {
-		app, title, msg := s.scrub(st.App), s.scrub(st.Title), s.scrub(st.Message)
-		if app == st.App && title == st.Title && msg == st.Message {
-			continue
+	return scrubEach(statuses, func(st vt.ProgramStatus) vt.ProgramStatus {
+		st.App, st.Title, st.Message = s.scrub(st.App), s.scrub(st.Title), s.scrub(st.Message)
+		return st
+	})
+}
+
+// scrubNotifications returns ns with the title and body of each scrubbed
+// (see [secrets.scrub]), and whether any changed. ns is not modified.
+func (s secrets) scrubNotifications(ns []vt.Notification) ([]vt.Notification, bool) {
+	return scrubEach(ns, func(n vt.Notification) vt.Notification {
+		n.Title, n.Body = s.scrub(n.Title), s.scrub(n.Body)
+		return n
+	})
+}
+
+// scrubEach returns items with scrub applied to each, and whether any
+// changed. items is not modified.
+func scrubEach[T comparable](items []T, scrub func(T) T) ([]T, bool) {
+	var out []T
+	for i, item := range items {
+		if scrubbed := scrub(item); scrubbed != item {
+			if out == nil {
+				out = slices.Clone(items)
+			}
+			out[i] = scrubbed
 		}
-		if out == nil {
-			out = append([]vt.ProgramStatus(nil), statuses...)
-		}
-		out[i].App, out[i].Title, out[i].Message = app, title, msg
 	}
 	if out == nil {
-		return statuses, false
+		return items, false
 	}
 	return out, true
 }

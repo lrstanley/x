@@ -289,11 +289,11 @@ func TestRedactWrappedWide(t *testing.T) {
 }
 
 // TestRedactTitleStatus checks that text regions hide their text in the
-// title, the program status, and the context's title.
+// title, the program status, the notifications, and the context's title.
 func TestRedactTitleStatus(t *testing.T) {
 	t.Parallel()
 	tl := buildTimeline(t, 10, 2, "deploy hunter2",
-		output(0, "\x1b]2;login hunter2\x07\x1b]7501;state=working:app=hunter2\x1b\\x"),
+		output(0, "\x1b]2;login hunter2\x07\x1b]7501;state=working:app=hunter2\x1b\\x"+osc777("hunter2", "pw hunter2")+osc9("ok")),
 	)
 	var title string
 	_, out := redactFrames(t, testutil.Rasterizer{}, tl, Redact(Text("hunter2")), titleOf{&title})
@@ -307,10 +307,49 @@ func TestRedactTitleStatus(t *testing.T) {
 	if st.Title != "login •••••••" || len(st.ProgramStatuses) != 1 || st.ProgramStatuses[0].App != "•••••••" {
 		t.Fatalf("title %q, statuses %+v", st.Title, st.ProgramStatuses)
 	}
+	want := []vt.Notification{{Title: "•••••••", Body: "pw •••••••"}, {Body: "ok"}}
+	if !slices.Equal(st.Notifications, want) {
+		t.Fatalf("notifications %+v, want %+v", st.Notifications, want)
+	}
 	// Cells regions hide no title.
 	_, out = redactFrames(t, testutil.Rasterizer{}, tl, Redact(Row(1)))
 	if len(out) != 1 || out[0].Cells.State.Title != "login hunter2" {
 		t.Fatalf("frames %+v", infoOf(out))
+	}
+}
+
+// TestRedactNotificationsAfterWindow checks that a notification is
+// scrubbed on every frame, past Redact's window too, since a toast shows it
+// after it arrives, and that scrubbing it alone keeps the frame's image.
+func TestRedactNotificationsAfterWindow(t *testing.T) {
+	t.Parallel()
+	tl := buildTimeline(t, 10, 2, "",
+		output(0, "x"),
+		mark(100, "a"),
+		output(200, osc9("pw hunter2")),
+		mark(300, "b"),
+		output(400, "y"),
+		mark(1000, "end"),
+	)
+	in, out := redactFrames(t, testutil.Rasterizer{}, tl, Redact(Text("hunter2"), Between("a", "b")))
+	var after int
+	for i, f := range out {
+		ns := f.Cells.State.Notifications
+		if f.At < 200*ms {
+			continue
+		}
+		if len(ns) != 1 || ns[0].Body != "pw •••••••" {
+			t.Fatalf("frame %d at %v: notifications %+v", i, f.At, ns)
+		}
+		if f.At >= 300*ms {
+			after++
+			if !slices.ContainsFunc(in, func(g reel.Frame) bool { return g.Image == f.Image }) {
+				t.Errorf("frame %d at %v was redrawn", i, f.At)
+			}
+		}
+	}
+	if after == 0 {
+		t.Fatalf("no frame after the window in %+v", infoOf(out))
 	}
 }
 

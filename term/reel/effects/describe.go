@@ -29,6 +29,7 @@ const (
 	effectPause     = "pause"
 	effectHighlight = "highlight"
 	effectZoom      = "zoom"
+	effectToasts    = "toasts"
 )
 
 // effectDecoders decode the data of an annotation, by effect name.
@@ -38,6 +39,7 @@ var effectDecoders = map[string]func(data jsontext.Value) (reel.Effect, error){
 	effectPause:     decodeEffect(pauseData.effect),
 	effectHighlight: decodeEffect(highlightData.effect),
 	effectZoom:      decodeEffect(zoomData.effect),
+	effectToasts:    decodeEffect(toastsData.effect),
 }
 
 // FromAnnotation returns the effect an annotation of kind [reel.EffectKind]
@@ -210,6 +212,38 @@ func (d introData) effect() (reel.Effect, error) {
 	return Intro(fromMillis(d.DurationMS), lines...), nil
 }
 
+type toastsData struct {
+	ShownMS int64  `json:"shown_ms,omitzero"`
+	Corner  string `json:"corner,omitzero"`
+}
+
+// Describe implements [reel.Describer].
+func (e toasts) Describe() (reel.Annotation, error) {
+	if err := e.corner.check("toast"); err != nil {
+		return reel.Annotation{}, err
+	}
+	var d toastsData
+	if e.shown > 0 {
+		d.ShownMS = millis(e.shown)
+	}
+	if e.corner != TopRight {
+		d.Corner = cornerNames[e.corner]
+	}
+	return describe(effectToasts, d)
+}
+
+func (d toastsData) effect() (reel.Effect, error) {
+	opts := []ToastOption{WithToastDuration(fromMillis(d.ShownMS))}
+	if d.Corner != "" {
+		c, err := parseCorner(d.Corner)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, WithToastCorner(c))
+	}
+	return Toasts(opts...), nil
+}
+
 type pauseData struct {
 	Points      []pointData `json:"points,omitzero"`
 	Badge       *bool       `json:"badge,omitzero"`
@@ -224,9 +258,6 @@ type pointData struct {
 	Labels     []string `json:"labels,omitzero"`
 	Pattern    *string  `json:"pattern,omitzero"`
 }
-
-// cornerNames are the names of the corners, by value.
-var cornerNames = []string{"top_left", "top_right", "bottom_left", "bottom_right"}
 
 // Describe implements [reel.Describer].
 func (e pause) Describe() (reel.Annotation, error) {
@@ -248,7 +279,7 @@ func (e pause) Describe() (reel.Annotation, error) {
 		d.Badge = new(false)
 		return describe(effectPause, d)
 	}
-	if err := e.checkCorner(); err != nil {
+	if err := e.corner.check("pause badge"); err != nil {
 		return reel.Annotation{}, err
 	}
 	if e.corner != TopRight {
@@ -287,11 +318,11 @@ func (d pauseData) effect() (reel.Effect, error) {
 		opts = append(opts, WithoutBadge())
 	}
 	if d.BadgeCorner != "" {
-		c := slices.Index(cornerNames, d.BadgeCorner)
-		if c < 0 {
-			return nil, fmt.Errorf("unknown badge corner %q", d.BadgeCorner)
+		c, err := parseCorner(d.BadgeCorner)
+		if err != nil {
+			return nil, fmt.Errorf("badge: %w", err)
 		}
-		opts = append(opts, WithBadgeCorner(Corner(c)))
+		opts = append(opts, WithBadgeCorner(c))
 	}
 	opts = append(opts, WithBadgeSize(d.BadgeSizePX))
 	if d.BadgeColor.c != nil {

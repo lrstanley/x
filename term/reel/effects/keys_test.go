@@ -91,8 +91,8 @@ func TestKeyTimelineState(t *testing.T) {
 	// Keys stay 1500ms after a burst: opaque for 1000ms, then three fade
 	// levels on the 50ms grid at 1000, 1150 (1166 snapped), and 1350 (1333).
 	tl := keyTimeline{
-		at:    []time.Duration{0, 100 * ms, 3000 * ms},
-		shown: 1500 * ms, step: 50 * ms,
+		at:   []time.Duration{0, 100 * ms, 3000 * ms},
+		fade: fade{shown: 1500 * ms, step: 50 * ms},
 	}
 	for _, tc := range []struct {
 		p    time.Duration
@@ -224,7 +224,7 @@ func TestKeysTiming(t *testing.T) {
 func TestKeysSkipsGoneBursts(t *testing.T) {
 	t.Parallel()
 	for _, speed := range []float64{0.5, 1, 3} {
-		k := &keysStage{ctx: &reel.Context{Step: 50 * ms, Speed: speed}, shown: 300 * ms}
+		k := &keysStage{ctx: &reel.Context{Step: 50 * ms, Speed: speed}, fade: fade{shown: 300 * ms, step: 50 * ms}}
 		for i, at := range []int{0, 100, 390, 420, 1000, 1310, 1400, 2000, 2010, 2900, 4600, 4650} {
 			k.presses = append(k.presses, keyPress{at: time.Duration(at) * ms, label: string(rune('a' + i))})
 		}
@@ -363,3 +363,28 @@ var (
 	shared      = Keys(300 * ms)
 	sharedIntro = Intro(200 * ms)
 )
+
+func TestFadeLevel(t *testing.T) {
+	t.Parallel()
+	// 600ms on a 50ms grid: opaque for 400ms, then levels at 550 and
+	// 650ms (466.7 and 533.3 rounded), and gone at 700ms.
+	fd := fade{shown: 600 * ms, step: 50 * ms}
+	for _, tc := range []struct {
+		at   time.Duration
+		want int
+	}{
+		{50 * ms, -1},
+		{100 * ms, 0},
+		{499 * ms, 0},
+		{500 * ms, 1},
+		{550 * ms, 2},
+		{649 * ms, 2},
+		{650 * ms, 3},
+		{699 * ms, 3},
+		{700 * ms, -1},
+	} {
+		if got := fd.level(100*ms, tc.at); got != tc.want {
+			t.Errorf("level at %v = %d, want %d", tc.at, got, tc.want)
+		}
+	}
+}

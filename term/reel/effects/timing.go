@@ -85,7 +85,13 @@ func delayOffset(ctx *reel.Context, f reel.Frame, at time.Duration) time.Duratio
 	if at == openTo {
 		return f.Delay
 	}
-	return min(time.Duration(float64(at-f.At)/ctx.Speed).Round(ctx.Step), f.Delay)
+	return min(playOffset(ctx, f, at), f.Delay)
+}
+
+// playOffset is the offset into the delay of f of offset at into the
+// timeline, on the delay grid of ctx. It is negative for an at before f.
+func playOffset(ctx *reel.Context, f reel.Frame, at time.Duration) time.Duration {
+	return time.Duration(float64(at-f.At) / ctx.Speed).Round(ctx.Step)
 }
 
 // coverage is how much of its window an effect must cover.

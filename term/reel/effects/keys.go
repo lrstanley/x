@@ -7,9 +7,7 @@ package effects
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -21,18 +19,12 @@ import (
 )
 
 const (
-	// keysFadeLevels is how many steps the key overlay fades out in. Each step
-	// is a frame that defeats duplicate frame merging, so keep it low.
-	keysFadeLevels = 3
 	// keysMaxChips is how many keys the overlay shows at once, newest last.
 	// Repeats of one key share a chip.
 	keysMaxChips = 6
 	// keysMaxText is the longest typed text a chip shows before cutting it.
 	keysMaxText = 16
 )
-
-// keysOpacity is the overlay's opacity at each fade level, opaque first.
-var keysOpacity = [keysFadeLevels + 1]uint8{255, 192, 128, 64}
 
 // keysChip is the style of a key in the overlay: bold white on dark grey,
 // xterm 255 and 238.
@@ -84,7 +76,7 @@ func (e keys) Start(ctx *reel.Context) (reel.Stage, error) {
 		return nil, err
 	}
 	from, _ := ctx.Timeline.Window()
-	k := &keysStage{ctx: ctx, shown: e.shown, cards: cards, from: from}
+	k := &keysStage{ctx: ctx, fade: fade{shown: e.shown, step: ctx.Step}, cards: cards, from: from}
 	if rs, ok := ctx.Value(typedRedactionKey{}).([]typedRedaction); ok {
 		k.mask = &typedMask{redactions: rs}
 	}
@@ -113,7 +105,7 @@ func (p keyPress) shownLabel() string {
 // keysStage is the overlay for one recording.
 type keysStage struct {
 	ctx   *reel.Context
-	shown time.Duration
+	fade  fade
 	cards *CardRenderer
 	// from is the start of the timeline's window: input before it is not
 	// shown.
@@ -246,16 +238,14 @@ func typedLabel(text string) string {
 type keyTimeline struct {
 	at     []time.Duration
 	labels []string
-	// shown is how long keys stay after the last press of a burst. They stay
-	// opaque for the first two thirds, then fade.
-	shown time.Duration
-	step  time.Duration
+	// fade is how keys fade after the last press of a burst.
+	fade fade
 }
 
 func (k *keysStage) timeline(f reel.Frame) keyTimeline {
-	t := keyTimeline{shown: k.shown, step: k.ctx.Step}
+	t := keyTimeline{fade: k.fade}
 	for _, p := range k.presses[k.start:] {
-		at := time.Duration(float64(p.at-f.At) / k.ctx.Speed).Round(t.step)
+		at := playOffset(k.ctx, f, p.at)
 		if at >= f.Delay {
 			break
 		}
@@ -272,7 +262,7 @@ func (k *keysStage) timeline(f reel.Frame) keyTimeline {
 // A burst is only gone once the gap to the next key is more than shown and
 // a step, so the next burst can not join it on the delay grid.
 func (k *keysStage) skipGone(at time.Duration) {
-	gone := time.Duration(float64(k.shown+k.ctx.Step) * k.ctx.Speed)
+	gone := time.Duration(float64(k.fade.shown+k.ctx.Step) * k.ctx.Speed)
 	for i := k.start + 1; i < len(k.presses) && k.presses[i-1].at+gone <= at; i++ {
 		if k.presses[i].at-k.presses[i-1].at >= gone {
 			k.start = i
@@ -280,15 +270,8 @@ func (k *keysStage) skipGone(at time.Duration) {
 	}
 }
 
-// fade is when the key pressed at at starts fade level (see [keyState]), on
-// the step grid. Level keysFadeLevels+1 is when it disappears.
-func (t keyTimeline) fade(at time.Duration, level int) time.Duration {
-	hold := t.shown * 2 / 3
-	return (at + hold + (t.shown-hold)*time.Duration(level-1)/keysFadeLevels).Round(t.step)
-}
-
 // keyState is what the overlay shows at one moment: keys first through last,
-// at a fade level, where 0 is opaque and keysFadeLevels the faintest.
+// at a fade level (see [fade.level]).
 type keyState struct {
 	first, last, level int
 }
@@ -306,16 +289,16 @@ func (t keyTimeline) state(p time.Duration) keyState {
 			last = i
 		}
 	}
-	if last < 0 || p >= t.fade(t.at[last], keysFadeLevels+1) {
+	if last < 0 {
+		return noKeys
+	}
+	level := t.fade.level(t.at[last], p)
+	if level < 0 {
 		return noKeys
 	}
 	first := last
-	for first > 0 && t.at[first] < t.fade(t.at[first-1], keysFadeLevels+1) {
+	for first > 0 && t.at[first] < t.fade.start(t.at[first-1], fadeLevels+1) {
 		first--
-	}
-	level := 0
-	for level < keysFadeLevels && p >= t.fade(t.at[last], level+1) {
-		level++
 	}
 	return keyState{first: first, last: last, level: level}
 }
@@ -324,47 +307,12 @@ func (t keyTimeline) state(p time.Duration) keyState {
 // drawn on it. A paused frame ([reel.Frame.Paused]) is not split: it keeps
 // the overlay as of its start.
 func (k *keysStage) frames(t keyTimeline, f reel.Frame, emit func(reel.Frame)) {
-	cuts := []time.Duration{0}
-	if !f.Paused {
-		for _, at := range t.at {
-			cuts = append(cuts, at)
-			for level := 1; level <= keysFadeLevels+1; level++ {
-				cuts = append(cuts, t.fade(at, level))
-			}
+	splitFrame(k.ctx, f, t.fade.cuts(f.Delay, t.at...), t.state, func(st keyState) *image.NRGBA {
+		if st == noKeys {
+			return f.Image
 		}
-		slices.Sort(cuts)
-		cuts = slices.Compact(cuts)
-		// Keep cuts inside the frame that leave its last piece at least one
-		// step.
-		cuts = slices.DeleteFunc(cuts, func(c time.Duration) bool {
-			return c < 0 || (c > 0 && f.Delay-c < t.step)
-		})
-	}
-
-	var out []reel.Frame
-	var prev keyState
-	for i, start := range cuts {
-		end := f.Delay
-		if i+1 < len(cuts) {
-			end = cuts[i+1]
-		}
-		st := t.state(start)
-		if len(out) > 0 && st == prev {
-			out[len(out)-1].Delay += end - start
-			continue
-		}
-		prev = st
-		piece := f
-		piece.At = f.At + time.Duration(float64(start)*k.ctx.Speed)
-		piece.Delay = end - start
-		if st != noKeys {
-			piece.Image = overlayKeys(f.Image, k.chipRow(f.Cells, t.labels[st.first:st.last+1]), st.level)
-		}
-		out = append(out, piece)
-	}
-	for _, piece := range out {
-		emit(piece)
-	}
+		return overlayKeys(f.Image, k.chipRow(f.Cells, t.labels[st.first:st.last+1]), st.level)
+	}, emit)
 }
 
 // chipRow returns the chips for labels on the terminal of src, reusing the
@@ -434,7 +382,6 @@ func overlayKeys(frame, chips *image.NRGBA, level int) *image.NRGBA {
 	b, cb := frame.Bounds(), chips.Bounds()
 	img := cloneNRGBA(frame)
 	at := image.Pt(b.Max.X-cb.Dx()-cb.Dy(), b.Max.Y-2*cb.Dy())
-	mask := image.NewUniform(color.Alpha{A: keysOpacity[level]})
-	draw.DrawMask(img, cb.Sub(cb.Min).Add(at), chips, cb.Min, mask, image.Point{}, draw.Over)
+	drawFaded(img, chips, at, fadeOpacity[level])
 	return img
 }

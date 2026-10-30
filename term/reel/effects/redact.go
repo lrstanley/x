@@ -77,10 +77,10 @@ func Replace(c rune) RedactOption {
 //
 // [Text] and [Env] regions also hide a secret that only partly shows, such
 // as while it is typed (see [MinPartial]). They and [Regexp] regions also
-// hide their text in the terminal's title and program status (OSC 7501), as
-// a • for each character, and in [reel.Context.Title], which effects after
-// Redact, such as [Intro], read. [Cells], [Row], and [Rows] regions hide
-// cells only.
+// hide their text in the terminal's title, program status (OSC 7501), and
+// desktop notifications, as a • for each character, and in
+// [reel.Context.Title], which effects after Redact, such as [Intro], read.
+// [Cells], [Row], and [Rows] regions hide cells only.
 //
 // Redact is a [reel.Concealer]. What the effects after it draw themselves,
 // such as a card of a caller's own, is not redacted. A still of
@@ -99,7 +99,9 @@ func Replace(c rune) RedactOption {
 // delay grid that shows any of the window is redacted whole. An export of a
 // timeline without the from mark, such as of a test that failed before it,
 // is redacted whole, since where the secret starts is not known; without the
-// to mark, it is redacted to the end. A nil region is an error from Start.
+// to mark, it is redacted to the end. Notifications are scrubbed on every
+// frame, whatever the window, since a [Toasts] toast shows one after it
+// arrives. A nil region is an error from Start.
 func Redact(region Region, opts ...RedactOption) reel.Effect {
 	r := redact{region: region, matching: defaultMatching}
 	for _, opt := range opts {
@@ -157,6 +159,10 @@ type redactStage struct {
 	srcState vt.State
 	hidden   *reel.CellFrame
 	covered  []bool
+
+	// notes are the notifications scrubbed last, and scrubbedNotes them
+	// scrubbed, or nil when that hid nothing.
+	notes, scrubbedNotes []vt.Notification
 }
 
 func (s *redactStage) run(f reel.Frame, emit func(reel.Frame)) {
@@ -164,6 +170,7 @@ func (s *redactStage) run(f reel.Frame, emit func(reel.Frame)) {
 		emit(f)
 		return
 	}
+	f.Cells = s.scrubNotifications(f.Cells)
 	pieces := s.window.pieces(f)
 	if len(pieces) == 1 && pieces[0].level == 0 {
 		emit(f)
@@ -184,6 +191,31 @@ func (s *redactStage) run(f reel.Frame, emit func(reel.Frame)) {
 		}
 		emit(out)
 	}
+}
+
+// scrubNotifications returns cf with its notifications scrubbed (see
+// [secrets.scrub]). It ignores the window, since a toast ([Toasts]) shows
+// a notification after it arrives. The rasterizer does not draw
+// notifications, so the frame's image stands.
+func (s *redactStage) scrubNotifications(cf *reel.CellFrame) *reel.CellFrame {
+	ns := cf.State.Notifications
+	if len(ns) == 0 {
+		return cf
+	}
+	// A terminal only appends to its notifications, so it holds the ones
+	// scrubbed last while it holds as many from the same slice.
+	if len(ns) != len(s.notes) || &ns[0] != &s.notes[0] {
+		s.notes, s.scrubbedNotes = ns, nil
+		if out, changed := secretsOf(s.region, s.matching).scrubNotifications(ns); changed {
+			s.scrubbedNotes = out
+		}
+	}
+	if s.scrubbedNotes == nil {
+		return cf
+	}
+	scrubbed := *cf
+	scrubbed.State.Notifications = s.scrubbedNotes
+	return &scrubbed
 }
 
 // hide returns f's terminal with what the region covers hidden, and its

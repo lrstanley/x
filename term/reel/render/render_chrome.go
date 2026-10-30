@@ -11,10 +11,10 @@ import (
 	"math"
 	"net/url"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lrstanley/x/term/reel/internal/plaintext"
 	icol "github.com/lrstanley/x/term/reel/render/internal/color"
 	idraw "github.com/lrstanley/x/term/reel/render/internal/draw"
 	"github.com/lrstanley/x/term/reel/render/internal/fontset"
@@ -105,69 +105,8 @@ func (c *chromeText) cell() (w, h int) {
 	return max(c.metrics.CellWidth.Int(), 1), c.metrics.CellHeight.Int()
 }
 
-// plainText makes untrusted text safe to draw as one plain line in the title
-// bar. Controls (C0 and C1, which covers ESC, so no escape sequence survives)
-// and white space, which includes line and paragraph separators, become
-// spaces, and runs of them collapse, with none at either end. Format
-// characters (Unicode Cf: every bidi embedding, override, and isolate, and
-// zero-width characters, the soft hyphen, and the byte order mark), other
-// default ignorable code points, noncharacters, and invalid UTF-8 are dropped.
-// Nothing is read as markup, and cells are laid out left to right in the
-// order received, so "\u202egnp.exe" reads "gnp.exe", not "exe.png". At most
-// chromeTextMax runes are read. Text that needs no change is returned as is.
-func plainText(s string) string {
-	var (
-		b     strings.Builder
-		built bool // b holds the text so far; until then it is s[:i]
-		space bool // a space is owed before the next rune kept
-		runes int
-	)
-	for i, r := range s {
-		runes++
-		if runes > chromeTextMax {
-			if !built {
-				return strings.TrimSuffix(s[:i], " ")
-			}
-			break
-		}
-		blank, drop := r == ' ', false
-		if r < ' ' || r > '~' { // printable ASCII is kept as is
-			blank = unicode.IsControl(r) || unicode.IsSpace(r)
-			drop = !blank && (r == utf8.RuneError ||
-				unicode.In(r, unicode.Cf, unicode.Other_Default_Ignorable_Code_Point, unicode.Noncharacter_Code_Point))
-		}
-		if !built {
-			switch {
-			case !blank && !drop:
-				space = false
-				continue
-			case r == ' ' && i > 0 && !space:
-				space = true // one space between words is kept as is
-				continue
-			}
-			// The first rune that changes: copy the text before it, less
-			// the space it owes.
-			built = true
-			b.Grow(len(s))
-			b.WriteString(strings.TrimSuffix(s[:i], " "))
-		}
-		switch {
-		case blank:
-			space = b.Len() > 0
-		case drop:
-		default:
-			if space {
-				b.WriteByte(' ')
-				space = false
-			}
-			b.WriteRune(r)
-		}
-	}
-	if !built {
-		return strings.TrimSuffix(s, " ")
-	}
-	return b.String()
-}
+// plainText is title bar text made safe to draw (see [plaintext.Line]).
+func plainText(s string) string { return plaintext.Line(s, chromeTextMax) }
 
 // fitText returns s truncated with an ellipsis to cells, and its width.
 func fitText(s string, cells int) (fit string, width int) {

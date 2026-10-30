@@ -439,17 +439,17 @@ func closeColor(a, b color.NRGBA) bool {
 	return near(a.R, b.R) && near(a.G, b.G) && near(a.B, b.B) && near(a.A, b.A)
 }
 
-func TestBadgeAt(t *testing.T) {
+func TestCornerAt(t *testing.T) {
 	t.Parallel()
 	grid := image.Rect(5, 10, 105, 60)
 	for corner, want := range map[Corner]image.Point{
 		TopLeft:     {7, 12},
-		TopRight:    {97, 12},
-		BottomLeft:  {7, 52},
-		BottomRight: {97, 52},
+		TopRight:    {95, 12},
+		BottomLeft:  {7, 54},
+		BottomRight: {95, 54},
 	} {
-		if got := badgeAt(grid, 6, corner); got != want {
-			t.Errorf("badgeAt corner %d = %v, want %v", corner, got, want)
+		if got := cornerAt(grid, image.Pt(8, 4), 2, corner); got != want {
+			t.Errorf("cornerAt corner %d = %v, want %v", corner, got, want)
 		}
 	}
 }

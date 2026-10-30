@@ -34,6 +34,7 @@ func describeTimeline(t *testing.T) *reel.Timeline {
 		output(300, "line two\r\n"),
 		input(400, "hunter2\r"),
 		mark(600, "b"),
+		output(700, osc777("build", "done")),
 		output(900, "done"),
 	)
 }
@@ -70,6 +71,8 @@ func TestDescribeRoundTrip(t *testing.T) {
 	}{
 		{name: "keys", effect: Keys(500 * ms), want: `{"effect":"keys","shown_ms":500}`},
 		{name: "keys off", effect: Keys(0), want: `{"effect":"keys","shown_ms":0}`},
+		{name: "toasts", effect: Toasts(), want: `{"effect":"toasts"}`},
+		{name: "toasts full", effect: Toasts(WithToastDuration(4000*ms), WithToastCorner(BottomLeft)), want: `{"effect":"toasts","shown_ms":4000,"corner":"bottom_left"}`},
 		{name: "intro title", effect: Intro(300 * ms), want: `{"effect":"intro","duration_ms":300}`},
 		{
 			name: "intro lines",
@@ -254,6 +257,7 @@ func TestDescribeInvalid(t *testing.T) {
 		"pause nil regexp": Pause(PauseAtMatch(ms, nil)),
 		"pause negative":   Pause(PauseAtMarks(-ms)),
 		"pause corner":     Pause(WithBadgeCorner(Corner(9))),
+		"toast corner":     Toasts(WithToastCorner(Corner(-1))),
 		"badge size":       Pause(WithBadgeSize(4)),
 		"underline":        Intro(ms, Line{Text: "x", Style: vt.Style{Underline: 99}}),
 		"anchor":           Zoom(Text("x"), Anchor(2, 0)),
@@ -279,7 +283,8 @@ func TestFromAnnotationErrors(t *testing.T) {
 		"pattern":       {reel.EffectKind, `{"effect":"zoom","region":{"type":"regexp","pattern":"("}}`, "missing closing )"},
 		"pause pattern": {reel.EffectKind, `{"effect":"pause","points":[{"at":"match","duration_ms":1}]}`, "without a pattern"},
 		"pause at":      {reel.EffectKind, `{"effect":"pause","points":[{"at":"start","duration_ms":1}]}`, `unknown pause point "start"`},
-		"corner":        {reel.EffectKind, `{"effect":"pause","badge_corner":"middle"}`, `unknown badge corner "middle"`},
+		"corner":        {reel.EffectKind, `{"effect":"pause","badge_corner":"middle"}`, `badge: unknown corner "middle"`},
+		"toast corner":  {reel.EffectKind, `{"effect":"toasts","shown_ms":1,"corner":"middle"}`, `unknown corner "middle"`},
 		"color":         {reel.EffectKind, `{"effect":"pause","badge_color":"red"}`, `color "red"`},
 		"short color":   {reel.EffectKind, `{"effect":"pause","badge_color":"#fff"}`, `color "#fff"`},
 		"index color":   {reel.EffectKind, `{"effect":"intro","duration_ms":1,"lines":[{"text":"x","style":{"fg":256}}]}`, "palette index"},
@@ -318,6 +323,7 @@ func TestExportCastEffects(t *testing.T) {
 			Keys(500 * ms),
 			Intro(200 * ms),
 			Pause(PauseAtMarks(100*ms, "b")),
+			Toasts(WithToastDuration(500*ms), WithToastCorner(BottomRight)),
 		}
 		first := filepath.Join(dir, "first.cast")
 		p := reel.Profile{

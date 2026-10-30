@@ -42,8 +42,8 @@
       "required": ["effect"],
       "properties": {
         "effect": {
-          "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, and \"zoom\" zooms in on one. reel never writes its effects that hide secrets, since an asciicast file holds what they hide.",
-          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom"]
+          "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, \"zoom\" zooms in on one, and \"toasts\" shows desktop notifications as toasts. reel never writes its effects that hide secrets, since an asciicast file holds what they hide.",
+          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom", "toasts"]
         }
       },
       "allOf": [
@@ -51,7 +51,8 @@
         {"if": {"properties": {"effect": {"const": "intro"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.intro"}},
         {"if": {"properties": {"effect": {"const": "pause"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.pause"}},
         {"if": {"properties": {"effect": {"const": "highlight"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.highlight"}},
-        {"if": {"properties": {"effect": {"const": "zoom"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.zoom"}}
+        {"if": {"properties": {"effect": {"const": "zoom"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.zoom"}},
+        {"if": {"properties": {"effect": {"const": "toasts"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.toasts"}}
       ]
     },
     "reel.effect.keys": {
@@ -64,6 +65,23 @@
         "shown_ms": {
           "description": "How long keys stay shown after the last key of a burst, fading out over its final third. Zero or less shows no keys.",
           "type": "integer"
+        }
+      }
+    },
+    "reel.effect.toasts": {
+      "description": "The toasts effect: the program's OSC 9 and OSC 777 desktop notifications as toasts, rounded panels with a bold title over the body, stacked newest first in a corner of the terminal's cell grid, at most three at once.",
+      "type": "object",
+      "required": ["effect"],
+      "properties": {
+        "kind": {"const": "reel.effect"},
+        "effect": {"const": "toasts"},
+        "shown_ms": {
+          "description": "How long a toast stays, fading in over its first 150ms and out over its last 300ms. Left out, or zero or less, 2000.",
+          "type": "integer"
+        },
+        "corner": {
+          "description": "The corner of the terminal's cell grid the toasts are in. Left out, \"top_right\".",
+          "type": "string", "examples": ["top_left", "top_right", "bottom_left", "bottom_right"]
         }
       }
     },

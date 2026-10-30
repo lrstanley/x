@@ -35,17 +35,6 @@ var (
 	badgeLight = color.NRGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xc0}
 )
 
-// Corner is a corner of the terminal's cell grid in a frame.
-type Corner int
-
-// The corners of the cell grid.
-const (
-	TopLeft Corner = iota
-	TopRight
-	BottomLeft
-	BottomRight
-)
-
 // PauseOption configures [Pause]: where it pauses, and its badge.
 type PauseOption func(*pause)
 
@@ -190,7 +179,7 @@ func (e pause) Start(ctx *reel.Context) (reel.Stage, error) {
 	}
 	s := e.newStage(ctx)
 	if !e.noBadge {
-		if err := e.checkCorner(); err != nil {
+		if err := e.corner.check("pause badge"); err != nil {
 			return nil, err
 		}
 		size := e.size
@@ -209,14 +198,6 @@ func (e pause) Start(ctx *reel.Context) (reel.Stage, error) {
 		return s.missing()
 	})
 	return s.run, nil
-}
-
-// checkCorner returns an error for a badge corner that is none of the four.
-func (e pause) checkCorner() error {
-	if e.corner < TopLeft || e.corner > BottomRight {
-		return fmt.Errorf("effects: pause badge corner %d out of range", e.corner)
-	}
-	return nil
 }
 
 // CheckMarks implements [reel.MarkChecker]: each label of [PauseAtMarks]
@@ -435,23 +416,9 @@ func (s *pauseStage) badge(f reel.Frame) *image.NRGBA {
 		b := f.Cells.Screen.Bounds()
 		grid := s.ctx.Rasterizer.Layout(b.Dx(), b.Dy()).Grid
 		s.src, s.badged = f.Image, cloneNRGBA(f.Image)
-		draw.Draw(s.badged, s.glyph.Rect.Add(badgeAt(grid, s.size, s.corner)), s.glyph, image.Point{}, draw.Over)
+		draw.Draw(s.badged, s.glyph.Rect.Add(cornerAt(grid, image.Pt(s.size, s.size), s.size/3, s.corner)), s.glyph, image.Point{}, draw.Over)
 	}
 	return s.badged
-}
-
-// badgeAt is where a badge of size goes in corner of grid, a third of its
-// size in from the edges.
-func badgeAt(grid image.Rectangle, size int, corner Corner) image.Point {
-	inset := size / 3
-	at := image.Pt(grid.Min.X+inset, grid.Min.Y+inset)
-	if corner == TopRight || corner == BottomRight {
-		at.X = grid.Max.X - inset - size
-	}
-	if corner == BottomLeft || corner == BottomRight {
-		at.Y = grid.Max.Y - inset - size
-	}
-	return at
 }
 
 // pauseGlyph draws the badge: two rounded bars of fg on a disc of size that
