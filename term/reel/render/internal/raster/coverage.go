@@ -240,7 +240,7 @@ type Pass struct {
 // to [Pass.DrawPending].
 func (p *Pass) AddGlyph(ctx GlyphContext, layout *Layout) {
 	switch layout.Kind {
-	case KindGrid, KindSprite:
+	case KindGrid, KindSprite, KindRegistered:
 		dr, pix, stride, ok := layoutMaskPixels(ctx, layout, &p.glyphMasks)
 		if !ok {
 			return

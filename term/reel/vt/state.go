@@ -64,6 +64,11 @@ type State struct {
 	// states and must not be modified: the emulator replaces it rather
 	// than changing it.
 	Palette *Palette
+	// Glyphs is the glyphs the program registered with the Glyph Protocol,
+	// which the renderer draws for their runes, or nil when there are none.
+	// It may be shared with the emulator and other states and must not be
+	// modified: the emulator replaces it rather than changing it.
+	Glyphs *Glyphs
 	// ScrollbackLen is the number of scrollback rows. It is zero on the
 	// alternate screen.
 	ScrollbackLen int
@@ -123,8 +128,8 @@ func (s State) ShownProgress() Progress {
 }
 
 // Equal reports whether s and o are the same state. Fields compare as with
-// ==, Palette by its colors, and ProgramStatuses and Notifications element
-// by element.
+// ==, Palette by its colors, Glyphs by pointer, and ProgramStatuses and
+// Notifications element by element.
 func (s State) Equal(o State) bool {
 	return s.Title == o.Title &&
 		s.Focused == o.Focused &&
@@ -136,6 +141,7 @@ func (s State) Equal(o State) bool {
 		s.Background == o.Background &&
 		s.ReverseColors == o.ReverseColors &&
 		samePalette(s.Palette, o.Palette) &&
+		s.Glyphs == o.Glyphs &&
 		s.ScrollbackLen == o.ScrollbackLen &&
 		s.ScrollbackOffset == o.ScrollbackOffset &&
 		s.Progress == o.Progress &&
@@ -188,8 +194,8 @@ func sameSlice[T any](a, b []T) bool {
 
 // SameLook reports whether s and o, two states of one terminal, are drawn
 // the same: they are the same commit (see [State.SameCommit]), with the same
-// focus, colors, and scrollback offset. Like SameCommit, it ignores the
-// scrollback length, which only changes with output.
+// focus, colors, registered glyphs, and scrollback offset. Like SameCommit,
+// it ignores the scrollback length, which only changes with output.
 func (s State) SameLook(o State) bool {
 	return s.SameCommit(o) &&
 		s.Focused == o.Focused &&
@@ -198,6 +204,7 @@ func (s State) SameLook(o State) bool {
 		s.Background == o.Background &&
 		s.ReverseColors == o.ReverseColors &&
 		samePalette(s.Palette, o.Palette) &&
+		s.Glyphs == o.Glyphs &&
 		s.CursorColor == o.CursorColor &&
 		s.CursorColorSet == o.CursorColorSet
 }
@@ -224,6 +231,7 @@ func (t *Terminal) State() State {
 		CursorColorSet:   hasCursor,
 		ReverseColors:    t.reverseColorsLocked(),
 		Palette:          t.paletteLocked(),
+		Glyphs:           t.glyphsLocked(),
 		ScrollbackLen:    t.scrollbackLenLocked(),
 		ScrollbackOffset: t.scrollbackOffsetLocked(),
 		Progress:         t.progress,

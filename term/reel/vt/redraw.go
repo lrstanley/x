@@ -28,6 +28,7 @@ import (
 //   - the scrolling region and tab stops
 //   - the window title and working directory
 //   - the foreground, background, cursor, and indexed colors the program set
+//   - the Glyph Protocol glossary, oldest registration first
 //   - the OSC 9;4 progress and OSC 7501 program status
 //   - the OSC 133 prompt marks, how their commands ended, and the step the
 //     last one is at, but not which cells were typed input or output
@@ -58,6 +59,7 @@ func (t *Terminal) Redraw() ([]byte, error) {
 	// The cursor shape first: the modes the formatter restores include
 	// the cursor's blinking, which DECSCUSR also sets.
 	b.WriteString(cursorShape(t.cursorLocked()))
+	b.WriteString(glyphsVT(t.glyphsLocked()))
 	b.Write(screenVT)
 	t.redrawImagesLocked(&b)
 	if t.title != "" {

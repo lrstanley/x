@@ -31,6 +31,10 @@ type GlyphContext interface {
 	// ColorGlyph returns the full color glyph that draws cluster, or nil to draw
 	// it as text.
 	ColorGlyph(cluster idraw.Cluster) idraw.ColorGlyph
+
+	// RegisteredGlyph returns the Glyph Protocol glyph the program
+	// registered for cluster, or nil to draw it as text.
+	RegisteredGlyph(cluster idraw.Cluster) *vt.Glyph
 }
 
 // Kind classifies glyph layout strategy.
@@ -52,6 +56,10 @@ const (
 	// KindColor glyphs are full color images (emoji) fitted into the area of
 	// their wide cell, and have no face.
 	KindColor
+	// KindRegistered glyphs are outlines the program registered with the
+	// Glyph Protocol, drawn instead of any font's glyph for their rune, and
+	// have no face.
+	KindRegistered
 )
 
 // Layout holds resolved glyph rasterization parameters.
@@ -69,6 +77,8 @@ type Layout struct {
 
 	Color   idraw.ColorGlyph // The glyph of a [KindColor] layout.
 	Opacity uint8            // How opaque a [KindColor] glyph is drawn: less than 255 for faint text.
+
+	Glyph *vt.Glyph // The glyph of a [KindRegistered] layout. Target is its span.
 }
 
 // GridGlyphDotX returns the horizontal pen position for a grid glyph centered
@@ -93,6 +103,11 @@ func LayoutGlyph(ctx GlyphContext, area image.Rectangle, cell *vt.Cell, spansNex
 	cluster, ok := idraw.NewCluster(cell.Content)
 	if !ok {
 		return false
+	}
+	if glyph := ctx.RegisteredGlyph(cluster); glyph != nil {
+		*out = Layout{Kind: KindRegistered, Cluster: cluster, Fg: fg, Glyph: glyph}
+		out.SetArea(ctx, area, cell)
+		return true
 	}
 	if IsSpriteRune(cluster.Base) {
 		*out = Layout{Kind: KindSprite, Area: area, Cluster: cluster, Fg: fg}
@@ -135,12 +150,12 @@ func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *vt.Cell) 
 		return
 	}
 	metrics := ctx.Metrics()
-	l.Dot = fixed.Point26_6{
-		X: GridGlyphDotX(area, metrics),
-		Y: fixed.I(area.Max.Y - metrics.FontBaseline.Int()),
-	}
 	switch l.Kind {
-	case KindGrid, KindSprite, KindColor:
+	case KindRegistered:
+		// The span is whole cells, even where the grid cuts the last one. It
+		// has no pen position: the glyph is centered in it.
+		l.Target = image.Rectangle{Min: area.Min, Max: area.Min.Add(image.Pt(l.Glyph.Cells*metrics.CellWidth.Int(), metrics.CellHeight.Int()))}
+		return
 	case KindPowerline:
 		l.Target = area
 	case KindFallback:
@@ -149,6 +164,11 @@ func (l *Layout) SetArea(ctx GlyphContext, area image.Rectangle, cell *vt.Cell) 
 		} else {
 			l.Target = idraw.FallbackGlyphTarget(ctx, area, cell)
 		}
+	case KindGrid, KindSprite, KindColor:
+	}
+	l.Dot = fixed.Point26_6{
+		X: GridGlyphDotX(area, metrics),
+		Y: fixed.I(area.Max.Y - metrics.FontBaseline.Int()),
 	}
 }
 

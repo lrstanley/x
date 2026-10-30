@@ -100,6 +100,10 @@ func (c *chromeText) FontFace(cell *vt.Cell, cluster idraw.Cluster) xfont.Face {
 
 func (c *chromeText) UsesGridLayout(face xfont.Face) bool { return c.fonts.UsesGridLayout(face) }
 
+// RegisteredGlyph is nil: the program's glyphs are for its cells, not the
+// window's title.
+func (c *chromeText) RegisteredGlyph(idraw.Cluster) *vt.Glyph { return nil }
+
 // cell is the size of one title bar text cell.
 func (c *chromeText) cell() (w, h int) {
 	return max(c.metrics.CellWidth.Int(), 1), c.metrics.CellHeight.Int()

@@ -169,6 +169,12 @@ type Terminal struct {
 	// while no write or reset could have changed it since.
 	palette      *Palette
 	paletteFresh bool
+	// glyphs is the last [Terminal.glyphsLocked], read at the emulator's
+	// glossary generation glyphsGen. It is replaced, never changed in
+	// place. glyphsFresh is true while no write could have changed it.
+	glyphs      *Glyphs
+	glyphsGen   uint64
+	glyphsFresh bool
 
 	// grid is the last decoded screen. It does not alias Wasm memory.
 	grid *Buffer
@@ -255,6 +261,7 @@ func (t *Terminal) OutputSeq() uint64 {
 func (t *Terminal) writeLocked(p []byte) error {
 	t.paletteFresh = false
 	t.prompts.written = true
+	t.glyphsFresh = false
 	for len(p) > 0 {
 		n := min(len(p), feedSize)
 		t.mod.Put(t.feed, p[:n])
@@ -339,6 +346,7 @@ func (t *Terminal) resetStateLocked() {
 	t.gridFresh = false
 	t.hasCursor = false
 	t.paletteFresh = false
+	t.glyphsFresh = false
 	t.kitty.reset()
 }
 

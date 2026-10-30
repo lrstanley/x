@@ -33,6 +33,7 @@ type glyphMaskKey struct {
 	base  rune
 	marks string
 	size  image.Point
+	glyph *vt.Glyph // a [KindRegistered] layout's: one replaced by the program is a new glyph.
 
 	// target tells apart a glyph that may grow into the next cell.
 	target image.Point
@@ -223,6 +224,7 @@ func glyphLayoutMask(layout *Layout, cache *glyphMaskCache) (cachedGlyphMask, bo
 		base:   layout.Cluster.Base,
 		marks:  layout.Cluster.Marks,
 		size:   layout.Area.Size(),
+		glyph:  layout.Glyph,
 		target: layout.Target.Size(),
 	}
 	if cache.items != nil {
@@ -263,6 +265,8 @@ func buildGlyphLayoutMask(layout *Layout) (cachedGlyphMask, bool) {
 	dot := layout.Dot
 	switch layout.Kind {
 	case KindGrid, KindSprite, KindColor:
+	case KindRegistered:
+		return registeredGlyphMask(layout)
 	case KindPowerline:
 		return scaledGlyphLayoutMask(layout, dot, layout.ScaleMode)
 	case KindFallback:

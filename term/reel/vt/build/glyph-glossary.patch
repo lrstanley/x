@@ -1,0 +1,143 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 2fe0a90..0be9fdc 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -329,6 +329,8 @@ comptime {
+         @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
+         @export(&c.terminal_compress, .{ .name = "ghostty_terminal_compress" });
+         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
++        @export(&c.terminal_glyph_glossary, .{ .name = "ghostty_terminal_glyph_glossary" });
++        @export(&c.terminal_glyph_glossary_entry, .{ .name = "ghostty_terminal_glyph_glossary_entry" });
+         @export(&c.terminal_get_multi, .{ .name = "ghostty_terminal_get_multi" });
+         @export(&c.terminal_continuation_write, .{ .name = "ghostty_terminal_continuation_write" });
+         @export(&c.terminal_continuation_buf, .{ .name = "ghostty_terminal_continuation_buf" });
+diff --git a/src/terminal/apc/glyph/Glossary.zig b/src/terminal/apc/glyph/Glossary.zig
+index 7200d16..d20730a 100644
+--- a/src/terminal/apc/glyph/Glossary.zig
++++ b/src/terminal/apc/glyph/Glossary.zig
+@@ -47,6 +47,9 @@ pub const ClearError = error{OutOfNamespace};
+ /// happen regularly.
+ entries: std.AutoArrayHashMapUnmanaged(u21, Entry),
+ 
++/// Changes whenever entries do, so embedders can tell when to read them again.
++generation: u64 = 0,
++
+ /// Release all glyph entries and hash map storage owned by the glossary.
+ pub fn deinit(self: *Glossary, alloc: Allocator) void {
+     for (self.entries.values()) |*entry| entry.deinit(alloc);
+@@ -65,6 +68,7 @@ pub fn register(
+ ) RegisterError!void {
+     // Validate codepoint according to spec.
+     if (!isPrivateUse(cp)) return error.OutOfNamespace;
++    self.generation +%= 1;
+ 
+     const gop = try self.entries.getOrPut(alloc, cp);
+     if (gop.found_existing) {
+@@ -100,6 +104,7 @@ pub fn delete(
+ ) ClearError!void {
+     if (!isPrivateUse(cp)) return error.OutOfNamespace;
+     const kv = self.entries.fetchOrderedRemove(cp) orelse return;
++    self.generation +%= 1;
+     var entry = kv.value;
+     entry.deinit(alloc);
+ }
+@@ -110,6 +115,7 @@ pub fn clearAndFree(self: *Glossary, alloc: Allocator) void {
+     for (self.entries.values()) |*entry| entry.deinit(alloc);
+     self.entries.deinit(alloc);
+     self.entries = .empty;
++    self.generation +%= 1;
+ }
+ 
+ /// Contains returns true if the codepoint is covered by the glossary.
+@@ -139,6 +145,9 @@ pub const Entry = struct {
+     /// Normalized scale, alignment, and padding behavior for rasterization.
+     constraint: Constraint,
+ 
++    /// The register command the entry came from, without its APC framing.
++    raw: []const u8,
++
+     /// Errors that can occur while constructing a glossary entry from a
+     /// register request.
+     pub const InitError = RegisterReq.DecodeError || error{
+@@ -171,6 +180,8 @@ pub const Entry = struct {
+ 
+         // Get our constraints
+         const constraint = try constraintFromRegister(req);
++        const raw = try alloc.dupe(u8, req.raw);
++        errdefer alloc.free(raw);
+ 
+         // Decode the payload into some usable glyph format for
+         // future rasterization.
+@@ -187,6 +198,7 @@ pub const Entry = struct {
+             .design = design,
+             .width = width,
+             .constraint = constraint,
++            .raw = raw,
+         };
+     }
+ 
+@@ -195,6 +207,7 @@ pub const Entry = struct {
+         switch (self.glyph) {
+             .glyf => |*outline| outline.deinit(alloc),
+         }
++        alloc.free(self.raw);
+         self.* = undefined;
+     }
+ 
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 4212737..cd82486 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -193,6 +193,8 @@ pub const terminal_scroll_viewport = terminal.scroll_viewport;
+ pub const terminal_compression_activity = terminal.compression_activity;
+ pub const terminal_compress = terminal.compress;
+ pub const terminal_get = terminal.get;
++pub const terminal_glyph_glossary = terminal.glyph_glossary;
++pub const terminal_glyph_glossary_entry = terminal.glyph_glossary_entry;
+ pub const terminal_get_multi = terminal.get_multi;
+ pub const terminal_continuation_write = terminal.continuation_write;
+ pub const terminal_continuation_buf = terminal.continuation_buf;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 06cab9b..e69a75d 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1912,6 +1912,39 @@ pub const TerminalData = enum(c_int) {
+     }
+ };
+ 
++/// Report the Glyph Protocol glossary: out_count gets the number of entries
++/// and out_generation a value that changes whenever they do.
++pub fn glyph_glossary(
++    terminal_: Terminal,
++    out_count: *usize,
++    out_generation: *u64,
++) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    const glossary = &wrapper.terminal.glyph_glossary;
++    out_count.* = glossary.entries.count();
++    out_generation.* = glossary.generation;
++    return .success;
++}
++
++/// Report glossary entry index, oldest first: its codepoint and the register
++/// command it came from, which stays valid until the glossary next changes.
++pub fn glyph_glossary_entry(
++    terminal_: Terminal,
++    index: usize,
++    out_cp: *u32,
++    out_raw: *[*]const u8,
++    out_len: *usize,
++) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    const entries = &wrapper.terminal.glyph_glossary.entries;
++    if (index >= entries.count()) return .invalid_value;
++    const raw = entries.values()[index].raw;
++    out_cp.* = entries.keys()[index];
++    out_raw.* = raw.ptr;
++    out_len.* = raw.len;
++    return .success;
++}
++
+ pub fn get(
+     terminal_: Terminal,
+     data: TerminalData,

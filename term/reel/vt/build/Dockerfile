@@ -26,6 +26,11 @@ ARG GHOSTTY_REV=e3ebb1d1bf772cf5d1bc70b5ae19e6943e33a110
 # which need a filesystem. Direct payloads work as on any other target.
 COPY kitty-freestanding.patch /kitty-freestanding.patch
 
+# libghostty-vt keeps Glyph Protocol registrations but has no C API to read
+# them. The patch keeps each entry's register command and exports the
+# glossary, with a generation that changes whenever it does.
+COPY glyph-glossary.patch /glyph-glossary.patch
+
 RUN mkdir -p /src \
 	&& cd /src \
 	&& git init -q \
@@ -33,6 +38,7 @@ RUN mkdir -p /src \
 	&& git fetch --depth 1 origin "${GHOSTTY_REV}" \
 	&& git checkout --detach --quiet FETCH_HEAD \
 	&& git apply /kitty-freestanding.patch \
+	&& git apply /glyph-glossary.patch \
 	&& zig build -Demit-lib-vt -Dtarget=wasm32-freestanding -Dcpu=generic -Doptimize=ReleaseSmall \
 	&& mv zig-out/bin/ghostty-vt.wasm /ghostty-vt.wasm \
 	&& rm -rf /src

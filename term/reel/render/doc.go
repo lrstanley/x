@@ -46,6 +46,13 @@
 // covers the same cells at any font size. Unicode placeholder cells draw
 // their image instead of their text.
 //
+// Glyph Protocol glyphs ([vt.State.Glyphs]) draw instead of any font's glyph
+// for the Private Use Area runes they are registered for, in the cell's
+// foreground. They are placed as Rio, the protocol's reference terminal,
+// places them, not as the protocol's size, align, and pad options ask: scaled
+// so one em fits the shorter side of their cells and the outline fits them,
+// and centered in them.
+//
 // OSC 7501 program status ([WithProgramStatus], from
 // [vt.State.ProgramStatuses]) is drawn only with window chrome. The most
 // urgent record (see [vt.ProgramState]) replaces the title with its icon,

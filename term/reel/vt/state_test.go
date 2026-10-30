@@ -59,6 +59,8 @@ func TestStateEqual(t *testing.T) {
 				var p Palette
 				p.Set(1, color.NRGBA{R: 1, A: 0xff})
 				v.Set(reflect.ValueOf(&p))
+			case **Glyphs:
+				v.Set(reflect.ValueOf(&Glyphs{}))
 			default:
 				t.Fatalf("field %s has a pointer type the test does not set", typ.Field(i).Name)
 			}
@@ -132,8 +134,8 @@ func TestStateSameCommit(t *testing.T) {
 	}
 }
 
-// TestStateSameLook checks that SameLook is SameCommit, with focus and colors
-// compared too.
+// TestStateSameLook checks that SameLook is SameCommit, with focus, colors,
+// and registered glyphs compared too.
 func TestStateSameLook(t *testing.T) {
 	t.Parallel()
 
@@ -149,6 +151,7 @@ func TestStateSameLook(t *testing.T) {
 		"cursor color":     func(s *State) { s.CursorColor = color.NRGBA{B: 1, A: 0xff} },
 		"cursor color set": func(s *State) { s.CursorColorSet = true },
 		"palette":          func(s *State) { s.Palette = new(Palette) },
+		"glyphs":           func(s *State) { s.Glyphs = new(Glyphs) },
 	} {
 		b := a
 		change(&b)

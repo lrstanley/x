@@ -35,6 +35,7 @@ type frameSnap struct {
 	palette    *vt.Palette    // by pointer: the emulator replaces it only when its colors change
 	marks      *vt.PromptMark // by first element and count: the emulator replaces them only when they change
 	markCount  int
+	glyphs     *vt.Glyphs // by pointer, as palette
 }
 
 // reuseFrame reports whether d.frame already shows scr with st at at. Blink
@@ -128,6 +129,7 @@ func (d *Renderer) currentSnap(bounds image.Rectangle, st vt.State, at time.Dura
 		bg:         st.Background,
 		reverse:    st.ReverseColors,
 		palette:    st.Palette,
+		glyphs:     st.Glyphs,
 	}
 	if d.opts.WindowChrome {
 		s.title, s.dir = st.Title, st.WorkingDirectory

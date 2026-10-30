@@ -204,6 +204,15 @@ func (f *renderFrame) ColorGlyph(cluster idraw.Cluster) idraw.ColorGlyph {
 	return f.r.fonts.ColorGlyph(cluster)
 }
 
+// RegisteredGlyph returns the glyph registered for a lone rune. Only Private
+// Use Area runes have one: the emulator refuses the rest.
+func (f *renderFrame) RegisteredGlyph(cluster idraw.Cluster) *vt.Glyph {
+	if cluster.Marks != "" {
+		return nil
+	}
+	return f.st.Glyphs.Lookup(cluster.Base)
+}
+
 func (f *renderFrame) UsesGridLayout(face font.Face) bool {
 	if f.r.fonts == nil {
 		return false

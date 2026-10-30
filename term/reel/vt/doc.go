@@ -19,7 +19,8 @@
 // graphics placements ([Buffer.Images]), measured in the terminal's cell
 // pixels ([WithCellSize]). A [State] is the rest of what a renderer needs
 // to draw a screen: the title, focus, cursor, default colors, reverse
-// video, the palette colors the program set, scrollback, OSC 9;4 progress,
-// OSC 7501 program status, and the program's events, such as the bell,
-// stamped on the terminal's clock ([WithClock]).
+// video, the palette colors the program set, the glyphs it registered with
+// the Glyph Protocol, scrollback, OSC 9;4 progress, OSC 7501 program status,
+// and the program's events, such as the bell, stamped on the terminal's clock
+// ([WithClock]).
 package vt
