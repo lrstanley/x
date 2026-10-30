@@ -14,7 +14,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/x/ansi v0.11.9
-	github.com/lrstanley/go-nf v0.0.0-20261018042953-dc908cf1060f
+	github.com/lrstanley/go-nf bd2cf0ad81fc
 	github.com/lrstanley/x/term/reel v0.0.0
 	github.com/lrstanley/x/term/steep v0.0.0-20260510074740-f99adc613ee2
 )
