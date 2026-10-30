@@ -64,6 +64,9 @@ func randCell(r *rand.Rand) *vt.Cell {
 			Attrs:     vt.Attr(r.IntN(2))*vt.AttrBold | vt.Attr(r.IntN(2))*vt.AttrItalic | vt.Attr(r.IntN(4)/3)*vt.AttrFaint | vt.Attr(r.IntN(4)/3)*vt.AttrStrikethrough,
 		}
 	}
+	if r.IntN(4) == 0 {
+		c.Link.URL = "https://example.com"
+	}
 	return c
 }
 
@@ -95,6 +98,7 @@ func TestDrawIncrementalMatchesFull(t *testing.T) {
 		{"chrome-progress", []Option{WithWindowChrome(true), WithMargin(4, nil), WithBackgroundOpacity(0.5), WithProgressBarHeight(3)}, vt.State{Title: "build", Progress: vt.Progress{State: vt.ProgressSet, Percent: 30}, Cursor: vt.Cursor{Visible: true}}, 30},
 		{"chrome-status", []Option{WithWindowChrome(true), WithMargin(8, color.NRGBA{R: 21, G: 22, B: 28, A: 255}), WithBorderRadius(8)}, vt.State{Title: "agent", ProgramStatuses: diffStatuses[1], Focused: true, Cursor: vt.Cursor{Visible: true}}, 30},
 		{"chrome-status-inset", []Option{WithWindowChrome(true), WithBorderRadius(12), WithBackgroundOpacity(0.5), WithFocusDimming(0.35)}, vt.State{Title: "agent", ProgramStatuses: diffStatuses[2], Cursor: vt.Cursor{Visible: true}}, 30},
+		{"link-underline", []Option{WithLinkUnderline(true)}, vt.State{Focused: true, Cursor: vt.Cursor{Visible: true}}, 30},
 		{"big-font", []Option{WithScale(scaleFor(26)), WithPadding(3)}, vt.State{Focused: true, Cursor: vt.Cursor{Visible: true}}, 30},
 		{"everything", []Option{
 			WithMargin(6, color.NRGBA{R: 30, G: 60, B: 90, A: 200}), WithPadding(4), WithBorderRadius(12),

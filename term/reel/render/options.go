@@ -276,6 +276,17 @@ func WithScrollbarWidth(px int) Option {
 	}
 }
 
+// WithLinkUnderline sets whether to underline OSC 8 hyperlinked cells
+// ([vt.Cell.Link]) with a single line, as a terminal does when the pointer
+// is over a link. A cell with an underline of its own keeps it. Disabled by
+// default.
+func WithLinkUnderline(enabled bool) Option {
+	return func(d *Renderer) error {
+		d.opts.LinkUnderline = enabled
+		return nil
+	}
+}
+
 // WithWindowChrome sets whether to draw a title bar above the terminal grid,
 // with window buttons, [vt.State.Title], and after it the
 // [vt.State.WorkingDirectory] path, dimmer, which also stands in for a title

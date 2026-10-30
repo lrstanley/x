@@ -30,14 +30,28 @@ func Decorations(ctx config.CellFrameSource, img draw.Image, area image.Rectangl
 		}
 	}
 
-	if style.Underline != vt.UnderlineNone {
-		Underline(ctx, img, area, style.Underline, decoration)
+	if underline := underlineOf(ctx, cell); underline != vt.UnderlineNone {
+		Underline(ctx, img, area, underline, decoration)
 	}
 	if style.Attrs&vt.AttrStrikethrough != 0 {
 		metrics := ctx.Metrics()
 		y := units.Clamp(area.Min.Y+metrics.StrikethroughPosition.Int(), area.Min.Y, area.Max.Y-1)
 		Fill(img, image.Rect(area.Min.X, y, area.Max.X, min(area.Max.Y, y+metrics.StrikethroughThickness.Int())), decoration)
 	}
+}
+
+// underlineOf is the underline drawn under cell: its own, or a single line
+// under an OSC 8 hyperlink that has none, when ctx draws link underlines.
+func underlineOf(ctx config.CellFrameSource, cell *vt.Cell) vt.Underline {
+	if cell.Style.Underline == vt.UnderlineNone && cell.Link.URL != "" && ctx.LinkUnderline() {
+		return vt.UnderlineSingle
+	}
+	return cell.Style.Underline
+}
+
+// HasDecorations reports whether cell draws an underline or strikethrough.
+func HasDecorations(ctx config.CellFrameSource, cell *vt.Cell) bool {
+	return underlineOf(ctx, cell) != vt.UnderlineNone || cell.Style.Attrs&vt.AttrStrikethrough != 0
 }
 
 func periodicStart(start, period int) int {

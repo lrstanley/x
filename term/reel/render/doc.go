@@ -31,7 +31,8 @@
 // [Renderer] owns the full draw pipeline: window background, optional title bar
 // ([WithWindowChrome], showing [vt.State.Title] and
 // [vt.State.WorkingDirectory]), cell backgrounds, cell foregrounds (glyphs
-// and decorations), cursor, OSC 9;4 progress bar
+// and decorations, with an underline under OSC 8 links when
+// [WithLinkUnderline] is set), cursor, OSC 9;4 progress bar
 // ([WithProgressBar], from [vt.State.ShownProgress]), scrollbar gutter,
 // unfocused dimming overlay, the bell flash ([WithBell], from
 // [vt.State.Bell]), an antialiased rounding mask on the terminal window, then

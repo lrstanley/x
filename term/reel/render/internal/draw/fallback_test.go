@@ -40,6 +40,7 @@ func (m mockFrameContext) CellColorsNRGBA(_ *vt.Cell) (fg, bg color.NRGBA) {
 	return color.NRGBA{R: 0xff, A: 0xff}, color.NRGBA{A: 0xff}
 }
 func (m mockFrameContext) ResolvePaletteColor(c color.Color) color.Color { return c }
+func (m mockFrameContext) LinkUnderline() bool                           { return false }
 
 func TestFallbackGlyphTarget(t *testing.T) {
 	t.Parallel()

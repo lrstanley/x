@@ -169,6 +169,8 @@ func (f *renderFrame) State() vt.State { return f.st }
 
 func (f *renderFrame) FaintFactor() float64 { return f.opts.FaintFactor }
 
+func (f *renderFrame) LinkUnderline() bool { return f.opts.LinkUnderline }
+
 func (f *renderFrame) BackgroundOpacity() float64 { return f.opts.BackgroundOpacity }
 
 func (f *renderFrame) BackgroundOpacityCells() bool { return f.opts.BackgroundOpacityCells }

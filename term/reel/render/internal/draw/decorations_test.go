@@ -19,6 +19,7 @@ import (
 type decorationFrameContext struct {
 	m    types.Metrics
 	grid image.Rectangle
+	link bool
 }
 
 func (m decorationFrameContext) At() time.Duration { return 0 }
@@ -36,6 +37,32 @@ func (m decorationFrameContext) CellColorsNRGBA(_ *vt.Cell) (fg, bg color.NRGBA)
 	return color.NRGBA{R: 0xff, A: 0xff}, color.NRGBA{A: 0xff}
 }
 func (m decorationFrameContext) ResolvePaletteColor(c color.Color) color.Color { return c }
+func (m decorationFrameContext) LinkUnderline() bool                           { return m.link }
+
+func TestHasDecorationsLink(t *testing.T) {
+	t.Parallel()
+
+	link := vt.Link{URL: "https://example.com"}
+	tests := []struct {
+		name string
+		on   bool
+		cell vt.Cell
+		want bool
+	}{
+		{"off", false, vt.Cell{Link: link}, false},
+		{"on", true, vt.Cell{Link: link}, true},
+		{"no link", true, vt.Cell{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := decorationFrameContext{link: tt.on}
+			if got := idraw.HasDecorations(ctx, &tt.cell); got != tt.want {
+				t.Errorf("HasDecorations = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestDecorationsUnderline(t *testing.T) {
 	t.Parallel()

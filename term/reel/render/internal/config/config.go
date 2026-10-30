@@ -83,6 +83,7 @@ type Options struct {
 	FaintFactor            float64
 	FocusDimming           float64
 	CursorBlinkSpeed       time.Duration
+	LinkUnderline          bool
 }
 
 // DefaultOptions returns baseline renderer options.

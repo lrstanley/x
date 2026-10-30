@@ -39,6 +39,9 @@ type CellFrameSource interface {
 	GridBounds() image.Rectangle
 	CellColorsNRGBA(cell *vt.Cell) (fg, bg color.NRGBA)
 	ResolvePaletteColor(c color.Color) color.Color
+	// LinkUnderline reports whether OSC 8 hyperlinked cells with no
+	// underline of their own are drawn with a single one.
+	LinkUnderline() bool
 }
 
 // WindowSource supplies window geometry and effect knobs for post-processing.

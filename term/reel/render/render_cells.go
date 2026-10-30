@@ -38,7 +38,7 @@ func cellBackgroundFill(f *renderFrame, cell *vt.Cell, area image.Rectangle, win
 	if !icol.CellHasExplicitBackground(cell) {
 		return color.NRGBA{}, false, color.NRGBA{}, false
 	}
-	if idraw.TextVisible(f, cell) && (cellHasForegroundGlyph(cell) || cellHasForegroundDecorations(cell)) {
+	if idraw.TextVisible(f, cell) && (cellHasForegroundGlyph(cell) || idraw.HasDecorations(f, cell)) {
 		var bg color.NRGBA
 		fg, bg = f.CellColorsNRGBA(cell)
 		fgReady = true
@@ -87,7 +87,7 @@ func (d *Renderer) drawCellFg(area image.Rectangle, cell *vt.Cell, f *renderFram
 		return
 	}
 	hasGlyph := cellHasForegroundGlyph(cell)
-	hasDecorations := cellHasForegroundDecorations(cell)
+	hasDecorations := idraw.HasDecorations(f, cell)
 	if !hasGlyph && !hasDecorations {
 		return
 	}
@@ -159,11 +159,4 @@ func cellHasForegroundGlyph(cell *vt.Cell) bool {
 		return false
 	}
 	return cell.Content != "" && cell.Content != " "
-}
-
-func cellHasForegroundDecorations(cell *vt.Cell) bool {
-	if cell == nil {
-		return false
-	}
-	return cell.Style.Underline != vt.UnderlineNone || cell.Style.Attrs&vt.AttrStrikethrough != 0
 }
