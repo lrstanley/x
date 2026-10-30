@@ -256,7 +256,7 @@ func TestRendererConcurrentMethodsSerialize(t *testing.T) {
 			d.Draw(dst, scr, st, at)
 			d.Repaint(dst, scr, st, at, at+time.Millisecond)
 		})
-		wg.Go(func() { _ = d.Animates(st) })
+		wg.Go(func() { _ = d.Animates(st, at) })
 		wg.Go(func() { _ = d.Changes(st, at, at+time.Second) })
 		wg.Go(func() { _ = d.Metrics() })
 		wg.Go(func() { _ = d.Layout(4, 2) })

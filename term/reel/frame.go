@@ -74,8 +74,9 @@ type Rasterizer interface {
 // A held frame is then played as several frames, each repainted for its
 // time. [render.Renderer] implements it.
 type Animator interface {
-	// Animates reports whether images drawn with st change over time.
-	Animates(st vt.State) bool
+	// Animates reports whether images drawn with st change over time from
+	// offset at.
+	Animates(st vt.State, at time.Duration) bool
 	// Changes reports whether an image drawn with st may differ between
 	// offsets from and to.
 	Changes(st vt.State, from, to time.Duration) bool

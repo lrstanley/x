@@ -144,7 +144,7 @@ func TestProgressIndeterminateAnimates(t *testing.T) {
 	scr := newTestScreen(20, 3)
 	d := newRenderer(t)
 	st := vt.State{Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
-	if !d.Animates(st) {
+	if !d.Animates(st, 0) {
 		t.Fatal("Animates() = false for indeterminate progress")
 	}
 	start := sweepPhase(0.25)
@@ -293,7 +293,7 @@ func TestProgressBarDisabled(t *testing.T) {
 		t.Fatal("WithProgressBar(false) still drew the bar")
 	}
 	indeterminate := vt.State{Progress: vt.Progress{State: vt.ProgressIndeterminate, Percent: -1}}
-	if b.Animates(indeterminate) {
+	if b.Animates(indeterminate, 0) {
 		t.Error("Animates() = true with the bar disabled")
 	}
 	if _, err := New(WithProgressBarHeight(0)); err == nil {

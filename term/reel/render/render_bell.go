@@ -5,6 +5,7 @@
 package render
 
 import (
+	"image"
 	"image/draw"
 	"math"
 	"time"
@@ -37,7 +38,9 @@ type bellView struct {
 }
 
 // shownBell is what the latest BEL in st draws at at, with [WithBell].
-func (d *Renderer) shownBell(st vt.State, at time.Duration) bellView {
+// titled is false while a program status takes the title's place, which
+// hides the bell there.
+func (d *Renderer) shownBell(st vt.State, at time.Duration, titled bool) bellView {
 	age := at - st.Bell.At
 	if !d.opts.Bell || st.Bell.Count == 0 || age < 0 {
 		return bellView{}
@@ -46,8 +49,33 @@ func (d *Renderer) shownBell(st vt.State, at time.Duration) bellView {
 	if age < bellFlash {
 		v.flash = uint8(math.Ceil(float64(bellFlash-age) / float64(bellFlash) * bellFlashSteps))
 	}
-	v.title = d.opts.WindowChrome && age < d.opts.BellDuration
+	v.title = titled && d.opts.WindowChrome && age < d.opts.BellDuration
 	return v
+}
+
+// titled is title as the title bar shows it with v.
+func (v bellView) titled(title string) string {
+	switch {
+	case !v.title:
+		return title
+	case title == "":
+		return bellTitle
+	default:
+		return bellTitle + " " + title
+	}
+}
+
+// bellBand is the part of the image to repaint when the bell drawn goes
+// from old to now: the window while the flash changes, else the title bar
+// while its bell does, else nothing.
+func (f *renderFrame) bellBand(old, now bellView) image.Rectangle {
+	switch {
+	case old.flash != now.flash:
+		return f.windowBounds
+	case old.title != now.title:
+		return f.chromeBounds
+	}
+	return image.Rectangle{}
 }
 
 // drawBellFlash blends the window toward the foreground, by how far the

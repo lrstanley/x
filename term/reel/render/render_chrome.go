@@ -260,10 +260,7 @@ func (f *renderFrame) appendSubtitle(spans []chromeSpan, cells, room int, sub st
 func (f *renderFrame) titleLabel(spans []chromeSpan, maxCells int) (out []chromeSpan, cells int) {
 	col := icol.BlendNRGBA(f.backgroundNRGBA(nil), f.foregroundNRGBA(nil), chromeTitleTint)
 	dir := plainText(chromeDirectory(f.st.WorkingDirectory))
-	title := plainText(f.st.Title)
-	if f.bell.title {
-		title = strings.TrimSuffix(bellTitle+" "+title, " ")
-	}
+	title := f.bell.titled(plainText(f.st.Title))
 	if title == "" {
 		t, w := fitTextLeft(dir, maxCells)
 		return append(spans, chromeSpan{text: t, col: col}), w

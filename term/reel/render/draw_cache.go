@@ -21,7 +21,7 @@ type frameSnap struct {
 	screen image.Rectangle
 
 	title, dir string     // only tracked with window chrome, which is the only thing that paints them
-	ind        indicators // zero unless a progress bar or program status is drawn
+	ind        indicators // zero unless a progress bar, program status, or bell is drawn
 
 	focused    bool
 	alt        bool
@@ -171,21 +171,20 @@ func (d *Renderer) drawIncremental(scr vt.Screen, st vt.State, at time.Duration)
 	f := d.borrowRenderFrame(image.Point{}, scr, st, at)
 	defer releaseRenderFrame(f)
 	// The changed rows, then the indicator bands.
-	var bands [7]image.Rectangle
+	var rows image.Rectangle
 	if hi >= lo {
-		band := f.imageBounds
+		rows = f.imageBounds
 		if r0 := max(0, lo-1); r0 > 0 {
-			band.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
+			rows.Min.Y = f.gridBounds.Min.Y + r0*f.cellH
 		}
 		if r1 := min(buf.Height(), hi+2); r1 < buf.Height() {
-			band.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
+			rows.Max.Y = f.gridBounds.Min.Y + r1*f.cellH
 		}
-		bands[0] = band
 	}
 	ind := f.repaintBands(old.ind, now.ind)
-	copy(bands[1:], ind[:])
 	d.frameReady = false
-	d.renderBands(d.frame, scr, f, bands[:]...)
+	d.renderBands(d.frame, scr, f, rows)
+	d.renderBands(d.frame, scr, f, ind[:]...)
 	d.rememberFrame(scr, st, lo, hi, at)
 	return true
 }
@@ -212,9 +211,8 @@ func (d *Renderer) dirtyRows(buf *vt.Buffer) (lo, hi int, ok bool) {
 	return lo, hi, true
 }
 
-// sansBanded is s without the cursor, title bar text, progress, and program
-// status, which drawIncremental repaints as bands instead of rebuilding the
-// frame.
+// sansBanded is s without the cursor, title bar text, and indicators, which
+// drawIncremental repaints as bands instead of rebuilding the frame.
 func (s frameSnap) sansBanded() frameSnap {
 	s.cursor = vt.Cursor{}
 	s.title, s.dir = "", ""

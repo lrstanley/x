@@ -68,7 +68,7 @@ func TestProgramStatusNeedsChrome(t *testing.T) {
 		if !bytes.Equal(drawStatusImage(d, scr, statusAt).Pix, drawStatusImage(d, scr, statusAt, recs...).Pix) {
 			t.Errorf("%s: program status drew something", name)
 		}
-		if d.Animates(statusState(recs...)) {
+		if d.Animates(statusState(recs...), 0) {
 			t.Errorf("%s: Animates() = true for a status that is not drawn", name)
 		}
 		if bands := d.layoutSnapshot(t, image.Point{}, scr).statusBands(); bands != [4]image.Rectangle{} {
@@ -287,7 +287,7 @@ func TestProgramStatusAnimates(t *testing.T) {
 		at := statusAt + 300*time.Millisecond
 		d, other := statusRenderer(t), statusRenderer(t)
 		st := vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{tc.rec}}
-		if got := d.Animates(st); got != (tc.period > 0) {
+		if got := d.Animates(st, 0); got != (tc.period > 0) {
 			t.Errorf("%s: Animates() = %v", tc.name, got)
 		}
 		first := drawAt(t, d, scr, st, at).Pix
@@ -535,7 +535,7 @@ func TestProgramStatusBlockedReusesFrame(t *testing.T) {
 	scr := vt.NewBuffer(20, 3)
 	d := statusRenderer(t)
 	st := vt.State{Focused: true, ProgramStatuses: []vt.ProgramStatus{{State: vt.ProgramBlocked, Title: "ask", Progress: -1}}}
-	if !d.Animates(st) {
+	if !d.Animates(st, 0) {
 		t.Fatal("Animates() = false for a blocked status")
 	}
 	drawAt(t, d, scr, st, start)

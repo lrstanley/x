@@ -91,15 +91,14 @@ func (d *Renderer) scrollbarWidth() int {
 // timeline: the OSC 9;4 progress bar when it is indeterminate or an error with
 // no percent ([WithProgressBar]), and the OSC 7501 program status when its
 // most urgent record is blocked or working with no progress
-// ([WithProgramStatus]), and the bell once st holds a BEL ([WithBell]), which
-// changes for a while after it. [Renderer.Draw] then repaints them as they
-// move, and a recorder that holds a frame can keep them moving with
-// [Renderer.Repaint]. A blinking cursor or blinking text is not an indicator.
-func (d *Renderer) Animates(st vt.State) bool {
+// ([WithProgramStatus]), and the bell while it shows at at ([WithBell]).
+// [Renderer.Draw] then repaints them as they move, and a recorder that holds
+// a frame from at can keep them moving with [Renderer.Repaint]. A blinking
+// cursor or blinking text is not an indicator.
+func (d *Renderer) Animates(st vt.State, at time.Duration) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// The bell is checked as of its BEL, when it is drawn if at all.
-	return d.shownIndicators(st, st.Bell.At).clocked()
+	return d.shownIndicators(st, at).clocked()
 }
 
 // Changes reports whether the indicators drawn for st may look different at
@@ -153,7 +152,8 @@ type indicators struct {
 
 // shownIndicators are the indicators drawn for st at at.
 func (d *Renderer) shownIndicators(st vt.State, at time.Duration) indicators {
-	return indicators{progress: d.shownProgress(st), status: d.shownStatus(st, at), bell: d.shownBell(st, at)}
+	status := d.shownStatus(st, at)
+	return indicators{progress: d.shownProgress(st), status: status, bell: d.shownBell(st, at, !status.shown)}
 }
 
 // animates reports whether i looks different at every frame: the sweep of
@@ -173,9 +173,8 @@ func (i indicators) clocked() bool {
 // repaintBands are the parts of the image to repaint when the indicators
 // drawn go from old to now: the progress bar's band when the bar changed or
 // animates, the program status bands when the status changed or animates,
-// and the window while the bell flash fades, or the title bar when only its
-// bell changed. The others are empty. See [renderFrame.progressBand] and
-// [renderFrame.statusBands].
+// and the bell's band. The others are empty. See [renderFrame.progressBand],
+// [renderFrame.statusBands], and [renderFrame.bellBand].
 func (f *renderFrame) repaintBands(old, now indicators) (b [6]image.Rectangle) {
 	if old.progress != now.progress || progressAnimates(now.progress) {
 		b[0] = f.progressBand()
@@ -184,12 +183,7 @@ func (f *renderFrame) repaintBands(old, now indicators) (b [6]image.Rectangle) {
 		sb := f.statusBands()
 		copy(b[1:], sb[:])
 	}
-	switch {
-	case old.bell.flash != now.bell.flash:
-		b[5] = f.windowBounds
-	case old.bell.title != now.bell.title:
-		b[5] = f.chromeBounds
-	}
+	b[5] = f.bellBand(old.bell, now.bell)
 	return b
 }
 

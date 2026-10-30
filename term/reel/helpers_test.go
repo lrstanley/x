@@ -27,7 +27,7 @@ const ms = time.Millisecond
 // pixel.
 type fakeAnimator struct{ testutil.Rasterizer }
 
-func (*fakeAnimator) Animates(st vt.State) bool {
+func (*fakeAnimator) Animates(st vt.State, _ time.Duration) bool {
 	return st.Title == "spin" || st.Title == "breathe"
 }
 

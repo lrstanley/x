@@ -124,7 +124,7 @@ func (p *pipeline) release(until time.Duration, last bool) {
 		return
 	}
 	f.Delay, p.shown = end-p.shown, end
-	if p.anim == nil || f.Delay < 2*p.sweep || !p.anim.Animates(f.Cells.State) {
+	if p.anim == nil || f.Delay < 2*p.sweep || !p.anim.Animates(f.Cells.State, f.At) {
 		p.push(0, f)
 		return
 	}

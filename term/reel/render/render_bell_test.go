@@ -39,7 +39,7 @@ func TestBellOffByDefault(t *testing.T) {
 	if !bytes.Equal(drawFresh(d, scr, rung, bellAt).Pix, drawFresh(d, scr, quiet, bellAt).Pix) {
 		t.Fatal("a BEL changed the image without WithBell")
 	}
-	if d.Animates(rung) {
+	if d.Animates(rung, bellAt) {
 		t.Fatal("Animates() = true for a BEL without WithBell")
 	}
 }
@@ -106,8 +106,11 @@ func TestBellRepaint(t *testing.T) {
 	scr := bellScreen()
 	d := newRenderer(t, WithBell(true), WithWindowChrome(true), WithBellDuration(time.Second))
 	rung, _ := bellState()
-	if !d.Animates(rung) {
-		t.Fatal("Animates() = false for a BEL")
+	if !d.Animates(rung, bellAt+bellFlash) {
+		t.Fatal("Animates() = false while the title bell shows")
+	}
+	if d.Animates(rung, bellAt+time.Second) {
+		t.Fatal("Animates() = true after the bell ended")
 	}
 	base := drawAt(t, d, scr, rung, bellAt)
 	for _, later := range []time.Duration{bellFlash / 3, bellFlash, time.Second, 3 * time.Second} {
@@ -132,6 +135,46 @@ func TestBellRepaint(t *testing.T) {
 		if got := d.Changes(rung, bellAt+tc.from, bellAt+tc.to); got != tc.want {
 			t.Errorf("Changes(+%v, +%v) = %v, want %v", tc.from, tc.to, got, tc.want)
 		}
+	}
+}
+
+// TestBellDrawCache checks that Draw, which reuses and repaints the frame it
+// drew last, matches a full draw through the bell, also when rows change
+// during the flash.
+func TestBellDrawCache(t *testing.T) {
+	t.Parallel()
+
+	scr := bellScreen()
+	d := newRenderer(t, WithBell(true), WithWindowChrome(true), WithBellDuration(time.Second))
+	rung, _ := bellState()
+	dst := newImage(d, scr)
+	for i, later := range []time.Duration{0, time.Millisecond, bellFlash / 2, bellFlash / 2, bellFlash, time.Second} {
+		if i == 3 {
+			putText(scr, 0, 1, "dirty", vt.Style{})
+		}
+		d.Draw(dst, scr, rung, bellAt+later)
+		scr.ClearDirty()
+		if !bytes.Equal(dst.Pix, drawFresh(d, scr, rung, bellAt+later).Pix) {
+			t.Errorf("draw %d at +%v differs from a full draw", i, later)
+		}
+	}
+}
+
+// TestBellHiddenByStatus checks that a program status shown in place of
+// the title hides the title bell, so its end changes nothing.
+func TestBellHiddenByStatus(t *testing.T) {
+	t.Parallel()
+
+	scr := bellScreen()
+	d := statusRenderer(t, WithBell(true), WithBellDuration(time.Second))
+	rung, quiet := bellState()
+	recs := []vt.ProgramStatus{{State: vt.ProgramDone, Title: "done", Progress: -1}}
+	rung.ProgramStatuses, quiet.ProgramStatuses = recs, recs
+	if !bytes.Equal(drawFresh(d, scr, rung, bellAt+bellFlash).Pix, drawFresh(d, scr, quiet, bellAt).Pix) {
+		t.Fatal("the bell showed under a program status")
+	}
+	if d.Changes(rung, bellAt+bellFlash, bellAt+time.Second) {
+		t.Fatal("Changes() = true for a bell the program status hides")
 	}
 }
 
