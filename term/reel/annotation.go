@@ -5,6 +5,7 @@
 package reel
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
@@ -53,21 +54,25 @@ const annotationCode = "R"
 // replay ignores it, but its time counts toward the timeline's duration.
 //
 // In an asciicast file it is an event with code "R" whose data is a JSON
-// object of its Kind and fields, as [AnnotationSchema] describes. Other
-// asciicast readers ignore it.
+// object of its Kind, Source, and fields, as [AnnotationSchema] describes.
+// Other asciicast readers ignore it.
 type Annotation struct {
 	event
 	// Kind is dot-separated lower case words, such as "reel.effect".
 	Kind string
-	// Data is the annotation's fields as a JSON object without the kind, or
-	// nil for none. It must not be modified.
+	// Source is where in Go source the annotation was made, or nil (see
+	// [WithSource]). It is the JSON object's "source" member, and must not
+	// be modified.
+	Source *Source
+	// Data is the annotation's fields as a JSON object without the kind or
+	// the source, or nil for none. It must not be modified.
 	Data jsontext.Value
 }
 
 // NewAnnotation returns an annotation of kind with the fields of v, which
-// must be nil or marshal to a JSON object without a "kind" member. Invalid
-// UTF-8 in strings is replaced with U+FFFD. The result must validate
-// against [AnnotationSchema]; otherwise the error wraps
+// must be nil or marshal to a JSON object without a "kind" or "source"
+// member. Invalid UTF-8 in strings is replaced with U+FFFD. The result must
+// validate against [AnnotationSchema]; otherwise the error wraps
 // [ErrInvalidAnnotation].
 func NewAnnotation(kind string, v any) (Annotation, error) {
 	a, err := newAnnotation(kind, v)
@@ -104,25 +109,37 @@ func (e Annotation) Decode(v any) error {
 	return nil
 }
 
-// annotationObject is an [Annotation]'s JSON form: its kind, then its fields.
+// annotationObject is an [Annotation]'s JSON form: its kind and source,
+// then its fields.
 type annotationObject struct {
-	Kind string         `json:"kind"`
-	Data jsontext.Value `json:",embed"`
+	Kind   string         `json:"kind"`
+	Source *Source        `json:"source,omitzero"`
+	Data   jsontext.Value `json:",embed"`
 }
 
 // encode returns the annotation's asciicast event data without schema
-// validation. Data that is not a JSON object, or has a "kind" member, is an
-// error.
+// validation. Data that is not a JSON object, or has a "kind" member, or a
+// "source" member as well as a Source, is an error.
 func (e Annotation) encode() ([]byte, error) {
-	data, err := json.Marshal(annotationObject{Kind: e.Kind, Data: e.Data})
+	data, err := json.Marshal(annotationObject{Kind: e.Kind, Source: e.Source, Data: e.Data})
 	if err != nil {
 		return nil, fmt.Errorf("reel: annotation %q: %w", e.Kind, err)
 	}
 	return data, nil
 }
 
-// validate checks the annotation against [AnnotationSchema].
+// validate checks the annotation against [AnnotationSchema], and that its
+// data has no "source" member, which is reserved for [Annotation.Source]
+// whether or not it is set.
 func (e Annotation) validate() error {
+	if bytes.Contains(e.Data, []byte(`"source"`)) {
+		var v struct {
+			Source jsontext.Value `json:"source"`
+		}
+		if json.Unmarshal(e.Data, &v) == nil && v.Source != nil {
+			return fmt.Errorf("%w: %q: data has a \"source\" member", ErrInvalidAnnotation, e.Kind)
+		}
+	}
 	data, err := e.encode()
 	if err != nil {
 		return err
@@ -141,7 +158,7 @@ func parseAnnotation(data string) (Annotation, error) {
 	if err := json.Unmarshal(b, &obj); err != nil {
 		return Annotation{}, err
 	}
-	return Annotation{Kind: obj.Kind, Data: obj.Data}, nil
+	return Annotation{Kind: obj.Kind, Source: obj.Source, Data: obj.Data}, nil
 }
 
 // kindSchemas is [AnnotationSchema] resolved per described kind, plus once

@@ -45,6 +45,9 @@
 // ("steep.result"). Text fields over 4 KiB are cut and marked truncated.
 // Messages the model receives ("steep.message") are only recorded with
 // [WithRecordMessages], which leaves out the environment ([tea.EnvMsg]).
+// [WithSource] adds the file, line, and function of the test's line that
+// led to each annotation and mark, and the test's package and module to
+// "steep.start".
 //
 // By default nothing is written: the timeline stays in memory, for
 // [Harness.Timeline]. [WithExportOnFailure] exports when the test failed, and
@@ -92,8 +95,10 @@
 //   - STEEP_TYPING_DELAY: a duration to pause after each key press of
 //     [Harness.Type] and [Harness.Key] ([reel.WithTypingDelay]), unless a
 //     call passes [reel.Delay].
-//   - STEEP_LOG: true or 1 adds the hook of [WithLog].
-//   - STEEP_RECORD_MESSAGES: a boolean for [WithRecordMessages].
+//   - STEEP_LOG: on (or true, 1) adds the hook of [WithLog].
+//   - STEEP_RECORD_MESSAGES: on or off (or true, 1, false, 0) for
+//     [WithRecordMessages].
+//   - STEEP_SOURCE: on or off (or true, 1, false, 0) for [WithSource].
 //   - STEEP_SNAPSHOT_DIR: the default snapshot directory
 //     ([snapshot.WithDir]); a directory passed to a snapshot call still wins.
 //   - STEEP_EXPORT_MODE: on (or always, true, 1) for [WithExportAlways],

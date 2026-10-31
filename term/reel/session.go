@@ -69,6 +69,9 @@ type Session struct {
 	kittyFiles *kittyFiles
 	// typingDelay is how long Type and Key pause after each key press.
 	typingDelay time.Duration
+	// source is [WithSource], skipping the packages of sourceSkip.
+	source     bool
+	sourceSkip []string
 }
 
 // SessionOption configures [Open].
@@ -91,6 +94,9 @@ type sessionConfig struct {
 	kittyFiles bool
 	// unknown is [WithUnknownSequence].
 	unknown func(vt.UnknownSequence)
+	// source is [WithSource], and sourceSkip [WithSourceSkip].
+	source     bool
+	sourceSkip []string
 }
 
 // WithKittyStorage sets how many bytes of decoded Kitty graphics the
@@ -178,6 +184,24 @@ func WithUnknownSequence(fn func(vt.UnknownSequence)) SessionOption {
 	return func(cfg *sessionConfig) { cfg.unknown = fn }
 }
 
+// WithSource records where in Go source each [Session.Mark] and
+// [Session.Annotate] call came from, as [Caller] finds it: the line of the
+// test that led to it, inside a test, as the [Mark.Source] of each mark,
+// and the [Annotation.Source] of each annotation that has none. Calls with
+// no caller left to find record none. Off by default; while off, no stack
+// is walked.
+func WithSource(enabled bool) SessionOption {
+	return func(cfg *sessionConfig) { cfg.source = enabled }
+}
+
+// WithSourceSkip adds packages, each covering the packages under it, whose
+// frames [WithSource] skips as it does reel's, such as those of a test
+// harness built on reel. Frames in "_test.go" files are never skipped, so
+// a package's own tests still find their lines. Calls accumulate.
+func WithSourceSkip(pkgs ...string) SessionOption {
+	return func(cfg *sessionConfig) { cfg.sourceSkip = append(cfg.sourceSkip, pkgs...) }
+}
+
 // Open starts a session on a cols by rows terminal. It blocks until the
 // pool has room or ctx is canceled. The session starts focused. Close it to
 // return the terminal to the pool.
@@ -213,6 +237,7 @@ func Open(ctx context.Context, cols, rows int, opts ...SessionOption) (*Session,
 		term: term, timeline: timeline, done: make(chan struct{}),
 		scrollOnInput: cfg.scrollOnInput, noQueries: cfg.noQueries,
 		typingDelay: cfg.typingDelay,
+		source:      cfg.source, sourceSkip: cfg.sourceSkip,
 	}
 	if cfg.kittyFiles {
 		s.kittyFiles = newKittyFiles(cmp.Or(cfg.kittyStorage, vt.DefaultKittyStorage))
@@ -442,22 +467,42 @@ func (s *Session) Resize(cols, rows int) error {
 // Mark appends a [Mark] event, which [Timeline.Between] can cut at. The
 // label must not be empty but need not be unique. Use the "category:value"
 // form, such as "login:done" or "step:3", so tools reading the recording
-// can group marks by category (see [SplitLabel]).
+// can group marks by category (see [SplitLabel]). [WithSource] sets its
+// [Mark.Source].
 func (s *Session) Mark(label string) error {
 	if label == "" {
 		return errors.New("reel: empty mark label")
 	}
-	return s.change(func() (Event, error) { return Mark{Label: label}, nil })
+	mark := Mark{Label: label, Source: s.caller()}
+	return s.change(func() (Event, error) { return mark, nil })
 }
 
 // Annotate appends a. It returns an error wrapping [ErrInvalidAnnotation]
-// when [AnnotationSchema] does not allow it.
+// when [AnnotationSchema] does not allow it, or it is of [MarkKind].
+// [WithSource] sets its [Annotation.Source], unless it has one.
 func (s *Session) Annotate(a Annotation) error {
+	if a.Kind == MarkKind {
+		return fmt.Errorf("%w: %q is a mark's source in a file", ErrInvalidAnnotation, MarkKind)
+	}
+	if a.Source == nil {
+		a.Source = s.caller()
+	}
 	if err := a.validate(); err != nil {
 		return err
 	}
 	a.Data = bytes.Clone(a.Data)
 	return s.change(func() (Event, error) { return a, nil })
+}
+
+// caller is [Caller] for [WithSource], or nil without it or a caller.
+func (s *Session) caller() *Source {
+	if !s.source {
+		return nil
+	}
+	if src, ok := Caller(s.sourceSkip...); ok {
+		return &src
+	}
+	return nil
 }
 
 // SetForeground sets the foreground color, or with nil reverts to

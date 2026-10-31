@@ -193,12 +193,18 @@ type Resize struct {
 }
 
 // Mark is a named point in a timeline, which [Timeline.Between] cuts at.
+//
+// In an asciicast file it is an event with code "m" of its label, followed,
+// when it has a Source, by a [MarkKind] annotation of its label and source.
 type Mark struct {
 	event
 	// Label is never empty, unless read from a file with an unlabeled
 	// marker. By convention it is "category:value", such as "login:done" or
 	// "step:3", so marks can be grouped by category (see [SplitLabel]).
 	Label string
+	// Source is where in Go source the mark was placed, or nil (see
+	// [WithSource]). It must not be modified.
+	Source *Source
 }
 
 // SplitLabel splits a mark label at its first ":" into a category and a
@@ -346,10 +352,16 @@ func (t *Timeline) appendAt(ev Event, at time.Duration) {
 	t.appendLocked(ev, at)
 }
 
-// appendLocked adds ev at at, rounded to the millisecond and clamped to at
-// least zero and the last event's offset.
+// eventOffset is at as an event is stamped with it: rounded to the
+// millisecond, and at least zero.
+func eventOffset(at time.Duration) time.Duration {
+	return max(at.Round(time.Millisecond), 0)
+}
+
+// appendLocked adds ev at at, rounded and clamped by eventOffset, and to at
+// least the last event's offset.
 func (t *Timeline) appendLocked(ev Event, at time.Duration) {
-	at = max(at.Round(time.Millisecond), 0)
+	at = eventOffset(at)
 	if n := len(t.events); n > 0 {
 		at = max(at, t.events[n-1].At())
 	}

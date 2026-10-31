@@ -10,6 +10,10 @@
       "description": "What the annotation records, as dot-separated lower case words, the first naming the tool that defines the kind, such as \"reel.effect\".",
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "source": {
+      "description": "Where in Go source the annotation was made, for every kind, so no kind may use \"source\" for a field of its own. Written only when the session records sources (reel's WithSource, or steep's WithSource and STEEP_SOURCE). Inside a test it is the line of the test that led to the annotation, past any of its helpers. Left out when sources are not recorded, or the annotation came from no such code, such as a query reply or a message to the program.",
+      "$ref": "#/$defs/reel.source"
     }
   },
   "allOf": [
@@ -20,6 +24,10 @@
     {
       "if": {"properties": {"kind": {"const": "reel.query"}}, "required": ["kind"]},
       "then": {"$ref": "#/$defs/reel.query"}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "reel.mark"}}, "required": ["kind"]},
+      "then": {"$ref": "#/$defs/reel.mark"}
     },
     {"if": {"properties": {"kind": {"const": "steep.start"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/steep.start"}},
     {"if": {"properties": {"kind": {"const": "steep.ready"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/steep.ready"}},
@@ -406,6 +414,29 @@
         }
       }
     },
+    "reel.source": {
+      "description": "A place in Go source code.",
+      "type": "object",
+      "required": ["file", "line"],
+      "properties": {
+        "file": {
+          "description": "The source file's path, with forward slashes: relative to the root of the Go module the recording's working directory was in when the file is in it, and otherwise the import path of the function's package joined with the file's name. It is never absolute.",
+          "type": "string"
+        },
+        "line": {"description": "The line in the file, counted from 1.", "type": "integer", "minimum": 1},
+        "func": {"description": "The function, qualified by its package's import path, as Go's runtime names it, such as \"example.com/app.TestLogin.func1\" for a test's first closure.", "type": "string"}
+      }
+    },
+    "reel.mark": {
+      "description": "Where in Go source a mark was placed. A mark is an asciicast \"m\" event of only its label, so reel writes one of these just after each mark that has a source, at its offset, and reads it back as that mark's source. One is left out for a mark placed by no such code.",
+      "type": "object",
+      "required": ["kind", "label", "source"],
+      "properties": {
+        "kind": {"const": "reel.mark"},
+        "label": {"description": "The label of the mark just before.", "type": "string"},
+        "source": {"$ref": "#/$defs/reel.source"}
+      }
+    },
     "steep.truncated": {
       "description": "True when a text field of the annotation was longer than 4 KiB, and cut to it, on a character boundary. Left out otherwise.",
       "const": true
@@ -460,7 +491,10 @@
           "description": "When the harness exports its recording: \"off\" never, \"failure\" when the test fails, and \"always\".",
           "type": "string", "examples": ["off", "failure", "always"]
         },
-        "messages": {"description": "True when the harness records each message the program's model receives, as steep.message annotations. Left out otherwise.", "const": true}
+        "messages": {"description": "True when the harness records each message the program's model receives, as steep.message annotations. Left out otherwise.", "const": true},
+        "package": {"description": "When sources are recorded: the import path of the test's package, such as \"example.com/app\", or \"example.com/app_test\" for an external test package. Its source is the test's function and the line that started the harness.", "type": "string"},
+        "module": {"description": "When sources are recorded: the path of the Go module the source files are relative to.", "type": "string"},
+        "dir": {"description": "When sources are recorded: the test's working directory, its package's directory, relative to the module's root, with forward slashes, \".\" at the root. Snapshot paths are relative to it.", "type": "string"}
       }
     },
     "steep.ready": {

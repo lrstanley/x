@@ -1,0 +1,21 @@
+steep.start          source_test.go:34 github.com/lrstanley/x/term/steep.TestSource
+steep.ready          source_test.go:34 github.com/lrstanley/x/term/steep.TestSource
+mark ready:1         source_test.go:34 github.com/lrstanley/x/term/steep.TestSource
+steep.input          source_test.go:38 github.com/lrstanley/x/term/steep.TestSource
+mark input:1         source_test.go:38 github.com/lrstanley/x/term/steep.TestSource
+steep.wait.start     source_test.go:38 github.com/lrstanley/x/term/steep.TestSource
+steep.wait.end       source_test.go:38 github.com/lrstanley/x/term/steep.TestSource
+mark wait:1          source_test.go:38 github.com/lrstanley/x/term/steep.TestSource
+mark mine            source_test.go:39 github.com/lrstanley/x/term/steep.TestSource
+steep.failure        source_test.go:39 github.com/lrstanley/x/term/steep.TestSource
+mark failure:1       source_test.go:39 github.com/lrstanley/x/term/steep.TestSource
+steep.assert         source_test.go:39 github.com/lrstanley/x/term/steep.TestSource
+mark assert:1        source_test.go:39 github.com/lrstanley/x/term/steep.TestSource
+steep.program        source_test.go:40 github.com/lrstanley/x/term/steep.TestSource
+mark program:1       source_test.go:40 github.com/lrstanley/x/term/steep.TestSource
+steep.wait.start     source_test.go:40 github.com/lrstanley/x/term/steep.TestSource
+steep.wait.end       source_test.go:40 github.com/lrstanley/x/term/steep.TestSource
+mark wait:2          source_test.go:40 github.com/lrstanley/x/term/steep.TestSource
+steep.result         source_test.go:41 github.com/lrstanley/x/term/steep.TestSource
+mark close:1         source_test.go:41 github.com/lrstanley/x/term/steep.TestSource
+steep.exit          

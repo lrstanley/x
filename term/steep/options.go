@@ -71,6 +71,8 @@ type options struct {
 	autoMarksOff map[string]bool
 
 	recordMessages bool
+	// source is [WithSource].
+	source bool
 
 	hooks       []Hook
 	ignoreEnv   bool
@@ -299,7 +301,7 @@ func WithSlow(d time.Duration) Option {
 // WithLog logs every hooked action to tb, as [WithHooks] with a
 // [LoggerHook] of a nil logger.
 //
-// Environment: STEEP_LOG (true or 1) adds the same hook unless
+// Environment: STEEP_LOG (on, true, or 1) adds the same hook unless
 // [WithIgnoreEnv] is set.
 func WithLog(tb testing.TB) Option {
 	return func(cfg *options) {
@@ -317,11 +319,30 @@ func WithLog(tb testing.TB) Option {
 // are recorded as they are, including any secret they hold, as is the text
 // the program draws, which the effects package's Redact hides.
 //
-// Environment: STEEP_RECORD_MESSAGES (a boolean) overrides this option
+// Environment: STEEP_RECORD_MESSAGES (on or off) overrides this option
 // unless [WithIgnoreEnv] is set.
 func WithRecordMessages(enable bool) Option {
 	return func(cfg *options) {
 		cfg.recordMessages = enable
+	}
+}
+
+// WithSource records where in the test each annotation and mark of the
+// recording came from (see [reel.WithSource]): a "source" member of each
+// annotation, and a "reel.mark" annotation after each mark, of the file,
+// line, and function of the test's line that led to it, past any of the
+// test's helpers. "steep.start" also gets the test's package, its module,
+// and its directory in the module, and file paths are relative to the
+// module's root, so they hold no home or build directories. Annotations
+// and marks no line of the test led to, such as messages the model
+// receives, or those [Harness.Close] places as a test cleanup, get none.
+// Off by default; while off, no stack is walked.
+//
+// Environment: STEEP_SOURCE (on or off) overrides this option unless
+// [WithIgnoreEnv] is set.
+func WithSource(enable bool) Option {
+	return func(cfg *options) {
+		cfg.source = enable
 	}
 }
 

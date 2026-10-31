@@ -51,7 +51,9 @@ and snapshot comparison with its outcome, each failure, the result, and the
 program's terminal queries with the replies. reel's
 [`annotation.schema.json`](../reel/annotation.schema.json) describes them.
 `steep.WithRecordMessages(true)` adds every message the model receives,
-except `tea.EnvMsg`, which may hold secrets.
+except `tea.EnvMsg`, which may hold secrets, and `steep.WithSource(true)`
+the file, line, and function of the test's line behind each annotation and
+mark, with paths relative to the module's root.
 
 Any test can be recorded without changing it:
 
@@ -66,7 +68,8 @@ STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.gif?max-bytes=5MB,{name}.cast' go test
 | `STEEP_EXPORT_DIR` | the artifacts directory |
 | `STEEP_EXPORT_FPS`, `STEEP_EXPORT_SPEED` | the profile's timing |
 | `STEEP_RENDERER_SCALE`, `STEEP_RENDERER_FONT_FAMILY` | renderer options |
-| `STEEP_RECORD_MESSAGES` | `1` to record every message the model receives |
+| `STEEP_RECORD_MESSAGES` | `on` to record every message the model receives |
+| `STEEP_SOURCE` | `on` to record the test's file, line, and function for each annotation and mark (`steep.WithSource`) |
 
 See [`_examples/reel-showcase`](_examples/reel-showcase/main_test.go) for a
 complete example.

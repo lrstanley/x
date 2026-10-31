@@ -39,6 +39,10 @@ const (
 	kindResult    = "steep.result"
 )
 
+// sourceSkip are the packages whose frames [WithSource] skips: steep's,
+// and Bubble Tea's, whose goroutines deliver the model's messages.
+var sourceSkip = []string{reflect.TypeFor[Harness]().PkgPath(), reflect.TypeFor[tea.Program]().PkgPath()}
+
 // note is the data of an annotation the harness records.
 type note interface {
 	kind() string
@@ -109,6 +113,9 @@ type startNote struct {
 	Color     string `json:"color,omitzero"`
 	Export    string `json:"export"`
 	Messages  bool   `json:"messages,omitzero"`
+	Package   string `json:"package,omitzero"`
+	Module    string `json:"module,omitzero"`
+	Dir       string `json:"dir,omitzero"`
 }
 
 func (*startNote) kind() string { return kindStart }
@@ -130,6 +137,12 @@ func newStartNote(test string, cfg options) *startNote {
 	}
 	if cfg.color != 0 {
 		n.Color = cfg.color.String()
+	}
+	if cfg.source {
+		if src, ok := reel.Caller(sourceSkip...); ok {
+			n.Package = src.Package()
+		}
+		n.Module, n.Dir, _ = reel.SourceModule()
 	}
 	return n
 }

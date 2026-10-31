@@ -39,7 +39,8 @@
 // in whatever keyboard and mouse modes the program had set; [vt.DecodeInput]
 // decodes them back into keys, text, pastes, and mouse events. The terminal's
 // replies to the program's queries are recorded as [Query] annotations, not
-// as input.
+// as input. A session opened [WithSource] records where in Go source each
+// mark and annotation it is given was made, such as the line of a test.
 //
 // The module is split into packages that can be used on their own:
 //

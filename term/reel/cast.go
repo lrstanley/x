@@ -215,6 +215,8 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 
 	for i, ev := range events {
 		var code, data string
+		// trailer is written just after the event, at its offset.
+		var trailer *Annotation
 		switch ev := ev.(type) {
 		case Output:
 			code = "o"
@@ -226,6 +228,10 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 			code, data = "r", strconv.Itoa(ev.Cols)+"x"+strconv.Itoa(ev.Rows)
 		case Mark:
 			code, data = "m", ev.Label
+			if ev.Source != nil {
+				a := markAnnotation(ev.Label, ev.Source)
+				trailer = &a
+			}
 		case Focus:
 			code, data = "f", "0"
 			if ev.On {
@@ -249,6 +255,15 @@ func writeCastEvents(aw *asciicast.Writer, events []Event) error {
 		}
 		if err := aw.WriteEvent(asciicast.Event{Time: ev.At(), Code: code, Data: data}); err != nil {
 			return err
+		}
+		if trailer != nil {
+			b, encErr := trailer.encode()
+			if encErr != nil {
+				return encErr
+			}
+			if err := aw.WriteEvent(asciicast.Event{Time: ev.At(), Code: annotationCode, Data: string(b)}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -312,6 +327,9 @@ func ReadTimeline(r io.Reader) (*Timeline, error) {
 		ev, derr := castDecoders[ce.Code](ce.Data)
 		if derr != nil {
 			return nil, fmt.Errorf("reel: asciicast line %d: %q event: %w", cr.Line(), ce.Code, derr)
+		}
+		if a, ok := ev.(Annotation); ok && t.attachMarkSource(a, ce.Time) {
+			continue
 		}
 		t.appendAt(ev, ce.Time)
 	}

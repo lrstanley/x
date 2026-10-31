@@ -21,16 +21,16 @@ func applyEnv(tb testing.TB, cfg *options) {
 		return
 	}
 
-	if v := os.Getenv("STEEP_LOG"); v != "" {
-		if v == "true" || v == "1" {
-			cfg.hooks = append(cfg.hooks, LoggerHook(tb, nil))
-		}
+	if on, _ := parseSwitch(os.Getenv("STEEP_LOG")); on {
+		cfg.hooks = append(cfg.hooks, LoggerHook(tb, nil))
 	}
 
-	if v := os.Getenv("STEEP_RECORD_MESSAGES"); v != "" {
-		if on, err := strconv.ParseBool(v); err == nil {
-			cfg.recordMessages = on
-		}
+	if on, ok := parseSwitch(os.Getenv("STEEP_RECORD_MESSAGES")); ok {
+		cfg.recordMessages = on
+	}
+
+	if on, ok := parseSwitch(os.Getenv("STEEP_SOURCE")); ok {
+		cfg.source = on
 	}
 
 	if v := os.Getenv("STEEP_SLOW"); v != "" {
@@ -120,14 +120,34 @@ func applyExportEnv(tb testing.TB, cfg *options) {
 	cfg.recording = cfg.recording.Merge(patch)
 }
 
-// parseExportMode parses STEEP_EXPORT_MODE.
+// parseSwitch parses a boolean variable: on or off, or what
+// [strconv.ParseBool] accepts. ok is false for anything else, such as an
+// unset variable.
+func parseSwitch(raw string) (on, ok bool) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	switch raw {
+	case "on":
+		return true, true
+	case "off":
+		return false, true
+	}
+	on, err := strconv.ParseBool(raw)
+	return on, err == nil
+}
+
+// parseExportMode parses STEEP_EXPORT_MODE: a boolean variable (see
+// parseSwitch) for always or off, or always, or failure.
 func parseExportMode(raw string) (exportPolicy, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "on", "always", "true", "1":
+	case "always":
 		return exportAlways, true
 	case "failure", "on-failure":
 		return exportOnFailure, true
-	case "off", "false", "0":
+	}
+	if on, ok := parseSwitch(raw); ok {
+		if on {
+			return exportAlways, true
+		}
 		return exportOff, true
 	}
 	return exportOff, false

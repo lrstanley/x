@@ -177,3 +177,30 @@ func TestNormalizeTestName(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyEnvSource(t *testing.T) {
+	for _, tt := range []struct {
+		env  string
+		opt  bool
+		want bool
+	}{
+		{"on", false, true},
+		{"true", false, true},
+		{"1", false, true},
+		{"off", true, false},
+		{"false", true, false},
+		{"0", true, false},
+		{"", true, true},
+		{"bogus", true, true},
+		{"", false, false},
+	} {
+		t.Setenv("STEEP_SOURCE", tt.env)
+		if cfg := collectOptions(t, WithSource(tt.opt)); cfg.source != tt.want {
+			t.Errorf("STEEP_SOURCE=%q with WithSource(%v): source %v, want %v", tt.env, tt.opt, cfg.source, tt.want)
+		}
+	}
+	t.Setenv("STEEP_SOURCE", "on")
+	if cfg := collectOptions(t, WithIgnoreEnv(true)); cfg.source {
+		t.Fatal("STEEP_SOURCE applied with WithIgnoreEnv")
+	}
+}

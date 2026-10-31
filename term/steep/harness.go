@@ -98,6 +98,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		tb.Context(), max(cfg.width, 1), max(cfg.height, 1),
 		reel.WithTitle(tb.Name()), reel.WithSkipPristine(),
 		reel.WithScrollOnInput(cfg.scrollOnInput), reel.WithTypingDelay(cfg.typingDelay),
+		reel.WithSource(cfg.source), reel.WithSourceSkip(sourceSkip...),
 	)
 	if err != nil {
 		tb.Fatal(err)
