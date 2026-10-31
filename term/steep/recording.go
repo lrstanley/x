@@ -8,13 +8,14 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"maps"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 	"unicode"
 
@@ -55,15 +56,31 @@ const (
 	StillSnapshot
 )
 
-// failurePrefix starts the label of the mark of each failure the harness
-// reports, followed by its number, counted from 1.
-const failurePrefix = "failure-"
+// MarkFailure is the category of the marks of the failures the harness
+// reports, "failure:1" and so on (see [Harness.Mark]).
+const MarkFailure = "failure"
+
+// autoMarkCategories are the categories of the marks the harness places
+// itself: the hook events' names, and [MarkFailure].
+var autoMarkCategories = func() []string {
+	var categories []string
+	for event := HookInput; event <= HookCapture; event++ {
+		categories = append(categories, event.String())
+	}
+	return append(categories, MarkFailure)
+}()
+
+// autoLabel returns the label of the nth mark of category the harness
+// places, such as "input:1".
+func autoLabel(category string, n int) string {
+	return category + ":" + strconv.Itoa(n)
+}
 
 // isFailureMark reports whether label is that of the mark of a failure:
-// failurePrefix and a number, in digits alone.
+// [MarkFailure], ":", and a number, in digits alone.
 func isFailureMark(label string) bool {
-	n, ok := strings.CutPrefix(label, failurePrefix)
-	return ok && n != "" && strings.Trim(n, "0123456789") == ""
+	category, n := reel.SplitLabel(label)
+	return category == MarkFailure && n != "" && strings.Trim(n, "0123456789") == ""
 }
 
 // Path variables steep adds to [reel.Profile.Vars].
@@ -87,7 +104,7 @@ type Result struct {
 	Failed bool
 	// Failures are the failure messages the harness reported, oldest first,
 	// followed by "test panicked" for a test that panicked. The harness marks
-	// each but "test panicked" as "failure-n" (see [Harness.Mark]). Failures
+	// each but "test panicked" as "failure:n" (see [Harness.Mark]). Failures
 	// the test reports through its own [testing.TB] are not included.
 	Failures []string
 	// Duration is how long the harness ran, from [NewHarness] to
@@ -112,9 +129,10 @@ var captureEvents = []HookEvent{HookInput, HookTerminal, HookProgram, HookWait, 
 // At export, [reel.Context.Meta] is the test's *[Result]. A mark the
 // profile looks for that the test never placed does not stop the export
 // (see [reel.Export]): for a failed test it is logged, and for a passing
-// test it is a test error, except for "failure-n" marks, so a profile can
-// pause on "failure-1" whatever the result. The recording ends where
-// [Harness.Close] starts, so the program's repaint as it exits is left out.
+// test it is a test error, except for "failure:n" marks, so a profile can
+// pause on "failure:1" whatever the result. The recording ends where
+// [Harness.Close] starts, so the program's repaint as it exits is left out,
+// even when the close mark is off (see [WithAutoMarks]).
 //
 // The STEEP_EXPORT* and STEEP_RENDERER_* variables patch the profile (see
 // the package documentation).
@@ -164,13 +182,15 @@ func WithExportAlways() Option {
 // WithStills writes stills of kinds at the marks of events (see
 // [Harness.Mark]), one file per mark: "{name}_{status}_{mark}.png" for
 // [StillPNG] and "{name}_{status}_{mark}.snap" for [StillSnapshot], such as
-// "TestLogin_failed_input-2.png". Without events, it uses input, terminal,
-// program, wait, ready, and close. Calls accumulate.
+// "TestLogin_failed_input-2.png" for the mark "input:2" (the ":" is not
+// allowed in Windows file names; see [reel.File.Marks]). Without events, it
+// uses input, terminal, program, wait, ready, and close. Calls accumulate.
 //
 // Each is a [reel.File] whose [reel.File.MarkMatch] matches the events'
-// marks, such as "input-[0-9]*". Stills are only written when the recording is
-// exported. For a single PNG of the last frame, add a ".png" output to the
-// profile instead.
+// marks, such as "input:[0-9]*", so the harness marks those events even if
+// [WithAutoMarks] turns their marks off. Stills are only written when the
+// recording is exported. For a single PNG of the last frame, add a ".png"
+// output to the profile instead.
 func WithStills(kinds StillKind, events ...HookEvent) Option {
 	return func(cfg *options) {
 		if len(events) == 0 {
@@ -186,13 +206,94 @@ func WithStills(kinds StillKind, events ...HookEvent) Option {
 }
 
 // hookPatterns returns the [reel.File.MarkMatch] patterns of the marks of
-// events, such as "input-[0-9]*" for "input-1", "input-2", and so on.
+// events, such as "input:[0-9]*" for "input:1", "input:2", and so on.
 func hookPatterns(events []HookEvent) []string {
 	patterns := make([]string, len(events))
 	for i, ev := range events {
-		patterns[i] = ev.String() + "-[0-9]*"
+		patterns[i] = ev.String() + ":[0-9]*"
 	}
 	return patterns
+}
+
+// exportOutputs returns the outputs an export writes, before their paths
+// are put under [WithArtifacts]: the profile's, or the defaults, then the
+// stills. An output with {mark} but no Marks or MarkMatch gets the marks of
+// [WithStills]'s default events.
+func (o options) exportOutputs() []reel.File {
+	outputs := slices.Clone(o.recording.Outputs)
+	if outputs == nil {
+		outputs = reel.MustFiles("{name}_{status}.gif", "{name}_{status}.cast")
+	}
+	outputs = append(outputs, o.stills...)
+	for i, f := range outputs {
+		if strings.Contains(f.Path, markVar) && len(f.Marks) == 0 && len(f.MarkMatch) == 0 {
+			outputs[i].MarkMatch = hookPatterns(captureEvents)
+		}
+	}
+	return outputs
+}
+
+// WithAutoMarks turns the marks the harness places itself (see
+// [Harness.Mark]) on or off: those of categories, or all of them without
+// categories. The categories are the hook events' names, such as
+// [HookInput].String() for "input:1", and [MarkFailure]. Calls apply in
+// order, so WithAutoMarks(false) then WithAutoMarks(true, MarkFailure) keeps
+// only the marks of failures. All are on by default. It only applies to
+// [NewHarness]; an unknown category stops the test.
+//
+// The rest of the recording is unchanged: annotations such as "steep.input"
+// are still recorded, and the recording still ends where [Harness.Close]
+// starts. A category that an export output's Marks or MarkMatch matches up
+// to the first ":", such as "wait" for "wait:*", "*" for every category, or
+// the events of [WithStills], is marked anyway, so its stills are written
+// (a pattern such as "*1" that only matches across the ":" is not).
+// Anything else that looks for a mark that is off, such as
+// [effects.PauseAtMarks] on "failure:1", finds none; [WithRecording] says
+// how an export reports that.
+func WithAutoMarks(enable bool, categories ...string) Option {
+	return func(cfg *options) {
+		targets := categories
+		if len(targets) == 0 {
+			targets = autoMarkCategories
+		}
+		if cfg.autoMarksOff == nil {
+			cfg.autoMarksOff = make(map[string]bool)
+		}
+		for _, category := range targets {
+			cfg.autoMarksOff[category] = !enable
+		}
+	}
+}
+
+// autoMarked returns whether the harness places the marks of each category
+// of autoMarkCategories (see [WithAutoMarks]). A category of WithAutoMarks
+// that is not one of them stops the test.
+func (o options) autoMarked(tb testing.TB) map[string]bool {
+	tb.Helper()
+	for _, category := range slices.Sorted(maps.Keys(o.autoMarksOff)) {
+		if !slices.Contains(autoMarkCategories, category) {
+			tb.Fatalf("steep: WithAutoMarks: %q is not a category of the harness's marks", category)
+		}
+	}
+	marked := make(map[string]bool, len(autoMarkCategories))
+	for _, category := range autoMarkCategories {
+		marked[category] = !o.autoMarksOff[category]
+	}
+	for _, f := range o.exportOutputs() {
+		for _, label := range slices.Concat(f.Marks, f.MarkMatch) {
+			// Unlike reel.SplitLabel, a pattern without ":" is all category,
+			// so "*" matches them all. A cut that does not parse, such as
+			// "wait[" of "wait[:]*", keeps them all, as the whole pattern
+			// may still match; the export reports one that is malformed.
+			pattern, _, _ := strings.Cut(label, ":")
+			for _, category := range autoMarkCategories {
+				if ok, err := path.Match(pattern, category); ok || err != nil {
+					marked[category] = true
+				}
+			}
+		}
+	}
+	return marked
 }
 
 // addStill adds a still at path matching patterns, or the patterns to the
@@ -218,11 +319,15 @@ const markVar = "{mark}"
 
 // Mark places a [reel.Mark] labeled label in the session's timeline, which
 // [reel.Timeline.Between] can cut a recording at. The label must not be
-// empty.
+// empty. Use the "category:value" form, such as "login:done" or "step:3",
+// so marks can be grouped by the text before the first ":" (see
+// [reel.SplitLabel]). The categories of the harness's own marks, the hook
+// events' names and [MarkFailure], are reserved: a label in one of them is
+// a test error, and is not placed.
 //
 // The harness marks every hook event once its action is done, before its
 // After hooks run, labeled with the event's name and count, such as
-// "input-1" or "wait-1". While exporting, input, terminal, and program
+// "input:1" or "wait:1". While exporting, input, terminal, and program
 // actions are marked once the program has painted its response: when its
 // output has then been quiet for the [WithCheck] interval, or, if it writes
 // nothing, after the [WithSettle] period (at least 50ms). A very large
@@ -230,11 +335,15 @@ const markVar = "{mark}"
 // mark as it starts, where the recording ends.
 //
 // The harness also marks each failure it reports as it reports it,
-// "failure-1", "failure-2", and so on, numbered as in [Result.Failures],
+// "failure:1", "failure:2", and so on, numbered as in [Result.Failures],
 // such as for [effects.PauseAtMarks] to pause on a test's first failure.
-// Use other labels for a test's own marks.
+// [WithAutoMarks] turns the harness's marks off.
 func (h *Harness) Mark(label string) *Harness {
 	h.tb.Helper()
+	if category, _ := reel.SplitLabel(label); slices.Contains(autoMarkCategories, category) {
+		h.tb.Errorf("steep: mark %q: the category %q is reserved for the harness's own marks", label, category)
+		return h
+	}
 	h.check(h.session.Mark(label))
 	return h
 }
@@ -246,29 +355,30 @@ func (h *Harness) Session() *reel.Session { return h.session }
 // program runs.
 func (h *Harness) Timeline() *reel.Timeline { return h.session.Timeline() }
 
-// markEvent marks event (see [Harness.Mark]) and returns the label, or ""
-// once the session is closed.
-func (h *Harness) markEvent(event HookEvent) string {
+// markEvent marks event (see [Harness.Mark]), unless [WithAutoMarks] turns
+// its marks off or the session is closed.
+func (h *Harness) markEvent(event HookEvent) {
 	h.tb.Helper()
+	if !h.autoMarks[event.String()] {
+		return
+	}
 	h.marksMu.Lock()
 	defer h.marksMu.Unlock()
-	label := event.String() + "-" + strconv.Itoa(h.markCount[event]+1)
-	err := h.session.Mark(label)
+	err := h.session.Mark(autoLabel(event.String(), h.markCount[event]+1))
 	if errors.Is(err, reel.ErrClosed) {
-		return ""
+		return
 	}
 	if err != nil {
 		h.check(err)
-		return ""
+		return
 	}
 	h.markCount[event]++
-	return label
 }
 
-// exportRecording exports the recording up to the mark labeled end, as the
+// exportRecording exports tl, the recording up to [Harness.Close], as the
 // policy says. A skipped test that did not fail exports nothing. A failure
 // to export is a test error, except for missing marks (see [WithRecording]).
-func (h *Harness) exportRecording(end string) {
+func (h *Harness) exportRecording(tl *reel.Timeline) {
 	h.tb.Helper()
 	if h.cfg.policy == exportOff {
 		return
@@ -277,7 +387,7 @@ func (h *Harness) exportRecording(end string) {
 	if !failed && (h.cfg.policy == exportOnFailure || h.tb.Skipped()) {
 		return
 	}
-	paths, err := h.writeRecording(end, failed, panicked)
+	paths, err := h.writeRecording(tl, failed, panicked)
 	missing, err := reel.MissingMarks(err)
 	if err != nil {
 		h.tb.Errorf("steep: export: %v", err)
@@ -296,9 +406,9 @@ func (h *Harness) exportRecording(end string) {
 	}
 }
 
-// writeRecording writes the outputs, and returns their paths, with {mark}
-// left in those of stills.
-func (h *Harness) writeRecording(end string, failed, panicked bool) ([]string, error) {
+// writeRecording writes the outputs of tl, and returns their paths, with
+// {mark} left in those of stills.
+func (h *Harness) writeRecording(tl *reel.Timeline, failed, panicked bool) ([]string, error) {
 	h.tb.Helper()
 	status := statusPassed
 	if failed {
@@ -318,23 +428,10 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) ([]string, e
 	}
 	p.Meta = result
 
-	tl, err := h.session.Timeline().Between("", end)
-	if err != nil {
-		// Without its end, nothing is written, so this is no mark the
-		// outputs can do without (see [reel.MissingMarks]).
-		return nil, fmt.Errorf("the end of the recording: %v", err) //nolint:errorlint // Not a missing mark to export without.
-	}
-	outputs := slices.Clone(p.Outputs)
-	if outputs == nil {
-		outputs = reel.MustFiles("{name}_{status}.gif", "{name}_{status}.cast")
-	}
-	outputs = append(outputs, h.cfg.stills...)
+	outputs := h.cfg.exportOutputs()
 	dir := h.cfg.artifacts
 	for i := range outputs {
 		f := &outputs[i]
-		if strings.Contains(f.Path, markVar) && len(f.Marks) == 0 && len(f.MarkMatch) == 0 {
-			f.MarkMatch = hookPatterns(captureEvents)
-		}
 		if !filepath.IsAbs(f.Path) {
 			if dir == "" {
 				dir = h.tb.ArtifactDir()

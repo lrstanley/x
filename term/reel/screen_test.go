@@ -55,18 +55,19 @@ func TestSessionScreen(t *testing.T) {
 
 func TestExportScreens(t *testing.T) {
 	t.Parallel()
+	// A ":" is not allowed in Windows file names, so {mark} has "-".
 	tl := buildTimeline(Header{Cols: 6, Rows: 1},
 		outAt(0, "a"),
-		Mark{event: at(100), Label: "input-1"},
+		Mark{event: at(100), Label: "input:1"},
 		outAt(200, "\rb"),
-		Mark{event: at(300), Label: "wait-1"},
+		Mark{event: at(300), Label: "wait:1"},
 		outAt(400, "\rsecret"),
-		Mark{event: at(500), Label: "input-2"},
+		Mark{event: at(500), Label: "input:2"},
 	)
 	dir := t.TempDir()
 	p := Profile{
 		Outputs: MustFiles(
-			filepath.Join(dir, "{mark}.snap?match=input-*&match=nope-*"),
+			filepath.Join(dir, "{mark}.snap?match=input:*&match=nope:*"),
 			filepath.Join(dir, "end.snap"),
 			filepath.Join(dir, "end.json"),
 		),
@@ -267,5 +268,18 @@ func TestNewScreenCell(t *testing.T) {
 	}
 	if s := NewScreen(nil); s.Rows != 0 || s.Cells != nil {
 		t.Fatalf("NewScreen(nil) = %+v", s)
+	}
+}
+
+func TestMarkFileName(t *testing.T) {
+	t.Parallel()
+	for label, want := range map[string]string{
+		"input:1":              "input-1",
+		"after-step":           "after-step",
+		`a<b>c"d|e?f*g` + "\t": "a-b-c-d-e-f-g-",
+	} {
+		if got := markFileName(label); got != want {
+			t.Errorf("markFileName(%q) = %q, want %q", label, got, want)
+		}
 	}
 }

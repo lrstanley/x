@@ -7,10 +7,10 @@
 //
 // showcase.cast.gz is the end of the showcase's recording, from the mark of
 // its sixth input on: a dashboard of services, where pressing the deploy key
-// ("input-8") deploys billing, whose pipeline then builds and fails its
-// tests, which have failed by "wait-13". It was recorded by the showcase
+// ("input:8") deploys billing, whose pipeline then builds and fails its
+// tests, which have failed by "wait:13". It was recorded by the showcase
 // test with STEEP_EXPORT_MODE=on, which writes showcase.cast, cut with
-// reel.Timeline.Between("input-6", ""), and saved with
+// reel.Timeline.Between("input:6", ""), and saved with
 // reel.Timeline.WriteTo, so it is asciicast v2 and holds the annotations
 // steep recorded.
 package showcase

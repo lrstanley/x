@@ -402,3 +402,19 @@ func TestMissingMarks(t *testing.T) {
 		t.Fatalf("MissingMarks(nil) = %q, %v", labels, rest)
 	}
 }
+
+func TestSplitLabel(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ label, category, value string }{
+		{"wait:1", "wait", "1"},
+		{"login:done:2", "login", "done:2"},
+		{"step:", "step", ""},
+		{":x", "", "x"},
+		{"after-login", "", "after-login"},
+	} {
+		category, value := SplitLabel(tc.label)
+		if category != tc.category || value != tc.value {
+			t.Errorf("SplitLabel(%q) = %q, %q, want %q, %q", tc.label, category, value, tc.category, tc.value)
+		}
+	}
+}

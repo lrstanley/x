@@ -155,7 +155,7 @@ var fileDriveRe = regexp.MustCompile(`^/[A-Za-z]:/`)
 //   - version=2|3: [File.Cast] (".cast").
 //   - marks=label: adds to [File.Marks]; the path must hold {mark}. Not
 //     for ".cast".
-//   - match=pattern: adds to [File.MarkMatch], such as "input-*"; the path
+//   - match=pattern: adds to [File.MarkMatch], such as "input:*"; the path
 //     must hold {mark}. Not for ".cast".
 //   - optimize=none|all|frames|dirty|quantize: [sink.WithOptimize], the
 //     flags OR'd together (".gif", ".png").
@@ -217,7 +217,7 @@ func ParseFile(raw string) (File, error) {
 
 // ParseFiles parses a comma-separated list of outputs, each as [ParseFile]
 // does, skipping empty items and the spaces around each, such as
-// "{name}.gif, {name}_{mark}.snap?match=input-*". An output with a comma in
+// "{name}.gif, {name}_{mark}.snap?match=input:*". An output with a comma in
 // its path cannot be written this way.
 func ParseFiles(raw string) ([]File, error) {
 	var files []File

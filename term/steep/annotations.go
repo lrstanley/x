@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"reflect"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
@@ -416,11 +415,13 @@ func (*failureNote) kind() string { return kindFailure }
 func (n *failureNote) clip()      { n.Message = reel.ClipText(n.Message, &n.Truncated) }
 
 // noteFailure records the nth failure the harness reported, and marks it
-// (see [Harness.Mark]). Errors are dropped, since reporting them would
-// record another failure.
+// unless [WithAutoMarks] turns failure marks off (see [Harness.Mark]).
+// Errors are dropped, since reporting them would record another failure.
 func (h *Harness) noteFailure(n int, msg string) {
 	_ = h.record(&failureNote{Message: msg})
-	_ = h.session.Mark(failurePrefix + strconv.Itoa(n))
+	if h.autoMarks[MarkFailure] {
+		_ = h.session.Mark(autoLabel(MarkFailure, n))
+	}
 }
 
 // messageNote is a "steep.message" annotation.

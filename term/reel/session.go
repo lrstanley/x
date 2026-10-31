@@ -440,7 +440,9 @@ func (s *Session) Resize(cols, rows int) error {
 }
 
 // Mark appends a [Mark] event, which [Timeline.Between] can cut at. The
-// label must not be empty but need not be unique.
+// label must not be empty but need not be unique. Use the "category:value"
+// form, such as "login:done" or "step:3", so tools reading the recording
+// can group marks by category (see [SplitLabel]).
 func (s *Session) Mark(label string) error {
 	if label == "" {
 		return errors.New("reel: empty mark label")

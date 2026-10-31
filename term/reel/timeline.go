@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"iter"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -195,8 +196,20 @@ type Resize struct {
 type Mark struct {
 	event
 	// Label is never empty, unless read from a file with an unlabeled
-	// marker.
+	// marker. By convention it is "category:value", such as "login:done" or
+	// "step:3", so marks can be grouped by category (see [SplitLabel]).
 	Label string
+}
+
+// SplitLabel splits a mark label at its first ":" into a category and a
+// value, such as "wait" and "1" for "wait:1". A label without ":" has no
+// category, and is all value.
+func SplitLabel(label string) (category, value string) {
+	category, value, ok := strings.Cut(label, ":")
+	if !ok {
+		return "", label
+	}
+	return category, value
 }
 
 // Focus is the terminal window gaining or losing focus. A session starts

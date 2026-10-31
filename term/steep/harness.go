@@ -63,6 +63,8 @@ type Harness struct {
 	hooks       []Hook
 	readyHooked bool
 
+	// autoMarks is whether each of autoMarkCategories is marked.
+	autoMarks map[string]bool
 	// marksMu guards markCount.
 	marksMu   sync.Mutex
 	markCount map[HookEvent]int
@@ -88,6 +90,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		opts = append(opts, WithContext(ctx))
 		cfg = collectOptions(tb, opts...)
 	}
+	autoMarks := cfg.autoMarked(tb)
 
 	// Bubble Tea writes capability queries before its first paint, so the
 	// recording starts on that paint rather than on the blank terminal.
@@ -116,6 +119,7 @@ func NewHarness(tb testing.TB, model tea.Model, opts ...Option) *Harness {
 		imager:    imager,
 		start:     time.Now(),
 		hooks:     append([]Hook(nil), cfg.hooks...),
+		autoMarks: autoMarks,
 		markCount: make(map[HookEvent]int),
 	}
 	// Clipped, so one call's appends cannot write into another's.
@@ -187,8 +191,10 @@ func (h *Harness) Close() {
 	// the program's exit repaint. The result is recorded first so the
 	// recording holds it.
 	h.annotate(h.newResultNote())
-	end := h.markEvent(HookClose)
-	defer h.exportRecording(end)
+	h.markEvent(HookClose)
+	// Without labels, Between cannot fail.
+	recording, _ := h.session.Timeline().Between("", "")
+	defer h.exportRecording(recording)
 
 	// Unblock the program's input loop before Quit.
 	h.session.Terminal().CloseReader()

@@ -18,9 +18,13 @@
 //
 // Harness actions invoke [Hook] callbacks from [WithHooks] before and after
 // the action body. Hook errors fail the test immediately. Once an action is
-// done, it is marked in the timeline with its event and count, such as
-// "input-2" or "wait-1", and each failure the harness reports is marked as
-// "failure-1" and so on (see [Harness.Mark]).
+// done, it is marked in the timeline as "category:n", with its event and
+// count, such as "input:2" or "wait:1", and each failure the harness
+// reports is marked as "failure:1" and so on (see [Harness.Mark]). Those
+// categories are reserved; use the same form for a test's own marks, such
+// as "login:done" or "step:3", so tools reading a recording can group marks
+// by category (see [reel.SplitLabel]). [WithAutoMarks] turns the harness's
+// marks off.
 //
 // # Recording and export
 //
@@ -99,7 +103,7 @@
 //   - STEEP_EXPORT: replaces the outputs and stills with a comma-separated
 //     list of outputs (see [reel.ParseFiles]), each a path with optional
 //     query parameters, such as "{name}_{status}.gif?max-bytes=5MB" or
-//     "{name}_{mark}.snap?match=input-*". A path that holds {mark} with no
+//     "{name}_{mark}.snap?match=input:*". A path that holds {mark} with no
 //     marks or match parameter is a still at each hook mark of the events
 //     [WithStills] uses by default. An output that does not parse fails the
 //     test.
@@ -110,5 +114,5 @@
 //
 // For example:
 //
-//	STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.mp4,{name}_{mark}.png?match=wait-*' go test -artifacts ./...
+//	STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.mp4,{name}_{mark}.png?match=wait:*' go test -artifacts ./...
 package steep

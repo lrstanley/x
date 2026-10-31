@@ -231,20 +231,12 @@ func TestAnnotations(t *testing.T) {
 		a, ok := ev.(reel.Annotation)
 		return ok && a.Kind == kindResult
 	})
-	if m, ok := events[result+1].(reel.Mark); !ok || m.Label != "close-3" {
-		t.Fatalf("event after the result = %+v, want the close-3 mark", events[result+1])
+	if m, ok := events[result+1].(reel.Mark); !ok || m.Label != "close:3" {
+		t.Fatalf("event after the result = %+v, want the close:3 mark", events[result+1])
 	}
 
 	// The exported recording holds every annotation up to the mark.
-	f, err := os.Open(filepath.Join(dir, "rec.cast"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	tl, err := reel.ReadTimeline(f)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tl := readCast(t, filepath.Join(dir, "rec.cast"))
 	exported := notes(t, tl, kindExit)
 	if !slices.Equal(kinds(exported), want) {
 		t.Fatalf("exported annotations:\n%q\nwant\n%q", kinds(exported), want)

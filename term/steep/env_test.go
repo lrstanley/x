@@ -152,8 +152,8 @@ func TestWithStills(t *testing.T) {
 	t.Parallel()
 	cfg := collectOptions(t, WithIgnoreEnv(true), WithStills(StillPNG), WithStills(StillSnapshot|StillPNG, HookInput, HookAssert))
 	want := map[string][]string{
-		stillPath + ".png":  slices.Sorted(slices.Values(append([]string{"assert-[0-9]*"}, hookPatterns(captureEvents)...))),
-		stillPath + ".snap": {"assert-[0-9]*", "input-[0-9]*"},
+		stillPath + ".png":  slices.Sorted(slices.Values(append([]string{"assert:[0-9]*"}, hookPatterns(captureEvents)...))),
+		stillPath + ".snap": {"assert:[0-9]*", "input:[0-9]*"},
 	}
 	if got := stillPatterns(cfg.stills); !maps.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("stills = %v, want %v", got, want)

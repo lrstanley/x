@@ -135,7 +135,7 @@ func planOutputs(p Profile, vars map[string]string, tl *Timeline) (*outputs, err
 		}
 		markVars := maps.Clone(vars)
 		for _, label := range labels {
-			markVars[varMark] = label
+			markVars[varMark] = markFileName(label)
 			var dst string
 			dst, err = ExpandPath(out.Path, markVars)
 			if err != nil {
@@ -149,6 +149,18 @@ func planOutputs(p Profile, vars map[string]string, tl *Timeline) (*outputs, err
 		}
 	}
 	return o, nil
+}
+
+// markFileName returns label for {mark}, with each character but path
+// separators that is not allowed in Windows file names, such as the ":" of
+// "input:1", replaced by "-".
+func markFileName(label string) string {
+	return strings.Map(func(r rune) rune {
+		if r < ' ' || strings.ContainsRune(`<>:"|?*`, r) {
+			return '-'
+		}
+		return r
+	}, label)
 }
 
 // checkMarkPath reports an error if f has Marks or MarkMatch but its path

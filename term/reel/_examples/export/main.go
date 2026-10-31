@@ -66,7 +66,7 @@ var script = []struct {
 	{0, "", "\x1b]2;reel export\x07\x1b[1;36m$\x1b[0m ", ""},
 	{400 * time.Millisecond, "make build\r", "make build\r\n", ""},
 	{200 * time.Millisecond, "", "\x1b]9;4;3\x07compiling \x1b[33m...\x1b[0m", ""},
-	{1200 * time.Millisecond, "", "\r\x1b[K\x1b]9;4;0\x07\x1b[32m✔\x1b[0m built \x1b[1mreel\x1b[0m in 1.2s\r\n", "built"},
+	{1200 * time.Millisecond, "", "\r\x1b[K\x1b]9;4;0\x07\x1b[32m✔\x1b[0m built \x1b[1mreel\x1b[0m in 1.2s\r\n", "build:done"},
 	{300 * time.Millisecond, "", "\x1b[1;36m$\x1b[0m ", ""},
 }
 
@@ -100,14 +100,14 @@ func run(ctx context.Context, dir string) ([]string, error) {
 	files := recordings(dir, "demo")
 	outputs := append(reel.MustFiles(files...), reel.File{
 		Path:  filepath.Join(dir, "demo-{mark}.png"),
-		Marks: []string{"built"},
+		Marks: []string{"build:done"},
 	})
 	fx := []reel.Effect{effects.Intro(time.Second), effects.Keys(time.Second), effects.Pause()}
 	err = reel.Export(ctx, s.Timeline(), profile(outputs, fx))
 	if err != nil {
 		return nil, err
 	}
-	return append(files, filepath.Join(dir, "demo-built.png")), nil
+	return append(files, filepath.Join(dir, "demo-build-done.png")), nil
 }
 
 // runCast exports the asciicast file at path into dir, with the effects it

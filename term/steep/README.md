@@ -62,7 +62,7 @@ STEEP_EXPORT_MODE=on STEEP_EXPORT='{name}.gif?max-bytes=5MB,{name}.cast' go test
 | Variable | Sets |
 | --- | --- |
 | `STEEP_EXPORT_MODE` | `on`, `failure`, or `off` |
-| `STEEP_EXPORT` | comma-separated outputs, each a path with optional query parameters (see `reel.ParseFile`), such as `{name}.gif?loop=once`; a path with `{mark}` and no `marks=` is a still at each hook mark, narrowed with `?events=input&events=wait`, and `.snap` writes the screen's text. An entry that does not parse fails the test. |
+| `STEEP_EXPORT` | comma-separated outputs, each a path with optional query parameters (see `reel.ParseFile`), such as `{name}.gif?loop=once`; a path with `{mark}` and no `marks=` or `match=` is a still at each hook mark, `?match=input:*` narrows it to matching marks, and `.snap` writes the screen's text. An entry that does not parse fails the test. |
 | `STEEP_EXPORT_DIR` | the artifacts directory |
 | `STEEP_EXPORT_FPS`, `STEEP_EXPORT_SPEED` | the profile's timing |
 | `STEEP_RENDERER_SCALE`, `STEEP_RENDERER_FONT_FAMILY` | renderer options |

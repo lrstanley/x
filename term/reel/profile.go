@@ -89,13 +89,17 @@ type File struct {
 	// Options are added to [Profile.Encode] for this output.
 	Options []sink.Option
 	// Marks, if set, makes the output one still per [Mark] label instead of
-	// a recording; Path must contain {mark}. A repeated label uses its first
-	// mark in the window. A missing one writes nothing, and is reported as a
-	// [NoMarkError] once the other outputs are written. Stills run through
-	// only [Concealer] and [StillEffect] effects.
+	// a recording; Path must contain {mark}, which is the label with each
+	// character but "/" and "\" that Windows does not allow in file names
+	// replaced by "-", so "input:1" is written as "input-1"; two labels
+	// written the same, such as "step:1" and "step-1", are an error. A
+	// repeated label uses its first mark in the window. A missing one
+	// writes nothing, and is reported as a [NoMarkError] once the other
+	// outputs are written. Stills run through only [Concealer] and
+	// [StillEffect] effects.
 	Marks []string
 	// MarkMatch, like Marks, makes the output one still per mark whose
-	// label matches one of these [path.Match] patterns, such as "input-*",
+	// label matches one of these [path.Match] patterns, such as "input:*",
 	// after those of Marks, oldest first. A pattern that matches no mark is
 	// not an error. A matched label must be a file name, without slashes.
 	// Only [Export] can match marks, since [Record] starts before them.

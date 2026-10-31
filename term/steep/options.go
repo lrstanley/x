@@ -67,6 +67,8 @@ type options struct {
 	artifacts string
 	policy    exportPolicy
 	stills    []reel.File
+	// autoMarksOff is the categories [WithAutoMarks] set, true if off.
+	autoMarksOff map[string]bool
 
 	recordMessages bool
 

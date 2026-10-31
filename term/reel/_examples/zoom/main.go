@@ -53,12 +53,12 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		Outputs: reel.MustFiles(files...),
 		Render:  []render.Option{render.WithWindowChrome(true), render.WithPadding(14)},
 		Effects: []reel.Effect{
-			// The pipeline panel, at the right of the middle row. "input-8"
+			// The pipeline panel, at the right of the middle row. "input:8"
 			// is the mark of the key that deploys billing, and the tests
-			// have failed by "wait-13".
+			// have failed by "wait:13".
 			effects.Zoom(
 				effects.Cells(image.Rect(64, 11, 109, 22)),
-				effects.Between("input-8", "wait-13"),
+				effects.Between("input:8", "wait:13"),
 				effects.Ease(300*time.Millisecond),
 			),
 			// After the zoom, so the keys keep their size and place.

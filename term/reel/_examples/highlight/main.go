@@ -52,11 +52,11 @@ func run(ctx context.Context, dir string) ([]string, error) {
 		Outputs: reel.MustFiles(files...),
 		Render:  []render.Option{render.WithWindowChrome(true), render.WithPadding(14)},
 		Effects: []reel.Effect{
-			// "input-8" is the mark of the key that deploys billing.
+			// "input:8" is the mark of the key that deploys billing.
 			effects.Highlight(
 				effects.Text("billing"),
 				effects.Outline(nil, 0),
-				effects.Between("input-8", ""),
+				effects.Between("input:8", ""),
 				effects.Ease(300*time.Millisecond),
 			),
 			// After the highlight, so the keys stay bright.

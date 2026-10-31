@@ -91,6 +91,21 @@ func exportOptions(dir string, opts ...Option) []Option {
 	return append([]Option{WithWindowSize(20, 4), WithArtifacts(dir), WithIgnoreEnv(true)}, opts...)
 }
 
+// readCast reads the asciicast file at path.
+func readCast(t *testing.T, path string) *reel.Timeline {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tl, err := reel.ReadTimeline(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tl
+}
+
 func readGIF(t *testing.T, path string) *gif.GIF {
 	t.Helper()
 	f, err := os.Open(path)
@@ -156,20 +171,12 @@ func TestExportOnFailure(t *testing.T) {
 			t.Fatalf("errors = %q, want only the failed assertion", errs)
 		}
 
-		f, err := os.Open(filepath.Join(dir, want[0]))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		tl, err := reel.ReadTimeline(f)
-		if err != nil {
-			t.Fatal(err)
-		}
+		tl := readCast(t, filepath.Join(dir, want[0]))
 		again := filepath.Join(t.TempDir(), "again.gif")
 		p := profile
 		p.Outputs = reel.MustFiles(again)
 		p.Meta = &Result{Name: t.Name(), Failed: true, Failures: h.failures.messages()}
-		if err = reel.Export(t.Context(), tl, p); err != nil {
+		if err := reel.Export(t.Context(), tl, p); err != nil {
 			t.Fatal(err)
 		}
 		first, err := os.ReadFile(filepath.Join(dir, want[1]))
@@ -238,11 +245,8 @@ func TestExportMarks(t *testing.T) {
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(20, 4), WithIgnoreEnv(true))
 	h.Wait("size=20x4").Type("a").Mark("mine").Type("b").Wait("text=ab")
 	h.Close()
-	var labels []string
-	for m := range h.Timeline().Marks() {
-		labels = append(labels, m.Label)
-	}
-	want := []string{"ready-1", "wait-1", "input-1", "mine", "input-2", "wait-2", "close-1"}
+	labels := markLabels(h.Timeline())
+	want := []string{"ready:1", "wait:1", "input:1", "mine", "input:2", "wait:2", "close:1"}
 	if !slices.Equal(labels, want) {
 		t.Fatalf("marks = %q, want %q", labels, want)
 	}
@@ -277,13 +281,13 @@ func TestExportStills(t *testing.T) {
 		t.Fatalf("rec = %q", got)
 	}
 	// The mark of an input is placed once the program has painted it.
-	for label, text := range map[string]string{"input-1": "text=a", "input-2": "text=ab"} {
-		snap, err := os.ReadFile(filepath.Join(dir, stem+label+".snap"))
+	for file, text := range map[string]string{"input-1": "text=a", "input-2": "text=ab"} {
+		snap, err := os.ReadFile(filepath.Join(dir, stem+file+".snap"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := viewField(string(snap), "text="); "text="+got != text {
-			t.Errorf("%s snapshot shows %q, want %q", label, got, text)
+			t.Errorf("%s snapshot shows %q, want %q", file, got, text)
 		}
 	}
 	a, errA := os.ReadFile(filepath.Join(dir, stem+"input-1.png"))
@@ -415,7 +419,7 @@ func TestExportSnapshotVars(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STEEP_EXPORT_MODE", "on")
 	t.Setenv("STEEP_EXPORT_DIR", dir)
-	t.Setenv("STEEP_EXPORT", "{name}_{timestamp}.cast,{name}_{timestamp}_{duration}_{mark}.snap?match=ready-*,{name}_{status}_{mark}.snap?match=ready-*")
+	t.Setenv("STEEP_EXPORT", "{name}_{timestamp}.cast,{name}_{timestamp}_{duration}_{mark}.snap?match=ready:*,{name}_{status}_{mark}.snap?match=ready:*")
 	h := NewHarness(t, rootTestModel{}, WithWindowSize(20, 4),
 		WithRecording(reel.Profile{Vars: map[string]string{"name": "/abs"}}))
 	h.Wait("size=20x4")
@@ -449,7 +453,7 @@ func TestExportEnv(t *testing.T) {
 
 	dir = t.TempDir()
 	t.Setenv("STEEP_EXPORT_DIR", dir)
-	t.Setenv("STEEP_EXPORT", "{name}_{status}_{mark}.snap,snaps/{mark}.snap?match=input-*,{name}-{mark}.png?optimize=none&match=input-*,{name}.cast")
+	t.Setenv("STEEP_EXPORT", "{name}_{status}_{mark}.snap,snaps/{mark}.snap?match=input:*,{name}-{mark}.png?optimize=none&match=input:*,{name}.cast")
 	h = NewHarness(t, rootTestModel{}, WithWindowSize(20, 4),
 		WithRecording(reel.Profile{Outputs: reel.MustFiles("ignored.gif")}),
 		WithStills(StillPNG, HookClose))
@@ -575,8 +579,8 @@ func TestFailureMarks(t *testing.T) {
 		}
 	}
 	want := []string{
-		"@ready-1", kindFailure, "@failure-1", "@assert-1", "@input-1",
-		kindFailure, "@failure-2", "@wait-1", "@close-1",
+		"@ready:1", kindFailure, "@failure:1", "@assert:1", "@input:1",
+		kindFailure, "@failure:2", "@wait:1", "@close:1",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("events:\n%q\nwant\n%q", got, want)
@@ -596,9 +600,9 @@ func TestExportUnplacedMarks(t *testing.T) {
 		err   bool
 	}{
 		{"failed", true, "later", false},
-		{"passed failure mark", false, "failure-1", false},
+		{"passed failure mark", false, "failure:1", false},
 		{"passed", false, "typo", true},
-		{"passed failure-like", false, "failure-x", true},
+		{"passed failure-like", false, "failure:x", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -724,16 +728,7 @@ func TestExportOnPanic(t *testing.T) {
 	}
 
 	// The recording ends on the result, with the stack of the panic.
-	f, err := os.Open(filepath.Join(dir, want[0]))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	tl, err := reel.ReadTimeline(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := notes(t, tl)
+	got := notes(t, readCast(t, filepath.Join(dir, want[0])))
 	n := findNote(t, got[len(got)-1:], kindResult, map[string]any{"failed": true, "panicked": true})
 	if stack, _ := n.fields["stack"].(string); !strings.HasPrefix(stack, "panic(") || !strings.Contains(stack, "TestExportOnPanic") {
 		t.Fatalf("stack = %q", stack)
@@ -747,4 +742,117 @@ func viewField(view, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// markLabels returns the labels of tl's marks, oldest first.
+func markLabels(tl *reel.Timeline) []string {
+	var labels []string
+	for m := range tl.Marks() {
+		labels = append(labels, m.Label)
+	}
+	return labels
+}
+
+// TestAutoMarks checks which marks WithAutoMarks leaves on, including
+// those stills need whatever it says.
+func TestAutoMarks(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		opts []Option
+		want []string
+	}{
+		{"default", nil, []string{"ready:1", "failure:1", "assert:1", "input:1", "mine", "close:1"}},
+		{"off", []Option{WithAutoMarks(false)}, []string{"mine"}},
+		{"some off", []Option{WithAutoMarks(false, HookInput.String(), MarkFailure)}, []string{"ready:1", "assert:1", "mine", "close:1"}},
+		{"failures only", []Option{WithAutoMarks(false), WithAutoMarks(true, MarkFailure)}, []string{"failure:1", "mine"}},
+		{"stills", []Option{WithAutoMarks(false), WithStills(StillSnapshot, HookInput)}, []string{"input:1", "mine"}},
+		{"default stills", []Option{
+			WithAutoMarks(false),
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("{mark}.snap")}),
+		}, []string{"ready:1", "input:1", "mine", "close:1"}},
+		{"matched", []Option{
+			WithAutoMarks(false),
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("{mark}.snap?match=a*:*&marks=failure:1")}),
+		}, []string{"failure:1", "assert:1", "mine"}},
+		{"matched in a class", []Option{
+			WithAutoMarks(false),
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("{mark}.snap?match=input[:]*")}),
+		}, []string{"ready:1", "failure:1", "assert:1", "input:1", "mine", "close:1"}},
+		{"matched all", []Option{
+			WithAutoMarks(false),
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("{mark}.snap?match=*")}),
+		}, []string{"ready:1", "failure:1", "assert:1", "input:1", "mine", "close:1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ftb := &fakeTB{TB: t}
+			h := NewHarness(ftb, rootTestModel{}, append([]Option{WithIgnoreEnv(true)}, tc.opts...)...)
+			h.Assert("missing").Type("a").Mark("mine")
+			h.Close()
+			if got := markLabels(h.Timeline()); !slices.Equal(got, tc.want) {
+				t.Fatalf("marks = %q, want %q", got, tc.want)
+			}
+			if errs := ftb.errors(); len(errs) != 1 {
+				t.Fatalf("errors = %q, want only the failed assertion", errs)
+			}
+		})
+	}
+}
+
+// TestAutoMarksOffExport checks that a recording without the close mark
+// still ends where Close starts, on the result.
+func TestAutoMarksOffExport(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	h := NewHarness(t, rootTestModel{}, exportOptions(dir,
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("{name}.cast")}),
+		WithAutoMarks(false),
+		WithExportAlways(),
+	)...)
+	h.Type("a").Wait("text=a")
+	h.Close()
+
+	tl := readCast(t, filepath.Join(dir, "TestAutoMarksOffExport.cast"))
+	if got := markLabels(tl); len(got) != 0 {
+		t.Fatalf("marks = %q, want none", got)
+	}
+	var last reel.Event
+	for ev := range tl.Events() {
+		last = ev
+	}
+	if a, ok := last.(reel.Annotation); !ok || a.Kind != kindResult {
+		t.Fatalf("last event = %+v, want the result", last)
+	}
+}
+
+// TestMarkReserved checks that a test's own mark cannot use a category of
+// the harness's marks.
+func TestMarkReserved(t *testing.T) {
+	t.Parallel()
+	ftb := &fakeTB{TB: t}
+	h := NewHarness(ftb, rootTestModel{}, WithIgnoreEnv(true))
+	h.Mark("input:mine").Mark("failure:x").Mark("login:done").Mark("after-login")
+	h.Close()
+	// Each rejected mark is a failure the harness reports, so is marked as
+	// one.
+	want := []string{"ready:1", "failure:1", "failure:2", "login:done", "after-login", "close:1"}
+	if got := markLabels(h.Timeline()); !slices.Equal(got, want) {
+		t.Fatalf("marks = %q, want %q", got, want)
+	}
+	errs := ftb.errors()
+	if len(errs) != 2 || !strings.Contains(errs[0], `"input:mine"`) || !strings.Contains(errs[1], `"failure:x"`) {
+		t.Fatalf("errors = %q", errs)
+	}
+}
+
+// TestAutoMarksUnknown checks that WithAutoMarks with a category the
+// harness does not mark stops the test before the program starts.
+func TestAutoMarksUnknown(t *testing.T) {
+	t.Parallel()
+	ftb := &fakeTB{TB: t}
+	runFailing(func() { NewHarness(ftb, rootTestModel{}, WithIgnoreEnv(true), WithAutoMarks(false, "nope")) })
+	if errs := ftb.errors(); len(errs) != 1 || !strings.Contains(errs[0], `"nope"`) {
+		t.Fatalf("errors = %q", errs)
+	}
 }
