@@ -126,6 +126,9 @@ tasks:
   sync:all:
     desc: ensure go work is synced
     run: once
+    # go.work is gitignored, so skip when there is no workspace (e.g. CI).
+    status:
+      - test -z "$(go env GOWORK | grep -vx off)"
     cmds:
       - for: { var: PACKAGES, as: "PKG" }
         cmd: go work edit -use {{ .PKG }}
