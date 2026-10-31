@@ -40,7 +40,7 @@
 // "steep.snapshot"), failures ("steep.failure"), and the result
 // ("steep.result"). Text fields over 4 KiB are cut and marked truncated.
 // Messages the model receives ("steep.message") are only recorded with
-// [WithRecordMessages].
+// [WithRecordMessages], which leaves out the environment ([tea.EnvMsg]).
 //
 // By default nothing is written: the timeline stays in memory, for
 // [Harness.Timeline]. [WithExportOnFailure] exports when the test failed, and

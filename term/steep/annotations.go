@@ -209,9 +209,21 @@ type programNote struct {
 func (*programNote) kind() string { return kindProgram }
 func (n *programNote) clip()      { n.Value = reel.ClipText(n.Value, &n.Truncated) }
 
-// valueNote returns v's type and its %+v formatting.
+// isEnv reports whether v is a [tea.EnvMsg], which holds the program's whole
+// environment, secrets included, so is never recorded.
+func isEnv(v any) bool {
+	_, ok := v.(tea.EnvMsg)
+	return ok
+}
+
+// valueNote returns v's type and its %+v formatting, or no value for an
+// environment (see isEnv).
 func valueNote(v any) (typ, value string) {
-	return fmt.Sprintf("%T", v), fmt.Sprintf("%+v", v)
+	typ = fmt.Sprintf("%T", v)
+	if isEnv(v) {
+		return typ, ""
+	}
+	return typ, fmt.Sprintf("%+v", v)
 }
 
 func clipMatches(matches []reel.Match, truncated *bool) {
@@ -421,9 +433,12 @@ type messageNote struct {
 func (*messageNote) kind() string { return kindMessage }
 func (n *messageNote) clip()      { n.Value = reel.ClipText(n.Value, &n.Truncated) }
 
-// noteMessage records a message the model received. It runs on the
-// program's goroutine.
+// noteMessage records a message the model received, except an environment
+// (see isEnv). It runs on the program's goroutine.
 func (h *Harness) noteMessage(msg uv.Event) {
+	if isEnv(msg) {
+		return
+	}
 	var n messageNote
 	n.Type, n.Value = valueNote(msg)
 	_ = h.record(&n)

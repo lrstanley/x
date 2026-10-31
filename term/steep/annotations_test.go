@@ -5,6 +5,7 @@
 package steep
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/lrstanley/x/term/reel"
 	"github.com/lrstanley/x/term/reel/vt"
 	"github.com/lrstanley/x/term/steep/snapshot"
@@ -381,6 +383,46 @@ func TestAnnotationsMessages(t *testing.T) {
 	findNote(t, got, kindStart, map[string]any{"messages": true})
 	findNote(t, got, kindMessage, map[string]any{"type": "tea.WindowSizeMsg", "value": "{Width:20 Height:2}"})
 	findNote(t, got, kindMessage, map[string]any{"type": "steep.setTextMsg", "value": "x"})
+}
+
+// TestAnnotationsMessagesEnv checks that the exported ".cast" leaves out the
+// environment the model receives, and the value of one sent to it.
+func TestAnnotationsMessagesEnv(t *testing.T) {
+	t.Parallel()
+	const secret = "hunter2-do-not-record"
+	dir := t.TempDir()
+	h := NewHarness(t, rootTestModel{}, exportOptions(dir,
+		WithRecording(reel.Profile{Outputs: reel.MustFiles("rec.cast")}),
+		WithExportAlways(),
+		WithRecordMessages(true),
+		WithEnvVars("TERM=xterm-256color", "STEEP_TEST_SECRET="+secret),
+	)...)
+	h.SendProgram(tea.EnvMsg{"STEEP_TEST_SENT=" + secret}).Wait("size=20x4")
+	h.Close()
+
+	cast, err := os.ReadFile(filepath.Join(dir, "rec.cast"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(cast, []byte(secret)) {
+		t.Error("the .cast holds the secret")
+	}
+	tl, err := reel.ReadTimeline(bytes.NewReader(cast))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := notes(t, tl)
+	// Other messages are still recorded.
+	findNote(t, got, kindMessage, map[string]any{"type": "tea.WindowSizeMsg"})
+	sent := findNote(t, got, kindProgram, map[string]any{"action": "send", "type": "tea.EnvMsg"})
+	if v, ok := sent.fields["value"]; ok {
+		t.Errorf("sent environment recorded with value %q", v)
+	}
+	if slices.ContainsFunc(got, func(n recorded) bool {
+		return n.kind == kindMessage && n.fields["type"] == "tea.EnvMsg"
+	}) {
+		t.Error("recorded the environment the model received")
+	}
 }
 
 // TestHookMetaAnnotations checks that the metadata each harness method passes

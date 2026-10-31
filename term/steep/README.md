@@ -50,7 +50,8 @@ players ignore: the harness's configuration, each input, wait, assertion,
 and snapshot comparison with its outcome, each failure, the result, and the
 program's terminal queries with the replies. reel's
 [`annotation.schema.json`](../reel/annotation.schema.json) describes them.
-`steep.WithRecordMessages(true)` adds every message the model receives.
+`steep.WithRecordMessages(true)` adds every message the model receives,
+except `tea.EnvMsg`, which may hold secrets.
 
 Any test can be recorded without changing it:
 

@@ -310,6 +310,11 @@ func WithLog(tb testing.TB) Option {
 // default, since programs that tick or animate receive many messages, each of
 // which grows the timeline and ".cast" file.
 //
+// The [tea.EnvMsg] Bubble Tea sends the model is never recorded, since it
+// holds the program's whole environment (see [WithEnvVars]). Other messages
+// are recorded as they are, including any secret they hold, as is the text
+// the program draws, which the effects package's Redact hides.
+//
 // Environment: STEEP_RECORD_MESSAGES (a boolean) overrides this option
 // unless [WithIgnoreEnv] is set.
 func WithRecordMessages(enable bool) Option {
@@ -327,6 +332,10 @@ func WithRecordMessages(enable bool) Option {
 // This option replaces those defaults with the test process environment plus
 // vars, so pass TTY_FORCE and TERM again if the program needs them. It panics
 // if an entry is not in "key=value" form.
+//
+// The program sees the whole test process environment, which in CI may hold
+// tokens and credentials. [WithRecordMessages] does not record it, but the
+// program can still read and draw it.
 func WithEnvVars(vars ...string) Option {
 	return func(cfg *options) {
 		current := map[string]string{}

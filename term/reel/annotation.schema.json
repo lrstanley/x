@@ -523,7 +523,7 @@
           "type": "string", "examples": ["send", "quit", "mutate"]
         },
         "type": {"description": "For \"send\": the message's Go type, such as \"tea.KeyPressMsg\". For \"mutate\": the Go type of the model changed.", "type": "string"},
-        "value": {"description": "For \"send\": the message's value, as Go's fmt package prints it with %+v.", "type": "string"},
+        "value": {"description": "For \"send\": the message's value, as Go's fmt package prints it with %+v. Left out for the environment (tea.EnvMsg), which may hold secrets.", "type": "string"},
         "truncated": {"$ref": "#/$defs/steep.truncated"}
       },
       "if": {"properties": {"action": {"enum": ["send", "mutate"]}}, "required": ["action"]},
@@ -638,7 +638,7 @@
       }
     },
     "steep.message": {
-      "description": "A message the program's model received, before it handled it. steep writes these only when the test asks it to, since a program that ticks or animates receives many.",
+      "description": "A message the program's model received, before it handled it. steep writes these only when the test asks it to, since a program that ticks or animates receives many, and never for the environment (tea.EnvMsg), which may hold secrets.",
       "type": "object",
       "required": ["kind", "type", "value"],
       "properties": {
