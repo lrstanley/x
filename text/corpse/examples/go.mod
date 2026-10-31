@@ -27,7 +27,7 @@ require (
 	github.com/kljensen/snowball v0.10.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/lrstanley/x/sync v0.0.0-20260530031906-d0cef47dbceb // indirect
+	github.com/lrstanley/x/sync v0.0.0-20260912030744-8b2b6a04d46b // indirect
 	github.com/maruel/natural v1.1.1 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
