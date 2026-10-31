@@ -324,7 +324,17 @@ func (w *Watcher) handleWriteEvent(ctx context.Context, _ fsnotify.Event, yield 
 		if w.config.ReadFromStart {
 			return w.readInitialData(ctx, yield)
 		}
-		// Not reading from start, so just continue to check for new writes
+		// Not reading from start. The file may have been opened (at size 0)
+		// between its creation and this first write, so this write is still
+		// creation content; skip it and only tail later appends.
+		pos, err := w.file.Seek(0, io.SeekEnd)
+		if err != nil {
+			return yield(nil, err)
+		}
+		w.filePos = pos
+		w.scanner = bufio.NewScanner(w.file)
+		w.scanner.Split(w.config.SplitFunc)
+		return true
 	}
 
 	if w.file == nil {
