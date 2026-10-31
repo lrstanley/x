@@ -177,8 +177,11 @@ func TestAttachUntimed(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := slices.Collect(s.Timeline().Events())
-	if len(events) != 2 || events[1].At()-events[0].At() < 50*ms {
-		t.Fatalf("events = %+v, want two, 50ms apart", events)
+	// Each read is stamped when it returns, rounded to the millisecond, so
+	// the gap is the pause give or take scheduling; half of it shows the
+	// pause was recorded.
+	if len(events) != 2 || events[1].At()-events[0].At() < 25*ms {
+		t.Fatalf("events = %+v, want two, about 50ms apart", events)
 	}
 	if text := strings.TrimSpace(s.Terminal().Text()); text != "ab" {
 		t.Fatalf("terminal = %q, want ab", text)

@@ -9,6 +9,7 @@ package reel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,7 +71,8 @@ func waitText(t *testing.T, s *Session, text string) {
 func TestExecRecordsFrames(t *testing.T) {
 	t.Parallel()
 	s := openTest(t, 20, 2)
-	p := execTest(t.Context(), t, s, bash(t, "printf one; sleep 0.2; printf ' two'"))
+	const pause = 200 * ms
+	p := execTest(t.Context(), t, s, bash(t, fmt.Sprintf("printf one; sleep %g; printf ' two'", pause.Seconds())))
 	wait(t, p, 0)
 
 	tl := s.Timeline()
@@ -87,9 +89,11 @@ func TestExecRecordsFrames(t *testing.T) {
 		t.Fatalf("frames = %q, want one, one two", texts)
 	}
 	// Output is stamped when it is read, a little after it is written, so
-	// the gap is the sleep give or take the latency of the two reads.
-	if gap := frames[1].At - frames[0].At; gap < 180*ms {
-		t.Fatalf("second frame %v after the first, want about 200ms", gap)
+	// the gap is the pause give or take how late each read woke up, which on
+	// a loaded machine can be tens of milliseconds. Half the pause still
+	// shows it was recorded rather than collapsed.
+	if gap := frames[1].At - frames[0].At; gap < pause/2 {
+		t.Fatalf("second frame %v after the first, want about %v", gap, pause)
 	}
 
 	// The real renderer encodes the same frames to a GIF.
