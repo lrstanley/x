@@ -29,6 +29,8 @@ var showcaseProfile = reel.Profile{
 	Outputs: reel.MustFiles("showcase.gif", "showcase.cast"),
 	Render: []render.Option{
 		render.WithWindowChrome(true),
+		render.WithProgramStatus(true),
+		render.WithProgressBar(true),
 		render.WithPadding(14),
 		render.WithMargin(36, lipgloss.Color("#1d212c")),
 		render.WithBorderRadius(12),
