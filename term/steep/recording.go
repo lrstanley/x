@@ -7,6 +7,7 @@ package steep
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -126,7 +127,8 @@ func WithRecording(p reel.Profile) Option {
 // WithArtifacts sets the directory relative output paths are written under,
 // created when needed. A relative dir is relative to the test's package
 // directory. Without it, files go to [testing.TB.ArtifactDir], which is only
-// kept with "go test -artifacts".
+// kept with "go test -artifacts"; without that flag, an export logs that its
+// files are removed. Absolute output paths ignore dir.
 //
 // Environment: STEEP_EXPORT_DIR (overrides this option unless [WithIgnoreEnv]
 // is set).
@@ -275,9 +277,14 @@ func (h *Harness) exportRecording(end string) {
 	if !failed && (h.cfg.policy == exportOnFailure || h.tb.Skipped()) {
 		return
 	}
-	missing, err := reel.MissingMarks(h.writeRecording(end, failed, panicked))
+	paths, err := h.writeRecording(end, failed, panicked)
+	missing, err := reel.MissingMarks(err)
 	if err != nil {
 		h.tb.Errorf("steep: export: %v", err)
+	} else {
+		for _, path := range paths {
+			h.tb.Logf("steep: export: wrote %s", path)
+		}
 	}
 	for _, label := range missing {
 		switch {
@@ -289,7 +296,9 @@ func (h *Harness) exportRecording(end string) {
 	}
 }
 
-func (h *Harness) writeRecording(end string, failed, panicked bool) error {
+// writeRecording writes the outputs, and returns their paths, with {mark}
+// left in those of stills.
+func (h *Harness) writeRecording(end string, failed, panicked bool) ([]string, error) {
 	h.tb.Helper()
 	status := statusPassed
 	if failed {
@@ -313,7 +322,7 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 	if err != nil {
 		// Without its end, nothing is written, so this is no mark the
 		// outputs can do without (see [reel.MissingMarks]).
-		return fmt.Errorf("the end of the recording: %v", err) //nolint:errorlint // Not a missing mark to export without.
+		return nil, fmt.Errorf("the end of the recording: %v", err) //nolint:errorlint // Not a missing mark to export without.
 	}
 	outputs := slices.Clone(p.Outputs)
 	if outputs == nil {
@@ -329,16 +338,54 @@ func (h *Harness) writeRecording(end string, failed, panicked bool) error {
 		if !filepath.IsAbs(f.Path) {
 			if dir == "" {
 				dir = h.tb.ArtifactDir()
+				if !artifactsKept() {
+					h.tb.Logf("steep: export: %s is removed when the test ends; pass -artifacts to go test, or set STEEP_EXPORT_DIR or WithArtifacts", dir)
+				}
 			}
 			f.Path = filepath.Join(dir, f.Path)
 		}
 	}
 	if len(outputs) == 0 {
-		return nil
+		return nil, nil
 	}
 	p.Outputs = outputs
 	// The test's context is canceled by the time cleanups run.
-	return reel.Export(context.Background(), tl, p)
+	return expandedOutputs(tl, p), reel.Export(context.Background(), tl, p)
+}
+
+// expandedOutputs returns the paths of p's outputs as [reel.Export] expands
+// them for tl, with {mark} left in. A path that does not expand is returned
+// as it is, as Export fails on it.
+func expandedOutputs(tl *reel.Timeline, p reel.Profile) []string {
+	vars, err := tl.PathVars(p.Vars)
+	if err != nil {
+		vars = map[string]string{}
+	}
+	vars[strings.Trim(markVar, "{}")] = markVar
+	paths := make([]string, len(p.Outputs))
+	for i, f := range p.Outputs {
+		path, perr := reel.ExpandPath(f.Path, vars)
+		if perr != nil {
+			path = f.Path
+		}
+		paths[i] = path
+	}
+	return paths
+}
+
+// artifactsKept reports whether "go test -artifacts" keeps
+// [testing.TB.ArtifactDir], or true if that is unknown.
+func artifactsKept() bool {
+	f := flag.Lookup("test.artifacts")
+	if f == nil {
+		return true
+	}
+	g, ok := f.Value.(flag.Getter)
+	if !ok {
+		return true
+	}
+	kept, ok := g.Get().(bool)
+	return !ok || kept
 }
 
 // testStatus returns whether the test has failed or is panicking, and

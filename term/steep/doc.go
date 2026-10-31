@@ -52,7 +52,9 @@
 // [WithRecording] sets what an export writes as a [reel.Profile]. Without
 // outputs it writes "{name}_{status}.gif" and "{name}_{status}.cast" under
 // [WithArtifacts], or [testing.TB.ArtifactDir], which is only kept with
-// "go test -artifacts". [WithStills] adds a PNG or text snapshot at the marks
+// "go test -artifacts"; without it, an export logs that its files are
+// removed. Absolute paths are written as they are. Each export logs the
+// paths it wrote. [WithStills] adds a PNG or text snapshot at the marks
 // of the hook events it names.
 //
 // steep adds two effects to those in the effects package: [Logo], an

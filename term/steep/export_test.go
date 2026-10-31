@@ -337,6 +337,77 @@ func TestExportPaths(t *testing.T) {
 	})
 }
 
+// logTB is a [testing.TB] that records what it logs.
+type logTB struct {
+	testing.TB
+
+	mu   sync.Mutex
+	logs []string
+}
+
+func (l *logTB) Logf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.logs = append(l.logs, fmt.Sprintf(format, args...))
+}
+
+func (l *logTB) logged() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.logs)
+}
+
+// TestExportLogs checks that an export logs the paths it wrote, with
+// {mark} left in those of stills, and warns when they go to an artifact
+// directory "go test" removes.
+func TestExportLogs(t *testing.T) {
+	t.Parallel()
+	t.Run("paths", func(t *testing.T) {
+		t.Parallel()
+		ltb := &logTB{TB: t}
+		dir := t.TempDir()
+		h := NewHarness(ltb, rootTestModel{}, exportOptions(dir,
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("out.cast")}),
+			WithStills(StillSnapshot, HookReady),
+			WithExportAlways(),
+		)...)
+		h.Wait("size=20x4")
+		h.Close()
+		want := []string{
+			"steep: export: wrote " + filepath.Join(dir, "out.cast"),
+			"steep: export: wrote " + filepath.Join(dir, "TestExportLogs_paths_passed_{mark}.snap"),
+		}
+		var got []string
+		for _, msg := range ltb.logged() {
+			if strings.HasPrefix(msg, "steep: export:") {
+				got = append(got, msg)
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("logs = %q, want %q", got, want)
+		}
+	})
+	t.Run("removed artifact dir", func(t *testing.T) {
+		t.Parallel()
+		if artifactsKept() {
+			t.Skip("run with -artifacts")
+		}
+		ltb := &logTB{TB: t}
+		h := NewHarness(ltb, rootTestModel{},
+			WithWindowSize(20, 4), WithIgnoreEnv(true),
+			WithRecording(reel.Profile{Outputs: reel.MustFiles("out.cast")}),
+			WithExportAlways(),
+		)
+		h.Wait("size=20x4")
+		h.Close()
+		if !slices.ContainsFunc(ltb.logged(), func(msg string) bool {
+			return strings.Contains(msg, "is removed when the test ends")
+		}) {
+			t.Fatalf("no warning in %q", ltb.logged())
+		}
+	})
+}
+
 // TestExportSnapshotVars checks that snapshot paths expand the variables
 // reel's outputs do, and that a variable cannot move one out of the
 // artifacts directory, as it cannot for reel's outputs.
