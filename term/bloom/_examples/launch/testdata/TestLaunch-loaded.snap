@@ -1,0 +1,28 @@
+◆ deploy · production                                                                        STAGED 
+                                                                                                    
+╭──────────────────────────────╮  ╭──────────────────────────────╮  ╭──────────────────────────────╮
+│  Requests                    │  │  p95 latency                 │  │  Errors                      │
+│                              │  │                              │  │                              │
+│  1,021                       │  │  148                         │  │  7                           │
+│  per minute                  │  │  milliseconds                │  │  per hour                    │
+│                              │  │                              │  │                              │
+│                              │  │                              │  │                              │
+╰──────────────────────────────╯  ╰──────────────────────────────╯  ╰──────────────────────────────╯
+                                                                                                    
+Deploy payments to production                                                                       
+Type the service name to confirm.                                                                   
+                                                                                                    
+ payments                                                                                   deploy  
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+ctrl+t tour · ctrl+p pause · ctrl+r reset · updates: 0 · tour: 0                                    

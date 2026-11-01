@@ -1,0 +1,100 @@
+Fixed, Fill, and Auto (a bare child is Auto)
+╭──────────╮ ╭──────────────────────────────────────╮ ╭────╮
+│fixed 12  │ │fill                                  │ │auto│
+╰──────────╯ ╰──────────────────────────────────────╯ ╰────╯
+
+Grow weights and Percent
+╭─────────────╮╭────────────────────────────╮╭─────────────╮
+│grow 1       ││grow 2                      ││25%          │
+╰─────────────╯╰────────────────────────────╯╰─────────────╯
+
+Min and Max clamp a share
+╭────────────╮╭──────────────╮╭────────────────────────────╮
+│max 14      ││fill          ││min 30                      │
+╰────────────╯╰──────────────╯╰────────────────────────────╯
+
+Collapsible: dropped when minimums do not fit (here at 40 columns)
+╭──────────────╮╭──────────────────────╮
+│priority 2    ││min 20                │
+╰──────────────╯╰──────────────────────╯
+
+Justify, when nothing grows
+Start          a  b  c                        
+Center                    a  b  c             
+End                                   a  b  c 
+SpaceBetween   a             b              c 
+SpaceAround       a          b           c    
+SpaceEvenly         a        b         c      
+
+Align on the cross axis: the row centers, slots override it
+╭────╮  start                                               
+│tall│                                                      
+│card│          center                   stretch            
+│here│                                                      
+╰────╯                   end                                
+
+Space takes what is left
+╭──────────────────────╮
+│top                   │
+│                      │
+│                      │
+│bottom                │
+╰──────────────────────╯
+
+Box with padding, around wrapping text
+╭──────────────────────────────────╮
+│                                  │
+│  Text with a style is rendered   │
+│  at the size it is given, so     │
+│  long lines wrap to fit and the  │
+│  background fills the space.     │
+│                                  │
+│                                  │
+╰──────────────────────────────────╯
+
+Fixed(n, nil) and Space(): fixed and growing gaps
+╭─╮    ╭─╮                 ╭─╮
+│a│    │b│                 │c│
+╰─╯    ╰─╯                 ╰─╯
+
+Truncate: one line, cut off with an ellipsis
+╭────────────────────────────╮
+│A long line that will not f…│
+│A short one                 │
+╰────────────────────────────╯
+
+Grid: equal columns, row by row (3 columns)
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│one        │ │two        │ │three     │
+╰───────────╯ ╰───────────╯ ╰──────────╯
+╭───────────╮ ╭───────────╮             
+│four       │ │five       │             
+╰───────────╯ ╰───────────╯             
+
+Wrap: natural sizes, flowing onto new lines
+ layout   flex   grid   wrap        
+                                    
+ truncate   spacer                  
+
+Centered
+╭──────────────────────────────────╮
+│                                  │
+│          in the middle           │
+│                                  │
+╰──────────────────────────────────╯
+
+Natural size: no width or height given
+╭─╮ ╭──╮ ╭───╮
+│a│ │bb│ │ccc│
+│ │ │bb│ │ccc│
+│ │ │  │ │ccc│
+╰─╯ ╰──╯ ╰───╯
+
+A layout is a string to Lip Gloss too
+╭────╮             
+│node│             
+╰────╯   ╭────────╮
+╭────╮ → │lipgloss│
+│tree│   ╰────────╯
+╰────╯             
+

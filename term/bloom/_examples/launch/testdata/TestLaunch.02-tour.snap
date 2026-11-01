@@ -1,0 +1,28 @@
+◆ deploy · production                                                                        STAGED 
+                                                                                                    
+╭──────────────────────────────╮  ╭──────────────────────────────╮  ╭──────────────────────────────╮
+│  Requests                    │  │  p95 latency                 │  │  Errors                      │
+│                              │  │                              │  │                              │
+│  1,069                       │  │  157                         │  │  8                           │
+│  per minute                  │  │  milliseconds                │  │  per hour                    │
+│                              │  │                              │  │                              │
+│                              │  │                              │  │                              │
+╰──────────────────────────────╯  ╰──────────────────────────────╯  ╰──────────────────────────────╯
+                                                                                                    
+Deploy payments to production                                                                       
+Type the service name to confirm.                                                                   
+                                                                                                    
+ payments                                                                                   deploy  
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                          ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                           
+                          ┃  Latency                                    ┃                           
+                          ┃  How long the slowest 5% of requests take.  ┃                           
+                          ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛                           
+                                                                                                    
+ctrl+t tour · ctrl+p pause · ctrl+r reset · updates: 1 · tour: 2                                    

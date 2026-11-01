@@ -4,6 +4,7 @@ vars:
   PACKAGES:
     - charm/formatter
     - charm/layout
+    - term/bloom
     - term/reel
     - term/steep
     - term/tape

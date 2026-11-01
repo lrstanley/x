@@ -1,0 +1,34 @@
+╭─────────────────────────────╮ ╭────────────────────────────╮ ╭────────────────────────────╮ ╭────────────────────────────╮
+│Unfold                       │ │Iris                        │ │Shade                       │ │Blinds from the top         │
+│┌───────────────────────────┐│ │┌──────────────────────────┐│ │┌──────────────────────────┐│ │┌──────────────────────────┐│
+││ The quick brown fox       ││ ││ The quick brown fox      ││ ││ The quick brown fox      ││ ││ The quick brown fox      ││
+││ jumps over the lazy       ││ ││ jumps over the lazy      ││ ││ jumps over the lazy      ││ ││ jumps over the lazy      ││
+││ dog. 0123456789 ✓         ││ ││ dog. 0123456789 ✓        ││ ││ dog. 0123456789 ✓        ││ ││ dog. 0123456789 ✓        ││
+││ Wide glyphs: 世界 ✓       ││ ││ Wide glyphs: 世界 ✓      ││ ││ Wide glyphs: 世界 ✓      ││ ││ Wide glyphs: 世界 ✓      ││
+││ the border stays whole    ││ ││ the border stays whole   ││ ││ the border stays whole   ││ ││ the border stays whole   ││
+│└───────────────────────────┘│ │└──────────────────────────┘│ │└──────────────────────────┘│ │└──────────────────────────┘│
+│                             │ │                            │ │                            │ │                            │
+╰─────────────────────────────╯ ╰────────────────────────────╯ ╰────────────────────────────╯ ╰────────────────────────────╯
+╭─────────────────────────────╮ ╭────────────────────────────╮ ╭────────────────────────────╮ ╭────────────────────────────╮
+│Wave from the bottom         │ │Wave from the left          │ │Stagger: Slide, by rows     │ │Stagger: Shade, by columns  │
+│┌───────────────────────────┐│ │┌────────╔═════════════════════════════════════╗           │ │┌──────────────────────────┐│
+││ The quick brown fox       ││ ││ The qui║                                     ║           │ ││ The quick brown fox      ││
+││ jumps over the lazy       ││ ││ jumps o║   Iris dialog                       ║           │ ││ jumps over the lazy      ││
+││ dog. 0123456789 ✓         ││ ││ dog. 01║   Opened by an iris that grows      ║           │ ││ dog. 0123456789 ✓        ││
+││ Wide glyphs: 世界 ✓       ││ ││ Wide gl║   from the button that opened it.   ║           │ ││ Wide glyphs: 世界 ✓      ││
+││ the border stays whole    ││ ││ the bor║   esc closes                        ║           │ ││ the border stays whole   ││
+│└───────────────────────────┘│ │└────────║                                     ║           │ │└──────────────────────────┘│
+│                             │ │         ╚═════════════════════════════════════╝           │ │                            │
+╰─────────────────────────────╯ ╰────────────────────────────╯ ╰────────────────────────────╯ ╰────────────────────────────╯
+╭─────────────────────────────╮ ╭────────────────────────────╮ ╭────────────────────────────╮ ╭────────────────────────────╮
+│Delay: Fade, then Scramble   │ │Reverse: Wipe, leaving      │ │Ease: Slide with OutBack    │ │Blinds from the left        │
+│┌───────────────────────────┐│ │                            │ │┌──────────────────────────┐│ │┌──────────────────────────┐│
+││ The quick brown fox       ││ │                            │ ││ The quick brown fox      ││ ││ The quick brown fox      ││
+││ jumps over the lazy       ││ │                            │ ││ jumps over the lazy      ││ ││ jumps over the lazy      ││
+││ dog. 0123456789 ✓         ││ │                            │ ││ dog. 0123456789 ✓        ││ ││ dog. 0123456789 ✓        ││
+││ Wide glyphs: 世界 ✓       ││ │                            │ ││ Wide glyphs: 世界 ✓      ││ ││ Wide glyphs: 世界 ✓      ││
+││ the border stays whole    ││ │                            │ ││ the border stays whole   ││ ││ the border stays whole   ││
+│└───────────────────────────┘│ │                            │ │└──────────────────────────┘│ │└──────────────────────────┘│
+│                             │ │                            │ │                            │ │                            │
+╰─────────────────────────────╯ ╰────────────────────────────╯ ╰────────────────────────────╯ ╰────────────────────────────╯
+ d  Iris dialog  u  Unfold dialog t = 1.00 · space: pause · q: quit                                                         

@@ -1,0 +1,26 @@
+Reflow / automatic layout animations                                                                
+╭────────────────╮╭───────────────────────────────────────────────────────╮╭───────────────────────╮
+│Workspace       ││ Ember                                                 ││Preview                │
+│                ││                                                       ││                       │
+│Projects        ││ Delta                                                 ││Children reflow at the │
+│Activity        ││                                                       ││                       │
+│Settings        ││ Cedar                                                 ││Try b, s, r and d.     │
+│                ││                                                       ││                       │
+│                ││ Birch                                                 < selected               │
+│                ││                                                       ││                       │
+│                ││ Atlas                                                 ││                       │
+│                ││                                                       ││                       │
+│                ││                                                       ││                       │
+│                ││                                                       ││                       │
+│                ││                                                       ││                       │
+│                ││                                                       ││                       │
+│                ││                                                       ││                       │
+│                ││                                                       ││                       │
+│                │╰───────────────────────────────────────────────────────╯╰───────────────────────╯
+│                │╭────────────────────────────────────────────────────────────────────────────────╮
+│                ││Details                                                                         │
+│                ││Selected: Birch                                                                 │
+│                ││                                                                                │
+╰────────────────╯╰────────────────────────────────────────────────────────────────────────────────╯
+sidebar: true | reverse: true | ratio: 70 | details: true | selected: Birch                         
+b sidebar / s sort / r ratio / d details / up,down select / q quit                                  
