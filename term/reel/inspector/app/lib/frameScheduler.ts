@@ -10,6 +10,14 @@ export function targetKey(target: FrameTarget): string {
   return JSON.stringify(target)
 }
 
+// sameScreen reports whether a and b show the same event drawn the same
+// way, if perhaps with the mouse as of another time. A frame is still
+// shown once the playhead has moved the mouse on, or one that takes longer
+// than an animation frame would never be.
+function sameScreen(a: FrameTarget, b: FrameTarget): boolean {
+  return targetKey({ ...a, at: undefined }) === targetKey({ ...b, at: undefined })
+}
+
 export function createFrameScheduler(rpc: Rpc, target: () => FrameTarget | null, commit: (frame: Frame) => void, fail: (error: Error) => void) {
   let shown = ''
   let running = false
@@ -21,9 +29,9 @@ export function createFrameScheduler(rpc: Rpc, target: () => FrameTarget | null,
     try {
       while ((requested = target()) && shown !== targetKey(requested)) {
         const want = requested
-        const frame = await rpc('frame', [want.generation, want.index, { scale: want.scale, display: want.display }])
+        const frame = await rpc('frame', [want.generation, want.index, { scale: want.scale, display: want.display, at: want.at }])
         const current = target()
-        if (current && targetKey(current) === targetKey(want)) {
+        if (current && sameScreen(current, want)) {
           shown = targetKey(want)
           commit(frame)
         }

@@ -21,6 +21,11 @@ import (
 // it fits the region to the grid.
 const zoomMargin = 1
 
+// zoomsKey is the [reel.Context] value [Zoom] stores the []*zoomStage of
+// every Zoom started so far under, so [Mouse] can draw over the cells they
+// zoom.
+type zoomsKey struct{}
+
 // ZoomOption configures [Zoom]: [Scale], [Anchor], and the [Timing]
 // options.
 type ZoomOption interface {
@@ -128,6 +133,8 @@ func (e zoom) Start(ctx *reel.Context) (reel.Stage, error) {
 			}
 		}
 	}
+	prev, _ := ctx.Value(zoomsKey{}).([]*zoomStage)
+	ctx.SetValue(zoomsKey{}, append(slices.Clip(prev), s))
 	return s.run, nil
 }
 
@@ -150,6 +157,9 @@ type zoomStage struct {
 
 	// target is the zoom being shown, or nil.
 	target *zoomTarget
+	// acquired is each target acquired, nil for a region that covered no
+	// cells, with the offset of the frame it was acquired on, oldest first.
+	acquired []acquiredZoom
 	// buf holds the cells the cell renderer drew last, into img.
 	buf *vt.Buffer
 	img *image.NRGBA
@@ -170,6 +180,9 @@ func (s *zoomStage) run(f reel.Frame, emit func(reel.Frame)) {
 	}
 	if t := s.target; t == nil || t.size != f.Cells.Screen.Bounds().Size() {
 		s.target = s.acquire(f.Cells)
+		if n := len(s.acquired); n == 0 || s.acquired[n-1].target != s.target {
+			s.acquired = append(s.acquired, acquiredZoom{at: f.At, target: s.target})
+		}
 	}
 	t := s.target
 	if t == nil {
@@ -200,6 +213,35 @@ func (s *zoomStage) run(f reel.Frame, emit func(reel.Frame)) {
 	if pieces[len(pieces)-1].level == 0 {
 		s.target = nil
 	}
+}
+
+// acquiredZoom is a target a zoom acquired on the frame at offset at.
+type acquiredZoom struct {
+	at     time.Duration
+	target *zoomTarget
+}
+
+// axes returns how the zoom draws the grid at timeline offset at, as the
+// stage drew a frame piece sampled there (see [window.pieces]), or false
+// when it leaves the grid as it is. Later stages call it for frames the
+// zoom has already drawn.
+func (s *zoomStage) axes(at time.Duration) (x, y zoomAxis, ok bool) {
+	l := s.window.level(at)
+	// Later stages ask about recent frames, so the search starts at the
+	// newest target.
+	i := len(s.acquired) - 1
+	for i >= 0 && s.acquired[i].at > at {
+		i--
+	}
+	if l == 0 || i < 0 || s.acquired[i].target == nil {
+		return zoomAxis{}, zoomAxis{}, false
+	}
+	t := s.acquired[i].target
+	if l == 1 {
+		return t.x, t.y, true
+	}
+	size := t.layout.Grid.Size()
+	return t.x.at(l, float64(size.X)), t.y.at(l, float64(size.Y)), true
 }
 
 // renderer returns the renderer that draws cells at scale, building it

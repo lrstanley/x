@@ -46,6 +46,10 @@ type inspector struct {
 	// displayFor is display's defaults, and why each part is on.
 	displayFor    display
 	displayReason map[string]string
+	// mouse draws the mouse over frames while display has it on, and
+	// mouseSpans are when it moves (see [mouseSpans]).
+	mouse      reel.Stage
+	mouseSpans [][2]float64
 }
 
 // load reads a cast to explore, drawing its frames at scale, such as the
@@ -73,6 +77,7 @@ func load(ctx context.Context, data []byte, scale float64) (*inspector, error) {
 	}
 	x := &inspector{tl: tl, events: slices.Collect(tl.Events()), player: player, palette: pal, scale: scale}
 	x.tokenize()
+	x.mouseSpans = mouseSpans(x.events)
 	x.displayFor, x.displayReason = x.detectDisplay()
 	if err = x.setDisplay(x.displayFor); err != nil {
 		_ = player.Close()
@@ -103,6 +108,9 @@ type summaryJSON struct {
 	// DisplayReason explains why each default display part is enabled.
 	Display       display           `json:"display"`
 	DisplayReason map[string]string `json:"display_reason"`
+	// MouseSpans are when the mouse moves, in ms; between them, a frame
+	// drawn with it holds still.
+	MouseSpans [][2]float64 `json:"mouse_spans,omitempty"`
 }
 
 type eventJSON struct {
@@ -136,6 +144,7 @@ func (x *inspector) summary() summaryJSON {
 		Events:        make([]eventJSON, len(x.events)),
 		Display:       x.displayFor,
 		DisplayReason: x.displayReason,
+		MouseSpans:    x.mouseSpans,
 	}
 	for i := range 16 {
 		s.Header.Palette[i] = hex(render.ResolveColor(vt.State{}, x.palette, vt.Indexed(i), false))

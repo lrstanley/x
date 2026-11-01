@@ -30,6 +30,7 @@ const (
 	effectHighlight = "highlight"
 	effectZoom      = "zoom"
 	effectToasts    = "toasts"
+	effectMouse     = "mouse"
 )
 
 // effectDecoders decode the data of an annotation, by effect name.
@@ -40,6 +41,7 @@ var effectDecoders = map[string]func(data jsontext.Value) (reel.Effect, error){
 	effectHighlight: decodeEffect(highlightData.effect),
 	effectZoom:      decodeEffect(zoomData.effect),
 	effectToasts:    decodeEffect(toastsData.effect),
+	effectMouse:     decodeEffect(mouseData.effect),
 }
 
 // FromAnnotation returns the effect an annotation of kind [reel.EffectKind]
@@ -247,6 +249,91 @@ func (d toastsData) effect() (reel.Effect, error) {
 		opts = append(opts, WithClipboardToasts())
 	}
 	return Toasts(opts...), nil
+}
+
+type mouseData struct {
+	Pointer       string    `json:"pointer,omitzero"`
+	PointerSizePX int       `json:"pointer_size_px,omitzero"`
+	PointerColor  colorData `json:"pointer_color,omitzero"`
+	LeftColor     colorData `json:"left_color,omitzero"`
+	MiddleColor   colorData `json:"middle_color,omitzero"`
+	RightColor    colorData `json:"right_color,omitzero"`
+	GlideMS       *int64    `json:"glide_ms,omitzero"`
+	HideMS        *int64    `json:"hide_ms,omitzero"`
+	Parts         []string  `json:"parts,omitzero"`
+}
+
+// Describe implements [reel.Describer].
+func (e mouse) Describe() (reel.Annotation, error) {
+	if err := e.check(); err != nil {
+		return reel.Annotation{}, err
+	}
+	var d mouseData
+	if e.style != PointerArrow {
+		d.Pointer = pointerStyleNames[e.style]
+	}
+	d.PointerSizePX = e.size
+	if e.pointer != pointerFill {
+		d.PointerColor = colorData{e.pointer}
+	}
+	// The color of a button, or none for its default.
+	button := func(b vt.MouseButton) colorData {
+		if e.buttons[b] == buttonColors[b] {
+			return colorData{}
+		}
+		return colorData{e.buttons[b]}
+	}
+	d.LeftColor, d.MiddleColor, d.RightColor = button(vt.MouseLeft), button(vt.MouseMiddle), button(vt.MouseRight)
+	if e.glide != mouseGlide {
+		d.GlideMS = new(millis(max(e.glide, 0)))
+	}
+	if e.hide != mouseHide {
+		d.HideMS = new(millis(max(e.hide, 0)))
+	}
+	if e.parts != MouseAll {
+		d.Parts = []string{}
+		for i, name := range mousePartNames {
+			if e.parts&(1<<i) != 0 {
+				d.Parts = append(d.Parts, name)
+			}
+		}
+	}
+	return describe(effectMouse, d)
+}
+
+func (d mouseData) effect() (reel.Effect, error) {
+	opts := []MouseOption{
+		WithPointerSize(d.PointerSizePX),
+		WithPointerColor(d.PointerColor.c),
+		WithButtonColor(vt.MouseLeft, d.LeftColor.c),
+		WithButtonColor(vt.MouseMiddle, d.MiddleColor.c),
+		WithButtonColor(vt.MouseRight, d.RightColor.c),
+	}
+	if d.Pointer != "" {
+		style := slices.Index(pointerStyleNames, d.Pointer)
+		if style < 0 {
+			return nil, fmt.Errorf("unknown pointer %q", d.Pointer)
+		}
+		opts = append(opts, WithPointerStyle(PointerStyle(style)))
+	}
+	if d.GlideMS != nil {
+		opts = append(opts, WithPointerGlide(fromMillis(*d.GlideMS)))
+	}
+	if d.HideMS != nil {
+		opts = append(opts, WithPointerHide(fromMillis(*d.HideMS)))
+	}
+	if d.Parts != nil {
+		var parts MouseParts
+		for _, name := range d.Parts {
+			i := slices.Index(mousePartNames, name)
+			if i < 0 {
+				return nil, fmt.Errorf("unknown mouse part %q", name)
+			}
+			parts |= 1 << i
+		}
+		opts = append(opts, WithMouseParts(parts))
+	}
+	return Mouse(opts...), nil
 }
 
 type pauseData struct {

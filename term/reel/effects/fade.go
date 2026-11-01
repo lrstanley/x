@@ -89,7 +89,8 @@ func splitFrame[S comparable](ctx *reel.Context, f reel.Frame, cuts []time.Durat
 	if f.Paused {
 		cuts = cuts[:1]
 	}
-	var out []reel.Frame
+	// A piece is emitted once the next differs, so only one is held.
+	var piece reel.Frame
 	var prev S
 	for i, start := range cuts {
 		end := f.Delay
@@ -97,18 +98,18 @@ func splitFrame[S comparable](ctx *reel.Context, f reel.Frame, cuts []time.Durat
 			end = cuts[i+1]
 		}
 		st := state(start)
-		if len(out) > 0 && st == prev {
-			out[len(out)-1].Delay += end - start
+		if i > 0 && st == prev {
+			piece.Delay += end - start
 			continue
 		}
+		if i > 0 {
+			emit(piece)
+		}
 		prev = st
-		piece := f
+		piece = f
 		piece.At = f.At + time.Duration(float64(start)*ctx.Speed)
 		piece.Delay = end - start
 		piece.Image = paint(st)
-		out = append(out, piece)
 	}
-	for _, piece := range out {
-		emit(piece)
-	}
+	emit(piece)
 }

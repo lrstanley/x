@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lrstanley/x/term/reel"
@@ -73,6 +74,24 @@ func TestDescribeRoundTrip(t *testing.T) {
 		{name: "keys off", effect: Keys(0), want: `{"effect":"keys","shown_ms":0}`},
 		{name: "toasts", effect: Toasts(), want: `{"effect":"toasts"}`},
 		{name: "toasts full", effect: Toasts(WithToastDuration(4000*ms), WithToastCorner(BottomLeft), WithClipboardToasts()), want: `{"effect":"toasts","shown_ms":4000,"corner":"bottom_left","clipboard":true}`},
+		{name: "mouse", effect: Mouse(), want: `{"effect":"mouse"}`},
+		{name: "mouse no parts", effect: Mouse(WithMouseParts(0)), want: `{"effect":"mouse","parts":[]}`},
+		{
+			name: "mouse full",
+			effect: Mouse(
+				WithPointerStyle(PointerDot),
+				WithPointerSize(10),
+				WithPointerColor(color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}),
+				WithButtonColor(vt.MouseLeft, color.NRGBA{R: 0xff, A: 0xff}),
+				WithButtonColor(vt.MouseRight, color.NRGBA{B: 0xff, A: 0x80}),
+				WithButtonColor(vt.MouseWheelUp, color.NRGBA{G: 0xff, A: 0xff}),
+				WithPointerGlide(0),
+				WithPointerHide(-time.Second),
+				WithMouseParts(MousePointer|MouseDrags),
+			),
+			want: `{"effect":"mouse","pointer":"dot","pointer_size_px":10,"pointer_color":"#102030",` +
+				`"left_color":"#ff0000","right_color":"#0000ff80","glide_ms":0,"hide_ms":0,"parts":["pointer","drags"]}`,
+		},
 		{name: "intro title", effect: Intro(300 * ms), want: `{"effect":"intro","duration_ms":300}`},
 		{
 			name: "intro lines",

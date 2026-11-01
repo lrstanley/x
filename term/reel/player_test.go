@@ -5,6 +5,7 @@
 package reel
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -65,10 +66,30 @@ func TestPlayerSeek(t *testing.T) {
 		t.Errorf("Pos, Len = %d, %d, want 0, 4", p.Pos(), p.Len())
 	}
 
-	if err = p.Seek(4); err != nil {
+	// An image is kept until a Seek, so it is drawn again at another event
+	// of the same size.
+	if err = p.Seek(3); err != nil {
 		t.Fatal(err)
 	}
 	img, err := p.Image()
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := bytes.Clone(img.Pix)
+	if again, _ := p.Image(); again != img || !bytes.Equal(again.Pix, two) {
+		t.Error("Image changed without a Seek")
+	}
+	if err = p.Seek(1); err != nil {
+		t.Fatal(err)
+	}
+	if img, err = p.Image(); err != nil || bytes.Equal(img.Pix, two) {
+		t.Errorf("Image after Seek(1) = %v, want it drawn again", err)
+	}
+
+	if err = p.Seek(4); err != nil {
+		t.Fatal(err)
+	}
+	img, err = p.Image()
 	if err != nil {
 		t.Fatal(err)
 	}

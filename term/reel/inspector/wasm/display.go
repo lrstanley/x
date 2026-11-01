@@ -14,7 +14,7 @@ import (
 
 // display is which parts around and over the grid frames are drawn with:
 // reel's render options that show what a cast's sequences ask a terminal
-// window to show.
+// window to show, and the mouse of its input, as [effects.Mouse] draws it.
 type display struct {
 	Chrome    bool `json:"chrome"`
 	Scrollbar bool `json:"scrollbar"`
@@ -23,6 +23,7 @@ type display struct {
 	Prompts   bool `json:"prompts"`
 	Links     bool `json:"links"`
 	Bell      bool `json:"bell"`
+	Mouse     bool `json:"mouse"`
 }
 
 // Window chrome comes with padding and rounded corners, in CSS pixels at
@@ -67,13 +68,17 @@ func (x *inspector) configure(scale float64, d display) error {
 	if err := x.player.SetOptions(append([]render.Option{render.WithScale(scale)}, d.options(scale)...)...); err != nil {
 		return err
 	}
+	// The mouse is sized by the cells, which the options size.
+	if err := x.startMouse(d.Mouse); err != nil {
+		return err
+	}
 	x.scale, x.display = scale, d
 	return nil
 }
 
 // detectDisplay turns on the parts the cast's sequences call for, and says
 // why for each: a title or directory for the window chrome, OSC 9;4 for the
-// progress bar, and so on. A program status is only drawn with chrome.
+// progress bar, mouse input for the mouse, and so on. A program status is only drawn with chrome.
 func (x *inspector) detectDisplay() (d display, why map[string]string) {
 	why = map[string]string{}
 	set := func(on *bool, key, reason string) {
@@ -111,6 +116,9 @@ func (x *inspector) detectDisplay() (d display, why map[string]string) {
 		case reel.Scroll, reel.ScrollbackSize:
 			set(&d.Scrollbar, "scrollbar", "scrolls through its scrollback")
 		}
+	}
+	if len(x.mouseSpans) > 0 {
+		set(&d.Mouse, "mouse", "sends mouse input")
 	}
 	// Output on the main screen that runs past it fills the scrollback.
 	if !alt && bytes.Count(x.stream, []byte("\n")) > x.tl.Header().Rows {

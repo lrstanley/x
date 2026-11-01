@@ -27,7 +27,9 @@ type Player struct {
 
 	r    *replay
 	rend *render.Renderer
-	img  *image.NRGBA
+	// img is drawn after drawn events, until SetOptions clears it.
+	img   *image.NRGBA
+	drawn int
 
 	// Backward seeks consume terminals parked in spares; build replays
 	// toward the next missing checkpoint.
@@ -212,6 +214,16 @@ func (p *Player) SetOptions(opts ...render.Option) error {
 	return nil
 }
 
+// Rasterizer returns the rasterizer [Player.Image] draws with, such as for
+// an effect's [Context]. SetOptions replaces it and Close closes it.
+func (p *Player) Rasterizer() (Rasterizer, error) {
+	rend, err := p.renderer()
+	if err != nil {
+		return nil, err
+	}
+	return rend, nil
+}
+
 // Layout returns where [Player.Image] places the screen after the applied
 // events in its image.
 func (p *Player) Layout() (render.Layout, error) {
@@ -224,10 +236,14 @@ func (p *Player) Layout() (render.Layout, error) {
 }
 
 // Image draws the terminal after the applied events. The image is reused
-// by the next call to Image.
+// by the next call to Image, and must not be modified; until the next Seek
+// or SetOptions, it is returned again without being drawn.
 func (p *Player) Image() (*image.NRGBA, error) {
 	if _, err := p.renderer(); err != nil {
 		return nil, err
+	}
+	if p.img != nil && p.drawn == p.r.n {
+		return p.img, nil
 	}
 	f := p.Frame()
 	r := p.rend.Layout(f.Screen.Width(), f.Screen.Height()).Image
@@ -235,6 +251,7 @@ func (p *Player) Image() (*image.NRGBA, error) {
 		p.img = image.NewNRGBA(r)
 	}
 	p.rend.Draw(p.img, f.Screen, f.State, f.At)
+	p.drawn = p.r.n
 	return p.img, nil
 }
 

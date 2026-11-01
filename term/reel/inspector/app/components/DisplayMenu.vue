@@ -2,7 +2,7 @@
 import { AppWindowIcon } from '@lucide/vue'
 import { displayParts } from '~/lib/types'
 
-// The parts reel can draw around and over the grid. Each starts as the cast
+// The parts reel can draw around and over the grid, the mouse included. Each starts as the cast
 // calls for, from the sequences it writes; a change sticks to this cast's
 // address.
 const { summary, display, setDisplayPart, resetDisplay } = useInspector()
@@ -17,14 +17,14 @@ function reason(key: string) {
 <template>
   <Popover>
     <PopoverTrigger as-child>
-      <Button variant="ghost" size="icon-sm" class="relative ml-0.5" aria-label="Display" title="Display: what is drawn around the screen">
+      <Button variant="ghost" size="icon-sm" class="relative ml-0.5" aria-label="Display" title="Display: what is drawn around and over the screen">
         <AppWindowIcon />
         <span v-if="changed" class="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
       </Button>
     </PopoverTrigger>
     <PopoverContent align="start" class="w-80 p-0">
       <div class="flex items-center justify-between border-b px-3 py-2">
-        <span class="text-xs font-medium text-muted-foreground">Drawn around the screen</span>
+        <span class="text-xs font-medium text-muted-foreground">Drawn around and over the screen</span>
         <Button v-if="changed" variant="ghost" size="xs" class="h-5 px-1.5 text-[11px]" @click="resetDisplay">
           Reset
         </Button>

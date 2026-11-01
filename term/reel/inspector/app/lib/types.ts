@@ -48,6 +48,9 @@ export interface Summary {
   // display_reason why, for each part that is on.
   display: Display
   display_reason?: Record<string, string>
+  // mouse_spans are when the mouse moves, in ms; between them, a frame
+  // drawn with it holds still.
+  mouse_spans?: [number, number][]
 }
 
 // Display is which parts reel draws around and over the grid.
@@ -59,6 +62,7 @@ export interface Display {
   prompts: boolean
   links: boolean
   bell: boolean
+  mouse: boolean
 }
 
 export const displayParts: { key: keyof Display, label: string, about: string }[] = [
@@ -69,6 +73,7 @@ export const displayParts: { key: keyof Display, label: string, about: string }[
   { key: 'prompts', label: 'Prompt marks', about: 'OSC 133 exit badges and scrollbar ticks' },
   { key: 'links', label: 'Link underlines', about: 'Underline OSC 8 hyperlinks' },
   { key: 'bell', label: 'Bell', about: 'Flash the window on BEL' },
+  { key: 'mouse', label: 'Mouse', about: 'The pointer, clicks, and drags of mouse input' },
 ]
 
 export interface Token {

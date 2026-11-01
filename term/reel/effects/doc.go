@@ -8,7 +8,8 @@
 // attention to part of the screen, [Zoom] zooms in on it, and [Redact] and
 // [RedactInputs] hide secrets from the frames and from the keys Keys shows.
 // [Toasts] shows the program's desktop notifications, and optionally its
-// clipboard writes, as toasts.
+// clipboard writes, as toasts, and [Mouse] draws the mouse input: the
+// pointer, clicks, and drags.
 // [Hide] cuts stretches out of playback: between marks, or while the screen
 // shows, or does not show, a [Region].
 //
@@ -19,8 +20,8 @@
 // the [Timing] options besides their own; Redact takes only [Between].
 // Frames their region covers no cells of are left alone.
 //
-// Highlight, Keys, Redact, Toasts, and Zoom leave frames without a terminal
-// ([reel.Frame.Cells] is nil), such as cards, alone.
+// Highlight, Keys, Mouse, Redact, Toasts, and Zoom leave frames without a
+// terminal ([reel.Frame.Cells] is nil), such as cards, alone.
 //
 // # Order
 //
@@ -31,11 +32,11 @@
 //  2. Hide, so the pauses at marks and the keys pressed in what it cuts are
 //     left out too.
 //  3. Zoom, which draws its zoomed cells over what the effects before it
-//     drew.
+//     drew, and which Mouse draws the pointer through.
 //  4. Highlight, so the overlays after it are not dimmed.
 //  5. Pause, so its badge is drawn over the effects before it.
-//  6. Keys and Toasts, which then show the keys and toasts as they were
-//     when a pause started.
+//  6. Keys, Mouse, and Toasts, which then show the keys, mouse, and toasts
+//     as they were when a pause started.
 //
 // Intro may go anywhere after the concealers.
 //

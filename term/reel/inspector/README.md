@@ -7,7 +7,8 @@ state, colors, escape sequences, and annotations after any of them.
 The page holds little logic of its own. [`wasm`](wasm) is reel compiled to
 WebAssembly: it reads the cast with `reel.ReadTimeline`, replays it with
 `reel.Player` (the replay `reel.Export` uses), and draws frames with reel's
-renderer, so a frame here matches the frame an export writes. It runs in a
+renderer, so a frame here matches the frame an export writes; a cast's mouse
+input is drawn over it by `effects.Mouse`, as of the playhead. It runs in a
 Web Worker ([`public/reel-worker.js`](public/reel-worker.js)), so a long
 replay never blocks the page.
 

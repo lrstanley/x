@@ -147,6 +147,8 @@ var effectSchemaCases = struct {
 		`{"kind":"reel.effect","effect":"highlight","region":{"type":"any","regions":[{"type":"cells","x0":-1,"y0":0,"x1":5,"y1":2},{"type":"rows","from":1,"to":2},{"type":"regexp","pattern":"a+"},{"type":"env","names":[]},{"type":"any","regions":[]}]},"timing":{"between":{"from":"a","to":"b"},"ease_in_ms":100,"ease_out_ms":0},"dim":0,"outline":{"color":"#ff0000c8","width_px":3},"padding_px":0}`,
 		`{"kind":"reel.effect","effect":"highlight","region":{"type":"rows","from":0,"to":1},"timing":{"between":{}},"outline":{}}`,
 		`{"kind":"reel.effect","effect":"zoom","region":{"type":"rows","from":0,"to":1},"scale":1.5,"anchor":{"x":0,"y":1}}`,
+		`{"kind":"reel.effect","effect":"mouse"}`,
+		`{"kind":"reel.effect","effect":"mouse","pointer":"dot","pointer_size_px":10,"pointer_color":"#102030","left_color":"#ff0000","middle_color":"#00ff00","right_color":"#0000ff80","glide_ms":0,"hide_ms":0,"parts":[]}`,
 		// Fields and values the schema does not list are allowed, since
 		// newer tools may write them. The effects package refuses to apply
 		// them.
@@ -188,6 +190,8 @@ var effectSchemaCases = struct {
 		"ease negative":            `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"timing":{"ease_in_ms":-1}}`,
 		"zoom scale":               `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"scale":0.5}`,
 		"zoom anchor":              `{"kind":"reel.effect","effect":"zoom","region":{"type":"text","text":"x"},"anchor":{"x":0.5}}`,
+		"mouse glide negative":     `{"kind":"reel.effect","effect":"mouse","glide_ms":-1}`,
+		"mouse color index":        `{"kind":"reel.effect","effect":"mouse","left_color":3}`,
 	},
 }
 

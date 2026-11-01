@@ -50,8 +50,8 @@
       "required": ["effect"],
       "properties": {
         "effect": {
-          "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, \"zoom\" zooms in on one, and \"toasts\" shows desktop notifications as toasts. reel never writes its effects that hide secrets, since an asciicast file holds what they hide.",
-          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom", "toasts"]
+          "description": "The effect: \"keys\" overlays the keys pressed, \"intro\" shows a title card before the first frame, \"pause\" pauses playback with a pause badge, \"highlight\" draws attention to a region, \"zoom\" zooms in on one, \"toasts\" shows desktop notifications as toasts, and \"mouse\" draws the mouse. reel never writes its effects that hide secrets, since an asciicast file holds what they hide.",
+          "type": "string", "examples": ["keys", "intro", "pause", "highlight", "zoom", "toasts", "mouse"]
         }
       },
       "allOf": [
@@ -60,7 +60,8 @@
         {"if": {"properties": {"effect": {"const": "pause"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.pause"}},
         {"if": {"properties": {"effect": {"const": "highlight"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.highlight"}},
         {"if": {"properties": {"effect": {"const": "zoom"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.zoom"}},
-        {"if": {"properties": {"effect": {"const": "toasts"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.toasts"}}
+        {"if": {"properties": {"effect": {"const": "toasts"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.toasts"}},
+        {"if": {"properties": {"effect": {"const": "mouse"}}, "required": ["effect"]}, "then": {"$ref": "#/$defs/reel.effect.mouse"}}
       ]
     },
     "reel.effect.keys": {
@@ -94,6 +95,43 @@
         "clipboard": {
           "description": "Whether the program's clipboard writes (OSC 52, OSC 1337 Copy, OSC 5522) also show, as a \"Copied to clipboard\" toast without the text written. Left out, false.",
           "type": "boolean"
+        }
+      }
+    },
+    "reel.effect.mouse": {
+      "description": "The mouse effect: the mouse events of the recording's input drawn on the terminal frames, as a pointer that glides to the cell of each event and hides once the mouse is idle, a ripple where a button is pressed, a disc under the pointer while it is held, and a trail along the path of a drag, which fades once the button is released. Ripples, discs, and trails take the color of their button.",
+      "type": "object",
+      "required": ["effect"],
+      "properties": {
+        "kind": {"const": "reel.effect"},
+        "effect": {"const": "mouse"},
+        "pointer": {
+          "description": "The pointer's shape: \"arrow\", with its tip on the center of the cell, or \"dot\", a disc centered on it. Left out, \"arrow\".",
+          "type": "string", "examples": ["arrow", "dot"]
+        },
+        "pointer_size_px": {
+          "description": "The pointer's height in pixels, or the dot's diameter. Left out, or 0, a cell's height for an arrow, and half a cell's height for a dot.",
+          "type": "integer", "minimum": 0
+        },
+        "pointer_color": {
+          "description": "The color the pointer is filled with. Left out, \"#ffffff\". Its outline is black or white, whichever contrasts more.",
+          "$ref": "#/$defs/reel.effect.rgb_color"
+        },
+        "left_color": {"description": "The color of the left button. Left out, \"#5fafff\".", "$ref": "#/$defs/reel.effect.rgb_color"},
+        "middle_color": {"description": "The color of the middle button. Left out, \"#87d787\".", "$ref": "#/$defs/reel.effect.rgb_color"},
+        "right_color": {"description": "The color of the right button. Left out, \"#ffaf5f\".", "$ref": "#/$defs/reel.effect.rgb_color"},
+        "glide_ms": {
+          "description": "How long the pointer takes to move to the cell of each event, in playback time. Left out, 150. Zero moves it there at once.",
+          "type": "integer", "minimum": 0
+        },
+        "hide_ms": {
+          "description": "How long the pointer stays after the last event while no button is held, in playback time, before it fades out over 250ms. Left out, 1000. Zero never hides it.",
+          "type": "integer", "minimum": 0
+        },
+        "parts": {
+          "description": "The parts of the mouse drawn: \"pointer\", \"clicks\" (the ripples and held discs), and \"drags\" (the trails). Left out, all of them.",
+          "type": "array",
+          "items": {"type": "string", "examples": ["pointer", "clicks", "drags"]}
         }
       }
     },

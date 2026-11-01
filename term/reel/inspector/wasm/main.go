@@ -16,8 +16,9 @@
 //	prepare(ms: number) -> {more}                     // idle work: checkpoints for seeking back
 //
 // frame(i) shows the terminal just after event i, or before every event when
-// i is -1. pixels is the frame's RGBA image, when image is true, and the
-// JSON has the screen's cells when cells is true.
+// i is -1. pixels is the frame's RGBA image, when image is true, with the
+// mouse as of the options' at ms when the display has it, and the JSON has
+// the screen's cells when cells is true.
 package main
 
 import (
@@ -93,6 +94,8 @@ func frameJS(args []js.Value) (map[string]any, error) {
 		Cells   bool    `json:"cells"`
 		Scale   float64 `json:"scale"`
 		Display display `json:"display"`
+		// At is the time in ms to draw the mouse as of, from the event's on.
+		At float64 `json:"at"`
 	}
 	if err := json.Unmarshal([]byte(args[1].String()), &opts); err != nil {
 		return nil, err
@@ -116,6 +119,7 @@ func frameJS(args []js.Value) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	img = current.withMouse(img, time.Duration(opts.At*float64(time.Millisecond)))
 	pixels := js.Global().Get("Uint8Array").New(len(img.Pix))
 	js.CopyBytesToJS(pixels, img.Pix)
 	out["width"], out["height"], out["pixels"] = img.Rect.Dx(), img.Rect.Dy(), pixels

@@ -37,6 +37,25 @@ describe('frame targets', () => {
       expect(requests[1].args).toEqual([target.generation, target.index, { scale: target.scale, display: target.display }])
     })
   }
+  test('shows a frame the mouse has moved on from, then the latest', async () => {
+    let target = { generation: 1, index: 0, scale: 1, display: { ...display, mouse: true }, at: 100 }
+    const first = deferred()
+    const old = frame()
+    const next = frame()
+    const requests = []
+    const commits = []
+    const scheduler = createFrameScheduler((op, args) => {
+      requests.push(args)
+      return requests.length === 1 ? first.promise : Promise.resolve(next)
+    }, () => target, value => commits.push(value), err => { throw err })
+    const rendering = scheduler.render()
+    target = { ...target, at: 120 }
+    first.resolve(old)
+    await rendering
+    expect(old.isClosed()).toBe(false)
+    expect(commits).toEqual([old, next])
+    expect(requests[1][2].at).toBe(120)
+  })
   test('close discards the pending bitmap without requesting another frame', async () => {
     let target = { generation: 1, index: 0, scale: 1, display }
     const pending = deferred()

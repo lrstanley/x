@@ -51,8 +51,8 @@ var ctrlJ = vt.Key{Code: "J", Mods: vt.ModCtrl}
 // ([reel.Input] events) on the terminal frames, in the bottom right corner.
 // Keys pressed within shown of each other are shown together, repeats as
 // one key with a count, and stay for shown after the last of them, fading
-// out over its final third. Paste and mouse input are not shown. A shown of
-// zero or less is no overlay.
+// out over its final third. Paste and mouse input are not shown; [Mouse]
+// draws the mouse. A shown of zero or less is no overlay.
 //
 // The text typed by one input event, with enter and tab, is one chip, so
 // typing "hi\n" shows "hi⏎". Only the input in the timeline's window is

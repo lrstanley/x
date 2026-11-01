@@ -3,6 +3,8 @@ import type { CellsResponse, Display, EventDetail, RenderedFrame, Summary } from
 export interface FrameOptions {
   readonly scale: number
   readonly display: Readonly<Display>
+  // at is the time in ms to draw the mouse as of, when display has it.
+  readonly at?: number
 }
 
 export interface Operations {

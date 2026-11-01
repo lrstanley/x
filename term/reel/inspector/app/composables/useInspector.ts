@@ -8,6 +8,7 @@ import { createFrameScheduler, InspectorSession, targetKey } from '~/lib/frameSc
 import { deleteCast, listRecent, readCast, storeCast } from '~/lib/recentCasts'
 import { toast } from 'vue-sonner'
 import { buildLanes } from '~/lib/lanes'
+import { mouseAt } from '~/lib/mouse'
 import { defaultView, readView, writeView } from '~/lib/view'
 
 // One inspector per page: the state lives at module scope and every component
@@ -358,11 +359,27 @@ function frameTarget(index = cursor.value) {
   return { generation: session.generation, index, scale: frameScale.value, display: { ...display.value } }
 }
 
-const scheduler = createFrameScheduler(rpc, () => frameTarget(), (next) => {
+// shownTarget is the frame to show: frameTarget's, with the mouse as of
+// the playhead when the display draws it.
+function shownTarget() {
+  const target = frameTarget()
+  if (!target?.display.mouse)
+    return target
+  return { ...target, at: mouseAt(summary.value?.mouse_spans ?? [], playhead.value) }
+}
+
+const scheduler = createFrameScheduler(rpc, shownTarget, (next) => {
   frame.value?.bitmap.close()
   frame.value = next
 }, err => toast.error('Replay failed', { description: err.message }))
 const renderFrames = scheduler.render
+
+// The mouse moves between events, so its frames follow the playhead; the
+// scheduler skips those mouseAt leaves the same.
+watch(playhead, () => {
+  if (display.value?.mouse)
+    renderFrames()
+})
 
 function cellsAt(i: number): Promise<Screen | undefined> {
   const active = session
