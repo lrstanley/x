@@ -6,6 +6,7 @@ vars:
     - charm/layout
     - term/reel
     - term/steep
+    - term/tape
     - entx
     - entx/observe
     - http/utils
