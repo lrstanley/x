@@ -98,6 +98,50 @@ func TestMouseDrag(t *testing.T) {
 	assertGolden(t, "mouse-drag", slices.Concat(out[1:12], out[14:16]))
 }
 
+// TestMouseFastDrag checks that, with the defaults, the pointer keeps up
+// with a drag of motion quicker than its glide, as [reel.Session.Drag]
+// sends it: it reaches the press's cell first, even with motion at the
+// same offset waiting for it, then stays within a cell of the latest
+// event's cell, at the end of the trail, and reaches the release cell as
+// soon after a quicker release as the release came after the motion.
+func TestMouseFastDrag(t *testing.T) {
+	t.Parallel()
+	events := []event{
+		output(0, mouseScreen),
+		input(0, sgrMouse(sgrHover, 20, 8, false)),
+		input(100, sgrMouse(sgrLeft, 2, 4, false)),
+	}
+	for x := 3; x <= 50; x++ {
+		events = append(events, input(100+40*(x-3), sgrMouse(sgrLeftMotion, x, 4, false)))
+		if x == 6 {
+			events = append(events, input(220, sgrMouse(sgrLeftMotion, 7, 4, false)))
+		}
+	}
+	events = append(events, input(2000, sgrMouse(sgrLeft, 50, 4, true)))
+	tl := buildTimeline(t, 60, 10, "", events...)
+	s := &mouseStage{
+		ctx: &reel.Context{Timeline: tl}, parts: MouseAll,
+		glide: mouseGlide, hide: mouseHide, fade: mouseFade, ripple: mouseRipple,
+	}
+	s.readEvents()
+	if l := s.look(250 * ms); l.pos != (vec{2.5, 4.5}) {
+		t.Errorf("once the glide to the press ends: pointer at %v, want on its cell", l.pos)
+	}
+	for _, at := range []time.Duration{300 * ms, 500 * ms, 1010 * ms, 1555 * ms, 1999 * ms} {
+		latest := s.events[sort.Search(len(s.events), func(i int) bool { return s.events[i].at > at })-1].cell()
+		l := s.look(at)
+		if math.Abs(l.pos.x-latest.x) > 1 || l.pos.y != latest.y {
+			t.Errorf("at %v: pointer at %v, want within a cell of %v", at, l.pos, latest)
+		}
+		if path := s.trailPath(l.trail); path[len(path)-1] != l.pos {
+			t.Errorf("at %v: trail ends at %v, want at the pointer, %v", at, path[len(path)-1], l.pos)
+		}
+	}
+	if l := s.look(2020 * ms); l.pos != (vec{50.5, 4.5}) {
+		t.Errorf("20ms after the release: pointer at %v, want on its cell", l.pos)
+	}
+}
+
 // TestSimplify checks that a path that steps along a line is drawn as the
 // line, and that a corner is kept.
 func TestSimplify(t *testing.T) {

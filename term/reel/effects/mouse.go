@@ -122,10 +122,13 @@ func WithButtonColor(button vt.MouseButton, c color.Color) MouseOption {
 }
 
 // WithPointerGlide sets how long the pointer takes to move to the cell of
-// each mouse event, easing in and out, in playback time. A press is not
-// cut short: the pointer reaches its cell before it moves on, so the
-// events after it wait up to that long. The default is 150ms; zero or less
-// moves it there at once.
+// each mouse event, easing in and out, in playback time. Motion quicker
+// than that after the motion before it, such as a drag's, and the release
+// that ends it, move the pointer at a steady pace over the time between
+// them instead, so it keeps up with fast motion, an event behind at most.
+// A press is not cut short: the
+// pointer reaches its cell before it moves on, so the events after it wait
+// up to a glide. The default is 150ms; zero or less moves it there at once.
 func WithPointerGlide(d time.Duration) MouseOption {
 	return func(m *mouse) { m.glide = d }
 }
@@ -287,9 +290,12 @@ type mouseEvent struct {
 
 	at time.Duration
 	// start is when the pointer starts to glide to the event's cell, from
-	// from: at, or once it reaches the cell of a press before it.
-	start time.Duration
-	from  vec
+	// from: at, or once it reaches the cell of a press before it. glide is
+	// how long it takes, at a steady pace when steady is set, or easing in
+	// and out.
+	start, glide time.Duration
+	from         vec
+	steady       bool
 	// held is the button held after the event, or [vt.MouseUnknown].
 	held vt.MouseButton
 	// drag is the index of the event that started the drag the event is
@@ -352,7 +358,7 @@ func (s *mouseStage) readEvents() {
 
 // add appends the mouse event m at offset at.
 func (s *mouseStage) add(at time.Duration, m vt.MouseEvent) {
-	ev := mouseEvent{MouseEvent: m, at: at, start: min(max(at, s.reached), at+s.glide), drag: -1}
+	ev := mouseEvent{MouseEvent: m, at: at, start: min(max(at, s.reached), at+s.glide), glide: s.glide, drag: -1}
 	ev.from = ev.cell()
 	var prev mouseEvent
 	if n := len(s.events); n > 0 {
@@ -360,11 +366,20 @@ func (s *mouseStage) add(at time.Duration, m vt.MouseEvent) {
 		if s.alpha(prev, at) > 0 {
 			ev.from = s.pos(n-1, ev.start)
 		}
+		// Easing to each cell of motion quicker than a glide would restart
+		// the glide on every event and fall behind. Moving on steadily for
+		// as long as the motion before it took reaches the cell as the next
+		// event at that pace comes in. The first motion after a press, and
+		// motion at the same offset, which would move at once, still ease,
+		// so the pointer leaves the press's cell gradually.
+		if d := at - prev.at; m.Action != vt.MousePress && prev.Action == vt.MouseMotion && 0 < d && d < s.glide {
+			ev.glide, ev.steady = d, true
+		}
 	} else {
 		prev.drag = -1
 	}
 	if m.Action == vt.MousePress && ev.from != ev.cell() {
-		s.reached = ev.start + s.glide
+		s.reached = ev.start + ev.glide
 	}
 	switch {
 	case m.Action == vt.MousePress && isButton(m.Button):
@@ -395,7 +410,14 @@ func (s *mouseStage) pos(i int, t time.Duration) vec {
 		i--
 	}
 	ev := s.events[i]
-	return ev.from.lerp(ev.cell(), 1-eased(t-ev.start, s.glide))
+	d := t - ev.start
+	if d >= ev.glide {
+		return ev.cell()
+	}
+	if ev.steady {
+		return ev.from.lerp(ev.cell(), float64(d)/float64(ev.glide))
+	}
+	return ev.from.lerp(ev.cell(), 1-eased(d, ev.glide))
 }
 
 // alpha is the pointer's opacity at offset t, from the event ev on.
