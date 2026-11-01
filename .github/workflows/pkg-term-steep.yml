@@ -8,6 +8,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "term/steep/**"
+      - "term/reel/**"
       - ".github/workflows/pkg-term-steep.yml"
     types: [opened, edited, reopened, synchronize, unlocked]
   push:
@@ -16,6 +17,7 @@ on:
       - "Taskfile.yaml"
       - "go.work*"
       - "term/steep/**"
+      - "term/reel/**"
       - ".github/workflows/pkg-term-steep.yml"
   workflow_dispatch: {}
 
