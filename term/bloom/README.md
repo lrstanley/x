@@ -123,6 +123,10 @@ unchanged frame takes about 0.04ms, a frame where most content changed 0.44ms,
 and a dialog animating in over a dimmed backdrop 0.58ms, against the 8.3ms of
 a frame at 120 frames a second (`go test -bench . ./...`).
 
+Snapshot and end-to-end tests that drive bloom with steep live in
+[_integration](_integration), a module of its own so bloom does not depend on
+steep. Run them with `go test ./...` from that directory.
+
 ## Examples
 
 The [_examples](_examples) run with `go run ./<name>` from that directory, in

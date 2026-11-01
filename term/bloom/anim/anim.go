@@ -19,7 +19,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/harmonica"
 )
 
 // FrameMsg advances an animation. Values ignore those that are not theirs.
@@ -223,8 +222,7 @@ func (v *Value) advance(now time.Time) bool {
 	if dt <= 0 {
 		return false
 	}
-	s := harmonica.NewSpring(dt.Seconds(), v.frequency, v.damping)
-	v.current, v.velocity = s.Update(v.current, v.velocity, v.target)
+	v.current, v.velocity = springStep(v.current, v.velocity, v.target, dt.Seconds(), v.frequency, v.damping)
 	return math.Abs(v.current-v.target) < 1e-3 && math.Abs(v.velocity) < 1e-2
 }
 
