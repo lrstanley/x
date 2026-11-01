@@ -94,6 +94,18 @@ Below are a few guidelines if you would like to contribute:
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 ### :whale: Dockerfile
 
 - Follow container best practices, like [keeping images as small as possible](https://phoenixnap.com/kb/docker-image-size).
