@@ -7,9 +7,7 @@ package effects
 import (
 	"image"
 	"image/color"
-	"image/draw"
 	"math"
-	"slices"
 )
 
 // shape is a shape [Mouse] draws, antialiased over a pixel: sdf is the
@@ -102,35 +100,63 @@ func segmentDist(p, a, b vec) float64 {
 	return math.Hypot(p.x-c.x, p.y-c.y)
 }
 
-// simplify returns path without the points that stay within tolerance of
-// the line between the points kept around them, by the Ramer-Douglas-Peucker
-// algorithm. The ends are always kept.
-func simplify(path []vec, tolerance float64) []vec {
-	if len(path) < 3 {
-		return path
-	}
-	a, b := path[0], path[len(path)-1]
-	far, dist := 0, tolerance
-	for i, p := range path[1 : len(path)-1] {
-		if d := segmentDist(p, a, b); d > dist {
-			far, dist = i+1, d
+// resample returns the points every step along path, from its start, and
+// its end. A path with no length is its start alone. step must be above
+// zero.
+func resample(path []vec, step float64) []vec {
+	out := []vec{path[0]}
+	// next is how far along the leg from a the next point is.
+	next := step
+	for k := 1; k < len(path); k++ {
+		a, b := path[k-1], path[k]
+		l := math.Hypot(b.x-a.x, b.y-a.y)
+		for ; next <= l; next += step {
+			out = append(out, a.lerp(b, next/l))
 		}
+		next -= l
 	}
-	if far == 0 {
-		return []vec{a, b}
+	if end := path[len(path)-1]; out[len(out)-1] != end {
+		out = append(out, end)
 	}
-	left := simplify(path[:far+1], tolerance)
-	return slices.Concat(left[:len(left)-1], simplify(path[far:], tolerance))
+	return out
 }
 
-// cover raises the coverage of each pixel of mask to that of sh.
+// smoothPath returns path resampled every step (see [resample]), each point
+// the average of it and the k points on each side of it. Toward the ends
+// the points are averaged with fewer, evenly around them, so the ends stay
+// put.
+func smoothPath(path []vec, step float64, k int) []vec {
+	pts := resample(path, step)
+	out := make([]vec, len(pts))
+	for i := range pts {
+		r := min(k, i, len(pts)-1-i)
+		var sum vec
+		for _, p := range pts[i-r : i+r+1] {
+			sum.x, sum.y = sum.x+p.x, sum.y+p.y
+		}
+		m := float64(2*r + 1)
+		out[i] = vec{sum.x / m, sum.y / m}
+	}
+	return out
+}
+
+// cover raises the coverage of each pixel of mask to that of sh. Shapes
+// drawn into one mask overlap, such as the legs of a trail, so pixels
+// already covered whole are skipped.
 func cover(mask *image.Alpha, sh shape) {
 	r := sh.box.Intersect(mask.Rect)
 	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			a := uint8(math.Round(0xff * clamp01(0.5-sh.sdf(float64(x)+0.5, float64(y)+0.5))))
-			i := mask.PixOffset(x, y)
-			mask.Pix[i] = max(mask.Pix[i], a)
+		row := mask.Pix[mask.PixOffset(r.Min.X, y):][:r.Dx()]
+		for j, a := range row {
+			if a == 0xff {
+				continue
+			}
+			switch d := sh.sdf(float64(r.Min.X+j)+0.5, float64(y)+0.5); {
+			case d <= -0.5:
+				row[j] = 0xff
+			case d < 0.5:
+				row[j] = max(a, uint8(math.Round(0xff*(0.5-d))))
+			}
 		}
 	}
 }
@@ -142,7 +168,31 @@ func maskOf(sh shape) *image.Alpha {
 	return mask
 }
 
-// paintMask draws c over img where mask covers it.
+// paintMask draws c over img where mask covers it, blending as
+// [draw.DrawMask] does with [draw.Over], but on img's pixels directly
+// rather than through a color per pixel of the mask's box, most of which a
+// trail leaves uncovered.
 func paintMask(img *image.NRGBA, mask *image.Alpha, c color.NRGBA) {
-	draw.DrawMask(img, mask.Rect, image.NewUniform(c), image.Point{}, mask, mask.Rect.Min, draw.Over)
+	const m = 0xffff
+	sr, sg, sb, sa := c.RGBA()
+	r := mask.Rect.Intersect(img.Rect)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		i := img.PixOffset(r.Min.X, y)
+		for _, cov := range mask.Pix[mask.PixOffset(r.Min.X, y):][:r.Dx()] {
+			if cov != 0 {
+				ma := uint32(cov) * 0x101
+				px := img.Pix[i : i+4 : i+4]
+				dr, dg, db, da := color.NRGBA{px[0], px[1], px[2], px[3]}.RGBA()
+				// Over, premultiplied, then back to NRGBA as
+				// image.NRGBA.SetRGBA64 does.
+				keep := m - sa*ma/m
+				or, og, ob, oa := (dr*keep+sr*ma)/m, (dg*keep+sg*ma)/m, (db*keep+sb*ma)/m, (da*keep+sa*ma)/m
+				if oa != 0 && oa != m {
+					or, og, ob = or*m/oa, og*m/oa, ob*m/oa
+				}
+				px[0], px[1], px[2], px[3] = uint8(or>>8), uint8(og>>8), uint8(ob>>8), uint8(oa>>8) //nolint:gosec // Each is at most 0xffff.
+			}
+			i += 4
+		}
+	}
 }

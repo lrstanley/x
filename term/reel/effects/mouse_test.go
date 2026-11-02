@@ -5,9 +5,13 @@
 package effects
 
 import (
+	"bytes"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"math"
+	"math/rand/v2"
 	"slices"
 	"sort"
 	"testing"
@@ -79,9 +83,9 @@ func TestMouseClick(t *testing.T) {
 }
 
 // TestMouseDrag checks a left drag down and across, one cell per step: the
-// trail is drawn straight along the cells sent, which step on the grid, the
-// pointer glides behind it with the held disc under it, and the trail fades
-// once the button is released.
+// trail follows the pointer through the cells sent, smoothed where they
+// step on the grid, the held disc under the pointer at its end, and the
+// trail fades once the button is released.
 func TestMouseDrag(t *testing.T) {
 	t.Parallel()
 	events := []event{output(0, mouseScreen), input(100, sgrMouse(sgrLeft, 1, 0, false))}
@@ -142,17 +146,105 @@ func TestMouseFastDrag(t *testing.T) {
 	}
 }
 
-// TestSimplify checks that a path that steps along a line is drawn as the
-// line, and that a corner is kept.
-func TestSimplify(t *testing.T) {
+// TestSmoothPath checks that a smoothed path keeps its ends, keeps the
+// points of a straight line where they are, even with a leg of no length,
+// and curves through the steps of a path that steps from cell to cell
+// instead of jumping at them, and that a path is resampled up to its end,
+// even when its last leg is shorter than a step.
+func TestSmoothPath(t *testing.T) {
 	t.Parallel()
-	steps := []vec{{0.5, 0.5}, {1.5, 0.5}, {2.5, 1.5}, {3.5, 1.5}, {4.5, 2.5}, {5.5, 2.5}}
-	if got, want := simplify(steps, mouseTrailTolerance), []vec{steps[0], steps[5]}; !slices.Equal(got, want) {
-		t.Errorf("steps: %v, want %v", got, want)
+	if got, want := resample([]vec{{0, 0}, {2.5, 0}}, 1), []vec{{0, 0}, {1, 0}, {2, 0}, {2.5, 0}}; !slices.Equal(got, want) {
+		t.Errorf("resampled: %v, want %v", got, want)
 	}
-	corner := []vec{{0.5, 0.5}, {1.5, 0.5}, {2.5, 0.5}, {3.5, 0.5}, {3.5, 1.5}, {3.5, 2.5}, {3.5, 3.5}}
-	if got, want := simplify(corner, mouseTrailTolerance), []vec{corner[0], corner[3], corner[6]}; !slices.Equal(got, want) {
-		t.Errorf("corner: %v, want %v", got, want)
+	if got := smoothPath([]vec{{1, 1}, {1, 1}}, 1, 4); !slices.Equal(got, []vec{{1, 1}}) {
+		t.Errorf("no length: %v, want its start", got)
+	}
+	line := smoothPath([]vec{{0, 0}, {4, 3}, {4, 3}, {10.4, 7.8}}, 1, 3)
+	if len(line) != 14 || line[13] != (vec{10.4, 7.8}) {
+		t.Fatalf("line: %v, want 14 points to (10.4, 7.8)", line)
+	}
+	for i, p := range line[:13] {
+		if want := (vec{0.8 * float64(i), 0.6 * float64(i)}); math.Hypot(p.x-want.x, p.y-want.y) > 1e-9 {
+			t.Errorf("line: point %d at %v, want %v", i, p, want)
+		}
+	}
+	// Steps of 10 across, then 2 down.
+	var steps []vec
+	for i := range 4 {
+		steps = append(steps, vec{float64(10 * i), float64(2 * i)}, vec{float64(10*i + 10), float64(2 * i)})
+	}
+	got := smoothPath(steps, 0.5, 6)
+	if got[0] != steps[0] || got[len(got)-1] != steps[len(steps)-1] {
+		t.Errorf("steps: from %v to %v, want from %v to %v", got[0], got[len(got)-1], steps[0], steps[len(steps)-1])
+	}
+	for k := 1; k < len(got); k++ {
+		// Resampled unsmoothed, a step drops 0.5 over no width.
+		if dx, dy := got[k].x-got[k-1].x, got[k].y-got[k-1].y; dy > 0.5*math.Abs(dx)+1e-9 {
+			t.Errorf("steps: drops %v over %v at %v, want a gentle curve", dy, dx, got[k])
+		}
+	}
+}
+
+// TestPaintMask checks that paintMask blends exactly as [draw.DrawMask] does,
+// over pixels of every opacity, into a piece of a larger image, with masks
+// partly or wholly off the piece, and leaves the rest of the image alone.
+func TestPaintMask(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(1, 2))
+	byteOf := func() uint8 {
+		// Favor the ends, where blending takes its special cases.
+		switch rng.IntN(4) {
+		case 0:
+			return 0
+		case 1:
+			return 0xff
+		}
+		return uint8(rng.IntN(0x100))
+	}
+	for range 200 {
+		got := image.NewNRGBA(image.Rect(-3, -2, 12, 10))
+		for i := range got.Pix {
+			got.Pix[i] = byteOf()
+		}
+		want := image.NewNRGBA(got.Rect)
+		copy(want.Pix, got.Pix)
+		piece := image.Rect(1, 1, 9, 7)
+		at := image.Pt(rng.IntN(16)-8, rng.IntN(14)-7)
+		mask := image.NewAlpha(image.Rect(0, 0, 6, 5).Add(at))
+		for i := range mask.Pix {
+			mask.Pix[i] = byteOf()
+		}
+		c := color.NRGBA{byteOf(), byteOf(), byteOf(), byteOf()}
+		draw.DrawMask(want.SubImage(piece).(*image.NRGBA), mask.Rect, image.NewUniform(c), image.Point{}, mask, mask.Rect.Min, draw.Over)
+		paintMask(got.SubImage(piece).(*image.NRGBA), mask, c)
+		if !bytes.Equal(got.Pix, want.Pix) {
+			t.Fatalf("color %v, mask at %v: pixels %v, want %v", c, at, got.Pix, want.Pix)
+		}
+	}
+}
+
+// TestMouseTrailMask checks that a trail's mask is drawn again for another
+// end or view, and not for another alpha.
+func TestMouseTrailMask(t *testing.T) {
+	t.Parallel()
+	s := &mouseStage{glide: 100 * ms, ripple: 400 * ms, unit: 20}
+	s.add(0, vt.MouseEvent{Action: vt.MousePress, Button: vt.MouseLeft, X: 0, Y: 0})
+	s.add(10*ms, vt.MouseEvent{Action: vt.MouseMotion, Button: vt.MouseLeft, X: 5, Y: 0})
+	s.add(20*ms, vt.MouseEvent{Action: vt.MouseMotion, Button: vt.MouseLeft, X: 5, Y: 3})
+	tr := trailLook{first: 0, last: 2, end: vec{5.5, 2}, alpha: 0xff}
+	view, grid := cellView{w: 10, h: 20}, image.Rect(0, 0, 100, 100)
+	mask := s.trailMask(tr, view, grid)
+	tr.alpha = 0x40
+	if s.trailMask(tr, view, grid) != mask {
+		t.Error("another alpha: drawn again, want the same mask")
+	}
+	tr.end = vec{5.5, 3.5}
+	longer := s.trailMask(tr, view, grid)
+	if longer == mask || longer.Rect.Max.Y <= mask.Rect.Max.Y {
+		t.Errorf("another end: mask %v, want a new one past %v", longer.Rect, mask.Rect)
+	}
+	if zoomed := s.trailMask(tr, cellView{w: 20, h: 40}, grid); zoomed == longer || zoomed.Rect == longer.Rect {
+		t.Errorf("another view: mask %v, want a new one, not %v", zoomed.Rect, longer.Rect)
 	}
 }
 

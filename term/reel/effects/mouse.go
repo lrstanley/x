@@ -31,11 +31,13 @@ const (
 	mouseRipple = 400 * time.Millisecond
 	// mouseRipples is how many ripples show at once, newest kept.
 	mouseRipples = 4
-	// mouseTrailTolerance is how far, in cells, a drag's path may stray
-	// from its trail. A drag steps from cell to cell, up to half a cell off
-	// the line it follows, and more from the line to a cell partway along
-	// it, so a cell of tolerance draws a straight drag straight.
-	mouseTrailTolerance = 1.0
+	// mouseTrailStep is how far apart, in cell heights, the points of a
+	// drawn trail are.
+	mouseTrailStep = 0.25
+	// mouseTrailSmooth is how many points either side of a point of a
+	// drawn trail it is averaged with: three cell heights, so a drag that
+	// steps from cell to cell draws a gentle curve.
+	mouseTrailSmooth = 3 / mouseTrailStep
 )
 
 var (
@@ -275,6 +277,20 @@ type mouseStage struct {
 	// layout is the rasterizer's layout for screens of size.
 	layout render.Layout
 	size   image.Point
+
+	// mask is the trail mask last drawn and what it was drawn for. A trail
+	// fading out, or one whose pointer holds still, draws the same mask
+	// frame after frame.
+	mask    *image.Alpha
+	maskFor trailMaskKey
+}
+
+// trailMaskKey is what a trail mask depends on. A trail's alpha does not
+// change its mask, so it is left zero.
+type trailMaskKey struct {
+	tr   trailLook
+	view cellView
+	grid image.Rectangle
 }
 
 // vec is a point in cells, or in pixels once a [cellView] maps it.
@@ -559,8 +575,8 @@ func (s *mouseStage) trail(i int, t time.Duration) trailLook {
 	return trailLook{first: ev.drag, last: r, end: end, alpha: uint8(math.Round(0xff * alpha))}
 }
 
-// trailPath is the path tr draws, in cells: the cells of its events,
-// straightened (see [simplify]). The legs before the last were sent, so
+// trailPath is the path tr draws, in cells: the cells of its events, the
+// path the pointer glides along. The legs before the last were sent, so
 // they are drawn whole, and the last as far as the pointer has come along
 // it, which is nowhere before the pointer reaches the press.
 func (s *mouseStage) trailPath(tr trailLook) []vec {
@@ -568,10 +584,43 @@ func (s *mouseStage) trailPath(tr trailLook) []vec {
 	for _, ev := range s.events[tr.first : tr.last+1] {
 		cells = append(cells, ev.cell())
 	}
-	cells = simplify(cells, mouseTrailTolerance)
 	n := len(cells)
 	cells[n-1] = closest(tr.end, cells[n-2], cells[n-1])
 	return cells
+}
+
+// trailMask is the coverage of the trail tr, mapped onto a frame by view
+// and cut to grid, smoothed in pixels, as cells are not square (see
+// [smoothPath]). The mask is shared with later calls, and is not to be
+// changed.
+func (s *mouseStage) trailMask(tr trailLook, view cellView, grid image.Rectangle) *image.Alpha {
+	tr.alpha = 0
+	key := trailMaskKey{tr: tr, view: view, grid: grid}
+	if s.mask != nil && key == s.maskFor {
+		return s.mask
+	}
+	cells := s.trailPath(tr)
+	path := make([]vec, len(cells))
+	for k, c := range cells {
+		path[k] = view.at(c)
+	}
+	path = smoothPath(path, view.h*mouseTrailStep, mouseTrailSmooth)
+	// cover scans each shape's box, and the legs are a fraction of a cell
+	// long, so each is a capsule of its own rather than one shape for the
+	// trail.
+	segs := make([]shape, len(path)-1)
+	var box image.Rectangle
+	for k := range segs {
+		segs[k] = capsule(path[k], path[k+1], s.unit/4)
+		box = box.Union(segs[k].box)
+	}
+	// A zoom may put much of the trail off the grid.
+	mask := image.NewAlpha(box.Intersect(grid))
+	for _, sh := range segs {
+		cover(mask, sh)
+	}
+	s.mask, s.maskFor = mask, key
+	return mask
 }
 
 // draw returns a copy of src, a frame with its cell grid at grid, with the
@@ -585,27 +634,8 @@ func (s *mouseStage) draw(src *image.NRGBA, grid image.Rectangle, l mouseLook) *
 	img := cloneNRGBA(src)
 	shown := func(p vec) bool { return image.Pt(int(math.Floor(p.x)), int(math.Floor(p.y))).In(grid) }
 	if tr := l.trail; tr.alpha > 0 {
-		cells := s.trailPath(tr)
-		var segs []shape
-		var box image.Rectangle
-		for k := range len(cells) - 1 {
-			a, b := l.view.at(cells[k]), l.view.at(cells[k+1])
-			// cover scans each shape's box, so a long leg is drawn in
-			// pieces about a cell long.
-			pieces := int(math.Ceil(math.Hypot(b.x-a.x, b.y-a.y) / s.unit))
-			for j := range pieces {
-				sh := capsule(a.lerp(b, float64(j)/float64(pieces)), a.lerp(b, float64(j+1)/float64(pieces)), s.unit/4)
-				segs = append(segs, sh)
-				box = box.Union(sh.box)
-			}
-		}
-		// A zoom may put much of the trail off the grid.
-		mask := image.NewAlpha(box.Intersect(grid))
-		for _, sh := range segs {
-			cover(mask, sh)
-		}
 		c := s.buttons[s.events[tr.first].held]
-		paintMask(img, mask, faded(c, 0.5*float64(tr.alpha)/0xff))
+		paintMask(img, s.trailMask(tr, l.view, grid), faded(c, 0.5*float64(tr.alpha)/0xff))
 	}
 	for _, r := range l.ripples {
 		if at := l.view.at(r.at); r.button != vt.MouseUnknown && shown(at) {
