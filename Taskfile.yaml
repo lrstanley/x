@@ -3,6 +3,7 @@ version: "3"
 vars:
   PACKAGES:
     - charm/formatter
+    - cmd/modrelease
     - term/reel
     - term/reel/cmd/reel
     - term/steep
