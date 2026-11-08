@@ -36,6 +36,22 @@ Every module tracked by git is released, except those in a directory starting wi
 `_` or `.`, those in `testdata`, and those named by `--skip` or `$MODRELEASE_SKIP`.
 All of them get a tag, even if only their requirements changed.
 
+## GitHub Actions
+
+GitHub creates no tag events for a push of more than 3 tags, so with more modules than
+that, workflows that run on tags don't start. When the push goes to GitHub, `modrelease`
+finds the workflows in `.github/workflows` that the release's tags would start, and
+starts each one on its tag through the API after the push. The run sees the tag as its
+ref, the same as a tag push, but `github.event_name` is `workflow_dispatch`, so the plan
+warns about workflows that read it.
+
+This needs a token in `GH_TOKEN` or `GITHUB_TOKEN` that can run the repository's
+workflows, such as `GH_TOKEN=$(gh auth token)`. Each of those workflows needs a
+`workflow_dispatch` trigger with no required inputs that lack a default, and has to be
+active on GitHub. The checks confirm all of that before anything is published. A run
+that fails to start after the push only prints where to start it by hand, since the
+release is already out. `--no-dispatch` leaves them all unstarted.
+
 ## LFS
 
 Module hashes are computed the way the public proxy computes them, so they're right

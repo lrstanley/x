@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -71,6 +72,7 @@ func (r *release) inspect(ctx context.Context, root string) (*plan, []check) {
 		return p, checks
 	}
 	p.pushURL = urls
+	p.github = cmp.Or(r.github, githubRepo(p.pushURL))
 
 	symref, err := r.git(ctx, root, "ls-remote", "--symref", p.pushURL, "HEAD")
 	if err != nil {
@@ -141,6 +143,7 @@ func (r *release) inspect(ctx context.Context, root string) (*plan, []check) {
 	if unused && len(p.modules) > 0 {
 		pass("none of the %d tags exist locally or on %s", len(p.modules), r.flags.Remote)
 	}
+	r.checkWorkflows(ctx, p, pass, fail)
 	return p, checks
 }
 
@@ -153,7 +156,7 @@ func (r *release) checkBranch(ctx context.Context, p *plan, symref string, pass,
 	if p.branch == def {
 		pass("on default branch %s", def)
 	} else {
-		fail("on branch %s, not default branch %s", p.branch, or(def, "(unknown)"))
+		fail("on branch %s, not default branch %s", p.branch, cmp.Or(def, "(unknown)"))
 	}
 
 	out, err := r.git(ctx, p.root, "ls-remote", p.pushURL, "refs/heads/"+p.branch)

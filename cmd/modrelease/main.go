@@ -32,6 +32,8 @@ type Flags struct {
 	RC     bool     `name:"rc" xor:"channel" help:"Release the bump as a release candidate, like v1.3.0-rc.0."`
 	Skip   []string `name:"skip" sep:"," env:"MODRELEASE_SKIP" placeholder:"DIR" help:"Module directories to leave out of the release."`
 	Remote string   `name:"remote" default:"origin" env:"MODRELEASE_REMOTE" help:"Git remote to publish to."`
+
+	NoDispatch bool `name:"no-dispatch" help:"Don't start the tag workflows GitHub skips for a push of more than 3 tags."`
 }
 
 // channel returns the prerelease channel the flags ask for, or "".

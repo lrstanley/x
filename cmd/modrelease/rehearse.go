@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -101,7 +102,7 @@ func (r *release) rehearsalEnv(ctx context.Context, p *plan, tmp, proxy string) 
 		"GOMODCACHE=" + filepath.Join(tmp, "modcache"),
 		"GOPROXY=" + fileURL(proxy) + "," + goenv["GOPROXY"],
 		"GOPRIVATE=",
-		"GONOPROXY=" + or(withoutPatterns(goenv["GONOPROXY"], paths), "none"),
+		"GONOPROXY=" + cmp.Or(withoutPatterns(goenv["GONOPROXY"], paths), "none"),
 		"GONOSUMDB=" + strings.Trim(withoutPatterns(goenv["GONOSUMDB"], paths)+","+p.prefix, ","),
 	}, nil
 }
@@ -367,7 +368,7 @@ func requireChanges(before, after map[string]string) []string {
 	var changes []string
 	for _, p := range paths {
 		if before[p] != after[p] {
-			changes = append(changes, fmt.Sprintf("%s  %s -> %s", p, or(before[p], "(new)"), or(after[p], "(removed)")))
+			changes = append(changes, fmt.Sprintf("%s  %s -> %s", p, cmp.Or(before[p], "(new)"), cmp.Or(after[p], "(removed)")))
 		}
 	}
 	return changes

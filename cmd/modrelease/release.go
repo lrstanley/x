@@ -6,14 +6,18 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/google/go-github/v93/github"
 )
 
 const (
@@ -48,6 +52,11 @@ type release struct {
 	publicProxy string
 	// proxyWait is how long to wait between attempts to fetch from publicProxy.
 	proxyWait time.Duration
+	// github is the owner/name of the GitHub repository being released, or "" to
+	// work it out from the push URL. Tests set it, since their remote is local.
+	github string
+	// githubAPI is the GitHub API's base URL, or "" for api.github.com.
+	githubAPI string
 }
 
 // plan is what a release will do, worked out from the repository.
@@ -58,6 +67,9 @@ type plan struct {
 	current, version   string
 	modules            []*goModule // In dependency order.
 	skipped            []skippedModule
+	github             string         // owner/name, if the push goes to GitHub.
+	runs               []workflowRun  // Workflow runs GitHub won't start, as the push has too many tags.
+	api                *github.Client // Starts runs, if there are any.
 }
 
 // run does the release, up to and including the rehearsal unless --apply is set.
@@ -89,7 +101,7 @@ func (r *release) run(ctx context.Context) error {
 	}
 
 	r.step(2, "Bump the version")
-	r.linef("%s -> %s", or(p.current, "(no version tags yet)"), p.version)
+	r.linef("%s -> %s", cmp.Or(p.current, "(no version tags yet)"), p.version)
 
 	r.step(3, fmt.Sprintf("Release %d modules, in dependency order", len(p.modules)))
 	width := 0
@@ -126,8 +138,19 @@ func (r *release) run(ctx context.Context) error {
 	}
 	r.step(7, "Push atomically to "+r.flags.Remote)
 	r.linef("refs/heads/%s and all %d tags, or nothing", p.branch, len(p.modules))
-	if len(p.modules) > 3 {
-		r.linef("note: GitHub creates no tag events when more than 3 tags are pushed at once")
+	switch {
+	case p.github == "" || len(p.modules) <= githubTagEventLimit:
+	case r.flags.NoDispatch:
+		r.linef("GitHub creates no tag events for a push of more than %d tags, so workflows that run on tags "+
+			"won't start, and --no-dispatch leaves them", githubTagEventLimit)
+	case len(p.runs) > 0:
+		r.linef("then start the workflow runs GitHub won't for a push of more than %d tags:", githubTagEventLimit)
+		for _, run := range p.runs {
+			r.linef("  %s on %s", run.file, run.tag)
+			if run.readsEventName {
+				r.linef("  warning: %s reads github.event_name, which is workflow_dispatch for this run, not push", run.file)
+			}
+		}
 	}
 	r.step(8, "Check the published hashes against step 4")
 	r.linef("direct from git, then the public proxy and checksum database")
@@ -151,16 +174,45 @@ func (r *release) finish(ctx context.Context, p *plan, tree, tmp, message string
 	if err := r.publish(ctx, p, tree, message); err != nil {
 		return err
 	}
+	notStarted := r.dispatch(ctx, p)
 	complete, err := r.verify(ctx, p, tmp)
 	if err != nil {
 		return err
 	}
-	if complete {
+	var gaps []string
+	if !complete {
+		gaps = append(gaps, "not every hash could be checked")
+	}
+	if notStarted > 0 {
+		gaps = append(gaps, fmt.Sprintf("%d workflow runs didn't start", notStarted))
+	}
+	if len(gaps) == 0 {
 		r.printf("\nReleased %s.\n", p.version)
-	} else {
-		r.printf("\nReleased %s, but not every hash could be checked. See the warnings above.\n", p.version)
+		return nil
+	}
+	r.printf("\nReleased %s, but %s. See the warnings above.\n", p.version, strings.Join(gaps, ", and "))
+	if notStarted > 0 {
+		return errReported
 	}
 	return nil
+}
+
+// dispatch starts the workflow runs GitHub won't, and returns how many didn't
+// start. The release is out by then, so a failure only says where to retry.
+func (r *release) dispatch(ctx context.Context, p *plan) (notStarted int) {
+	owner, name, _ := strings.Cut(p.github, "/")
+	for _, run := range p.runs {
+		_, _, err := p.api.Actions.CreateWorkflowDispatchEventByFileName(ctx, owner, name, url.PathEscape(run.file),
+			github.CreateWorkflowDispatchEventRequest{Ref: run.tag})
+		if err != nil {
+			r.linef("warning: couldn't start %s on %s, so run it on that tag from https://github.com/%s/actions/workflows/%s: %v",
+				run.file, run.tag, p.github, url.PathEscape(run.file), err)
+			notStarted++
+		} else {
+			r.linef("started %s on %s", run.file, run.tag)
+		}
+	}
+	return notStarted
 }
 
 func (r *release) printf(format string, args ...any) {
@@ -179,7 +231,7 @@ func (r *release) linef(format string, args ...any) {
 // includes the end of the command's output, since that's usually the cause.
 func (r *release) cmdRun(ctx context.Context, dir string, env []string, name string, args ...string) (string, error) {
 	if r.debug {
-		fmt.Fprintf(os.Stderr, "debug: (%s) %s %s\n", or(dir, "."), name, strings.Join(args, " "))
+		fmt.Fprintf(os.Stderr, "debug: (%s) %s %s\n", cmp.Or(dir, "."), name, strings.Join(args, " "))
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
@@ -203,11 +255,4 @@ func (r *release) git(ctx context.Context, dir string, args ...string) (string, 
 func tailLines(s string, n int) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
-}
-
-func or(s, fallback string) string {
-	if s != "" {
-		return s
-	}
-	return fallback
 }

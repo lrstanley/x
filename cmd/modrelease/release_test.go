@@ -33,6 +33,8 @@ type fixture struct {
 	t              *testing.T
 	repo, remote   string
 	hermeticConfig string
+	github         string // Passed to the release, as if the remote were this GitHub repository.
+	githubAPI      string // Passed to the release, for a fake GitHub API.
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -177,6 +179,8 @@ func (f *fixture) run(flags Flags) (string, error) {
 		out:               &out,
 		dir:               f.repo,
 		hermeticGitConfig: f.hermeticConfig,
+		github:            f.github,
+		githubAPI:         f.githubAPI,
 	}
 	err := r.run(context.Background())
 	return out.String(), err
