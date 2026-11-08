@@ -16,7 +16,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/lrstanley/go-nf v0.0.0-20261018042953-dc908cf1060f
 	github.com/lrstanley/x/term/reel v0.0.0
-	github.com/lrstanley/x/term/steep v0.0.0-20260510074740-f99adc613ee2
+	github.com/lrstanley/x/term/steep 713bdb0c1ac7
 )
 
 require (
