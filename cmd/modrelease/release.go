@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/google/go-github/v93/github"
 )
 
@@ -74,34 +76,38 @@ type plan struct {
 
 // run does the release, up to and including the rehearsal unless --apply is set.
 func (r *release) run(ctx context.Context) error {
+	// Styles always render full color. The writer downsamples it to what the
+	// output supports, which strips it for a pipe, a file, or NO_COLOR.
+	r.out = colorprofile.NewWriter(r.out, os.Environ())
+
 	root, err := r.git(ctx, r.dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return errors.New("not in a git repository")
 	}
-	mode := "plan only, nothing will change"
+	mode := styleWarn.Render("plan only, nothing will change")
 	if r.flags.Apply {
-		mode = "publishing"
+		mode = styleHeading.Render("publishing")
 	}
-	r.printf("modrelease: %s (%s)\n", root, mode)
+	r.printf("%s %s (%s)\n", styleBold.Render("modrelease:"), root, mode)
 
 	p, checks := r.inspect(ctx, root)
 	r.step(1, "Check the repository")
 	failed := 0
 	for _, c := range checks {
 		if c.ok {
-			r.linef("ok   %s", c.text)
+			r.linef("%s   %s", styleOK.Render("ok"), c.text)
 		} else {
-			r.linef("FAIL %s", c.text)
+			r.linef("%s %s", styleFail.Render("FAIL"), c.text)
 			failed++
 		}
 	}
 	if failed > 0 {
-		r.printf("\n%d checks failed. Nothing changed.\n", failed)
+		r.printf("\n%s\n", styleFail.Render(fmt.Sprintf("%d checks failed. Nothing changed.", failed)))
 		return errReported
 	}
 
 	r.step(2, "Bump the version")
-	r.linef("%s -> %s", cmp.Or(p.current, "(no version tags yet)"), p.version)
+	r.linef("%s %s %s", styleFaint.Render(cmp.Or(p.current, "(no version tags yet)")), styleFaint.Render("->"), styleHighlight.Render(p.version))
 
 	r.step(3, fmt.Sprintf("Release %d modules, in dependency order", len(p.modules)))
 	width := 0
@@ -109,10 +115,10 @@ func (r *release) run(ctx context.Context) error {
 		width = max(width, len(m.dir))
 	}
 	for _, m := range p.modules {
-		r.linef("%-*s  %s", width, m.dir, m.path)
+		r.linef("%s  %s", styleBold.Render(fmt.Sprintf("%-*s", width, m.dir)), styleFaint.Render(m.path))
 	}
 	for _, s := range p.skipped {
-		r.linef("skip %s (%s)", s.dir, s.reason)
+		r.linef("%s %s %s", styleWarn.Render("skip"), s.dir, styleFaint.Render("("+s.reason+")"))
 	}
 
 	tmp, err := os.MkdirTemp("", "modrelease-")
@@ -125,7 +131,7 @@ func (r *release) run(ctx context.Context) error {
 	tree, cleanup, err := r.rehearse(ctx, p, tmp)
 	defer cleanup()
 	if err != nil {
-		r.printf("\nRehearsal failed. Nothing changed.\n")
+		r.printf("\n%s\n", styleFail.Render("Rehearsal failed. Nothing changed."))
 		return err
 	}
 
@@ -134,10 +140,10 @@ func (r *release) run(ctx context.Context) error {
 	r.linef("%s", message)
 	r.step(6, fmt.Sprintf("Create %d signed tags at that commit", len(p.modules)))
 	for _, m := range p.modules {
-		r.linef("%s", m.tag)
+		r.linef("%s", styleRef.Render(m.tag))
 	}
 	r.step(7, "Push atomically to "+r.flags.Remote)
-	r.linef("refs/heads/%s and all %d tags, or nothing", p.branch, len(p.modules))
+	r.linef("%s and all %d tags, or nothing", styleRef.Render("refs/heads/"+p.branch), len(p.modules))
 	switch {
 	case p.github == "" || len(p.modules) <= githubTagEventLimit:
 	case r.flags.NoDispatch:
@@ -146,21 +152,21 @@ func (r *release) run(ctx context.Context) error {
 	case len(p.runs) > 0:
 		r.linef("then start the workflow runs GitHub won't for a push of more than %d tags:", githubTagEventLimit)
 		for _, run := range p.runs {
-			r.linef("  %s on %s", run.file, run.tag)
+			r.linef("  %s on %s", run.file, styleRef.Render(run.tag))
 			if run.readsEventName {
-				r.linef("  warning: %s reads github.event_name, which is workflow_dispatch for this run, not push", run.file)
+				r.linef("  %s %s reads github.event_name, which is workflow_dispatch for this run, not push", warning, run.file)
 			}
 		}
 	}
 	r.step(8, "Check the published hashes against step 4")
-	r.linef("direct from git, then the public proxy and checksum database")
+	r.linef("%s", styleFaint.Render("direct from git, then the public proxy and checksum database"))
 
 	if !r.flags.Apply {
-		r.printf("\nNothing changed. Run again with --apply to do steps 5 to 8.\n")
+		r.printf("\n%s Run again with %s to do steps 5 to 8.\n", styleBold.Render("Nothing changed."), styleHighlight.Render("--apply"))
 		return nil
 	}
 
-	r.printf("\nPublishing:\n")
+	r.printf("\n%s\n", styleHeading.Render("Publishing:"))
 	// A release that started publishing runs to the end, so an interrupt can't
 	// leave it between the push and the check of what the push did. The timeout
 	// stops a stalled command from hanging it forever.
@@ -187,10 +193,10 @@ func (r *release) finish(ctx context.Context, p *plan, tree, tmp, message string
 		gaps = append(gaps, fmt.Sprintf("%d workflow runs didn't start", notStarted))
 	}
 	if len(gaps) == 0 {
-		r.printf("\nReleased %s.\n", p.version)
+		r.printf("\n%s\n", styleSuccess.Render("Released "+p.version+"."))
 		return nil
 	}
-	r.printf("\nReleased %s, but %s. See the warnings above.\n", p.version, strings.Join(gaps, ", and "))
+	r.printf("\n%s\n", stylePartial.Render(fmt.Sprintf("Released %s, but %s. See the warnings above.", p.version, strings.Join(gaps, ", and "))))
 	if notStarted > 0 {
 		return errReported
 	}
@@ -205,11 +211,11 @@ func (r *release) dispatch(ctx context.Context, p *plan) (notStarted int) {
 		_, _, err := p.api.Actions.CreateWorkflowDispatchEventByFileName(ctx, owner, name, url.PathEscape(run.file),
 			github.CreateWorkflowDispatchEventRequest{Ref: run.tag})
 		if err != nil {
-			r.linef("warning: couldn't start %s on %s, so run it on that tag from https://github.com/%s/actions/workflows/%s: %v",
-				run.file, run.tag, p.github, url.PathEscape(run.file), err)
+			r.linef("%s couldn't start %s on %s, so run it on that tag from https://github.com/%s/actions/workflows/%s: %v",
+				warning, run.file, run.tag, p.github, url.PathEscape(run.file), err)
 			notStarted++
 		} else {
-			r.linef("started %s on %s", run.file, run.tag)
+			r.linef("%s %s on %s", styleOK.Render("started"), run.file, styleRef.Render(run.tag))
 		}
 	}
 	return notStarted
@@ -220,7 +226,7 @@ func (r *release) printf(format string, args ...any) {
 }
 
 func (r *release) step(n int, title string) {
-	r.printf("\n  %d. %s\n", n, title)
+	r.printf("\n  %s %s\n", styleHeading.Render(fmt.Sprintf("%d.", n)), styleBold.Render(title))
 }
 
 func (r *release) linef(format string, args ...any) {
@@ -231,7 +237,7 @@ func (r *release) linef(format string, args ...any) {
 // includes the end of the command's output, since that's usually the cause.
 func (r *release) cmdRun(ctx context.Context, dir string, env []string, name string, args ...string) (string, error) {
 	if r.debug {
-		fmt.Fprintf(os.Stderr, "debug: (%s) %s %s\n", cmp.Or(dir, "."), name, strings.Join(args, " "))
+		_, _ = lipgloss.Fprintf(os.Stderr, "%s (%s) %s %s\n", styleFaint.Render("debug:"), cmp.Or(dir, "."), name, strings.Join(args, " "))
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir

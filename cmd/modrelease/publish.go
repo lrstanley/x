@@ -32,7 +32,7 @@ func (r *release) publish(ctx context.Context, p *plan, tree, message string) er
 	if err != nil {
 		return fmt.Errorf("creating the commit, nothing was published: %w", err)
 	}
-	r.linef("committed %s", commit[:9])
+	r.linef("committed %s", styleRef.Render(commit[:9]))
 
 	var tags []string
 	removeTags := func() {
@@ -41,7 +41,7 @@ func (r *release) publish(ctx context.Context, p *plan, tree, message string) er
 		defer cancel()
 		for _, tag := range tags {
 			if _, deleteErr := r.git(cleanupCtx, p.root, "tag", "--delete", tag); deleteErr != nil {
-				r.linef("warning: couldn't delete local tag %s: %v", tag, deleteErr)
+				r.linef("%s couldn't delete local tag %s: %v", warning, tag, deleteErr)
 			}
 		}
 	}
@@ -62,7 +62,7 @@ func (r *release) publish(ctx context.Context, p *plan, tree, message string) er
 	output, err := r.git(ctx, p.root, args...)
 	switch {
 	case err == nil:
-		r.linef("pushed")
+		r.linef("%s", styleOK.Render("pushed"))
 	case pushWasRejected(output):
 		removeTags()
 		return fmt.Errorf("%s rejected the push, so nothing was published and the local tags are removed. Pull and run again: %w", r.flags.Remote, err)
@@ -76,11 +76,11 @@ func (r *release) publish(ctx context.Context, p *plan, tree, message string) er
 			return fmt.Errorf("the outcome of the push is unknown, so commit %s and its tags are being kept. "+
 				"Check %s, and delete the local tags once you know the push failed: %w", commit[:9], r.flags.Remote, err)
 		}
-		r.linef("pushed (the push didn't finish, but every tag is on %s)", r.flags.Remote)
+		r.linef("%s %s", styleOK.Render("pushed"), styleFaint.Render("(the push didn't finish, but every tag is on "+r.flags.Remote+")"))
 	}
 
 	if _, err = r.git(ctx, p.root, "merge", "--quiet", "--ff-only", commit); err != nil {
-		r.linef("warning: couldn't fast-forward local %s, so pull to update it: %v", p.branch, err)
+		r.linef("%s couldn't fast-forward local %s, so pull to update it: %v", warning, p.branch, err)
 	} else {
 		r.linef("fast-forwarded local %s", p.branch)
 	}
@@ -130,7 +130,7 @@ func (r *release) verify(ctx context.Context, p *plan, tmp string) (complete boo
 	direct := r.compareHashes(ctx, p, tmp, "direct", 1, append(r.hermeticEnv(),
 		"GOPROXY=direct", "GOPRIVATE=", "GONOPROXY=", "GONOSUMDB="+p.prefix))
 	if !direct.fetched {
-		r.linef("the proxy wasn't checked, because a repo that can't be fetched directly is probably private")
+		r.linef("%s", styleFaint.Render("the proxy wasn't checked, because a repo that can't be fetched directly is probably private"))
 		return false, direct.err
 	}
 	if r.publicProxy == "" {
@@ -140,7 +140,7 @@ func (r *release) verify(ctx context.Context, p *plan, tmp string) (complete boo
 		"GOPROXY=" + r.publicProxy, "GOPRIVATE=", "GONOPROXY=none", "GONOSUMDB=",
 	})
 	if !proxy.fetched {
-		r.linef("the direct check is what counts: the proxy can keep answering not found for a while after a release")
+		r.linef("%s", styleFaint.Render("the direct check is what counts: the proxy can keep answering not found for a while after a release"))
 	}
 	return proxy.fetched, errors.Join(direct.err, proxy.err)
 }
@@ -160,7 +160,7 @@ func (r *release) compareHashes(ctx context.Context, p *plan, tmp, label string,
 		return hashResult{err: err}
 	}
 	env = append(env, "GOWORK=off", "GOFLAGS=-modcacherw", "GOMODCACHE="+filepath.Join(dir, "modcache"))
-	r.linef("%s:", label)
+	r.linef("%s", styleBold.Render(label+":"))
 
 	result := hashResult{fetched: true}
 	pending := p.modules
@@ -183,9 +183,9 @@ func (r *release) compareHashes(ctx context.Context, p *plan, tmp, label string,
 				failed = append(failed, m)
 				lastErr[m] = got.Error
 			case got.Sum == m.sum && got.GoModSum == m.goModSum:
-				r.linef("  match    %s", m.dir)
+				r.linef("  %s    %s", styleOK.Render("match"), m.dir)
 			default:
-				r.linef("  MISMATCH %s: predicted %s, got %s", m.dir, m.sum, got.Sum)
+				r.linef("  %s %s: predicted %s, got %s", styleFail.Render("MISMATCH"), m.dir, m.sum, got.Sum)
 				result.err = errors.Join(result.err, fmt.Errorf("%s from %s has hash %s, not the predicted %s", m.tag, label, got.Sum, m.sum))
 			}
 		}
@@ -193,7 +193,7 @@ func (r *release) compareHashes(ctx context.Context, p *plan, tmp, label string,
 	}
 	for _, m := range pending {
 		result.fetched = false
-		r.linef("  warning: couldn't fetch %s: %s", m.dir, tailLines(lastErr[m], 1))
+		r.linef("  %s couldn't fetch %s: %s", warning, m.dir, tailLines(lastErr[m], 1))
 	}
 	return result
 }

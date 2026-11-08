@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/lrstanley/clix/v2"
 )
 
@@ -68,7 +69,7 @@ func (f Flags) Validate() error {
 func main() {
 	if err := run(); err != nil {
 		if !errors.Is(err, errReported) {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			_, _ = lipgloss.Fprintf(os.Stderr, "%s %v\n", styleFail.Render("error:"), err)
 		}
 		os.Exit(1)
 	}

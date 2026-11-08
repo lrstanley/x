@@ -63,19 +63,19 @@ func (r *release) rehearse(ctx context.Context, p *plan, tmp string) (tree strin
 	}
 
 	for _, m := range p.modules {
-		r.linef("%s", m.dir)
+		r.linef("%s", styleBold.Render(m.dir))
 		start := time.Now()
 		if err = r.updateModule(ctx, p, m, filepath.Join(wt, filepath.FromSlash(m.dir)), env); err != nil {
 			return "", cleanup, fmt.Errorf("%s: %w", m.dir, err)
 		}
-		r.linef("  tidy, build, test: ok (%.1fs)", time.Since(start).Seconds())
+		r.linef("  tidy, build, test: %s %s", styleOK.Render("ok"), styleFaint.Render(fmt.Sprintf("(%.1fs)", time.Since(start).Seconds())))
 		if tree, err = r.git(ctx, wt, "write-tree"); err != nil {
 			return "", cleanup, err
 		}
 		if err = r.predictModule(ctx, p, m, wt, tree, zipClone, proxy); err != nil {
 			return "", cleanup, fmt.Errorf("%s: predicting its hash: %w", m.dir, err)
 		}
-		r.linef("  %s", m.sum)
+		r.linef("  %s", styleFaint.Render(m.sum))
 	}
 	return tree, cleanup, nil
 }
@@ -176,9 +176,9 @@ func (r *release) updateModule(ctx context.Context, p *plan, m *goModule, dir st
 	}
 	if !slices.Equal(sumBefore, sumAfter) {
 		added, removed := countDiff(sumBefore, sumAfter), countDiff(sumAfter, sumBefore)
-		r.linef("  go.sum: %d lines added, %d removed", added, removed)
+		r.linef("  go.sum: %s, %s", styleOK.Render(fmt.Sprintf("%d lines added", added)), styleRemoved.Render(fmt.Sprintf("%d removed", removed)))
 	} else if maps.Equal(before, after) {
-		r.linef("  go.mod and go.sum: no changes")
+		r.linef("  %s", styleFaint.Render("go.mod and go.sum: no changes"))
 	}
 
 	// Stage by name, so nothing else a build or test wrote can be released.
