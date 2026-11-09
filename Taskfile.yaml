@@ -4,10 +4,6 @@ vars:
   PACKAGES:
     - charm/formatter
     - cmd/modrelease
-    - term/reel
-    - term/reel/cmd/reel
-    - term/steep
-    - term/tape
     - entx
     - entx/observe
     - http/utils

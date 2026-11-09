@@ -1,9 +1,0 @@
-node_modules
-.nuxt
-.output
-.data
-.cache
-dist
-/public/reel.wasm
-/public/wasm_exec.js
-/public/samples
