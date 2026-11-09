@@ -1,0 +1,30 @@
+◆ bloom table  ↑↓ move  ·  ←→ cell  ·  space mark  ·  enter open  ·  / filter  ·  0-9 options  ·  q quit                
+╭─ jobs ───┬──────────────────┬───────────┬───────────┬────────┬── 100,000 rows ─╮╭─ job #23 ──────────────────────────╮
+│       ID │ NAME             │ STATUS    │     CPU ▼ │    AGE │ IMAGE           ││ nightly-train-a0c4a                │
+├──────────┼──────────────────┼───────────┼───────────┼────────┼─────────────────┤│                                    │
+│ ›     23 │ nightly-train-a… │ failed    │         - │     2d │ registry.inter… ││ status                             │
+│       25 │ replay-audit-d6… │ failed    │         - │     8d │ registry.inter… ││ failed                             │
+│       26 │ weekly-reindex-… │ failed    │         - │     4d │ registry.inter… ││                                    │
+│       27 │ weekly-billing-… │ failed    │         - │     8d │ registry.inter… ││ owner            queue             │
+│       31 │ weekly-vacuum-0… │ succeeded │         - │     3d │ registry.inter… ││ tomas            batch             │
+│       33 │ nightly-compact… │ failed    │         - │    12d │ registry.inter… ││                                    │
+│       34 │ daily-billing-8… │ succeeded │         - │     6d │ registry.inter… ││ cpu              memory            │
+│       36 │ daily-ingest-e7… │ succeeded │         - │    11d │ registry.inter… ││ -                128 MiB           │
+│       38 │ adhoc-export-77… │ pending   │         - │    11d │ registry.inter… ││                                    │
+│       40 │ weekly-export-b… │ succeeded │         - │     7d │ registry.inter… ┃│ node                               │
+│       42 │ nightly-rollup-… │ succeeded │         - │     6d │ registry.inter… ││ node-c-10                          │
+│       43 │ canary-train-1d… │ succeeded │         - │     7d │ registry.inter… ││                                    │
+│       44 │ canary-export-0… │ succeeded │         - │    10d │ registry.inter… ││ image                              │
+│       45 │ replay-snapshot… │ succeeded │         - │     7d │ registry.inter… ││ registry.internal.example.com/infr │
+│       46 │ adhoc-rollup-05… │ failed    │         - │   2h5m │ registry.inter… ││ a/vacuum:v2.3.0-a0c4a45            │
+│       47 │ adhoc-snapshot-… │ succeeded │         - │     3d │ registry.inter… ││                                    │
+│       48 │ canary-vacuum-a… │ succeeded │         - │  9h13m │ registry.inter… ││                                    │
+│       49 │ canary-reindex-… │ pending   │         - │     8d │ registry.inter… │╰─────────────────────── ? 5 marked ─╯
+│       50 │ canary-billing-… │ failed    │         - │ 43h31m │ registry.inter… │╭─ options ──────────────────────────╮
+│       52 │ canary-reindex-… │ pending   │         - │     7d │ registry.inter… ││ 1 ? selection    6 ? header        │
+│       54 │ backfill-audit-… │ pending   │         - │     7d │ registry.inter… ││ 2 ? cells        7 ? border        │
+│       55 │ daily-snapshot-… │ pending   │         - │     5d │ registry.inter… ││ 3 ? multi-select 8 ? scrollbar     │
+│       56 │ backfill-reinde… │ succeeded │         - │     2d │ registry.inter… ││ 4 ? mouse        9 ? separators    │
+│       58 │ canary-billing-… │ pending   │         - │     6d │ registry.inter… ││ 5 ? sorting      0 ? stripes       │
+╰──────────┴──────────────────┴───────────┴───────────┴────────┴ 39,639/100,000 ─╯╰────────────────────────────────────╯
+ header turned on                                                                                                       
