@@ -64,11 +64,11 @@ type call[V any] struct {
 	done chan struct{} // closed once the outcome fields below are set.
 
 	// Outcome. Written by the goroutine running the function before done is
-	// closed, read by anyone after done is closed.
-	val    V
-	err    error
-	panic  *PanicError
-	goexit bool
+	// closed, read by anyone after done is closed. If the function panicked or
+	// called runtime.Goexit, val is zero and err is panic or ErrGoexit.
+	val   V
+	err   error
+	panic *PanicError
 
 	// Guarded by Group.mu.
 	joins   int                // callers that have joined, ever.
@@ -86,24 +86,7 @@ func (c *call[V]) outcome() (V, error) {
 	if c.panic != nil {
 		panic(c.panic)
 	}
-	if c.goexit {
-		var zero V
-		return zero, ErrGoexit
-	}
 	return c.val, c.err
-}
-
-// result returns the result of a completed call as a [Result]. The caller must
-// hold Group.mu.
-func (c *call[V]) result() Result[V] {
-	r := Result[V]{Val: c.val, Err: c.err, Shared: c.joins > 1}
-	switch {
-	case c.panic != nil:
-		r.Val, r.Err = *new(V), c.panic
-	case c.goexit:
-		r.Val, r.Err = *new(V), ErrGoexit
-	}
-	return r
 }
 
 // Do runs fn and returns its result, unless a call for key is already in
@@ -240,8 +223,9 @@ func (g *Group[K, V]) run(key K, c *call[V], fn func() (V, error)) {
 			// surfaces as a *runtime.PanicNilError since Go 1.21.
 			if r := recover(); r != nil {
 				c.panic = &PanicError{Value: r, Stack: debug.Stack()}
+				c.err = c.panic
 			} else {
-				c.goexit = true
+				c.err = ErrGoexit
 			}
 		}
 		g.finish(key, c)
@@ -258,17 +242,17 @@ func (g *Group[K, V]) finish(key K, c *call[V]) {
 	}
 
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	if g.calls[key] == c {
 		delete(g.calls, key)
 	}
-	if len(c.chans) > 0 {
-		res := c.result()
-		for _, ch := range c.chans {
-			ch <- res // Buffered, and each channel is registered once.
-		}
-		c.chans = nil
+	// c is no longer in the map (here, or earlier via Forget or abandonment),
+	// so no caller can join it and chans and joins are final.
+	chans, shared := c.chans, c.joins > 1
+	g.mu.Unlock()
+
+	res := Result[V]{Val: c.val, Err: c.err, Shared: shared}
+	for _, ch := range chans {
+		ch <- res // Buffered, and each channel is registered once.
 	}
 	close(c.done)
 }

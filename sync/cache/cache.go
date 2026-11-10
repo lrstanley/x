@@ -4,6 +4,8 @@
 
 // Package cache provides a concurrent-safe generic cache with pluggable eviction
 // policies, optional entry expiration, and a background janitor for cleanup.
+// [Cache.GetOrLoad] fills misses from a load function, sharing one load between
+// concurrent callers for the same key.
 package cache
 
 import (
@@ -16,6 +18,7 @@ import (
 	"github.com/lrstanley/x/sync/cache/policy/lfu"
 	"github.com/lrstanley/x/sync/cache/policy/lru"
 	"github.com/lrstanley/x/sync/cache/policy/mru"
+	"github.com/lrstanley/x/sync/flight"
 )
 
 // Interface is a common cache interface.
@@ -51,6 +54,9 @@ type Cache[K comparable, V any] struct {
 	mu         sync.Mutex
 	cache      Interface[K, *Entry[K, V]]
 	expManager *expirationManager[K]
+	loading    map[K]*loadToken // Guarded by mu. Loads in flight, see GetOrLoad.
+
+	loads flight.Group[K, V]
 }
 
 // New creates a new concurrent-safe [Cache]. The context will be used to stop
@@ -64,6 +70,7 @@ func New[K comparable, V any](ctx context.Context, opts ...Option[K, V]) *Cache[
 		cache:           base.New[K, *Entry[K, V]](),
 		janitor:         newJanitor(ctx),
 		expManager:      newExpirationManager[K](),
+		loading:         make(map[K]*loadToken),
 	}
 	for _, opt := range opts {
 		if opt == nil {
@@ -104,11 +111,8 @@ func (c *Cache[K, V]) GetOrSet(key K, val V, opts ...EntryOption) (actual V, loa
 	e, ok := c.cache.Get(key)
 
 	if !ok || e.Expired() {
-		e = newEntry(key, val, append(c.defaultEntryOpts, opts...)...)
-		if !e.Expiration.IsZero() {
-			c.expManager.update(key, e.Expiration)
-		}
-		c.cache.Set(key, e)
+		delete(c.loading, key) // Supersede any in-flight load, see GetOrLoad.
+		c.store(key, val, opts)
 		return val, false
 	}
 
@@ -119,6 +123,7 @@ func (c *Cache[K, V]) GetOrSet(key K, val V, opts ...EntryOption) (actual V, loa
 func (c *Cache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	delete(c.loading, key) // Supersede any in-flight load, see GetOrLoad.
 	c.cache.Delete(key)
 	c.expManager.remove(key)
 }
@@ -147,6 +152,7 @@ func (c *Cache[K, V]) DeleteExpired() {
 func (c *Cache[K, V]) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	clear(c.loading) // Supersede all in-flight loads, see GetOrLoad.
 	c.cache.Clear()
 	c.expManager.clear()
 }
@@ -156,6 +162,13 @@ func (c *Cache[K, V]) Clear() {
 func (c *Cache[K, V]) Set(key K, val V, opts ...EntryOption) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	delete(c.loading, key) // Supersede any in-flight load, see GetOrLoad.
+	c.store(key, val, opts)
+}
+
+// store writes an entry for key, applying the default entry options and then
+// opts. The caller must hold c.mu.
+func (c *Cache[K, V]) store(key K, val V, opts []EntryOption) {
 	e := newEntry(key, val, append(c.defaultEntryOpts, opts...)...)
 	if !e.Expiration.IsZero() { // Entry doesn't have expiration.
 		c.expManager.update(key, e.Expiration)
@@ -228,7 +241,7 @@ func WithJanitorInterval[K comparable, V any](d time.Duration) Option[K, V] {
 }
 
 // WithDefaultEntryOptions sets default [EntryOption]s applied to every new entry
-// created via [Cache.Set] or [Cache.GetOrSet]. Per-call entry options are applied
+// created via [Cache.Set], [Cache.GetOrSet], or [Cache.GetOrLoad]. Per-call entry options are applied
 // after these defaults and will override them.
 func WithDefaultEntryOptions[K comparable, V any](opts ...EntryOption) Option[K, V] {
 	return func(c *Cache[K, V]) {
