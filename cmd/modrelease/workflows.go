@@ -46,11 +46,11 @@ type workflowRun struct {
 }
 
 // githubClient returns a GitHub API client, with the token gh and GitHub Actions
-// use.
+// use. The plan's client is shared, so use release.client instead.
 func (r *release) githubClient() (*github.Client, error) {
 	token := cmp.Or(os.Getenv("GH_TOKEN"), os.Getenv("GITHUB_TOKEN"))
 	if token == "" {
-		return nil, errors.New("set GH_TOKEN or GITHUB_TOKEN to a token that can run the repository's workflows")
+		return nil, errors.New("set GH_TOKEN or GITHUB_TOKEN to a GitHub token for the repository, such as $(gh auth token)")
 	}
 	opts := []github.ClientOptionsFunc{github.WithAuthToken(token), github.WithTimeout(time.Minute)}
 	if r.githubAPI != "" {
@@ -71,8 +71,7 @@ func (r *release) checkWorkflows(ctx context.Context, p *plan, pass, fail func(s
 		return
 	}
 	owner, name, _ := strings.Cut(p.github, "/")
-	api, apiErr := r.githubClient()
-	p.api = api
+	api, apiErr := r.client(p)
 	ok := true
 	for _, w := range workflows {
 		matched := len(p.runs)

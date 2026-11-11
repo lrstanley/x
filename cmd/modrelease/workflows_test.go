@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -110,12 +111,25 @@ func TestParseWorkflow(t *testing.T) {
 
 // fakeGitHub is a GitHub API for the fixture's repository, where every workflow
 // is active. It records the dispatches it gets, as file@ref, and fails them when
-// failDispatches is set.
+// failDispatches is set. It records the releases it's asked to create the same
+// way, and lists commits from commits, which is JSON.
 type fakeGitHub struct {
 	failDispatches bool
+	failReleases   bool
+	commits        string
 
 	mu         sync.Mutex
 	dispatches []string
+	releases   []fakeRelease
+}
+
+// fakeRelease is the body of a request to create a release.
+type fakeRelease struct {
+	TagName    string `json:"tag_name"`
+	Name       string `json:"name"`
+	Body       string `json:"body"`
+	Prerelease bool   `json:"prerelease"`
+	MakeLatest string `json:"make_latest"`
 }
 
 func (g *fakeGitHub) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -126,6 +140,25 @@ func (g *fakeGitHub) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	rest, ok := strings.CutPrefix(req.URL.Path, "/repos/lrstanley/fixture/actions/workflows/")
 	file, dispatch := strings.CutSuffix(rest, "/dispatches")
 	switch {
+	case req.URL.Path == "/repos/lrstanley/fixture" && req.Method == http.MethodGet:
+		fmt.Fprint(w, `{"full_name":"lrstanley/fixture"}`)
+	case req.URL.Path == "/repos/lrstanley/fixture/commits" && req.Method == http.MethodGet:
+		fmt.Fprint(w, cmp.Or(g.commits, "[]"))
+	case req.URL.Path == "/repos/lrstanley/fixture/releases" && req.Method == http.MethodPost:
+		var body fakeRelease
+		if err := json.UnmarshalRead(req.Body, &body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		g.mu.Lock()
+		g.releases = append(g.releases, body)
+		g.mu.Unlock()
+		if g.failReleases {
+			http.Error(w, `{"message":"Server Error"}`, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, `{"html_url":"https://github.com/lrstanley/fixture/releases/tag/%s"}`, body.TagName)
 	case ok && !dispatch && req.Method == http.MethodGet:
 		fmt.Fprint(w, `{"state":"active"}`)
 	case ok && dispatch && req.Method == http.MethodPost:

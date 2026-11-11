@@ -144,6 +144,7 @@ func (r *release) inspect(ctx context.Context, root string) (*plan, []check) {
 		pass("none of the %d tags exist locally or on %s", len(p.modules), r.flags.Remote)
 	}
 	r.checkWorkflows(ctx, p, pass, fail)
+	r.checkGitHubRelease(ctx, p, names, remote, pass, fail)
 	return p, checks
 }
 

@@ -52,6 +52,45 @@ active on GitHub. The checks confirm all of that before anything is published. A
 that fails to start after the push only prints where to start it by hand, since the
 release is already out. `--no-dispatch` leaves them all unstarted.
 
+## GitHub releases
+
+With `--github-release` (or `MODRELEASE_GITHUB_RELEASE=true`), `modrelease` also creates a
+GitHub release for the root tag after the push. Its name is the version, like `v1.2.3`. A
+prerelease is marked as one, and any other release becomes the latest. It needs a token in
+`GH_TOKEN` or `GITHUB_TOKEN` that can create releases. The plan prints the notes in full, so
+you can read them before anything is published.
+
+The notes have:
+
+- **Highlights**, from the Markdown file `--highlights` names, if any. Use it only when a
+  release has changes worth calling out; an empty file adds nothing. An AI agent can write
+  it: run the plan, read the changelog it prints, and summarize the notable changes.
+- **Changelog**, the commits since the previous release, grouped by their
+  [Conventional Commits](https://www.conventionalcommits.org) type: breaking changes (`!` or
+  a `BREAKING CHANGE:` footer, whose text is included), security fixes, features, bug fixes,
+  performance, documentation, misc, and dependency updates. Within a group, commits to the
+  same scope are listed together. Commits without a type are grouped by their first word,
+  like `Add` or `Fix`. Merges, `[skip ci]` and auto-update commits, typo fixes, and commits
+  reverted in the same release (with their revert) are left out. Authors are credited by
+  their GitHub account, which shows them as contributors.
+- A link to the full comparison with the previous release. A release that isn't a
+  prerelease starts from the previous one that isn't either, so its changelog includes
+  everything its prereleases had.
+- **Install**, with `go get` (or `go install`, for a main package) of every released module
+  at the version, and at `@latest` unless it's a prerelease.
+- A **footer**, with links to the repository's issues, releases, and the community files it
+  has: license, contributing, support, code of conduct, and security policy.
+
+`--footer` (or `$MODRELEASE_FOOTER`) replaces the footer with a
+[`text/template`](https://pkg.go.dev/text/template) of Markdown, which can use `.Repo`
+(`owner/name`), `.URL`, `.Version`, `.Previous`, `.Branch`, `.Prerelease`, and the link
+of each community file the repository has, or `""`: `.License`, `.Contributing`,
+`.Support`, `.CodeOfConduct`, and `.Security`. [The default](footer.tmpl.md) is an example.
+
+If creating the release fails after the push, `modrelease` saves the notes to a file and
+prints the `gh release create` command that creates it by hand. A workflow on the tag that
+creates its own release, like GoReleaser, will find this one already there.
+
 ## LFS
 
 Module hashes are computed the way the public proxy computes them, so they're right

@@ -71,7 +71,9 @@ type plan struct {
 	skipped            []skippedModule
 	github             string         // owner/name, if the push goes to GitHub.
 	runs               []workflowRun  // Workflow runs GitHub won't start, as the push has too many tags.
-	api                *github.Client // Starts runs, if there are any.
+	api                *github.Client // Starts runs and creates the release, if there are any.
+	notes              string         // The GitHub release's notes, with --github-release.
+	notesWarning       string         // What's missing from notes, or "".
 }
 
 // run does the release, up to and including the rehearsal unless --apply is set.
@@ -158,11 +160,26 @@ func (r *release) run(ctx context.Context) error {
 			}
 		}
 	}
-	r.step(8, "Check the published hashes against step 4")
+	last := 8
+	if r.flags.GitHubRelease {
+		r.step(last, "Create GitHub release "+p.version)
+		if p.notesWarning != "" {
+			r.linef("%s %s", warning, p.notesWarning)
+		}
+		for line := range strings.Lines(p.notes) {
+			if line = strings.TrimRight(line, "\n"); line == "" {
+				r.linef("%s", styleFaint.Render("│"))
+			} else {
+				r.linef("%s %s", styleFaint.Render("│"), line)
+			}
+		}
+		last++
+	}
+	r.step(last, "Check the published hashes against step 4")
 	r.linef("%s", styleFaint.Render("direct from git, then the public proxy and checksum database"))
 
 	if !r.flags.Apply {
-		r.printf("\n%s Run again with %s to do steps 5 to 8.\n", styleBold.Render("Nothing changed."), styleHighlight.Render("--apply"))
+		r.printf("\n%s Run again with %s to do steps 5 to %d.\n", styleBold.Render("Nothing changed."), styleHighlight.Render("--apply"), last)
 		return nil
 	}
 
@@ -180,6 +197,9 @@ func (r *release) finish(ctx context.Context, p *plan, tree, tmp, message string
 	if err := r.publish(ctx, p, tree, message); err != nil {
 		return err
 	}
+	// The release comes first, so a dispatched workflow that makes its own
+	// release finds this one, rather than racing it.
+	released := !r.flags.GitHubRelease || r.createGitHubRelease(ctx, p)
 	notStarted := r.dispatch(ctx, p)
 	complete, err := r.verify(ctx, p, tmp)
 	if err != nil {
@@ -192,12 +212,15 @@ func (r *release) finish(ctx context.Context, p *plan, tree, tmp, message string
 	if notStarted > 0 {
 		gaps = append(gaps, fmt.Sprintf("%d workflow runs didn't start", notStarted))
 	}
+	if !released {
+		gaps = append(gaps, "the GitHub release wasn't created")
+	}
 	if len(gaps) == 0 {
 		r.printf("\n%s\n", styleSuccess.Render("Released "+p.version+"."))
 		return nil
 	}
 	r.printf("\n%s\n", stylePartial.Render(fmt.Sprintf("Released %s, but %s. See the warnings above.", p.version, strings.Join(gaps, ", and "))))
-	if notStarted > 0 {
+	if notStarted > 0 || !released {
 		return errReported
 	}
 	return nil

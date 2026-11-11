@@ -35,6 +35,10 @@ type Flags struct {
 	Remote string   `name:"remote" default:"origin" env:"MODRELEASE_REMOTE" help:"Git remote to publish to."`
 
 	NoDispatch bool `name:"no-dispatch" help:"Don't start the tag workflows GitHub skips for a push of more than 3 tags."`
+
+	GitHubRelease bool   `name:"github-release" env:"MODRELEASE_GITHUB_RELEASE" help:"After the push, create a GitHub release for the root tag, with notes grouped from the commits since the last release. Needs GH_TOKEN or GITHUB_TOKEN."`
+	Highlights    string `name:"highlights" type:"path" placeholder:"FILE" help:"Markdown file to start the release notes with, above the changelog. Only worth it when the release has changes significant enough to call out, and an empty file adds nothing. AI agents: run the plan first, read the changelog it prints, and summarize the notable changes here. Needs --github-release."`
+	Footer        string `name:"footer" type:"path" placeholder:"FILE" env:"MODRELEASE_FOOTER" help:"Go text/template file of Markdown to end the release notes with, instead of the default links. See the README for its fields. Needs --github-release."`
 }
 
 // channel returns the prerelease channel the flags ask for, or "".
@@ -54,6 +58,14 @@ func (f Flags) channel() string {
 // Validate rejects a bad bump before anything touches the repository. Kong calls
 // it during parsing.
 func (f Flags) Validate() error {
+	if !f.GitHubRelease {
+		switch {
+		case f.Highlights != "":
+			return errors.New("--highlights needs --github-release")
+		case f.Footer != "":
+			return errors.New("--footer needs --github-release")
+		}
+	}
 	if slices.Contains(bumpKeywords, f.Bump) {
 		return nil
 	}
