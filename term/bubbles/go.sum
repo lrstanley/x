@@ -1,3 +1,5 @@
+bloomfx.dev/bloom v0.0.0-alpha.3 h1:2L0uj8gDazsQ6vzZvMk5E7IN4ovZsdaoJjxdJQI/hg4=
+bloomfx.dev/bloom v0.0.0-alpha.3/go.mod h1:5pdAn413/jXQDpy4oMUiAY3BX6Ice/Tnne+gNo8kZZI=
 charm.land/bubbles/v2 v2.2.1 h1:Fq1+qm5hV6GkvzLQDhCBpXXE5tLgvh1PRriCLwSvIQU=
 charm.land/bubbles/v2 v2.2.1/go.mod h1:wdMgn+sje1KNXdwFizIWjbf328fIUBxqEmJ/vYPo8yc=
 charm.land/bubbletea/v2 v2.1.1 h1:S1S9l37pCZGrj1JexBcr9x4Nr3MVeM42InqCYM/tDpU=
@@ -24,8 +26,6 @@ github.com/clipperhouse/displaywidth v0.11.0 h1:lBc6kY44VFw+TDx4I8opi/EtL9m20WSE
 github.com/clipperhouse/displaywidth v0.11.0/go.mod h1:bkrFNkf81G8HyVqmKGxsPufD3JhNl3dSqnGhOoSD/o0=
 github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
-github.com/lrstanley/bloom v0.0.0-alpha.1 h1:pnNXNGVkXWP+YgA8f7WjtC8xQjFuIUA8XKmgfM4LYA4=
-github.com/lrstanley/bloom v0.0.0-alpha.1/go.mod h1:ks/SXPH/OiwwVLp4KkxZgPkmTRauA4Z7XwVLOlsougU=
 github.com/lucasb-eyer/go-colorful v1.4.1 h1:1EO+WB73+EH8EVbzlrG3KLAfEypQWVHIBqlTf+2hNss=
 github.com/lucasb-eyer/go-colorful v1.4.1/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-runewidth v0.0.31 h1:1oCV4ReTlosDBc6rYRw5cL8S/4y8iv5oRl4SJ5IBgwo=

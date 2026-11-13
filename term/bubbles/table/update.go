@@ -7,10 +7,10 @@ package table
 import (
 	"slices"
 
+	"bloomfx.dev/bloom"
+	"bloomfx.dev/bloom/flex"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"github.com/lrstanley/bloom"
-	"github.com/lrstanley/bloom/flex"
 )
 
 // part is the ID of a part of table t, for finding it in a [bloom.Frame].

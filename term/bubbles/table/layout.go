@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"strconv"
 
+	"bloomfx.dev/bloom"
+	"bloomfx.dev/bloom/flex"
+	"bloomfx.dev/bloom/on"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/lrstanley/bloom"
-	"github.com/lrstanley/bloom/flex"
-	"github.com/lrstanley/bloom/on"
 )
 
 // gutter returns the width of the column left of the rows, for the cursor and
@@ -81,7 +81,7 @@ func (t *Model[T]) MinWidth() int {
 }
 
 // View implements [bloom.Child], drawing the table at its natural size.
-func (t *Model[T]) View() string { return bloom.Render(t, 0, 0) }
+func (t *Model[T]) View() string { return bloom.Render(0, 0, t) }
 
 // Layout implements [bloom.Layouter]. It must not change the table: the
 // handlers it makes do, when they run, reading the frame on screen then
@@ -99,8 +99,7 @@ func (t *Model[T]) Layout(ctx bloom.Context) bloom.Child {
 
 	cells := []bloom.Child{bloom.Fill(body)}
 	if t.on.scrollbar {
-		track := lipgloss.NewStyle().Foreground(t.styles.Border.GetBorderTopForeground())
-		cells = append(cells, bloom.Fixed(1, t.scrollbar(ctx).Track("│", track)))
+		cells = append(cells, bloom.Fixed(1, t.scrollbar(ctx)))
 	}
 	rows := bloom.Row(cells...)
 	if t.on.mouse {
@@ -176,9 +175,15 @@ func (t *Model[T]) boxed(ctx bloom.Context, widths, seps []int, body bloom.Child
 }
 
 // scrollbar is the scrollbar for the rows, which can be dragged while the
-// table takes the mouse.
+// table takes the mouse. Without a border to sit on, it draws its own track
+// in the border's color.
 func (t *Model[T]) scrollbar(ctx bloom.Context) bloom.ScrollbarNode {
-	sb := bloom.ScrollbarOf(t.part(partBody)).Thumb("┃", t.styles.Thumb)
+	style := bloom.ScrollbarStyle{ThumbStyle: t.styles.Thumb}
+	if !t.on.border {
+		style.Track = "│"
+		style.TrackStyle = lipgloss.NewStyle().Foreground(t.styles.Border.GetBorderTopForeground())
+	}
+	sb := bloom.ScrollbarOf(t.part(partBody)).Style(style)
 	if t.on.mouse {
 		sb = sb.OnScroll(func(offset int) tea.Cmd { return t.scrollTo(ctx.Frame(), offset) })
 	}
