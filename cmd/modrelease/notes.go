@@ -258,19 +258,30 @@ func (n *notes) changelog(budget int) string {
 		// Within a group, changes to the same scope, like a module, are together.
 		slices.SortStableFunc(group, func(a, b *change) int { return cmp.Compare(a.scope, b.scope) })
 		heading := "### " + groupTitles[i] + "\n\n"
-		if b.Len()+len(heading)+overflow > budget {
+		// Few readers want these, so their lists start collapsed. GitHub needs
+		// blank lines around Markdown inside <details>.
+		var open, closing string
+		if i == groupMisc || i == groupDeps {
+			summary := fmt.Sprintf("%d changes", len(group))
+			if len(group) == 1 {
+				summary = "1 change"
+			}
+			open = "<details>\n<summary>" + summary + "</summary>\n\n"
+			closing = "\n</details>\n"
+		}
+		if b.Len()+len(heading)+len(open)+len(closing)+overflow > budget {
 			break
 		}
-		b.WriteString(heading)
+		b.WriteString(heading + open)
 		for _, c := range group {
 			line := c.markdown() + "\n"
-			if b.Len()+len(line)+overflow > budget {
+			if b.Len()+len(line)+len(closing)+overflow > budget {
 				break
 			}
 			b.WriteString(line)
 			left--
 		}
-		b.WriteString("\n")
+		b.WriteString(closing + "\n")
 	}
 	if left > 0 {
 		fmt.Fprintf(&b, "_%d more changes don't fit here, so see the full changelog._\n\n", left)
@@ -278,22 +289,23 @@ func (n *notes) changelog(budget int) string {
 	return b.String()
 }
 
-// install returns how to get each module at the release, and at the latest
-// release. A prerelease isn't what @latest finds, so it only gets the first.
+// install returns how to get each module at the release, then where its docs
+// are. It pins the version rather than using @latest, so an old release's notes
+// still install that release. Commands have no prompt, so GitHub's copy button
+// copies something that runs.
 func (n *notes) install() string {
 	if len(n.modules) == 0 {
 		return ""
 	}
-	var docs, pinned, latest strings.Builder
-	for _, m := range n.modules {
-		fmt.Fprintf(&docs, "* [`%s`](https://pkg.go.dev/%s@%s)\n", m.path, m.path, n.version)
+	var pinned strings.Builder
+	docs := make([]string, len(n.modules))
+	for i, m := range n.modules {
 		if m.command {
-			fmt.Fprintf(&pinned, "$ go install %s@%s\n", m.path, n.version)
-			fmt.Fprintf(&latest, "$ go install %s@latest\n", m.path)
+			fmt.Fprintf(&pinned, "go install %s@%s\n", m.path, n.version)
 		} else {
-			fmt.Fprintf(&pinned, "$ go get %s@%s\n", m.path, n.version)
-			fmt.Fprintf(&latest, "$ go get -u %s@latest\n", m.path)
+			fmt.Fprintf(&pinned, "go get %s@%s\n", m.path, n.version)
 		}
+		docs[i] = fmt.Sprintf("[%s](https://pkg.go.dev/%s@%s)", m.path, m.path, n.version)
 	}
 
 	var b strings.Builder
@@ -303,11 +315,11 @@ func (n *notes) install() string {
 	if collapse {
 		fmt.Fprintf(&b, "<details>\n<summary>All %d modules</summary>\n\n", len(n.modules))
 	}
-	b.WriteString(docs.String() + "\n")
-	b.WriteString("```console\n" + pinned.String() + "```\n\n")
-	if semver.Prerelease(n.version) == "" {
-		b.WriteString("Or, to stay on the newest release:\n\n")
-		b.WriteString("```console\n" + latest.String() + "```\n\n")
+	b.WriteString("```sh\n" + pinned.String() + "```\n\n")
+	if len(docs) == 1 {
+		b.WriteString("**Docs**: " + docs[0] + "\n\n")
+	} else {
+		b.WriteString("**Docs**:\n\n* " + strings.Join(docs, "\n* ") + "\n\n")
 	}
 	if collapse {
 		b.WriteString("</details>\n\n")

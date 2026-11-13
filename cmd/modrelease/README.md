@@ -63,21 +63,25 @@ you can read them before anything is published.
 The notes have:
 
 - **Highlights**, from the Markdown file `--highlights` names, if any. Use it only when a
-  release has changes worth calling out; an empty file adds nothing. An AI agent can write
-  it: run the plan, read the changelog it prints, and summarize the notable changes.
+  release has changes worth calling out; an empty file adds nothing. They're for a reader
+  deciding whether to upgrade, so instead of repeating the changelog, explain the few
+  changes that matter, with code examples, upgrade steps for breaking changes, and
+  screenshots or recordings of visual changes. `--help` ends with guidance on writing
+  them, which an AI agent can follow.
 - **Changelog**, the commits since the previous release, grouped by their
   [Conventional Commits](https://www.conventionalcommits.org) type: breaking changes (`!` or
   a `BREAKING CHANGE:` footer, whose text is included), security fixes, features, bug fixes,
-  performance, documentation, misc, and dependency updates. Within a group, commits to the
-  same scope are listed together. Commits without a type are grouped by their first word,
-  like `Add` or `Fix`. Merges, `[skip ci]` and auto-update commits, typo fixes, and commits
+  performance, documentation, misc, and dependency updates. The lists of misc and
+  dependency updates start collapsed. Within a group, commits to the same scope are listed
+  together. Commits without a type are grouped by their first word, like `Add` or `Fix`. Merges, `[skip ci]` and auto-update commits, typo fixes, and commits
   reverted in the same release (with their revert) are left out. Authors are credited by
   their GitHub account, which shows them as contributors.
 - A link to the full comparison with the previous release. A release that isn't a
   prerelease starts from the previous one that isn't either, so its changelog includes
   everything its prereleases had.
 - **Install**, with `go get` (or `go install`, for a main package) of every released module
-  at the version, and at `@latest` unless it's a prerelease.
+  at the version (never `@latest`, so older releases' notes stay accurate), and a link to
+  its docs on pkg.go.dev.
 - A **footer**, with links to the repository's issues, releases, and the community files it
   has: license, contributing, support, code of conduct, and security policy.
 

@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	charm.land/lipgloss/v2 v2.0.6
+	github.com/alecthomas/kong v1.16.1
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-github/v93 v93.0.0
@@ -12,7 +13,6 @@ require (
 )
 
 require (
-	github.com/alecthomas/kong v1.16.1 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
 	github.com/charmbracelet/x/ansi v0.11.9 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect

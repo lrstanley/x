@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/kong"
 	"github.com/lrstanley/clix/v2"
 )
 
@@ -37,7 +38,7 @@ type Flags struct {
 	NoDispatch bool `name:"no-dispatch" help:"Don't start the tag workflows GitHub skips for a push of more than 3 tags."`
 
 	GitHubRelease bool   `name:"github-release" env:"MODRELEASE_GITHUB_RELEASE" help:"After the push, create a GitHub release for the root tag, with notes grouped from the commits since the last release. Needs GH_TOKEN or GITHUB_TOKEN."`
-	Highlights    string `name:"highlights" type:"path" placeholder:"FILE" help:"Markdown file to start the release notes with, above the changelog. Only worth it when the release has changes significant enough to call out, and an empty file adds nothing. AI agents: run the plan first, read the changelog it prints, and summarize the notable changes here. Needs --github-release."`
+	Highlights    string `name:"highlights" type:"path" placeholder:"FILE" help:"Markdown file to start the release notes with, above the changelog. An empty file adds nothing. See \"Writing highlights\" below. Needs --github-release."`
 	Footer        string `name:"footer" type:"path" placeholder:"FILE" env:"MODRELEASE_FOOTER" help:"Go text/template file of Markdown to end the release notes with, instead of the default links. See the README for its fields. Needs --github-release."`
 }
 
@@ -87,6 +88,30 @@ func main() {
 	}
 }
 
+// highlightsHelp ends --help, for whoever writes a release's highlights, which
+// is often an AI agent. It's not in the app description, which --version also
+// prints.
+const highlightsHelp = `
+Writing highlights (--highlights):
+  Highlights are for a reader deciding whether to upgrade, and how. The
+  changelog below them already lists every commit, so don't repeat it.
+  Run the plan without them first, and read the changelog it prints.
+
+  - Skip them when nothing stands out, like a release of only fixes and
+    chores. No highlights beats filler.
+  - Tell the story of the few changes that matter: what someone can do now
+    that they couldn't before, or what behaves differently, and why.
+    Combine the commits behind one change into one point.
+  - Show, don't list: a short code example of a new API, or a before and
+    after. Link to the docs or examples that cover it.
+  - For a breaking change, say who it affects and what to change to upgrade.
+  - Add a screenshot, GIF, or recording when a change is visual, like UI
+    or terminal output. Use absolute URLs, like a file committed to the
+    repository; local paths don't work in a GitHub release.
+  - Leave out what users never see: refactors, CI, tests, and dependency
+    bumps that change nothing for them.
+  - Use "##" for headings, like the rest of the notes, and keep it short.`
+
 func run() error {
 	cli := clix.New(
 		clix.WithAppInfo[Flags](clix.AppInfo{
@@ -95,6 +120,13 @@ func run() error {
 		}),
 		clix.WithVersionPlugin[Flags](),
 		clix.WithMarkdownPlugin[Flags](),
+		clix.WithKongOptions[Flags](kong.Help(func(opts kong.HelpOptions, ctx *kong.Context) error {
+			if err := kong.DefaultHelpPrinter(opts, ctx); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintln(ctx.Stdout, highlightsHelp)
+			return err
+		})),
 	)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

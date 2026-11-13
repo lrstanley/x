@@ -160,14 +160,15 @@ func TestRenderNotes(t *testing.T) {
 		"### :lady_beetle: Bug Fixes\n\n" +
 		"* s4: **http:** close bodies (A)\n\n" +
 		"### :broom: Misc\n\n" +
-		"* s1: tidy (A)\n\n" +
+		"<details>\n<summary>1 change</summary>\n\n" +
+		"* s1: tidy (A)\n" +
+		"\n</details>\n\n" +
 		"**Full changelog**: [`v1.1.0...v1.2.0`](https://github.com/lrstanley/x/compare/v1.1.0...v1.2.0)\n\n" +
 		"## :package: Install\n\n" +
-		"* [`github.com/lrstanley/x`](https://pkg.go.dev/github.com/lrstanley/x@v1.2.0)\n" +
-		"* [`github.com/lrstanley/x/cmd/tool`](https://pkg.go.dev/github.com/lrstanley/x/cmd/tool@v1.2.0)\n\n" +
-		"```console\n$ go get github.com/lrstanley/x@v1.2.0\n$ go install github.com/lrstanley/x/cmd/tool@v1.2.0\n```\n\n" +
-		"Or, to stay on the newest release:\n\n" +
-		"```console\n$ go get -u github.com/lrstanley/x@latest\n$ go install github.com/lrstanley/x/cmd/tool@latest\n```\n\n" +
+		"```sh\ngo get github.com/lrstanley/x@v1.2.0\ngo install github.com/lrstanley/x/cmd/tool@v1.2.0\n```\n\n" +
+		"**Docs**:\n\n" +
+		"* [github.com/lrstanley/x](https://pkg.go.dev/github.com/lrstanley/x@v1.2.0)\n" +
+		"* [github.com/lrstanley/x/cmd/tool](https://pkg.go.dev/github.com/lrstanley/x/cmd/tool@v1.2.0)\n\n" +
 		"## Footer\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -183,7 +184,7 @@ func TestRenderPrereleaseNotes(t *testing.T) {
 	for _, want := range []string{
 		"No changes besides updated requirements.",
 		"<details>\n<summary>All 6 modules</summary>\n\n",
-		"$ go get example.com/m5@v1.0.0-rc.0\n",
+		"\ngo get example.com/m5@v1.0.0-rc.0\n",
 		"</details>",
 	} {
 		assertContains(t, got, want)
@@ -192,6 +193,17 @@ func TestRenderPrereleaseNotes(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("a first prerelease's notes have %q:\n%s", unwanted, got)
 		}
+	}
+}
+
+func TestInstallOneModule(t *testing.T) {
+	n := &notes{repo: "o/r", version: "v0.0.0-alpha.3", modules: []releaseModule{{path: "example.com/m"}}}
+	got := n.install()
+	want := "## :package: Install\n\n" +
+		"```sh\ngo get example.com/m@v0.0.0-alpha.3\n```\n\n" +
+		"**Docs**: [example.com/m](https://pkg.go.dev/example.com/m@v0.0.0-alpha.3)\n\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
@@ -206,6 +218,20 @@ func TestRenderTruncates(t *testing.T) {
 	}
 	assertContains(t, got, "more changes don't fit here, so see the full changelog.")
 	assertContains(t, got, "**Full changelog**")
+}
+
+func TestRenderTruncatesCollapsedGroup(t *testing.T) {
+	n := &notes{repo: "o/r", version: "v1.0.0", previous: "v0.9.0"}
+	for i := range 5000 {
+		n.changes = append(n.changes, parseChange(fmt.Sprintf("%040d", i), "Someone", "", "chore: tidy number "+strconv.Itoa(i), ""))
+	}
+	got := n.render()
+	if len(got) > maxNotesLength {
+		t.Errorf("notes are %d characters, more than %d", len(got), maxNotesLength)
+	}
+	assertContains(t, got, "### :broom: Misc\n\n<details>\n<summary>5000 changes</summary>\n\n")
+	assertContains(t, got, "\n</details>\n\n_")
+	assertContains(t, got, "more changes don't fit here, so see the full changelog.")
 }
 
 func TestDefaultFooter(t *testing.T) {
