@@ -29,6 +29,7 @@
 package table
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -146,7 +147,12 @@ func (t *Model[T]) Refresh() *Model[T] {
 func (t *Model[T]) Title(s string) *Model[T] { t.title = s; return t }
 
 // Styles sets how the table looks.
-func (t *Model[T]) Styles(s Styles) *Model[T] { t.styles = s; return t }
+func (t *Model[T]) Styles(s Styles) *Model[T] {
+	s.CursorGlyph = cmp.Or(s.CursorGlyph, DefaultCursorGlyph)
+	s.MarkGlyph = cmp.Or(s.MarkGlyph, DefaultMarkGlyph)
+	t.styles = s
+	return t
+}
 
 // KeyMap sets the keys the table handles.
 func (t *Model[T]) KeyMap(k KeyMap) *Model[T] { t.keys = k; return t }
@@ -281,12 +287,12 @@ func (t *Model[T]) apply() {
 		}
 	}
 	if t.sortCol >= 0 {
-		if cmp := t.cols[t.sortCol].compare; cmp != nil {
+		if compare := t.cols[t.sortCol].compare; compare != nil {
 			slices.SortStableFunc(t.view, func(a, b int) int {
 				if t.sortDesc {
-					return cmp(t.rows[b], t.rows[a])
+					return compare(t.rows[b], t.rows[a])
 				}
-				return cmp(t.rows[a], t.rows[b])
+				return compare(t.rows[a], t.rows[b])
 			})
 		}
 	}

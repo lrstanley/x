@@ -7,21 +7,27 @@ package table
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"bloomfx.dev/bloom"
 	"bloomfx.dev/bloom/flex"
 	"bloomfx.dev/bloom/on"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // gutter returns the width of the column left of the rows, for the cursor and
 // mark glyphs, which is there only while one of them can be shown.
 func (t *Model[T]) gutter() int {
-	if t.on.selection || t.on.multiSelect {
-		return 2
+	w := 0
+	if t.on.selection {
+		w = ansi.StringWidth(t.styles.CursorGlyph)
 	}
-	return 0
+	if t.on.multiSelect {
+		w = max(w, ansi.StringWidth(t.styles.MarkGlyph))
+	}
+	return w
 }
 
 // chrome returns the cells the table takes around its columns: the border,
@@ -337,9 +343,9 @@ func (t *Model[T]) row(ctx bloom.Context, widths []int, i int) bloom.Child {
 
 	bg := lipgloss.NewStyle()
 	switch {
-	case cursor:
+	case cursor && t.styles.Cursor != nil:
 		bg = bg.Background(t.styles.Cursor)
-	case marked:
+	case marked && t.styles.Marked != nil:
 		bg = bg.Background(t.styles.Marked)
 	case t.on.mouse && t.on.hover && ri == t.hover:
 		bg = bg.Background(t.styles.Hover)
@@ -347,20 +353,30 @@ func (t *Model[T]) row(ctx bloom.Context, widths []int, i int) bloom.Child {
 		bg = bg.Background(t.styles.Stripe)
 	}
 
-	glyph := "  "
+	var glyph string
 	switch {
 	case marked:
-		glyph = " ●"
+		glyph = t.styles.MarkGlyph
 	case cursor:
-		glyph = " ›"
+		glyph = t.styles.CursorGlyph
 	}
-	gutter := bloom.Text(glyph).Style(t.styles.Gutter.Inherit(bg))
+	if pad := t.gutter() - ansi.StringWidth(glyph); pad > 0 {
+		glyph += strings.Repeat(" ", pad)
+	}
+	gst := t.styles.Gutter.Inherit(bg)
+	if cursor {
+		gst = t.styles.CursorGutter.Inherit(gst).Padding(gst.GetPadding())
+	}
+	gutter := bloom.Text(glyph).Style(gst)
 
 	line := t.line(widths, bg, gutter, func(c int) bloom.Child {
 		col := t.cols[c]
 		st := t.styles.Cell.Inherit(bg).Padding(0, 1).Align(col.align)
 		if col.style != nil {
 			st = col.style(row, st)
+		}
+		if cursor {
+			st = t.styles.CursorText.Inherit(st).Padding(st.GetPadding())
 		}
 		if cursor && t.on.cellSelection && c == t.col {
 			st = st.Background(t.styles.CursorCell).Bold(true)

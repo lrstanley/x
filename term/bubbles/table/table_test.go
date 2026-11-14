@@ -7,6 +7,7 @@ package table
 import (
 	"cmp"
 	"fmt"
+	"image/color"
 	"slices"
 	"strconv"
 	"strings"
@@ -582,5 +583,94 @@ func TestHelp(t *testing.T) {
 	all := newTable(1).CellSelection(true).MultiSelect(true).OnActivate(func(item) tea.Cmd { return nil })
 	if got := keys(all); !slices.Equal(got, []string{"up", "down", "cell left", "cell right", "mark", "open"}) {
 		t.Errorf("help with every feature %q", got)
+	}
+}
+
+func TestGutterGlyphs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a narrower cursor glyph narrows the gutter", func(t *testing.T) {
+		t.Parallel()
+		st := DefaultStyles()
+		st.CursorGlyph = "▎"
+		hs := newHarness(newTable(10).Styles(st), 40, 8)
+		if want := "│▎    1  alpha"; !strings.Contains(hs.out, want) {
+			t.Errorf("missing %q:\n%s", want, hs.out)
+		}
+	})
+
+	t.Run("the gutter fits the wider glyph, padding the other", func(t *testing.T) {
+		t.Parallel()
+		st := DefaultStyles()
+		st.CursorGlyph, st.MarkGlyph = "▎", "[x]"
+		hs := newHarness(newTable(10).Styles(st).MultiSelect(true), 40, 8)
+		hs.rightClick(8, firstRow+1)
+		for _, want := range []string{"│▎      1  item-00001", "│[x]    2  item-00002"} {
+			if !strings.Contains(hs.out, want) {
+				t.Errorf("missing %q:\n%s", want, hs.out)
+			}
+		}
+	})
+
+	t.Run("the mark glyph wins on a marked, selected row", func(t *testing.T) {
+		t.Parallel()
+		st := DefaultStyles()
+		st.CursorGlyph, st.MarkGlyph = ">", "*"
+		hs := newHarness(newTable(10).Styles(st).MultiSelect(true), 40, 8)
+		hs.key("space")
+		if want := "│*    1  alpha"; !strings.Contains(hs.out, want) {
+			t.Errorf("missing %q:\n%s", want, hs.out)
+		}
+	})
+
+	t.Run("empty glyphs are the defaults", func(t *testing.T) {
+		t.Parallel()
+		hs := newHarness(newTable(10).Styles(Styles{}), 40, 8)
+		if want := "│ ›    1  alpha"; !strings.Contains(hs.out, want) {
+			t.Errorf("missing %q:\n%s", want, hs.out)
+		}
+	})
+}
+
+func TestNilCursorKeepsRowBackground(t *testing.T) {
+	t.Parallel()
+	const stripe = "48;2;18;52;86" // #123456
+
+	// second draws the table with the second row, which is striped, selected,
+	// and returns that row.
+	second := func(cursor color.Color) string {
+		st := DefaultStyles()
+		st.Stripe, st.Cursor = lipgloss.Color("#123456"), cursor
+		tbl := newTable(10).Styles(st).Striped(true).Border(false).Header(false).Scrollbar(false)
+		hs := newHarness(tbl, 40, 4)
+		hs.key("down")
+		return strings.Split(hs.r.Render(hs.w, hs.h, hs.tbl), "\n")[1]
+	}
+	if row := second(lipgloss.Color("24")); strings.Contains(row, stripe) {
+		t.Errorf("selected row has the stripe under a cursor fill: %q", row)
+	}
+	if row := second(nil); !strings.Contains(row, stripe) {
+		t.Errorf("selected row lost its stripe without a cursor fill: %q", row)
+	}
+}
+
+func TestCursorTextAndGutter(t *testing.T) {
+	t.Parallel()
+	const text, gutter = "38;2;18;52;86", "38;2;101;67;33" // #123456, #654321
+	st := DefaultStyles()
+	st.CursorText = lipgloss.NewStyle().Foreground(lipgloss.Color("#123456")).Padding(0, 5)
+	st.CursorGutter = lipgloss.NewStyle().Foreground(lipgloss.Color("#654321")).Padding(0, 3)
+	tbl := newTable(10).Styles(st).Border(false).Header(false).Scrollbar(false)
+	hs := newHarness(tbl, 40, 4)
+	lines := strings.Split(hs.r.Render(hs.w, hs.h, hs.tbl), "\n")
+	if !strings.Contains(lines[0], text) || !strings.Contains(lines[0], gutter) {
+		t.Errorf("selected row lacks the cursor styles: %q", lines[0])
+	}
+	if strings.Contains(lines[1], text) || strings.Contains(lines[1], gutter) {
+		t.Errorf("other row has the cursor styles: %q", lines[1])
+	}
+	// The cell and gutter keep their padding, not CursorText's or CursorGutter's.
+	if first, _, _ := strings.Cut(hs.out, "\n"); !strings.HasPrefix(first, " ›    1  alpha") {
+		t.Errorf("selected row %q, want the cell's own padding", first)
 	}
 }
