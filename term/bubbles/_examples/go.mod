@@ -7,7 +7,7 @@ replace github.com/lrstanley/x/term/bubbles => ../
 require (
 	bloomfx.dev/bloom v0.0.0-alpha.3
 	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.0
 	getsteep.dev/steep v0.0.0-alpha.11.0.20261112084306-9c14ff8b0a72
 	getsteep.dev/steep/reel v0.0.0-alpha.11.0.20261112084306-9c14ff8b0a72
 	github.com/charmbracelet/x/ansi v0.11.9
