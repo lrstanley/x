@@ -9,7 +9,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-github/v93 v93.0.0
 	github.com/lrstanley/clix/v2 v2.0.7
-	golang.org/x/mod v0.42.0
+	golang.org/x/mod v0.43.0
 )
 
 require (
