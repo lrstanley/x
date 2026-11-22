@@ -1,2 +1,4 @@
 common_exclude:
   - LICENSE
+  # temporary: testing the default issue templates from lrstanley/.github.
+  - ".github/ISSUE_TEMPLATE/.*"
