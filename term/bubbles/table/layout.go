@@ -190,7 +190,7 @@ func (t *Model[T]) scrollbar(ctx bloom.Context) bloom.ScrollbarNode {
 		style.Track = "│"
 		style.TrackStyle = lipgloss.NewStyle().Foreground(t.styles.Border.GetBorderTopForeground())
 	}
-	sb := bloom.ScrollbarOf(t.part(partBody)).Style(style)
+	sb := bloom.ScrollbarOf(t.bodyID).Style(style)
 	if t.on.mouse {
 		sb = sb.OnScroll(func(offset int) tea.Cmd { return t.scrollTo(ctx.Frame(), offset) })
 	}
@@ -323,11 +323,11 @@ func (t *Model[T]) body(ctx bloom.Context, widths []int) bloom.Child {
 			msg = fmt.Sprintf("no rows match %q", t.filter)
 		}
 		return bloom.Column(bloom.Fill(bloom.Centered(bloom.Text(msg).Style(t.styles.Empty).Truncate()))).
-			ID(t.part(partBody))
+			ID(t.bodyID)
 	}
 	list := bloom.List(len(t.view), func(i int) bloom.Child { return t.row(ctx, widths, i) }).
 		Offset(t.offset).
-		ID(t.part(partBody))
+		ID(t.bodyID)
 	if t.on.selection {
 		list = list.Keep(t.cursor)
 	}

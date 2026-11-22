@@ -121,7 +121,7 @@ func (hs *harness) col(y int, s string) int {
 
 // view returns which rows the list showed.
 func (hs *harness) view() bloom.ListView {
-	v, _ := hs.r.Frame().List(hs.tbl.part(partBody))
+	v, _ := hs.r.Frame().List(hs.tbl.bodyID)
 	return v
 }
 
@@ -214,7 +214,7 @@ func TestScrollbarBeforeAnyKey(t *testing.T) {
 
 	// The scrollbar is drawn over the rows' right border.
 	hs := newHarness(newTable(1000), 60, 30)
-	body, _ := hs.r.Frame().Rect(hs.tbl.part(partBody))
+	body, _ := hs.r.Frame().Rect(hs.tbl.bodyID)
 	x, y := body.Max.X, body.Min.Y
 	hs.mouse(
 		tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft},

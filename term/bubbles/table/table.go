@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strings"
 
+	"bloomfx.dev/bloom"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -40,6 +41,7 @@ import (
 // Model is a table of rows of type T. Make one with [New]. It is a
 // [bloom.Child], so it lays itself out for the space it is given.
 type Model[T any] struct {
+	bodyID bloom.ID // the part that holds the rows in sight, to find in a frame
 	cols   []Column[T]
 	rows   []T
 	styles Styles
@@ -82,6 +84,7 @@ type features struct {
 // are off.
 func New[T any](cols ...Column[T]) *Model[T] {
 	t := &Model[T]{
+		bodyID:  bloom.NewID("table-body"),
 		styles:  DefaultStyles(),
 		keys:    DefaultKeyMap(),
 		wheel:   3,

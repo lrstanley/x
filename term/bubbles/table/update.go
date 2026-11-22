@@ -13,17 +13,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// part is the ID of a part of table t, for finding it in a [bloom.Frame].
-type part[T any] struct {
-	t    *Model[T]
-	name string
-}
-
-// partBody is the part that holds the rows in sight.
-const partBody = "body"
-
-func (t *Model[T]) part(name string) part[T] { return part[T]{t: t, name: name} }
-
 // Update handles the keys of [KeyMap], given f, the frame on screen, which
 // tells how many rows are in sight and which columns are shown.
 func (t *Model[T]) Update(msg tea.Msg, f *bloom.Frame) tea.Cmd {
@@ -69,7 +58,7 @@ func (t *Model[T]) Update(msg tea.Msg, f *bloom.Frame) tea.Cmd {
 // the frame on screen, rather than keeping what an earlier frame said. For a
 // nil f, or a frame without the list, it returns an empty view.
 func (t *Model[T]) from(f *bloom.Frame) bloom.ListView {
-	v, ok := f.List(t.part(partBody))
+	v, ok := f.List(t.bodyID)
 	if ok {
 		t.offset = v.First
 	}
@@ -121,7 +110,7 @@ func (t *Model[T]) moveCol(f *bloom.Frame, dir int) tea.Cmd {
 	}
 	// The columns share the width the rows were given, but the gutter.
 	var widths []int
-	if body, ok := f.Rect(t.part(partBody)); ok {
+	if body, ok := f.Rect(t.bodyID); ok {
 		widths, _ = t.widths(body.Dx() - t.gutter())
 	}
 	for c := t.col + dir; c >= 0 && c < len(t.cols); c += dir {
