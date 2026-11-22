@@ -86,18 +86,19 @@ func (t *Model[T]) MinWidth() int {
 	return w
 }
 
-// View implements [bloom.Child], drawing the table at its natural size.
+// View draws the table at its natural size, for use where a string is wanted.
 func (t *Model[T]) View() string { return bloom.Render(0, 0, t) }
 
-// Layout implements [bloom.Layouter]. It must not change the table: the
+// Layout implements [bloom.Child]. It must not change the table: the
 // handlers it makes do, when they run, reading the frame on screen then
 // through ctx.
 func (t *Model[T]) Layout(ctx bloom.Context) bloom.Child {
 	cw, ch := t.chrome()
-	if ctx.Height-ch < 1 || ctx.Width-cw < 4 {
+	size := ctx.Size()
+	if size.H-ch < 1 || size.W-cw < 4 {
 		return bloom.Centered(bloom.Text("table too small").Style(t.styles.Empty).Truncate())
 	}
-	widths, seps := t.widths(ctx.Width - cw)
+	widths, seps := t.widths(size.W - cw)
 	body := t.body(ctx, widths)
 	if t.on.border {
 		return t.boxed(ctx, widths, seps, body)

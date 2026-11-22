@@ -38,7 +38,7 @@ import (
 )
 
 // Model is a table of rows of type T. Make one with [New]. It is a
-// [bloom.Layouter], so it lays itself out for the space it is given.
+// [bloom.Child], so it lays itself out for the space it is given.
 type Model[T any] struct {
 	cols   []Column[T]
 	rows   []T
