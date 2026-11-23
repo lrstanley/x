@@ -201,12 +201,20 @@ func TestRun_firstJobError(t *testing.T) {
 func TestRun_invalidCronSchedule(t *testing.T) {
 	t.Parallel()
 
+	var started atomic.Bool
+	valid := JobFunc(func(context.Context) error {
+		started.Store(true)
+		return nil
+	})
 	c := NewCron("bad", JobFunc(func(context.Context) error { return nil })).
 		WithSchedule("not valid cron")
 
-	err := Run(context.Background(), c)
+	err := Run(context.Background(), valid, c)
 	if err == nil {
 		t.Fatal("expected error from invalid cron spec")
+	}
+	if started.Load() {
+		t.Fatal("expected no job to start when a cron spec is invalid")
 	}
 }
 

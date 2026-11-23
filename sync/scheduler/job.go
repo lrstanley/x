@@ -64,6 +64,16 @@ func Run(ctx context.Context, jobs ...Job) error {
 		return errors.New("no jobs provided")
 	}
 
+	// Validate every job before starting any, so an invalid spec cannot leave
+	// already-started jobs running after Run returns.
+	for _, runner := range jobs {
+		if c, ok := runner.(*Cron); ok {
+			if err := c.validate(); err != nil {
+				return fmt.Errorf("cron job %q has invalid spec: %w", c.name, err)
+			}
+		}
+	}
+
 	// signal.Notify is used rather than signal.NotifyContext, so that on a
 	// signal, signal handling is stopped before jobs observe the cancellation.
 	// On parent cancellation, it is stopped shortly after. Any later signal
@@ -95,11 +105,6 @@ func Run(ctx context.Context, jobs ...Job) error {
 		WithFirstError()
 
 	for _, runner := range jobs {
-		if c, ok := runner.(*Cron); ok {
-			if err := c.validate(); err != nil {
-				return fmt.Errorf("cron job has invalid spec %qs: %w", c.name, err)
-			}
-		}
 		eg.Go(func(gctx context.Context) error {
 			err := runner.Invoke(gctx)
 			if err != nil && isShutdownErr(ctx, err) {
