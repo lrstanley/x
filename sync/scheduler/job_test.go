@@ -7,6 +7,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -98,6 +99,80 @@ func TestRun_contextCancel(t *testing.T) {
 	}))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestRun_parentCancelReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cause := fmt.Errorf("shutdown: %w", errors.New("maintenance"))
+
+	err := Run(ctx,
+		JobFunc(func(ctx context.Context) error {
+			cancel(cause)
+			<-ctx.Done()
+			return ctx.Err()
+		}),
+		JobFunc(func(ctx context.Context) error {
+			<-ctx.Done()
+			return fmt.Errorf("updater: %w", context.Cause(ctx))
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Run: %v, want nil", err)
+	}
+}
+
+func TestRun_parentCancelKeepsJoinedJobError(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	flushErr := errors.New("flush failed")
+
+	err := Run(ctx, JobFunc(func(ctx context.Context) error {
+		cancel()
+		<-ctx.Done()
+		return fmt.Errorf("updater: %w", errors.Join(ctx.Err(), flushErr))
+	}))
+	if !errors.Is(err, flushErr) {
+		t.Fatalf("err = %v, want %v", err, flushErr)
+	}
+}
+
+func TestRun_parentDeadlinePropagates(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := Run(ctx, JobFunc(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want %v", err, context.DeadlineExceeded)
+	}
+}
+
+func TestRun_canceledBeforeShutdownPropagates(t *testing.T) {
+	t.Parallel()
+
+	var secondSeen atomic.Bool
+
+	err := Run(context.Background(),
+		JobFunc(func(context.Context) error { return context.Canceled }),
+		JobFunc(func(ctx context.Context) error {
+			<-ctx.Done()
+			secondSeen.Store(true)
+			return ctx.Err()
+		}),
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want %v", err, context.Canceled)
+	}
+	if !secondSeen.Load() {
+		t.Fatal("expected second job to observe cancellation")
 	}
 }
 
