@@ -3,7 +3,7 @@ module github.com/lrstanley/x/term/bubbles
 go 1.27.3
 
 require (
-	bloomfx.dev/bloom v0.0.0-alpha.13
+	bloomfx.dev/bloom v0.0.0-alpha.15
 	charm.land/bubbles/v2 v2.2.2
 	charm.land/bubbletea/v2 v2.1.2
 	charm.land/lipgloss/v2 v2.1.1

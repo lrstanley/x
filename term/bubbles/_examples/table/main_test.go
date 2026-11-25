@@ -32,7 +32,8 @@ func tour(w, h int) []steep.Option {
 			Render: []render.Option{
 				render.WithWindowChrome(true),
 				render.WithPadding(10),
-				render.WithMargin(24, lipgloss.Color("#16161e")),
+				render.WithMargin(24),
+				render.WithBackdrop(render.Solid(lipgloss.Color("#16161e"))),
 				render.WithBorderRadius(10),
 			},
 			Effects: []reel.Effect{effects.Keys(time.Second), effects.Pause(), effects.Mouse()},

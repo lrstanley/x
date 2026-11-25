@@ -232,12 +232,12 @@ func (t *Model[T]) widths(width int) (widths, seps []int) {
 	if t.on.separators {
 		gap = 1
 	}
-	widths = flex.Split(nil, width, gap, tracks)
+	widths = flex.Split(nil, width, gap, tracks, flex.ShrinkByBasis)
 	// When even the columns that cannot collapse do not fit, the rightmost
 	// go, rather than the table overflowing its border.
 	for last := len(tracks) - 1; last > 0 && overflows(widths, width, gap); last-- {
 		tracks[last] = flex.Track{} // empty: no width, and no gap beside it
-		widths = flex.Split(widths, width, gap, tracks)
+		widths = flex.Split(widths, width, gap, tracks, flex.ShrinkByBasis)
 	}
 	for c := range tracks {
 		if tracks[c] == (flex.Track{}) {

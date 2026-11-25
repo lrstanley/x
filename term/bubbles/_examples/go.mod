@@ -5,11 +5,11 @@ go 1.27.3
 replace github.com/lrstanley/x/term/bubbles => ../
 
 require (
-	bloomfx.dev/bloom v0.0.0-alpha.13
+	bloomfx.dev/bloom v0.0.0-alpha.15
 	charm.land/bubbletea/v2 v2.1.2
 	charm.land/lipgloss/v2 v2.1.1
-	getsteep.dev/steep v0.0.0-alpha.17
-	getsteep.dev/steep/reel v0.0.0-alpha.17
+	getsteep.dev/steep v0.0.0-alpha.18
+	getsteep.dev/steep/reel v0.0.0-alpha.18
 	github.com/charmbracelet/x/ansi v0.11.10
 	github.com/lrstanley/bubbletint/v2 v2.1.0
 	github.com/lrstanley/x/term/bubbles v0.0.0-00010101000000-000000000000
