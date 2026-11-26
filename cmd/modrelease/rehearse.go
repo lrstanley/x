@@ -77,6 +77,23 @@ func (r *release) rehearse(ctx context.Context, p *plan, tmp string) (tree strin
 		}
 		r.linef("  %s", styleFaint.Render(m.sum))
 	}
+
+	// Dependents build against the released modules' directories, so they come
+	// last. They aren't in any module's zip, which leaves out nested modules, so
+	// the hashes above still hold.
+	for _, d := range p.dependents {
+		r.linef("%s %s", styleBold.Render(d.dir), styleFaint.Render("(not released)"))
+		start := time.Now()
+		if err = r.updateModule(ctx, p, d, filepath.Join(wt, filepath.FromSlash(d.dir)), env); err != nil {
+			return "", cleanup, fmt.Errorf("%s: %w", d.dir, err)
+		}
+		r.linef("  tidy, build, test: %s %s", styleOK.Render("ok"), styleFaint.Render(fmt.Sprintf("(%.1fs)", time.Since(start).Seconds())))
+	}
+	if len(p.dependents) > 0 {
+		if tree, err = r.git(ctx, wt, "write-tree"); err != nil {
+			return "", cleanup, err
+		}
+	}
 	return tree, cleanup, nil
 }
 
@@ -193,8 +210,9 @@ func (r *release) updateModule(ctx context.Context, p *plan, m *goModule, dir st
 }
 
 // checkOnlyManifestsChanged fails if the release differs from HEAD by anything but
-// the go.mod and go.sum of a released module, whether a build or test left it
-// unstaged or staged it, so what's published is only ever what was tested.
+// the go.mod and go.sum of a released module or a dependent, whether a build or
+// test left it unstaged or staged it, so what's published is only ever what was
+// tested.
 func (r *release) checkOnlyManifestsChanged(ctx context.Context, p *plan, dir string) error {
 	unstaged, err := r.git(ctx, dir, "diff", "--name-only")
 	if err != nil {
@@ -208,7 +226,7 @@ func (r *release) checkOnlyManifestsChanged(ctx context.Context, p *plan, dir st
 		return err
 	}
 	var allowed []string
-	for _, m := range p.modules {
+	for _, m := range slices.Concat(p.modules, p.dependents) {
 		allowed = append(allowed, path.Join(m.dir, "go.mod"), path.Join(m.dir, "go.sum"))
 	}
 	for name := range strings.Lines(staged) {

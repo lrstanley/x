@@ -68,6 +68,7 @@ type plan struct {
 	prefix             string // Module path of the repository, with no major version.
 	current, version   string
 	modules            []*goModule // In dependency order.
+	dependents         []*goModule // Not released, but updated with the release.
 	skipped            []skippedModule
 	github             string         // owner/name, if the push goes to GitHub.
 	runs               []workflowRun  // Workflow runs GitHub won't start, as the push has too many tags.
@@ -111,17 +112,7 @@ func (r *release) run(ctx context.Context) error {
 	r.step(2, "Bump the version")
 	r.linef("%s %s %s", styleFaint.Render(cmp.Or(p.current, "(no version tags yet)")), styleFaint.Render("->"), styleHighlight.Render(p.version))
 
-	r.step(3, fmt.Sprintf("Release %d modules, in dependency order", len(p.modules)))
-	width := 0
-	for _, m := range p.modules {
-		width = max(width, len(m.dir))
-	}
-	for _, m := range p.modules {
-		r.linef("%s  %s", styleBold.Render(fmt.Sprintf("%-*s", width, m.dir)), styleFaint.Render(m.path))
-	}
-	for _, s := range p.skipped {
-		r.linef("%s %s %s", styleWarn.Render("skip"), s.dir, styleFaint.Render("("+s.reason+")"))
-	}
+	r.printModules(p)
 
 	tmp, err := os.MkdirTemp("", "modrelease-")
 	if err != nil {
@@ -190,6 +181,25 @@ func (r *release) run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), publishTimeout)
 	defer cancel()
 	return r.finish(ctx, p, tree, tmp, message)
+}
+
+// printModules prints step 3: the modules to release, and what happens to the
+// others.
+func (r *release) printModules(p *plan) {
+	r.step(3, fmt.Sprintf("Release %d modules, in dependency order", len(p.modules)))
+	width := 0
+	for _, m := range p.modules {
+		width = max(width, len(m.dir))
+	}
+	for _, m := range p.modules {
+		r.linef("%s  %s", styleBold.Render(fmt.Sprintf("%-*s", width, m.dir)), styleFaint.Render(m.path))
+	}
+	for _, d := range p.dependents {
+		r.linef("%s %s %s", styleHighlight.Render("update"), d.dir, styleFaint.Render("(not released, but replaces released modules with their directories)"))
+	}
+	for _, s := range p.skipped {
+		r.linef("%s %s %s", styleWarn.Render("skip"), s.dir, styleFaint.Render("("+s.reason+")"))
+	}
 }
 
 // finish publishes the release and checks the result.

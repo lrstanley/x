@@ -36,6 +36,13 @@ Every module tracked by git is released, except those in a directory starting wi
 `_` or `.`, those in `testdata`, and those named by `--skip` or `$MODRELEASE_SKIP`.
 All of them get a tag, even if only their requirements changed.
 
+A module that isn't released, but replaces a released module with its directory, like
+an `_examples` module with `replace example.com/mod => ../`, builds against the new
+`go.mod` of that module, so it would need `go mod tidy` once the release is out. It's
+updated in the release commit instead: its requirements on the released modules move
+to the new version, and it's tidied, built, and tested like the others, but not
+tagged. A module in `testdata` is never updated.
+
 ## GitHub Actions
 
 GitHub creates no tag events for a push of more than 3 tags, so with more modules than

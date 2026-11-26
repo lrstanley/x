@@ -116,7 +116,7 @@ func (r *release) inspect(ctx context.Context, root string) (*plan, []check) {
 	}
 
 	var problems []string
-	p.modules, p.skipped, p.prefix, problems = r.discover(ctx, root, p.version)
+	p.modules, p.dependents, p.skipped, p.prefix, problems = r.discover(ctx, root, p.version)
 	for _, problem := range problems {
 		fail("%s", problem)
 	}

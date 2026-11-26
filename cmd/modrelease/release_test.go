@@ -312,6 +312,73 @@ func TestPublishedModulesBuildWithoutAWorkspace(t *testing.T) {
 	}
 }
 
+// writeDependent makes _examples build against the root and reel from their
+// directories, the way examples often do.
+func (f *fixture) writeDependent() {
+	f.t.Helper()
+	f.writeRepo("_examples/go.mod", "module "+fixtureModule+"/_examples\n\ngo 1.25\n\n"+
+		"require (\n\t"+fixtureModule+" v0.0.0\n\t"+fixtureModule+"/reel v0.0.0 // indirect\n)\n\n"+
+		"replace (\n\t"+fixtureModule+" => ../\n\t"+fixtureModule+"/reel => ../reel\n)\n")
+	f.writeRepo("_examples/main.go", "package main\n\nimport root \""+fixtureModule+"\"\n\nfunc main() { println(root.F()) }\n")
+}
+
+// A module that isn't released, but replaces released modules with their
+// directories, builds against their new go.mod files, so it's updated with them.
+func TestUpdatesDependents(t *testing.T) {
+	f := newFixture(t)
+	f.writeDependent()
+	f.commitAndPush("add an example that uses the root from its directory")
+
+	out := f.mustRun(Flags{Bump: "v0.1.0", Apply: true})
+	assertContains(t, out, "update _examples (not released, but replaces released modules with their directories)")
+	assertContains(t, out, fixtureModule+"  v0.0.0 -> v0.1.0")
+
+	want := []string{"cmd/app/v0.1.0", "reel/v0.1.0", "v0.1.0"}
+	if got := f.remoteTagNames(); !slices.Equal(got, want) {
+		t.Errorf("remote tags: got %v, want %v", got, want)
+	}
+	goMod := f.git("show", "HEAD:_examples/go.mod")
+	for _, req := range []string{fixtureModule + " v0.1.0", fixtureModule + "/reel v0.1.0"} {
+		assertContains(t, goMod, req)
+	}
+
+	// Without the update, the go command asks for go mod tidy.
+	clone := filepath.Join(t.TempDir(), "clone")
+	f.must(t.TempDir(), "git", "clone", "--quiet", "file://"+f.remote, clone)
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOFLAGS", "-modcacherw -mod=readonly")
+	f.must(filepath.Join(clone, "_examples"), "go", "build", "-o", os.DevNull, "./...")
+}
+
+func TestFailingDependentStopsTheRelease(t *testing.T) {
+	f := newFixture(t)
+	f.writeDependent()
+	f.writeRepo("_examples/main_test.go", "package main\n\nimport \"testing\"\n\nfunc TestFail(t *testing.T) { t.Fatal(\"the marker\") }\n")
+	f.commitAndPush("add an example with a failing test")
+	before := f.state()
+
+	out, err := f.run(Flags{Bump: "v0.1.0", Apply: true})
+	if err == nil {
+		t.Fatalf("release succeeded:\n%s", out)
+	}
+	assertContains(t, out, "Rehearsal failed. Nothing changed.")
+	assertContains(t, err.Error(), "_examples: ")
+	assertContains(t, err.Error(), "the marker")
+	if after := f.state(); after != before {
+		t.Errorf("state changed:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// A hidden module that only requires released modules gets them from the proxy
+// at the versions it names, which the release doesn't change, so it's skipped.
+func TestHiddenModuleWithoutReplaceIsSkipped(t *testing.T) {
+	f := newFixture(t)
+	f.writeRepo("_examples/go.mod", "module "+fixtureModule+"/_examples\n\ngo 1.25\n\nrequire "+fixtureModule+"/reel v0.0.0\n")
+	f.commitAndPush("require reel from an example")
+
+	assertContains(t, f.mustRun(Flags{Bump: "v0.1.0"}), "skip _examples (hidden directory)")
+}
+
 func TestBumpsThroughARelease(t *testing.T) {
 	f := newFixture(t)
 	f.mustRun(Flags{Bump: "v1.2.0", Apply: true})
